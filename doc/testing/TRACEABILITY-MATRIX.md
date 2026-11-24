@@ -33,7 +33,7 @@ mentions them, so a test can no longer be absent from this document.
 | DMA                                        |   186 |  186 |    0 |    0 |       0 |          0 |
 | DivMMC+SPI                                 |   173 |  173 |    0 |    0 |       0 |          0 |
 | Multiface                                  |    58 |   58 |    0 |    0 |       0 |          0 |
-| CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
+| CTC+Interrupts                             |   215 |  215 |    0 |    0 |       0 |          0 |
 | UART+I2C/RTC                               |   268 |  268 |    0 |    0 |       0 |          0 |
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
@@ -62,7 +62,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: tilemap_fetch_split_test        |    12 |   12 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
 | Companion: divmmc_integration_test         |    15 |   15 |    0 |    0 |       0 |          0 |
-| Companion: ctc_interrupts_test             |    88 |   88 |    0 |    0 |       0 |          0 |
+| Companion: ctc_interrupts_test             |    93 |   93 |    0 |    0 |       0 |          0 |
 | Companion: nextreg_integration_test        |   379 |  379 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    64 |   64 |    0 |    0 |       0 |          0 |
@@ -71,9 +71,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   102 |  102 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6675 | 6675 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6692 | 6692 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6675**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6151**. Rows the 243 suites declared in `test/unit-tests.conf` run live: **17981**.
+Rows the sections above carry: **6692**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6163**. Rows the 254 suites declared in `test/unit-tests.conf` run live: **18264**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 190 suites (11914 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 201 suites (12185 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -102,20 +102,29 @@ These 190 suites (11914 live rows) have no VHDL-derived plan row to map, so they
 | `pgo_map_parse_test` | 4 | GH #416 PGO link-map reader contract (POSIX-only, drives cmake -P); build tooling, no VHDL oracle |
 | `phantom_typist_test` | 26 | jnext auto-typing state machine (host keystroke injection) |
 | `esp_wiring_test` | 127 | jnext host ESP policy/visibility/wiring, no core counterpart |
-| `sd_rom_extractor_test` | 26 | FAT32 + TBBlue SD path layout (host ROM extraction) |
+| `sd_rom_extractor_test` | 48 | FAT32 + TBBlue SD path layout (host ROM extraction) |
 | `sdcard_file_add_test` | 165 | FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
 | `sdcard_file_add_posix_test` | 16 | rows moved out of sdcard_file_add_test (symlink, FIFO, device, chmod-0 fixtures; POSIX-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
 | `sdcard_file_add_linux_test` | 2 | SDFA-T26 moved out of sdcard_file_add_test (needs a case-sensitive host filesystem; Linux-only, GH #214); same oracle: FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces |
 | `fatfs_glue_linux_test` | 2 | FatFs glue sector cache after a failed write (host tool, Linux-only: /dev/full, RLIMIT_FSIZE); the oracle is the image file read by an independent stream, no core counterpart |
 | `fat32_image_test` | 29 | FAT32 on-disk format (host image reader) |
-| `sdcard_provisioner_test` | 183 | jnext SD-image download/patch policy (host side) |
+| `image_lock_any_test` | 5 | SD card image lock rows every target runs, WebAssembly included (GH #555); same oracle (host feature, no core counterpart) |
+| `sdcard_carry_test` | 57 | SD card comparison / carry-over engine and rescue verbs (GH #555): the design in the issue and its plan as oracle, the hand-rolled FAT32 reader as the foreign reader (host feature, no core counterpart) |
+| `sdcard_upgrade_test` | 35 | SD card upgrade flow (GH #555): the design in the issue and its plan as oracle, the hand-rolled FAT32 reader as the foreign reader (host feature, no core counterpart) |
+| `sdcard_backup_test` | 23 | SD card backup, go back, delete and the File-menu state (GH #555): the design in the issue as oracle (host feature, no core counterpart) |
+| `image_lock_test` | 10 | SD card image lock (GH #555): one jnext per card; the design in the issue as oracle (host feature, no core counterpart) |
+| `sdcard_swap_lock_test` | 6 | the live SD card change takes and drops the image lock (GH #555): the design in the issue as oracle (host feature, no core counterpart) |
+| `sdcard_file_extract_test` | 37 | FatFs R0.15b and the FAT specification as oracle, with the issue and its plan (GH #557): host copy OUT of an SD card image, a host feature with no core counterpart; the core never reads a filesystem, only SPI blocks, which `## SD Card` traces |
+| `image_lock_posix_test` | 2 | SD card image lock, symlink and hard-link rows (POSIX, GH #555); same oracle (host feature, no core counterpart) |
+| `sdcard_file_extract_posix_test` | 1 | SDFX-P01 moved out of sdcard_file_extract_test (a symbolic link needs POSIX, GH #557); same oracle |
+| `sdcard_provisioner_test` | 189 | jnext SD-image download/patch policy (host side) |
 | `sha256_test` | 15 | SHA-256 of every backend (OpenSSL, BCrypt, the portable WebAssembly one; host utility): NIST FIPS 180-2 Appendix B and the NIST CSRC SHA-2 example as oracles, coreutils sha256sum for the rest; the FPGA core has no counterpart |
 | `minimal_card_test` | 43 | the minimal NextZXOS card builder (GH #458): a synthetic MS-FAT32-spec distribution and a zlib zip built in the test, the card read back with ChaN FatFs (host SD-image tool, jnext-internal; the FPGA core has no counterpart) |
 | `sdcard_provisioner_posix_test` | 2 | PROV-REASON-06 and 07, rows that need libcurl itself (an HTTP proxy put in front of it through the environment; the codes it gives for a reply it cannot use) and have no WinHTTP counterpart, so they are POSIX-only (GH #385); same oracle: libcurl documentation and jnext SD-image download/patch policy (host side) |
 | `warm_start_test` | 120 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
 | `warm_start_card_test` | 4 | warm-start digest key and stepped recording against the real card (GH #464, jnext-internal); no FPGA counterpart |
 | `snapshot_test` | 299 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
-| `sd_identity_test` | 31 | the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the Tier-1 identity read off a REAL image -- MBR partition table, FAT32 BS_VolID (Tier 2 retired, GH #396) -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces |
+| `sd_identity_test` | 35 | the .jns snapshot SD-card MEDIA IDENTITY (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3): the Tier-1 identity read off a REAL image -- MBR partition table, FAT32 BS_VolID (Tier 2 retired, GH #396) -- and the refusal/warning matrix it feeds. The oracle is that design section plus the FAT32 on-disk format; the FPGA core never sees a filesystem, only SPI blocks, which `## SD Card` traces |
 | `second_sd_jns_test` | 9 | the second SD card in a .jns (GH #505 stage 3): media.sdcard2 and the state/sdcard2.json member, with the first card's refusal/warning matrix (doc/design/NEXT-SNAPSHOT-FORMAT.md §11.3) applied to the second slot, and the optional-slot rule: a snapshot without one is byte-for-byte what it was before the slot existed. The oracle is that design section; the container rows build their files by hand |
 | `sd_no_digest_linux_test` | 5 | GH #396: no whole-card read on .jns save/probe/load or a warm-start hit, measured by Linux /proc/self/io rchar; jnext-internal host behaviour (a UI-thread stall), the FPGA core has no counterpart |
 | `jns_host_path_linux_test` | 4 | GH #401: a non-UTF-8 host path is written with U+FFFD and never aborts a .jns save; jnext-internal host behaviour, the FPGA core has no counterpart |
@@ -153,7 +162,7 @@ These 190 suites (11914 live rows) have no VHDL-derived plan row to map, so they
 | `browser_policy_test` | 30 | browser page rAF callback gate and refusals (host UI, GH #463) |
 | `web_api_test` | 40 | browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465) |
 | `sdl_pointer_release_test` | 11 | SDL pointer-release route (host UI, GH #365) |
-| `sdcard_upgrade_box_test` | 3 | SDL message box offering a newer NextZXOS image (host UI, GH #476) |
+| `sdcard_upgrade_box_test` | 6 | SDL message box offering a newer NextZXOS image (host UI, GH #476) |
 | `sdl_window_title_test` | 3 | SDL window title carries the version (host GUI) |
 | `quit_signal_test` | 14 | SIGINT/SIGTERM as a quit request (host process behaviour; GH #364) |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
@@ -163,9 +172,9 @@ These 190 suites (11914 live rows) have no VHDL-derived plan row to map, so they
 | `config_keys_test` | 31 | the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle) |
 | `video_recorder_cmd_test` | 46 | FFmpeg command-line construction (host encoder) |
 | `video_recorder_cmd_native_test` | 8 | FFmpeg recording through a stand-in child process (host encoder, split out of video_recorder_cmd_test, GH #460) |
-| `nex_loader_test` | 157 | NEX file-format spec (host loader), no core counterpart |
+| `nex_loader_test` | 167 | NEX file-format spec (host loader), no core counterpart |
 | `nex_v13_test` | 117 | NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart |
-| `extended_nex_test` | 44 | narrative section, ID ranges not per-row IDs |
+| `extended_nex_test` | 62 | narrative section, ID ranges not per-row IDs |
 | `tap_loader_test` | 67 | TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart |
 | `tap_loader_autoplay_test` | 16 | TAP automatic play/stop (host deck feature), the design in GH #395 as oracle, no core counterpart |
 | `program_archive_test` | 101 | ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart |
@@ -214,6 +223,7 @@ These 190 suites (11914 live rows) have no VHDL-derived plan row to map, so they
 | `source_debug_posix_test` | 11 | source-map sidecars that are POSIX file types (jnext-internal); the T80N core has no debugger |
 | `debugger_backend_test` | 1605 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
 | `startup_stop_test` | 48 | the --debugger / --break-at startup stop (host side): its stop points are the file formats' own entry PCs and the Breakpoints panel's address rules |
+| `startup_report_test` | 13 | start-up error box policy (GH #555): stderr bytes kept, when a box shows, its text; the design in the issue as oracle (host UI policy, no core counterpart) |
 | `persistent_bp_test` | 22 | debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger |
 | `io_watchpoint_test` | 25 | debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger |
 | `bp_enable_test` | 23 | debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger |
@@ -237,6 +247,7 @@ These 190 suites (11914 live rows) have no VHDL-derived plan row to map, so they
 | `frame_timer_test` | 6 | host GUI frame-timer contract (Qt timer, not core timing) |
 | `esp_status_test` | 15 | host status-bar ESP indicator (GUI), no core counterpart |
 | `no_sdcard_ui_test` | 4 | --no-sdcard in the window: Insert / Eject SD Card disabled, "SD: none" (host GUI, GH #540) |
+| `sdcard_menu_test` | 11 | File menu card-set actions and their enablement (GH #555): the design in the issue as oracle (host UI, no core counterpart) |
 | `bug_report_ui_test` | 6 | File > Save Bug Report... in the Qt window (host GUI, GH #492): the menu, the real dialog, the report written |
 | `nex_v13_dialog_test` | 4 | experimental NEX V1.3 warning dialog (GUI), no core counterpart |
 | `desktop_open_test` | 14 | files the desktop (macOS Finder) opens with JNext (host GUI), no core counterpart |
@@ -257,10 +268,10 @@ These 190 suites (11914 live rows) have no VHDL-derived plan row to map, so they
 | `window_title_test` | 6 | main-window title carries the version (host GUI) |
 | `color_scheme_test` | 28 | GUI light/dark scheme from the desktop portal (host GUI, GH #363) |
 | `color_scheme_linux_test` | 2 | GH #414: the private dbus-daemon of color_scheme_test dies with a SIGKILLed or normally exiting suite; Linux-only test infrastructure (guard process, /proc), the FPGA core has no counterpart |
-| `sdcard_dialog_test` | 17 | SD-card/NextPi download dialog through a dropped network (host GUI, GH #358) |
+| `sdcard_dialog_test` | 20 | SD-card/NextPi download dialog through a dropped network (host GUI, GH #358) |
 | `quit_cleanup_test` | 12 | host shutdown ordering (GUI lifecycle) |
 | `toolbar_icons_test` | 28 | toolbar icon set: SVG loader, Main/Debug toolbars, icon-file lint (host GUI, doc/design/ICONSET-DESIGN.md) |
-| `preferences_apply_test` | 101 | Preferences dialog wiring (host GUI) |
+| `preferences_apply_test` | 106 | Preferences dialog wiring (host GUI) |
 | `debugger_video_panel_test` | 122 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 98 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 11 | debugger quit gating (host GUI lifecycle) |
@@ -2997,154 +3008,166 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | IM2C-05 | im2_control.vhd:233 o_reti_decode high only while state=S_ED_T4 | im2_control.vhd:233 | pass | test/ctc/ctc_test.cpp:1107 |
 | IM2C-06 | im2_control.vhd:193 CB → S_CB_T4; never asserts reti_seen/retn_seen | im2_control.vhd:193 | pass | test/ctc/ctc_test.cpp:1118 |
 | IM2C-07 | im2_control.vhd:199-206 DD/FD chain stays in S_DDFD_T4 | im2_control.vhd:199-206 | pass | test/ctc/ctc_test.cpp:1135 |
-| IM2C-08 | im2_control.vhd:238 o_dma_delay covers S_ED_T4 / S_ED4D_T4 / S_SRL_T1/T2 | im2_control.vhd:238 | pass | test/ctc/ctc_test.cpp:1159 |
-| IM2C-09 | im2_control.vhd:186-192 SRL_T1/T2 extend dma_delay beyond RETN | im2_control.vhd:186-192 | pass | test/ctc/ctc_test.cpp:1178 |
-| IM2C-10 | im2_control.vhd:224 ED 46 → im_mode = 00 (IM 0) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1188 |
-| IM2C-11 | im2_control.vhd:224 ED 56 → im_mode = 01 (IM 1) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1199 |
-| IM2C-12 | im2_control.vhd:224 ED 5E → im_mode = 10 (IM 2) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1210 |
-| IM2C-14 | im2_control.vhd:222 im_mode defaults to 00 on reset | im2_control.vhd:222 | pass | test/ctc/ctc_test.cpp:1229 |
-| IM2C-G87-01 | RETI (ED 4D) advances IM2 FSM and pulses o_reti_seen [VHDL im2_control.vhd:158-209,234] | im2_control.vhd:158-209,234 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1029 |
-| IM2C-G87-02 | RETN (ED 45) advances IM2 FSM and pulses o_retn_seen [VHDL im2_control.vhd:233-238] | im2_control.vhd:233-238 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1053 |
-| IM2D-01 | im2_device.vhd:106 S_0 → S_REQ on i_int_req=1 | im2_device.vhd:106 | pass | test/ctc/ctc_test.cpp:1247 |
-| IM2D-02 | im2_device.vhd:150 o_int_n=0 in S_REQ with IEI=1 and im2_mode=1 | im2_device.vhd:150 | pass | test/ctc/ctc_test.cpp:1261 |
-| IM2D-03 | im2_device.vhd:150 o_int_n stays high when IEI=0 (CTC0 S_ACK blocks chain) | im2_device.vhd:150 | pass | test/ctc/ctc_test.cpp:1283 |
-| IM2D-04 | im2_device.vhd:150 o_int_n disabled when im2_mode=0 | im2_device.vhd:150 | pass | test/ctc/ctc_test.cpp:1298 |
-| IM2D-05 | im2_device.vhd:112 S_REQ → S_ACK on IntAck (M1=0,IORQ=0,IEI=1) | im2_device.vhd:112 | pass | test/ctc/ctc_test.cpp:1315 |
-| IM2D-06 | im2_device.vhd:119 S_ACK → S_ISR on next cycle | im2_device.vhd:119 | pass | test/ctc/ctc_test.cpp:1330 |
-| IM2D-07 | im2_device.vhd:125 S_ISR → S_0 on reti_seen with IEI=1 | im2_device.vhd:125 | pass | test/ctc/ctc_test.cpp:1349 |
-| IM2D-08 | im2_device.vhd:123-128 S_ISR holds until RETI seen | im2_device.vhd:123-128 | pass | test/ctc/ctc_test.cpp:1364 |
-| IM2D-09 | im2_device.vhd:155 + zxnext.vhd:1999 vector = msb3<<5 \| idx<<1 | im2_device.vhd:155, zxnext.vhd:1999 | pass | test/ctc/ctc_test.cpp:1381 |
-| IM2D-10 | im2_device.vhd:155 no device in S_ACK → vector OR = 0 (0xFF sentinel) | im2_device.vhd:155 | pass | test/ctc/ctc_test.cpp:1394 |
-| IM2D-11 | im2_device.vhd:159 o_isr_serviced pulse clears im2_int_req latch | im2_device.vhd:159 | pass | test/ctc/ctc_test.cpp:1422 |
-| IM2D-12 | im2_device.vhd:151 o_dma_int = 1 when state /= S_0 AND dma_int_en=1 | im2_device.vhd:151 | pass | test/ctc/ctc_test.cpp:1441 |
-| IM2P-01 | im2_device.vhd:139-140 S_0 IEO = IEI (device 0 IEI hardwired 1) | im2_device.vhd:139-140 | pass | test/ctc/ctc_test.cpp:1457 |
-| IM2P-02 | im2_device.vhd:141-142 S_REQ IEO = IEI AND reti_decode | im2_device.vhd:141-142 | pass | test/ctc/ctc_test.cpp:1475 |
-| IM2P-03 | im2_device.vhd:143-144 S_ACK / S_ISR hold IEO=0 | im2_device.vhd:143-144 | pass | test/ctc/ctc_test.cpp:1492 |
-| IM2P-04 | peripherals.vhd:82 + zxnext.vhd:1984 chain-head IEI hardwired 1 | peripherals.vhd:82, zxnext.vhd:1984 | pass | test/ctc/ctc_test.cpp:1504 |
-| IM2P-05 | peripherals.vhd:86-128 IntAck resolves to higher-priority device (LINE over CTC3) | peripherals.vhd:86-128 | pass | test/ctc/ctc_test.cpp:1525 |
-| IM2P-06 | im2_device.vhd:143-144 lower-priority S_REQ waits while LINE S_ISR blocks chain | im2_device.vhd:143-144 | pass | test/ctc/ctc_test.cpp:1553 |
-| IM2P-07 | im2_device.vhd:123-128 + chain: post-RETI lower-priority proceeds | im2_device.vhd:123-128 | pass | test/ctc/ctc_test.cpp:1579 |
-| IM2P-08 | peripherals.vhd generate: 3-way chain — LINE wins first ack | peripherals.vhd | pass | test/ctc/ctc_test.cpp:1598 |
-| IM2P-09 | peripherals.vhd:146-156 AND-reduction: any S_REQ device asserts aggregate | peripherals.vhd:146-156 | pass | test/ctc/ctc_test.cpp:1615 |
-| IM2P-10 | peripherals.vhd:134-144 vector OR-reduction selects S_ACK device | peripherals.vhd:134-144 | pass | test/ctc/ctc_test.cpp:1631 |
-| PULSE-01 | im2_peripheral.vhd:186 pulse_en → pulse_int_n drops on edge | im2_peripheral.vhd:186 | pass | test/ctc/ctc_test.cpp:1653 |
-| PULSE-02 | im2_peripheral.vhd:186 non-exception pulse suppressed in IM2 mode | im2_peripheral.vhd:186 | pass | test/ctc/ctc_test.cpp:1668 |
-| PULSE-03 | im2_peripheral.vhd:192 ULA EXCEPTION fires even in IM2 mode (CPU not in IM 2) | im2_peripheral.vhd:192 | pass | test/ctc/ctc_test.cpp:1693 |
-| PULSE-04 | zxnext.vhd:2017-2031 pulse_int_n stays low during pulse window | zxnext.vhd:2017-2031 | pass | test/ctc/ctc_test.cpp:1713 |
-| PULSE-05 | zxnext.vhd:2033 48K/+3 pulse width ~ 32 cycles (bit5 terminator) | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1739 |
-| PULSE-06 | zxnext.vhd:2033 128K/Pentagon pulse width ~ 36 cycles (bit5 AND bit2) | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1761 |
-| PULSE-07 | zxnext.vhd:2036-2044 pulse counter reset while pulse_int_n=1 | zxnext.vhd:2036-2044 | pass | test/ctc/ctc_test.cpp:1797 |
-| PULSE-08 | zxnext.vhd:1840 INT_n = pulse_int_n AND im2_int_n; im2_int_n high in pulse mode | zxnext.vhd:1840 | pass | test/ctc/ctc_test.cpp:1818 |
-| PULSE-G89-01 | LDIRX (ED B4) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2095-2138] | t80n_mcode.vhd:2095-2138 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1141 |
-| PULSE-G89-02 | LDDRX (ED BC) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2230-2256] | t80n_mcode.vhd:2230-2256 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1182 |
-| PULSE-G89-03 | LDPIRX (ED B7) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0; HL stays fixed [VHDL t80n_mcode.vhd:1953-1991] | t80n_mcode.vhd:1953-1991 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1223 |
-| PULSE-G89-04 | LDIRSCALE (ED B6) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2188-2226] | t80n_mcode.vhd:2188-2226 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1262 |
-| PULSE-G89-INT | LDIRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2095-2138 + zxnext.vhd INT path] | t80n_mcode.vhd:2095-2138, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1352 |
-| PULSE-G89-INT-02 | LDDRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2230-2256 + zxnext.vhd INT path] | t80n_mcode.vhd:2230-2256, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1361 |
-| PULSE-G89-INT-03 | LDPIRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:1953-1991 + zxnext.vhd INT path] | t80n_mcode.vhd:1953-1991, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1370 |
-| PULSE-G89-INT-04 | LDIRSCALE inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2188-2226 + zxnext.vhd INT path] | t80n_mcode.vhd:2188-2226, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1379 |
-| PULSE-G121-01 | zxnext.vhd:2033 pulse_count_end follows runtime NR 0x03 timing change | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1869 |
-| IM2W-01 | im2_peripheral.vhd:90-101 int_req edge detect fires once per rising edge | im2_peripheral.vhd:90-101 | pass | test/ctc/ctc_test.cpp:1906 |
-| IM2W-02 | im2_peripheral.vhd:167-178 im2_int_req latched on qualified edge | im2_peripheral.vhd:167-178 | pass | test/ctc/ctc_test.cpp:1921 |
-| IM2W-03 | im2_peripheral.vhd:148,175 im2_isr_serviced clears im2_int_req latch | im2_peripheral.vhd:148,175 | pass | test/ctc/ctc_test.cpp:1945 |
-| IM2W-04 | im2_peripheral.vhd:160 int_status set on int_req edge | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:1958 |
-| IM2W-05 | im2_peripheral.vhd:160 NR 0xC8/C9/CA write clears int_status register | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2014 |
-| IM2W-06 | im2_peripheral.vhd:180 o_int_status = int_status OR im2_int_req | im2_peripheral.vhd:180 | pass | test/ctc/ctc_test.cpp:2033 |
-| IM2W-07 | im2_peripheral.vhd:105 im2_reset_n composite gates state transitions | im2_peripheral.vhd:105 | pass | test/ctc/ctc_test.cpp:2069 |
-| IM2W-08 | im2_peripheral.vhd:172 int_unq latches im2_int_req without int_en | im2_peripheral.vhd:172 | pass | test/ctc/ctc_test.cpp:2085 |
-| IM2W-G119-01 | zxnext.vhd:1941 ZC/TO must reach IM2 unconditionally; int_en gates at fabric | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2139 |
-| ULA-INT-01 | ULA HC/VC interrupt fires at int_h/int_v → NR 0xC8 bit 0 set [zxnext.vhd:1937,1941; emulator.cpp:1988-1998; im2.cpp:264-266] | zxnext.vhd:1937,1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:142 |
-| ULA-INT-02 | ULA int suppressed when port_ff(6)/NR 0x22[2] set → NR 0xC8 bit 0 clear [zxnext.vhd:3619-3620, :3635, :6711; emulator.cpp:1989 gate] | zxnext.vhd:3619-3620,3635,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:172 |
-| ULA-INT-03 | NR 0xC4 read bit 0 = NOT port_ff_interrupt_disable [zxnext.vhd:6239, :6711; emulator.cpp:802] | zxnext.vhd:6239,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:196 |
-| ULA-INT-04 | Line interrupt fires at cvc match (int_line pulse → NR 0xC8 bit 1) [zxula_timing.vhd:577-582; zxnext.vhd:1941; emulator.cpp:2392-2402] | zxula_timing.vhd:577-582, zxnext.vhd:1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:252 |
-| ULA-INT-05 | NR 0x22 bit 1 drives line_interrupt_en, visible on NR 0xC4 read bit 1 [zxnext.vhd:5297, :6239; emulator.cpp:542-546, :801] | zxnext.vhd:5297,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:220 |
-| ULA-INT-06 | Line interrupt value 0 still fires within frame (VHDL: wraps to c_max_vc) [zxula_timing.vhd:566-570; emulator.cpp:2392-2402] | zxula_timing.vhd:566-570 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:279 |
-| ULA-INT-07 | zxnext.vhd:1941 priority idx11 (ULA) below LINE (idx0) | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2181 |
-| ULA-INT-08 | zxnext.vhd:1941 LINE at priority idx0 (chain head) | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2201 |
-| ULA-INT-09 | zxnext.vhd:1964 EXCEPTION=1 only for ULA (IM2-mode pulse fires) | zxnext.vhd:1964 | pass | test/ctc/ctc_test.cpp:2236 |
-| NR-C0-01 | zxnext.vhd:5597/1999 NR 0xC0 stores im2_vector_base[2:0] | zxnext.vhd:5597/1999 | pass | test/ctc/ctc_test.cpp:2253 |
-| NR-C0-02 | NR 0xC0 bit 3 selects the stackless NMI acknowledge: set, the two acknowledge writes leave RAM untouched and arm the RETN substitution; clear, the interrupted PC is written to the stack and no substitution is armed (SP -= 2 either way) [zxnext.vhd:5598, :2075-2085; t80n.vhd:1765-1767] | zxnext.vhd:5598,2075-2085, t80n.vhd:1765-1767 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2626 |
-| NR-C0-03 | zxnext.vhd:5599/1975 NR 0xC0 bit 0 toggles pulse/IM2 mode | zxnext.vhd:5599/1975 | pass | test/ctc/ctc_test.cpp:2281 |
-| NR-C0-04 | NR 0xC0 read composes VVV_0_S_MM_I (vector + stackless + im_mode + int_mode) [zxnext.vhd:6229-6230; emulator.cpp:771-778] | zxnext.vhd:6229-6230 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:835 |
-| NR-C4-01 | zxnext.vhd NR 0xC4 bit1 enables LINE interrupt fan-out | zxnext.vhd | pass | test/ctc/ctc_test.cpp:2299 |
-| NR-C4-02 | NR 0xC4 bit 1 write drives line_interrupt_en (read bit 1 round-trip) [zxnext.vhd:5607-5610, :6239; emulator.cpp:792] | zxnext.vhd:5607-5610,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:856 |
-| NR-C4-03 | NR 0xC4 readback format E_00000_UU (expbus, 5x zero, line, ula) [zxnext.vhd:6239 / :3621-3622 / :3635 / :6711; emulator.cpp:796-804] | zxnext.vhd:6239/3621-3622/3635/6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:888 |
-| NR-C5-01 | zxnext.vhd:4078/1949 NR 0xC5 fans out CTC int_en bits 0..7 | zxnext.vhd:4078/1949 | pass | test/ctc/ctc_test.cpp:2319 |
-| NR-C5-02 | NR 0xC5 read returns the live per-channel ctc_int_en with bits 7:4 hardwired 0 — only nr_wr_dat(3:0) reaches the CTC on a write, and a control word's D7 moves the same bit [zxnext.vhd:6242, :4079, :4089, :4093; ctc_chan.vhd:269,276] | zxnext.vhd:4093 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2670 |
-| NR-C6-01 | zxnext.vhd NR 0xC6/1949 UART1_TX int_en enables fabric path | zxnext.vhd | pass | test/ctc/ctc_test.cpp:2338 |
-| NR-C6-02 | NR 0xC6 read format 0_654_0_210 (bits 7 and 3 read as 0) [zxnext.vhd:6244-6245; emulator.cpp:828-831] | zxnext.vhd:6244-6245 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:904 |
-| NR-C8-01 | zxnext.vhd:6247 NR 0xC8 read {LINE,ULA} → bits 1:0 | zxnext.vhd:6247 | pass | test/ctc/ctc_test.cpp:2358 |
-| NR-C9-01 | zxnext.vhd:6250 NR 0xC9 read CTC7..0 packs int_status bits | zxnext.vhd:6250 | pass | test/ctc/ctc_test.cpp:2374 |
-| NR-CA-01 | zxnext.vhd:6253 NR 0xCA read packs UART int_status | zxnext.vhd:6253 | pass | test/ctc/ctc_test.cpp:2392 |
-| NR-CC-01 | zxnext.vhd:5629-5630/1957-1958 NR 0xCC DMA int enable bit routes through mask | zxnext.vhd:5629-5630/1957-1958 | pass | test/ctc/ctc_test.cpp:2409 |
-| NR-CD-01 | zxnext.vhd:5633/1957 NR 0xCD DMA int enable bit routes through mask | zxnext.vhd:5633/1957 | pass | test/ctc/ctc_test.cpp:2427 |
-| NR-CE-01 | zxnext.vhd:5636-5637/1957-1958 NR 0xCE DMA int enable bit routes through mask | zxnext.vhd:5636-5637/1957-1958 | pass | test/ctc/ctc_test.cpp:2442 |
-| NR-C2-01 | NR 0xC2 mirrors NMI return-address LSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6232] | zxnext.vhd:2050-2085 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1087 |
-| NR-C3-01 | NR 0xC3 mirrors NMI return-address MSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6236] | zxnext.vhd:6236 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1092 |
-| ISC-01 | zxnext.vhd:1955 NR 0xC8 b1 clears LINE int_status | zxnext.vhd:1955 | pass | test/ctc/ctc_test.cpp:2500 |
-| ISC-02 | zxnext.vhd:1952 NR 0xC8 b0 clears ULA int_status | zxnext.vhd:1952 | pass | test/ctc/ctc_test.cpp:2521 |
-| ISC-03 | zxnext.vhd:1953 NR 0xC9 bit clears CTC0 int_status | zxnext.vhd:1953 | pass | test/ctc/ctc_test.cpp:2543 |
-| ISC-04 | zxnext.vhd:1952 NR 0xCA b6 clears UART1_TX int_status | zxnext.vhd:1952 | pass | test/ctc/ctc_test.cpp:2564 |
-| ISC-05 | zxnext.vhd:1952 NR 0xCA b2 clears UART0_TX int_status | zxnext.vhd:1952 | pass | test/ctc/ctc_test.cpp:2585 |
-| ISC-06 | zxnext.vhd:1954 NR 0xCA bits 5\|4 clear UART1_RX int_status | zxnext.vhd:1954 | pass | test/ctc/ctc_test.cpp:2606 |
-| ISC-07 | zxnext.vhd:1954 NR 0xCA bits 1\|0 clear UART0_RX int_status | zxnext.vhd:1954 | pass | test/ctc/ctc_test.cpp:2627 |
-| ISC-08 | im2_peripheral.vhd:160 new int_req edge re-sets int_status during clear | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2665 |
-| ISC-09 | NR 0x20 read = LINE_ULA_00_CTC3..CTC0 mixed status [zxnext.vhd:5988-5989; emulator.cpp:917-926] | zxnext.vhd:5988-5989 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:944 |
-| ISC-10 | NR 0x22 read bit 7 = NOT pulse_int_n (reset: 0x00) [zxnext.vhd:5991-5992 — NR 0x22 read_handler missing in jnext; reset-state invariant only] | zxnext.vhd:5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:974 |
-| DMA-01 | peripherals.vhd:174-184 im2_dma_int OR-reduction across devices | peripherals.vhd:174-184 | pass | test/ctc/ctc_test.cpp:2692 |
-| DMA-02 | zxnext.vhd:2001-2010 im2_dma_delay latches on im2_dma_int | zxnext.vhd:2001-2010 | pass | test/ctc/ctc_test.cpp:2707 |
-| DMA-03 | zxnext.vhd:2007 im2_dma_delay self-holds during RETI SRL window | zxnext.vhd:2007 | pass | test/ctc/ctc_test.cpp:2735 |
-| DMA-04 | zxnext.vhd:2007 NMI-activated DMA delay (nmi_activated AND nr_cc_dma_int_en_0_7) | zxnext.vhd:2007 | pass | test/ctc/ctc_test.cpp:2770 |
-| DMA-05 | zxnext.vhd:2004-2005 reset clears im2_dma_delay latch | zxnext.vhd:2004-2005 | pass | test/ctc/ctc_test.cpp:2790 |
-| DMA-06 | zxnext.vhd:1957-1958 per-device dma_int_en fan-out via mask | zxnext.vhd:1957-1958 | pass | test/ctc/ctc_test.cpp:2812 |
-| UNQ-01 | zxnext.vhd:1946-1947 NR 0x20 b7 unqualified LINE int (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2830 |
-| UNQ-02 | zxnext.vhd:1946-1947 NR 0x20 b0 unqualified CTC0 (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2846 |
-| UNQ-03 | zxnext.vhd:1946-1947 NR 0x20 b6 unqualified ULA (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2862 |
-| UNQ-04 | im2_peripheral.vhd:172 int_unq bypasses i_int_en | im2_peripheral.vhd:172 | pass | test/ctc/ctc_test.cpp:2892 |
-| UNQ-05 | im2_peripheral.vhd:160 int_unq feeds int_status register | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2907 |
-| CTC-JOY-01 | in NR 0x0B iomode "01" each CTC channel-3 ZC/TO toggles joy_iomode_pin7, and a channel-0 ZC/TO does not [zxnext.vhd:3518-3524, :4088] | zxnext.vhd:3522 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2714 |
-| CTC-JOY-02 | the pin-7 toggle is conditioned on (nr_0b_joy_iomode_0='1' OR joy_iomode_pin7='0'): with NR 0x0B bit 0 clear a ZC/TO moves pin7 only from '0' to '1' and never back [zxnext.vhd:3519-3524] | zxnext.vhd:3519-3520 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2755 |
-| SSTEP-01 | Pulse-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840; im2_peripheral.vhd:186-194] | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1452 |
-| SSTEP-02 | IM2-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840, :1999 ack vector composition] | zxnext.vhd:1840,1999 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1498 |
-| SSTEP-03 | Trace log records one entry per debugger single-step (parity with run_frame's per-instruction record) | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1526 |
-| SSTEP-04 | MD6 FSM latches raw inputs during debugger single-step [md6_joystick_connector_x2.vhd:103-114, :151-152] | md6_joystick_connector_x2.vhd:103-114,151-152 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1557 |
-| SSTEP-05 | ULA frame INT is scheduled and delivered during debugger single-step [zxula_timing.vhd:551; zxnext.vhd:1840] | zxula_timing.vhd:551, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1629 |
-| SSTEP-06 | A debugger Step at a HALT leaves the halt into the ISR [t80n.vhd:496, :502-503, :1727] | t80n.vhd:496,502-503,1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1663 |
-| SSTEP-07 | Frames keep turning over while stepping — a second HALT is also left [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1713 |
-| SSTEP-08 | A Step at a DI'd HALT is bounded and reports no progress [t80n.vhd:1727 — Halt_FF clears only on IntCycle/NMICycle] | t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1750 |
-| SSTEP-09 | A Step consumes the data-breakpoint latch, so a watchpoint firing inside a halt cannot freeze every later Step [t80n.vhd:502-503 — the halted core re-fetches every slot] | t80n.vhd:502-503 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1808 |
-| SSTEP-10 | A halt-run crossing a frame boundary takes the frame's rewind snapshot and leaves the machine rewindable [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1873 |
-| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101,154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1964 |
-| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2035 |
-| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 49/97/145 [ctc_chan.vhd:214-226,143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 193) | ctc_chan.vhd:143-146 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2093 |
-| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2145 |
-| CTC-C1-ACC-03 | timer ch1 armed by D3=1 started by ch0's ZC/TO at 17 through clk_trg_d, fires at 35 [ctc_chan.vhd:115-127,219-226,134-139; zxnext.vhd:4084]; tick(35) == 35x tick(1) | ctc_chan.vhd:115-127,219-226,134-139, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2192 |
-| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2455 |
-| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2488 |
-| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | zxnext.vhd:4067 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2534 |
-| INT-GH265-01 | 48K pulse-mode INT taken at the first boundary whose last T-state starts on a CPU edge that samples the pulse low (zxula_timing.vhd:548-557; im2_peripheral.vhd:90-101,184-194; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:548-557, im2_peripheral.vhd:90-101,184-194, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2922 |
-| INT-GH265-02 | 128K pulse-mode INT taken at the first boundary >= 294 T (zxula_timing.vhd:187,199,548-557; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:187,199,548-557, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2944 |
-| INT-GH265-03 | hardware-IM2 INT: S_REQ on the first CPU edge after im2_int_req with M1_n high, INT_s one edge later (im2_peripheral.vhd:167-178; im2_device.vhd:91-107,150; t80n.vhd:1729-1731,1761,1788) | im2_peripheral.vhd:167-178, im2_device.vhd:91-107,150, t80n.vhd:1729-1731,1761,1788 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2968 |
-| INT-GH265-04 | 48K pulse: 32 CPU edges sample it low, the last at E_1 + 31*8; the boundary after that edge is the last taken (zxnext.vhd:2033-2044; t80n.vhd:1664,1742-1772) | zxnext.vhd:2033-2044, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2987 |
-| INT-GH265-05 | 128K pulse: 36 CPU edges, last boundary E_1 + 36*8 (zxnext.vhd:2033 pulse_count(5) and pulse_count(2)) | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3003 |
-| INT-GH265-06 | a pulse straddling the frame edge is still taken after it (zxnext.vhd:2017-2044 has no frame term) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3043 |
-| INT-GH265-10 | a pulse straddling the frame edge survives a snapshot taken there (zxnext.vhd:2017-2044) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3088 |
-| INT-GH265-11 | a pulse pending across a CPU-speed change lasts its remaining CPU edges at the new speed (zxnext.vhd:2035-2044) | zxnext.vhd:2035-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3136 |
-| INT-GH265-12 | EI grace survives a snapshot taken straight after the EI (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3189 |
-| INT-GH265-07 | EI grace across the frame edge (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3232 |
-| INT-GH265-08 | IM2 hardware mode, CPU in IM 1: the ULA's exception pulse is taken (im2_peripheral.vhd:192; zxnext.vhd:1840) | im2_peripheral.vhd:192, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3257 |
-| INT-GH265-09 | NR 0x20 unqualified request taken at the boundary after the OUT that writes it (zxnext.vhd:1946-1947,4747-4777; t80n.vhd:1664,1742-1772) | zxnext.vhd:1946-1947,4747-4777, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3285 |
-| ISC-GH265-01 | NR 0xC8 read by IN A,(C) sees a status set before the port_253b_dat load 83 cycles in, not one set on it (zxnext.vhd:5871-5882,6247-6248; im2_peripheral.vhd:154-162) | zxnext.vhd:5871-5882,6247-6248, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3325 |
-| ISC-GH265-02 | polling NR 0xC8 for the frame interrupt: an IN starting at 49 T sees it, one at 48 T does not (zxula_timing.vhd:548-557; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882,6247-6248) | zxula_timing.vhd:548-557, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882,6247-6248 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3367 |
-| ISC-GH265-03 | NR 0x22 bit 7 sees pulse_int_n fall on the CLK_28 falling edge after the request (zxnext.vhd:2017-2031,5991-5992) | zxnext.vhd:2017-2031,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3394 |
-| ISC-GH265-04 | NR 0x22 bit 7 clears on the load edge after the 32nd CPU edge of the pulse (zxnext.vhd:2033-2044,5991-5992) | zxnext.vhd:2033-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3422 |
-| ISC-GH265-05 | NR 0xC8 clear commits on its edge: a request set before it is cleared, one set on it survives (im2_peripheral.vhd:160; zxnext.vhd:1952-1955,4747-4777) | im2_peripheral.vhd:160, zxnext.vhd:1952-1955,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3453 |
-| ISC-GH265-06 | NR 0xC5 enable commits on its edge: a ZC/TO before it is not latched, one on it is (im2_peripheral.vhd:167-178; zxnext.vhd:1949,4747-4777) | im2_peripheral.vhd:167-178, zxnext.vhd:1949,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3489 |
-| ISC-GH265-07 | NR 0xC8 bit 1 sees the line interrupt from its registered int_line, one pixel after the hc_ula = 255 compare (zxula_timing.vhd:423-436,455-472,566-583; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882) | zxula_timing.vhd:423-436,455-472,566-583, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3517 |
-| ISC-GH265-08 | a request reaching the pulse fabric before pulse_int_n has returned to '1' is lost; one after it starts a new pulse (zxnext.vhd:2017-2044,5991-5992) | zxnext.vhd:2017-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3550 |
-| CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3593 |
-| CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3624 |
-| CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3662 |
+| IM2C-08 | im2_control.vhd:238 o_dma_delay high at ED and ED 4D, low at the next fetch (SRL states end inside the RETI) | im2_control.vhd:238 | pass | test/ctc/ctc_test.cpp:1157 |
+| IM2C-09 | im2_control.vhd:186-192 SRL_T1/T2 end inside the RETN: dma_delay high only at ED 45 | im2_control.vhd:186-192 | pass | test/ctc/ctc_test.cpp:1175 |
+| IM2C-10 | im2_control.vhd:224 ED 46 → im_mode = 00 (IM 0) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1185 |
+| IM2C-11 | im2_control.vhd:224 ED 56 → im_mode = 01 (IM 1) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1196 |
+| IM2C-12 | im2_control.vhd:224 ED 5E → im_mode = 10 (IM 2) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1207 |
+| IM2C-14 | im2_control.vhd:222 im_mode defaults to 00 on reset | im2_control.vhd:222 | pass | test/ctc/ctc_test.cpp:1226 |
+| IM2C-15 | im2_control.vhd:181-192, :161-170, :232: after ED 4D the next fetch ED enters S_ED_T4 (reti_decode) | im2_control.vhd:181-192,161-170,232 | pass | test/ctc/ctc_test.cpp:1240 |
+| IM2C-16 | im2_control.vhd:233: RETI, then FB, ED, 4D: reti_seen pulses on the 4D (an EI;RETI handler right after a RETI) | im2_control.vhd:233 | pass | test/ctc/ctc_test.cpp:1253 |
+| IM2C-17 | im2_control.vhd:190-192: RETN (ED 45), then ED 4D: reti_seen pulses on the 4D | im2_control.vhd:190-192 | pass | test/ctc/ctc_test.cpp:1263 |
+| IM2C-18 | im2_control.vhd:243-247: ED 56 straight after a RETI sets IM 1 | im2_control.vhd:243-247 | pass | test/ctc/ctc_test.cpp:1273 |
+| IM2C-19 | im2_control.vhd:166, :193-198: RETI, CB 00, ED 4D: the CB path from S_0 returns to S_0 and the RETI is seen | im2_control.vhd:166,193-198 | pass | test/ctc/ctc_test.cpp:1285 |
+| IM2C-20 | im2_device.vhd:122-127, :141: a line handler EI;RETI right after the CTC's RETI frees the line device and the CTCs are acknowledged again | im2_device.vhd:122-127,141 | pass | test/ctc/ctc_test.cpp:1325 |
+| CTCI-556-01 | hw IM2, line handler `EI ; RETI`, CTC handlers `EI ; RETI`: the CTC count rises in every 10-frame window for 100 frames (the line device never sticks in S_ISR; im2_control.vhd:181-192, im2_device.vhd:122-127) | im2_control.vhd:181-192, im2_device.vhd:122-127 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3774 |
+| CTCI-556-02 | same with NR CC=03/CD=07 and a 1152-byte DMA to port 0x5B started in a loop: transfers keep completing in every window (the DMA is not held for ever by CTCs stuck in S_REQ; im2_device.vhd:151) | im2_device.vhd:151 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3784 |
+| CTCI-556-03 | line handler `NOP ; EI ; RETI` (the ED is the 3rd fetch after the CTC handler's RETI): still serviced for 100 frames | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3793 |
+| CTCI-556-05 | line handler is a bare RETI (ED 4D, the ED being the first fetch after the CTC handler's RETI): still serviced for 100 frames | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3804 |
+| CTCI-556-04 | CTC0 request latched, then NR C5 bit 0 cleared before the acknowledge: still acknowledged exactly once, held the DMA until then, no further CTC0 interrupts (im2_peripheral.vhd:167-178, im2_device.vhd:148/:151) | im2_peripheral.vhd:167-178, im2_device.vhd:148 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3824 |
+| IM2C-G87-01 | RETI (ED 4D) advances IM2 FSM and pulses o_reti_seen [VHDL im2_control.vhd:158-209,234] | im2_control.vhd:158-209,234 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1030 |
+| IM2C-G87-02 | RETN (ED 45) advances IM2 FSM and pulses o_retn_seen [VHDL im2_control.vhd:233-238] | im2_control.vhd:233-238 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1054 |
+| IM2D-01 | im2_device.vhd:106 S_0 → S_REQ on i_int_req=1 | im2_device.vhd:106 | pass | test/ctc/ctc_test.cpp:1344 |
+| IM2D-02 | im2_device.vhd:150 o_int_n=0 in S_REQ with IEI=1 and im2_mode=1 | im2_device.vhd:150 | pass | test/ctc/ctc_test.cpp:1358 |
+| IM2D-03 | im2_device.vhd:150 o_int_n stays high when IEI=0 (CTC0 S_ACK blocks chain) | im2_device.vhd:150 | pass | test/ctc/ctc_test.cpp:1380 |
+| IM2D-04 | im2_device.vhd:150 o_int_n disabled when im2_mode=0 | im2_device.vhd:150 | pass | test/ctc/ctc_test.cpp:1395 |
+| IM2D-05 | im2_device.vhd:112 S_REQ → S_ACK on IntAck (M1=0,IORQ=0,IEI=1) | im2_device.vhd:112 | pass | test/ctc/ctc_test.cpp:1412 |
+| IM2D-06 | im2_device.vhd:119 S_ACK → S_ISR on next cycle | im2_device.vhd:119 | pass | test/ctc/ctc_test.cpp:1427 |
+| IM2D-07 | im2_device.vhd:125 S_ISR → S_0 on reti_seen with IEI=1 | im2_device.vhd:125 | pass | test/ctc/ctc_test.cpp:1446 |
+| IM2D-08 | im2_device.vhd:123-128 S_ISR holds until RETI seen | im2_device.vhd:123-128 | pass | test/ctc/ctc_test.cpp:1461 |
+| IM2D-09 | im2_device.vhd:155 + zxnext.vhd:1999 vector = msb3<<5 \| idx<<1 | im2_device.vhd:155, zxnext.vhd:1999 | pass | test/ctc/ctc_test.cpp:1478 |
+| IM2D-10 | im2_device.vhd:155 no device in S_ACK → vector OR = 0 (0xFF sentinel) | im2_device.vhd:155 | pass | test/ctc/ctc_test.cpp:1491 |
+| IM2D-11 | im2_device.vhd:159 o_isr_serviced pulse clears im2_int_req latch | im2_device.vhd:159 | pass | test/ctc/ctc_test.cpp:1519 |
+| IM2D-12 | im2_device.vhd:151 o_dma_int = 1 when state /= S_0 AND dma_int_en=1 | im2_device.vhd:151 | pass | test/ctc/ctc_test.cpp:1538 |
+| IM2P-01 | im2_device.vhd:139-140 S_0 IEO = IEI (device 0 IEI hardwired 1) | im2_device.vhd:139-140 | pass | test/ctc/ctc_test.cpp:1554 |
+| IM2P-02 | im2_device.vhd:141-142 S_REQ IEO = IEI AND reti_decode | im2_device.vhd:141-142 | pass | test/ctc/ctc_test.cpp:1572 |
+| IM2P-03 | im2_device.vhd:143-144 S_ACK / S_ISR hold IEO=0 | im2_device.vhd:143-144 | pass | test/ctc/ctc_test.cpp:1589 |
+| IM2P-04 | peripherals.vhd:82 + zxnext.vhd:1984 chain-head IEI hardwired 1 | peripherals.vhd:82, zxnext.vhd:1984 | pass | test/ctc/ctc_test.cpp:1601 |
+| IM2P-05 | peripherals.vhd:86-128 IntAck resolves to higher-priority device (LINE over CTC3) | peripherals.vhd:86-128 | pass | test/ctc/ctc_test.cpp:1622 |
+| IM2P-06 | im2_device.vhd:143-144 lower-priority S_REQ waits while LINE S_ISR blocks chain | im2_device.vhd:143-144 | pass | test/ctc/ctc_test.cpp:1650 |
+| IM2P-07 | im2_device.vhd:123-128 + chain: post-RETI lower-priority proceeds | im2_device.vhd:123-128 | pass | test/ctc/ctc_test.cpp:1676 |
+| IM2P-08 | peripherals.vhd generate: 3-way chain — LINE wins first ack | peripherals.vhd | pass | test/ctc/ctc_test.cpp:1695 |
+| IM2P-09 | peripherals.vhd:146-156 AND-reduction: any S_REQ device asserts aggregate | peripherals.vhd:146-156 | pass | test/ctc/ctc_test.cpp:1712 |
+| IM2P-10 | peripherals.vhd:134-144 vector OR-reduction selects S_ACK device | peripherals.vhd:134-144 | pass | test/ctc/ctc_test.cpp:1728 |
+| PULSE-01 | im2_peripheral.vhd:186 pulse_en → pulse_int_n drops on edge | im2_peripheral.vhd:186 | pass | test/ctc/ctc_test.cpp:1750 |
+| PULSE-02 | im2_peripheral.vhd:186 non-exception pulse suppressed in IM2 mode | im2_peripheral.vhd:186 | pass | test/ctc/ctc_test.cpp:1765 |
+| PULSE-03 | im2_peripheral.vhd:192 ULA EXCEPTION fires even in IM2 mode (CPU not in IM 2) | im2_peripheral.vhd:192 | pass | test/ctc/ctc_test.cpp:1790 |
+| PULSE-04 | zxnext.vhd:2017-2031 pulse_int_n stays low during pulse window | zxnext.vhd:2017-2031 | pass | test/ctc/ctc_test.cpp:1810 |
+| PULSE-05 | zxnext.vhd:2033 48K/+3 pulse width ~ 32 cycles (bit5 terminator) | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1836 |
+| PULSE-06 | zxnext.vhd:2033 128K/Pentagon pulse width ~ 36 cycles (bit5 AND bit2) | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1858 |
+| PULSE-07 | zxnext.vhd:2036-2044 pulse counter reset while pulse_int_n=1 | zxnext.vhd:2036-2044 | pass | test/ctc/ctc_test.cpp:1894 |
+| PULSE-08 | zxnext.vhd:1840 INT_n = pulse_int_n AND im2_int_n; im2_int_n high in pulse mode | zxnext.vhd:1840 | pass | test/ctc/ctc_test.cpp:1915 |
+| PULSE-G89-01 | LDIRX (ED B4) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2095-2138] | t80n_mcode.vhd:2095-2138 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1142 |
+| PULSE-G89-02 | LDDRX (ED BC) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2230-2256] | t80n_mcode.vhd:2230-2256 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1183 |
+| PULSE-G89-03 | LDPIRX (ED B7) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0; HL stays fixed [VHDL t80n_mcode.vhd:1953-1991] | t80n_mcode.vhd:1953-1991 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1224 |
+| PULSE-G89-04 | LDIRSCALE (ED B6) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2188-2226] | t80n_mcode.vhd:2188-2226 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1263 |
+| PULSE-G89-INT | LDIRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2095-2138 + zxnext.vhd INT path] | t80n_mcode.vhd:2095-2138, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1353 |
+| PULSE-G89-INT-02 | LDDRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2230-2256 + zxnext.vhd INT path] | t80n_mcode.vhd:2230-2256, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1362 |
+| PULSE-G89-INT-03 | LDPIRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:1953-1991 + zxnext.vhd INT path] | t80n_mcode.vhd:1953-1991, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1371 |
+| PULSE-G89-INT-04 | LDIRSCALE inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2188-2226 + zxnext.vhd INT path] | t80n_mcode.vhd:2188-2226, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1380 |
+| PULSE-G121-01 | zxnext.vhd:2033 pulse_count_end follows runtime NR 0x03 timing change | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1966 |
+| IM2W-01 | im2_peripheral.vhd:90-101 int_req edge detect fires once per rising edge | im2_peripheral.vhd:90-101 | pass | test/ctc/ctc_test.cpp:2003 |
+| IM2W-02 | im2_peripheral.vhd:167-178 im2_int_req latched on qualified edge | im2_peripheral.vhd:167-178 | pass | test/ctc/ctc_test.cpp:2018 |
+| IM2W-03 | im2_peripheral.vhd:148,175 im2_isr_serviced clears im2_int_req latch | im2_peripheral.vhd:148,175 | pass | test/ctc/ctc_test.cpp:2042 |
+| IM2W-04 | im2_peripheral.vhd:160 int_status set on int_req edge | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2055 |
+| IM2W-05 | im2_peripheral.vhd:160 NR 0xC8/C9/CA write clears int_status register | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2111 |
+| IM2W-06 | im2_peripheral.vhd:180 o_int_status = int_status OR im2_int_req | im2_peripheral.vhd:180 | pass | test/ctc/ctc_test.cpp:2130 |
+| IM2W-07 | im2_peripheral.vhd:105 im2_reset_n composite gates state transitions | im2_peripheral.vhd:105 | pass | test/ctc/ctc_test.cpp:2166 |
+| IM2W-08 | im2_peripheral.vhd:172 int_unq latches im2_int_req without int_en | im2_peripheral.vhd:172 | pass | test/ctc/ctc_test.cpp:2182 |
+| IM2W-G119-01 | zxnext.vhd:1941 ZC/TO must reach IM2 unconditionally; int_en gates at fabric | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2236 |
+| ULA-INT-01 | ULA HC/VC interrupt fires at int_h/int_v → NR 0xC8 bit 0 set [zxnext.vhd:1937,1941; emulator.cpp:1988-1998; im2.cpp:264-266] | zxnext.vhd:1937,1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:143 |
+| ULA-INT-02 | ULA int suppressed when port_ff(6)/NR 0x22[2] set → NR 0xC8 bit 0 clear [zxnext.vhd:3619-3620, :3635, :6711; emulator.cpp:1989 gate] | zxnext.vhd:3619-3620,3635,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:173 |
+| ULA-INT-03 | NR 0xC4 read bit 0 = NOT port_ff_interrupt_disable [zxnext.vhd:6239, :6711; emulator.cpp:802] | zxnext.vhd:6239,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:197 |
+| ULA-INT-04 | Line interrupt fires at cvc match (int_line pulse → NR 0xC8 bit 1) [zxula_timing.vhd:577-582; zxnext.vhd:1941; emulator.cpp:2392-2402] | zxula_timing.vhd:577-582, zxnext.vhd:1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:253 |
+| ULA-INT-05 | NR 0x22 bit 1 drives line_interrupt_en, visible on NR 0xC4 read bit 1 [zxnext.vhd:5297, :6239; emulator.cpp:542-546, :801] | zxnext.vhd:5297,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:221 |
+| ULA-INT-06 | Line interrupt value 0 still fires within frame (VHDL: wraps to c_max_vc) [zxula_timing.vhd:566-570; emulator.cpp:2392-2402] | zxula_timing.vhd:566-570 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:280 |
+| ULA-INT-07 | zxnext.vhd:1941 priority idx11 (ULA) below LINE (idx0) | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2278 |
+| ULA-INT-08 | zxnext.vhd:1941 LINE at priority idx0 (chain head) | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2298 |
+| ULA-INT-09 | zxnext.vhd:1964 EXCEPTION=1 only for ULA (IM2-mode pulse fires) | zxnext.vhd:1964 | pass | test/ctc/ctc_test.cpp:2333 |
+| NR-C0-01 | zxnext.vhd:5597/1999 NR 0xC0 stores im2_vector_base[2:0] | zxnext.vhd:5597/1999 | pass | test/ctc/ctc_test.cpp:2350 |
+| NR-C0-02 | NR 0xC0 bit 3 selects the stackless NMI acknowledge: set, the two acknowledge writes leave RAM untouched and arm the RETN substitution; clear, the interrupted PC is written to the stack and no substitution is armed (SP -= 2 either way) [zxnext.vhd:5598, :2075-2085; t80n.vhd:1765-1767] | zxnext.vhd:5598,2075-2085, t80n.vhd:1765-1767 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2627 |
+| NR-C0-03 | zxnext.vhd:5599/1975 NR 0xC0 bit 0 toggles pulse/IM2 mode | zxnext.vhd:5599/1975 | pass | test/ctc/ctc_test.cpp:2378 |
+| NR-C0-04 | NR 0xC0 read composes VVV_0_S_MM_I (vector + stackless + im_mode + int_mode) [zxnext.vhd:6229-6230; emulator.cpp:771-778] | zxnext.vhd:6229-6230 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:836 |
+| NR-C4-01 | zxnext.vhd NR 0xC4 bit1 enables LINE interrupt fan-out | zxnext.vhd | pass | test/ctc/ctc_test.cpp:2396 |
+| NR-C4-02 | NR 0xC4 bit 1 write drives line_interrupt_en (read bit 1 round-trip) [zxnext.vhd:5607-5610, :6239; emulator.cpp:792] | zxnext.vhd:5607-5610,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:857 |
+| NR-C4-03 | NR 0xC4 readback format E_00000_UU (expbus, 5x zero, line, ula) [zxnext.vhd:6239 / :3621-3622 / :3635 / :6711; emulator.cpp:796-804] | zxnext.vhd:6239/3621-3622/3635/6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:889 |
+| NR-C5-01 | zxnext.vhd:4078/1949 NR 0xC5 fans out CTC int_en bits 0..7 | zxnext.vhd:4078/1949 | pass | test/ctc/ctc_test.cpp:2416 |
+| NR-C5-02 | NR 0xC5 read returns the live per-channel ctc_int_en with bits 7:4 hardwired 0 — only nr_wr_dat(3:0) reaches the CTC on a write, and a control word's D7 moves the same bit [zxnext.vhd:6242, :4079, :4089, :4093; ctc_chan.vhd:269,276] | zxnext.vhd:4093 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2671 |
+| NR-C6-01 | zxnext.vhd NR 0xC6/1949 UART1_TX int_en enables fabric path | zxnext.vhd | pass | test/ctc/ctc_test.cpp:2435 |
+| NR-C6-02 | NR 0xC6 read format 0_654_0_210 (bits 7 and 3 read as 0) [zxnext.vhd:6244-6245; emulator.cpp:828-831] | zxnext.vhd:6244-6245 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:905 |
+| NR-C8-01 | zxnext.vhd:6247 NR 0xC8 read {LINE,ULA} → bits 1:0 | zxnext.vhd:6247 | pass | test/ctc/ctc_test.cpp:2455 |
+| NR-C9-01 | zxnext.vhd:6250 NR 0xC9 read CTC7..0 packs int_status bits | zxnext.vhd:6250 | pass | test/ctc/ctc_test.cpp:2471 |
+| NR-CA-01 | zxnext.vhd:6253 NR 0xCA read packs UART int_status | zxnext.vhd:6253 | pass | test/ctc/ctc_test.cpp:2489 |
+| NR-CC-01 | zxnext.vhd:5629-5630/1957-1958 NR 0xCC DMA int enable bit routes through mask | zxnext.vhd:5629-5630/1957-1958 | pass | test/ctc/ctc_test.cpp:2506 |
+| NR-CD-01 | zxnext.vhd:5633/1957 NR 0xCD DMA int enable bit routes through mask | zxnext.vhd:5633/1957 | pass | test/ctc/ctc_test.cpp:2524 |
+| NR-CE-01 | zxnext.vhd:5636-5637/1957-1958 NR 0xCE DMA int enable bit routes through mask | zxnext.vhd:5636-5637/1957-1958 | pass | test/ctc/ctc_test.cpp:2539 |
+| NR-C2-01 | NR 0xC2 mirrors NMI return-address LSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6232] | zxnext.vhd:2050-2085 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1088 |
+| NR-C3-01 | NR 0xC3 mirrors NMI return-address MSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6236] | zxnext.vhd:6236 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1093 |
+| ISC-01 | zxnext.vhd:1955 NR 0xC8 b1 clears LINE int_status | zxnext.vhd:1955 | pass | test/ctc/ctc_test.cpp:2597 |
+| ISC-02 | zxnext.vhd:1952 NR 0xC8 b0 clears ULA int_status | zxnext.vhd:1952 | pass | test/ctc/ctc_test.cpp:2618 |
+| ISC-03 | zxnext.vhd:1953 NR 0xC9 bit clears CTC0 int_status | zxnext.vhd:1953 | pass | test/ctc/ctc_test.cpp:2640 |
+| ISC-04 | zxnext.vhd:1952 NR 0xCA b6 clears UART1_TX int_status | zxnext.vhd:1952 | pass | test/ctc/ctc_test.cpp:2661 |
+| ISC-05 | zxnext.vhd:1952 NR 0xCA b2 clears UART0_TX int_status | zxnext.vhd:1952 | pass | test/ctc/ctc_test.cpp:2682 |
+| ISC-06 | zxnext.vhd:1954 NR 0xCA bits 5\|4 clear UART1_RX int_status | zxnext.vhd:1954 | pass | test/ctc/ctc_test.cpp:2703 |
+| ISC-07 | zxnext.vhd:1954 NR 0xCA bits 1\|0 clear UART0_RX int_status | zxnext.vhd:1954 | pass | test/ctc/ctc_test.cpp:2724 |
+| ISC-08 | im2_peripheral.vhd:160 new int_req edge re-sets int_status during clear | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2762 |
+| ISC-09 | NR 0x20 read = LINE_ULA_00_CTC3..CTC0 mixed status [zxnext.vhd:5988-5989; emulator.cpp:917-926] | zxnext.vhd:5988-5989 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:945 |
+| ISC-10 | NR 0x22 read bit 7 = NOT pulse_int_n (reset: 0x00) [zxnext.vhd:5991-5992 — NR 0x22 read_handler missing in jnext; reset-state invariant only] | zxnext.vhd:5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:975 |
+| DMA-01 | peripherals.vhd:174-184 im2_dma_int OR-reduction across devices | peripherals.vhd:174-184 | pass | test/ctc/ctc_test.cpp:2789 |
+| DMA-02 | zxnext.vhd:2001-2010 im2_dma_delay latches on im2_dma_int | zxnext.vhd:2001-2010 | pass | test/ctc/ctc_test.cpp:2804 |
+| DMA-03b | same through ED 45: the latch is released by the end of the RETN (im2_control.vhd:186-192, :238) | im2_control.vhd:186-192,238 | pass | test/ctc/ctc_test.cpp:2844 |
+| DMA-03 | zxnext.vhd:2007 im2_dma_delay self-holds while the decoder is in S_ED_T4 (source already gone) and is released by the end of the RETI | zxnext.vhd:2007 | pass | test/ctc/ctc_test.cpp:2837 |
+| DMA-04 | zxnext.vhd:2007 NMI-activated DMA delay (nmi_activated AND nr_cc_dma_int_en_0_7) | zxnext.vhd:2007 | pass | test/ctc/ctc_test.cpp:2878 |
+| DMA-05 | zxnext.vhd:2004-2005 reset clears im2_dma_delay latch | zxnext.vhd:2004-2005 | pass | test/ctc/ctc_test.cpp:2898 |
+| DMA-06 | zxnext.vhd:1957-1958 per-device dma_int_en fan-out via mask | zxnext.vhd:1957-1958 | pass | test/ctc/ctc_test.cpp:2920 |
+| UNQ-01 | zxnext.vhd:1946-1947 NR 0x20 b7 unqualified LINE int (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2938 |
+| UNQ-02 | zxnext.vhd:1946-1947 NR 0x20 b0 unqualified CTC0 (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2954 |
+| UNQ-03 | zxnext.vhd:1946-1947 NR 0x20 b6 unqualified ULA (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2970 |
+| UNQ-04 | im2_peripheral.vhd:172 int_unq bypasses i_int_en | im2_peripheral.vhd:172 | pass | test/ctc/ctc_test.cpp:3000 |
+| UNQ-05 | im2_peripheral.vhd:160 int_unq feeds int_status register | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:3015 |
+| CTC-JOY-01 | in NR 0x0B iomode "01" each CTC channel-3 ZC/TO toggles joy_iomode_pin7, and a channel-0 ZC/TO does not [zxnext.vhd:3518-3524, :4088] | zxnext.vhd:3522 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2715 |
+| CTC-JOY-02 | the pin-7 toggle is conditioned on (nr_0b_joy_iomode_0='1' OR joy_iomode_pin7='0'): with NR 0x0B bit 0 clear a ZC/TO moves pin7 only from '0' to '1' and never back [zxnext.vhd:3519-3524] | zxnext.vhd:3519-3520 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2756 |
+| SSTEP-01 | Pulse-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840; im2_peripheral.vhd:186-194] | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1453 |
+| SSTEP-02 | IM2-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840, :1999 ack vector composition] | zxnext.vhd:1840,1999 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1499 |
+| SSTEP-03 | Trace log records one entry per debugger single-step (parity with run_frame's per-instruction record) | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1527 |
+| SSTEP-04 | MD6 FSM latches raw inputs during debugger single-step [md6_joystick_connector_x2.vhd:103-114, :151-152] | md6_joystick_connector_x2.vhd:103-114,151-152 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1558 |
+| SSTEP-05 | ULA frame INT is scheduled and delivered during debugger single-step [zxula_timing.vhd:551; zxnext.vhd:1840] | zxula_timing.vhd:551, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1630 |
+| SSTEP-06 | A debugger Step at a HALT leaves the halt into the ISR [t80n.vhd:496, :502-503, :1727] | t80n.vhd:496,502-503,1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1664 |
+| SSTEP-07 | Frames keep turning over while stepping — a second HALT is also left [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1714 |
+| SSTEP-08 | A Step at a DI'd HALT is bounded and reports no progress [t80n.vhd:1727 — Halt_FF clears only on IntCycle/NMICycle] | t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1751 |
+| SSTEP-09 | A Step consumes the data-breakpoint latch, so a watchpoint firing inside a halt cannot freeze every later Step [t80n.vhd:502-503 — the halted core re-fetches every slot] | t80n.vhd:502-503 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1809 |
+| SSTEP-10 | A halt-run crossing a frame boundary takes the frame's rewind snapshot and leaves the machine rewindable [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1874 |
+| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101,154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1965 |
+| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2036 |
+| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 49/97/145 [ctc_chan.vhd:214-226,143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 193) | ctc_chan.vhd:143-146 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2094 |
+| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2146 |
+| CTC-C1-ACC-03 | timer ch1 armed by D3=1 started by ch0's ZC/TO at 17 through clk_trg_d, fires at 35 [ctc_chan.vhd:115-127,219-226,134-139; zxnext.vhd:4084]; tick(35) == 35x tick(1) | ctc_chan.vhd:115-127,219-226,134-139, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2193 |
+| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2456 |
+| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2489 |
+| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | zxnext.vhd:4067 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2535 |
+| INT-GH265-01 | 48K pulse-mode INT taken at the first boundary whose last T-state starts on a CPU edge that samples the pulse low (zxula_timing.vhd:548-557; im2_peripheral.vhd:90-101,184-194; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:548-557, im2_peripheral.vhd:90-101,184-194, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2923 |
+| INT-GH265-02 | 128K pulse-mode INT taken at the first boundary >= 294 T (zxula_timing.vhd:187,199,548-557; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:187,199,548-557, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2945 |
+| INT-GH265-03 | hardware-IM2 INT: S_REQ on the first CPU edge after im2_int_req with M1_n high, INT_s one edge later (im2_peripheral.vhd:167-178; im2_device.vhd:91-107,150; t80n.vhd:1729-1731,1761,1788) | im2_peripheral.vhd:167-178, im2_device.vhd:91-107,150, t80n.vhd:1729-1731,1761,1788 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2969 |
+| INT-GH265-04 | 48K pulse: 32 CPU edges sample it low, the last at E_1 + 31*8; the boundary after that edge is the last taken (zxnext.vhd:2033-2044; t80n.vhd:1664,1742-1772) | zxnext.vhd:2033-2044, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2988 |
+| INT-GH265-05 | 128K pulse: 36 CPU edges, last boundary E_1 + 36*8 (zxnext.vhd:2033 pulse_count(5) and pulse_count(2)) | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3004 |
+| INT-GH265-06 | a pulse straddling the frame edge is still taken after it (zxnext.vhd:2017-2044 has no frame term) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3044 |
+| INT-GH265-10 | a pulse straddling the frame edge survives a snapshot taken there (zxnext.vhd:2017-2044) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3089 |
+| INT-GH265-11 | a pulse pending across a CPU-speed change lasts its remaining CPU edges at the new speed (zxnext.vhd:2035-2044) | zxnext.vhd:2035-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3137 |
+| INT-GH265-12 | EI grace survives a snapshot taken straight after the EI (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3190 |
+| INT-GH265-07 | EI grace across the frame edge (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3233 |
+| INT-GH265-08 | IM2 hardware mode, CPU in IM 1: the ULA's exception pulse is taken (im2_peripheral.vhd:192; zxnext.vhd:1840) | im2_peripheral.vhd:192, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3258 |
+| INT-GH265-09 | NR 0x20 unqualified request taken at the boundary after the OUT that writes it (zxnext.vhd:1946-1947,4747-4777; t80n.vhd:1664,1742-1772) | zxnext.vhd:1946-1947,4747-4777, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3286 |
+| ISC-GH265-01 | NR 0xC8 read by IN A,(C) sees a status set before the port_253b_dat load 83 cycles in, not one set on it (zxnext.vhd:5871-5882,6247-6248; im2_peripheral.vhd:154-162) | zxnext.vhd:5871-5882,6247-6248, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3326 |
+| ISC-GH265-02 | polling NR 0xC8 for the frame interrupt: an IN starting at 49 T sees it, one at 48 T does not (zxula_timing.vhd:548-557; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882,6247-6248) | zxula_timing.vhd:548-557, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882,6247-6248 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3368 |
+| ISC-GH265-03 | NR 0x22 bit 7 sees pulse_int_n fall on the CLK_28 falling edge after the request (zxnext.vhd:2017-2031,5991-5992) | zxnext.vhd:2017-2031,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3395 |
+| ISC-GH265-04 | NR 0x22 bit 7 clears on the load edge after the 32nd CPU edge of the pulse (zxnext.vhd:2033-2044,5991-5992) | zxnext.vhd:2033-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3423 |
+| ISC-GH265-05 | NR 0xC8 clear commits on its edge: a request set before it is cleared, one set on it survives (im2_peripheral.vhd:160; zxnext.vhd:1952-1955,4747-4777) | im2_peripheral.vhd:160, zxnext.vhd:1952-1955,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3454 |
+| ISC-GH265-06 | NR 0xC5 enable commits on its edge: a ZC/TO before it is not latched, one on it is (im2_peripheral.vhd:167-178; zxnext.vhd:1949,4747-4777) | im2_peripheral.vhd:167-178, zxnext.vhd:1949,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3490 |
+| ISC-GH265-07 | NR 0xC8 bit 1 sees the line interrupt from its registered int_line, one pixel after the hc_ula = 255 compare (zxula_timing.vhd:423-436,455-472,566-583; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882) | zxula_timing.vhd:423-436,455-472,566-583, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3518 |
+| ISC-GH265-08 | a request reaching the pulse fabric before pulse_int_n has returned to '1' is lost; one after it starts a new pulse (zxnext.vhd:2017-2044,5991-5992) | zxnext.vhd:2017-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3551 |
+| CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3594 |
+| CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3625 |
+| CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3663 |
 | CTC-CH-GH265-01 | ctc_chan.vhd:115-127,173-182 rising-edge trigger counts one edge after the ZC/TO | ctc_chan.vhd:115-127,173-182 | pass | test/ctc/ctc_test.cpp:784 |
 | CTC-CH-GH265-02 | ctc_chan.vhd:115-127,173-182 a ZC/TO in flight reaches the next channel after its source stops | ctc_chan.vhd:115-127,173-182 | pass | test/ctc/ctc_test.cpp:808 |
 
@@ -3694,8 +3717,8 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | KBD-19 | CS+SYM, rows 0,7 AND = 0x1C | membrane.vhd:251 | pass | test/input/input_test.cpp:311 |
 | KBD-20 | no rows selected = 0x1F | membrane.vhd:242-251 | pass | test/input/input_test.cpp:320 |
 | KBD-21 | all rows, single Z = 0x1D | membrane.vhd:251 | pass | test/input/input_test.cpp:330 |
-| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:190 |
-| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:214 |
+| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:191 |
+| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:215 |
 | KBDHYS-01 | CS held one extra scan after release (membrane.vhd:178, 188-191, 232) | membrane.vhd:178,188-191,232 | pass | test/input/input_test.cpp:374 |
 | KBDHYS-02 | CS pressed across 3 scans reads pressed each scan (membrane.vhd:190) | membrane.vhd:190 | pass | test/input/input_test.cpp:395 |
 | KBDHYS-03 | the cancel bit does NOT clear the NR 0xB0/0xB1 raw readback (membrane.vhd:253 vs :183-186) | membrane.vhd:253 | pass | test/input/input_test.cpp:428 |
@@ -3852,40 +3875,40 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | NMI-05 | NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1 | zxnext.vhd:2090 | pass | test/input/input_test.cpp:3185 |
 | NMI-06 | NR 0x06 bit4=1 + nmi_sw_gen_divmmc → nmi_assert_divmmc=1 | — | pass | test/input/input_test.cpp:3203 |
 | NMI-07 | NR 0x06 bits 3+4=1 + both hotkeys → both gates assert | — | pass | test/input/input_test.cpp:3221 |
-| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:239 |
-| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:260 |
-| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:279 |
-| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:343 |
-| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1234 |
-| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1252 |
+| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:240 |
+| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:261 |
+| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:280 |
+| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:344 |
+| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1235 |
+| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1253 |
 | JCAL-01 | NR 0x28 keymap_sel write handler routes bit 7 + bit 0 | membrane_stick.vhd | pass | test/input/input_test.cpp:3295 |
 | JCAL-02 | NR 0x29 addr-low + NR 0x2B data write + auto-inc | zxnext.vhd:6304-6308, membrane_stick.vhd:182 | pass | test/input/input_test.cpp:3334 |
 | JCAL-03 | NR 0x05=111 + UDK[16]=(4,3) + bit0 press → row4 col3 low | membrane_stick.vhd:172-183 | pass | test/input/input_test.cpp:3378 |
 | FNK-01 | F8 press increments NR 0x07 cpu_speed (VHDL :5789-5791) | input/membrane/emu_fnkeys.vhd:53-202 | pass | test/input/input_test.cpp:3418 |
-| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5790-5791,6342-6347 | pass | test/input/input_integration_test.cpp:996 |
-| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | membrane_stick.vhd:124-131 | pass | test/input/input_integration_test.cpp:651 |
-| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1779 |
-| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1798 |
-| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1830 |
-| HIC-01 | 128K: a key set between frames is first seen by the main loop after frame N+1's ISR | zxula_timing.vhd:187/199 | pass | test/input/input_integration_test.cpp:2059 |
-| HIC-02 | 128K: the ISR of N+1 reads the key down as its very first instruction and the main loop's last IN before it read it up, in every one of 48 loop phases (FUSE order) | — | pass | test/input/input_integration_test.cpp:2082 |
-| HIC-03 | 48K: key seen only after the ISR (INT at 116,0, zxula_timing.vhd:257/:265) | zxula_timing.vhd:257/265 | pass | test/input/input_integration_test.cpp:2096 |
-| HIC-04 | Pentagon: the main loop polls the whole pre-INT frame and does not see the key (INT at 439,319, zxula_timing.vhd:155/:163) | zxula_timing.vhd:155/163 | pass | test/input/input_integration_test.cpp:2118 |
-| HIC-05 | 128K: a program that pages a bank on its first sight of a key with EI survives (the interrupt vector is read from bank 0) | — | pass | test/input/input_integration_test.cpp:2174 |
-| HIC-06 | 128K: a queued key pulse commits at the next frame's interrupt, like a host key | — | pass | test/input/input_integration_test.cpp:2194 |
-| HIC-07 | Next: NR 0xB0 shows an extended key to the main loop only after the ISR of N+1 (zxnext.vhd:6208) | zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2210 |
-| HIC-08 | Next, ULA INT disabled, DI: the first sighting is at the interrupt position, not at the frame edge | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2245 |
-| HIC-09 | a rewind replay and a load_state of a boundary snapshot with a pending key both commit at the interrupt | — | pass | test/input/input_integration_test.cpp:2284 |
-| HIC-10 | Caps Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2310 |
-| HIC-11 | outside run_frame the port, the raw accessors and NR 0xB0 see a key at once; inside a frame before the interrupt input_state() shows it while the guest does not | — | pass | test/input/input_integration_test.cpp:2368 |
-| HIC-12 | 128K: Z (row 0, port $FEFE) pressed between frames is seen by the main loop only after the ISR of N+1 | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2385 |
-| HIC-13 | Next: an extended key (UP) folded into port $EFFE (membrane.vhd:238) is seen only after the ISR of N+1 | membrane.vhd:238 | pass | test/input/input_integration_test.cpp:2401 |
-| HIC-14 | Next: an extended key released between frames still reads down before N+1's interrupt, through NR 0xB0 and through the port 0xFE fold | membrane.vhd:238, zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2425 |
-| HIC-15 | Symbol Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2447 |
-| HIC-16 | Next: NR 0xB1 shows an extended key (DELETE) to the main loop only after the ISR of N+1 (zxnext.vhd:6212) | zxnext.vhd:6212 | pass | test/input/input_integration_test.cpp:2462 |
-| HIC-17 | a .jns load (emulator_apply_load) leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2489 |
-| HIC-18 | a soft reset leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2509 |
-| HIC-19 | 128K, DI: a read whose instruction starts at or after the interrupt position (offset+4) sees the key and every earlier read does not, over a one-T sweep of the read's start | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2576 |
+| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5790-5791,6342-6347 | pass | test/input/input_integration_test.cpp:997 |
+| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | membrane_stick.vhd:124-131 | pass | test/input/input_integration_test.cpp:652 |
+| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1778 |
+| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1797 |
+| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1829 |
+| HIC-01 | 128K: a key set between frames is first seen by the main loop after frame N+1's ISR | zxula_timing.vhd:187/199 | pass | test/input/input_integration_test.cpp:2056 |
+| HIC-02 | 128K: the ISR of N+1 reads the key down as its very first instruction and the main loop's last IN before it read it up, in every one of 48 loop phases (FUSE order) | — | pass | test/input/input_integration_test.cpp:2079 |
+| HIC-03 | 48K: key seen only after the ISR (INT at 116,0, zxula_timing.vhd:257/:265) | zxula_timing.vhd:257/265 | pass | test/input/input_integration_test.cpp:2093 |
+| HIC-04 | Pentagon: the main loop polls the whole pre-INT frame and does not see the key (INT at 439,319, zxula_timing.vhd:155/:163) | zxula_timing.vhd:155/163 | pass | test/input/input_integration_test.cpp:2115 |
+| HIC-05 | 128K: a program that pages a bank on its first sight of a key with EI survives (the interrupt vector is read from bank 0) | — | pass | test/input/input_integration_test.cpp:2171 |
+| HIC-06 | 128K: a queued key pulse commits at the next frame's interrupt, like a host key | — | pass | test/input/input_integration_test.cpp:2191 |
+| HIC-07 | Next: NR 0xB0 shows an extended key to the main loop only after the ISR of N+1 (zxnext.vhd:6208) | zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2207 |
+| HIC-08 | Next, ULA INT disabled, DI: the first sighting is at the interrupt position, not at the frame edge | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2242 |
+| HIC-09 | a rewind replay and a load_state of a boundary snapshot with a pending key both commit at the interrupt | — | pass | test/input/input_integration_test.cpp:2281 |
+| HIC-10 | Caps Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2307 |
+| HIC-11 | outside run_frame the port, the raw accessors and NR 0xB0 see a key at once; inside a frame before the interrupt input_state() shows it while the guest does not | — | pass | test/input/input_integration_test.cpp:2365 |
+| HIC-12 | 128K: Z (row 0, port $FEFE) pressed between frames is seen by the main loop only after the ISR of N+1 | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2382 |
+| HIC-13 | Next: an extended key (UP) folded into port $EFFE (membrane.vhd:238) is seen only after the ISR of N+1 | membrane.vhd:238 | pass | test/input/input_integration_test.cpp:2398 |
+| HIC-14 | Next: an extended key released between frames still reads down before N+1's interrupt, through NR 0xB0 and through the port 0xFE fold | membrane.vhd:238, zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2422 |
+| HIC-15 | Symbol Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2444 |
+| HIC-16 | Next: NR 0xB1 shows an extended key (DELETE) to the main loop only after the ISR of N+1 (zxnext.vhd:6212) | zxnext.vhd:6212 | pass | test/input/input_integration_test.cpp:2459 |
+| HIC-17 | a .jns load (emulator_apply_load) leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2486 |
+| HIC-18 | a soft reset leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2506 |
+| HIC-19 | 128K, DI: a read whose instruction starts at or after the interrupt position (offset+4) sees the key and every earlier read does not, over a one-T sweep of the read's start | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2573 |
 | FNK-02 | F3 press toggles NR 0x05 bit 2 (5060), readable after the frame edge only (VHDL :5839-5841; eff latch :6697-6700) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3451 |
 | FNK-03 | F2 press toggles NR 0x05 bit 0 (scandouble), readable after the frame edge only (VHDL :5849-5852; eff latch :6702) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3479 |
 | EXTC-08a | LEFT folds to CAPS SHIFT + 5 (row 3 col 4) | — | pass | test/input/input_test.cpp:552 |
@@ -4103,376 +4126,376 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| RING-PRE-01 | rewind buffer exists with 4 frames | (jnext-internal) | pass | test/rewind/rewind_test.cpp:171 |
-| RING-01 | rewind buffer starts empty | (jnext-internal) | pass | test/rewind/rewind_test.cpp:172 |
-| RING-02 | ring depth caps at its 4-frame capacity after 6 frames | (jnext-internal) | pass | test/rewind/rewind_test.cpp:178 |
-| RING-03 | newest frame_num is 5 after the wrap (frames 0..5 taken) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:179 |
-| RING-04 | oldest frame_num is 2 after the wrap (the two earliest were overwritten) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:180 |
-| SB-PRE-01 | at least 20 trace entries after 2 frames | (jnext-internal) | pass | test/rewind/rewind_test.cpp:201 |
-| SB-01 | step_back(5) reports success | (jnext-internal) | pass | test/rewind/rewind_test.cpp:213 |
-| SB-02 | step_back(5) lands on the PC the trace recorded 5 instructions back | (jnext-internal) | pass | test/rewind/rewind_test.cpp:216 |
-| SB-05 | a step_back inside the last frame leaves frame_num() on that frame (the replay counts the restored frame once) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:223 |
-| SB-PRE-02 | at least 20 trace entries for emu2 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:234 |
-| SB-03 | step_back(10) reports success | (jnext-internal) | pass | test/rewind/rewind_test.cpp:238 |
-| SB-04 | step_back(10) lands on the PC the trace recorded 10 instructions back | (jnext-internal) | pass | test/rewind/rewind_test.cpp:241 |
-| RTF-PRE-01 | rewind buffer exists | (jnext-internal) | pass | test/rewind/rewind_test.cpp:267 |
-| RTF-01 | five frame snapshots are held after five frames | (jnext-internal) | pass | test/rewind/rewind_test.cpp:268 |
-| RTF-02 | rewind_to_frame() reports success for a frame still in the ring | (jnext-internal) | pass | test/rewind/rewind_test.cpp:276 |
-| RTF-03 | frame_num is target+1 after the rewind (the snapshot is taken at the start of the target frame) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:279 |
-| RTF-04 | the rewound machine reports it sits on a restored frame start | (jnext-internal) | pass | test/rewind/rewind_test.cpp:287 |
-| RTF-05 | the frame run again after a rewind is counted once and snapshotted under its own tag | (jnext-internal) | pass | test/rewind/rewind_test.cpp:291 |
-| RTF-06 | running forward from a rewind drops the abandoned snapshots (no tag held twice) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:296 |
-| RTF-07 | a load_state() after a rewind is an ordinary boundary: the next frame is counted | (jnext-internal) | pass | test/rewind/rewind_test.cpp:313 |
-| RW-RT-01 | a measured snapshot is larger than zero bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:337 |
-| RW-RT-02 | a measured snapshot stays under the 3 MB sanity bound | (jnext-internal) | pass | test/rewind/rewind_test.cpp:338 |
-| RW-RT-03 | save_state writes exactly the measured snap_size bytes (pass 1) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:344 |
-| RT-04 | save_state writes exactly the measured snap_size bytes again after a load (pass 2) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:354 |
-| RT-05 | save -> load -> save produces byte-identical snapshots (determinism) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:367 |
-| SBD-01 | no rewind buffer is allocated when rewind is disabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:381 |
-| SBD-02 | step_back reports failure when rewind is disabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:390 |
-| RW-V16-01 | post-init shadow == true (NR 0x85 default 0x8F → b0=1) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:453 |
-| RW-V16-PRE-01 | save_state writes exactly snap_size bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:462 |
-| RW-V16-02 | shadow planted false (pre-load divergence simulation) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:470 |
-| RW-V16-03 | V16-CPU-01: load_state re-pushes port_ulap_io_en from NR 0x85 b0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:482 |
-| RW-V16-04 | post-load contention_tick at $BF3B with default param fires non-zero stretch (V15-CPU-NIT-03 OR-fold sees true shadow) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:498 |
-| RW-TAPE-PRE-01 | mkstemp for TZX fixture | (jnext-internal) | pass | test/rewind/rewind_test.cpp:545 |
-| RW-TAPE-PRE-02 | write TZX fixture | (jnext-internal) | pass | test/rewind/rewind_test.cpp:546 |
-| RW-TAPE-PRE-03 | load_tzx (realtime) succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:552 |
-| RW-TAPE-01 | TZX realtime playback is live before snapshot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:553 |
-| RW-TAPE-02 | monotonic tape clock exactly restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:580 |
-| RW-TAPE-03 | post-restore clock advances by ~2 frames +-100 T | (jnext-internal) | pass | test/rewind/rewind_test.cpp:597 |
-| A1B-01 | no buffer with frames=0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:626 |
-| A1B-02 | rewind disabled with frames=0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:627 |
-| A1B-PRE-01 | buffer allocated live | (jnext-internal) | pass | test/rewind/rewind_test.cpp:631 |
-| A1B-03 | buffer empty until next frame | (jnext-internal) | pass | test/rewind/rewind_test.cpp:632 |
-| A1B-04 | snapshotting enabled by resize | (jnext-internal) | pass | test/rewind/rewind_test.cpp:633 |
-| A1B-05 | trace enabled by resize (step_back dependency) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:634 |
-| A1B-06 | snapshot taken at next frame start | (jnext-internal) | pass | test/rewind/rewind_test.cpp:638 |
-| A1B-07 | pause: no new snapshots while disabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:647 |
-| A1B-08 | pause: recorded history retained | (jnext-internal) | pass | test/rewind/rewind_test.cpp:649 |
-| A1B-09 | resume: snapshotting continues | (jnext-internal) | pass | test/rewind/rewind_test.cpp:655 |
-| A1B-10 | step_back works after live enable | (jnext-internal) | pass | test/rewind/rewind_test.cpp:659 |
-| A1B-11 | resize(0) frees the buffer | (jnext-internal) | pass | test/rewind/rewind_test.cpp:663 |
-| A1B-12 | resize(0) disables rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:664 |
-| SW-BND-00 | in-bounds write does not trip overflow | (jnext-internal) | pass | test/rewind/rewind_test.cpp:686 |
-| SW-BND-01 | write past capacity latches overflow flag | (jnext-internal) | pass | test/rewind/rewind_test.cpp:688 |
-| SW-BND-02 | overflowing write leaves adjacent bytes untouched | (jnext-internal) | pass | test/rewind/rewind_test.cpp:691 |
-| SW-BND-03 | position keeps counting intended stream offset | (jnext-internal) | pass | test/rewind/rewind_test.cpp:692 |
-| SW-BND-04 | measure mode never overflows | (jnext-internal) | pass | test/rewind/rewind_test.cpp:699 |
-| SR-BND-00 | in-bounds read does not trip flag | (jnext-internal) | pass | test/rewind/rewind_test.cpp:708 |
-| SR-BND-01 | read past end latches out_of_bounds flag | (jnext-internal) | pass | test/rewind/rewind_test.cpp:710 |
-| SR-BND-02 | out-of-bounds read returns zero, not adjacent memory | (jnext-internal) | pass | test/rewind/rewind_test.cpp:711 |
-| SENT-00 | exact-size save fills the buffer without overflow | (jnext-internal) | pass | test/rewind/rewind_test.cpp:740 |
-| SENT-OK-01 | pristine snapshot: load_state returns true | (jnext-internal) | pass | test/rewind/rewind_test.cpp:747 |
-| SENT-OK-02 | pristine snapshot: last_state_error is empty | (jnext-internal) | pass | test/rewind/rewind_test.cpp:748 |
-| SENT-CORRUPT-00 | mmu sentinel value occurs exactly once in the snapshot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:763 |
-| SENT-CORRUPT-01 | corrupted mmu sentinel: load_state returns false | (jnext-internal) | pass | test/rewind/rewind_test.cpp:769 |
-| SENT-CORRUPT-02 | corrupted mmu sentinel: error names subsystem 'mmu' | (jnext-internal) | pass | test/rewind/rewind_test.cpp:770 |
-| SENT-CORRUPT-03 | pristine reload after failed load succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:775 |
-| SENT-TRUNC-01 | truncated snapshot: load_state returns false | (jnext-internal) | pass | test/rewind/rewind_test.cpp:783 |
-| SENT-TRUNC-02 | truncated snapshot: failing subsystem is named | (jnext-internal) | pass | test/rewind/rewind_test.cpp:784 |
-| SENT-RESET-01 | a soft reset clears the failed-restore corruption flag | (jnext-internal) | pass | test/rewind/rewind_test.cpp:800 |
-| RB-FRAME-01 | undersized slot (simulated post-construction widening): the snapshot is dropped, not published | (jnext-internal) | pass | test/rewind/rewind_test.cpp:830 |
-| RB-FRAME-02 | exact-size slot still publishes normally: the size guard refuses only mismatched writes and is not sticky | (jnext-internal) | pass | test/rewind/rewind_test.cpp:838 |
-| RB-FRAME-03 | oversized slot (save_state shrank since construction) is refused too: the size claim would otherwise be a lie | (jnext-internal) | pass | test/rewind/rewind_test.cpp:847 |
-| RB-FRAME-04a | ring filled with 2 good snapshots | (jnext-internal) | pass | test/rewind/rewind_test.cpp:859 |
-| RB-FRAME-04 | failed write over full ring evicts exactly the destroyed oldest | (jnext-internal) | pass | test/rewind/rewind_test.cpp:862 |
-| RB-FRAME-05 | survivor is the second-oldest snapshot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:864 |
-| RB-FRAME-06 | failed snapshot is not published as newest | (jnext-internal) | pass | test/rewind/rewind_test.cpp:866 |
-| RB-SIZE-PRE-01 | precondition: port-0xFF log starts empty | (jnext-internal) | pass | test/rewind/rewind_test.cpp:901 |
-| RB-SIZE-PRE-02 | precondition: port-0xFF writes were logged | (jnext-internal) | pass | test/rewind/rewind_test.cpp:909 |
-| RB-SIZE-01 | snapshot size unchanged by port-0xFF writes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:913 |
-| RB-SIZE-02 | snapshot taken on a port-0xFF frame is published, not dropped | (jnext-internal) | pass | test/rewind/rewind_test.cpp:919 |
-| RB-SIZE-03 | port-0xFF log content survives the snapshot round-trip | (jnext-internal) | pass | test/rewind/rewind_test.cpp:933 |
-| RB-GEN-01 | a restore sets the load generation back to the slot's | (jnext-internal) | pass | test/rewind/rewind_test.cpp:951 |
-| RB-SIZE-04 | snapshot size unchanged by a queued auto-type sequence | (jnext-internal) | pass | test/rewind/rewind_test.cpp:972 |
-| RB-SIZE-05 | snapshot taken mid-auto-type is published, not dropped | (jnext-internal) | pass | test/rewind/rewind_test.cpp:977 |
-| RB-SIZE-06 | over-cap auto-type sequence still yields a constant-size snapshot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:988 |
-| RB-SIZE-06b | slot restores for the auto-type content row | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1019 |
-| RB-SIZE-07 | restored auto-type queue plays the correct key (row 1 col 3 = F) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1025 |
-| RB-SIZE-08 | restored auto-type queue does not press the row/col transpose (3,1) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1027 |
-| RB-SIZE-09 | snapshot size unchanged by bytes in flight in the UART RX FIFO | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1049 |
-| RB-SIZE-10 | snapshot taken with a non-empty UART FIFO is published, not dropped | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1054 |
-| RB-SIZE-10b | slot restores for the UART content row | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1064 |
-| RB-SIZE-11 | UART RX FIFO content and order survive the round-trip | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1069 |
-| SENT-CHAIN-PRE-01 | rewind buffer holds >= 2 real snapshots | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1095 |
-| SENT-CHAIN-00 | mmu sentinel corrupted in every stored slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1109 |
-| SENT-CHAIN-01 | step_back returns false on corrupted slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1114 |
-| SENT-CHAIN-02 | chain failure names subsystem 'mmu' | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1115 |
-| SENT-CHAIN-03 | rewind_to_frame returns false on corrupted slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1120 |
-| SENT-CHAIN-04 | rewind_to_cycle returns UINT64_MAX on corrupted slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1124 |
-| RWR-PRE-01 | RWR fixture: S0 is live when the frame-1 snapshot is taken | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1367 |
-| RWR-PRE-02 | RWR fixture: frame 3 left S1/S2 render history behind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1377 |
-| RWR-PRE-03 | RWR fixture: rewind_to_frame(1) succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1383 |
-| RWR-01 | palette entry restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1390 |
-| RWR-02 | Layer 2 scroll/clip/bank/enable/NR 0x70 restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1397 |
-| RWR-03 | sprite attributes and pattern RAM restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1406 |
-| RWR-04 | tilemap NR 0x6B restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1413 |
-| RWR-05 | ULA scroll NR 0x26/0x27/0x68 b2 restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1418 |
-| RWR-06 | Ula NR 0x43 b1-3 / NR 0x6B b4 selector mirrors restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1425 |
-| RWR-07 | attribute mux shows the restored VRAM | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1432 |
-| RWR-08 | stencil/blend/NR 0x14/ULA-clip rows read the restored registers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1456 |
-| RWR-09 | tilemap scroll rows read the restored registers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1460 |
-| RWR-10 | LoRes rows read the restored registers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1464 |
-| RWR-PRE-04 | RWR fixture: the snapshot-instant frame shows the S0 tilemap | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1478 |
-| RWR-11 | frame rendered by rewind_to_frame equals a fresh render of the snapshot instant | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1488 |
-| RWR-PRE-05 | RWR fixture: rewind_to_cycle to the frame-1 snapshot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1521 |
-| RWR-12 | rewind_to_cycle restores the Ula selector mirrors | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1533 |
-| RWR-PRE-06 | RWR fixture: OUT to port 0x5B ran, step_back(1) succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1554 |
-| RWR-13 | step_back over a port 0x5B write restores the pattern byte | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1561 |
-| RWR-14 | a guest soft reset keeps the rewind history and its live size | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1626 |
-| RWR-PRE-07 | RWR fixture: frame 1 is in the history | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1639 |
-| RWR-PRE-08 | RWR fixture: rewind_to_cycle into frame 1 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1641 |
-| RWR-15 | a guest soft reset replayed by rewind_to_cycle does not end the replay | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1648 |
-| RWR-PRE-09 | RWR fixture: +3 committed, rewind_to_frame(1) succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1669 |
-| RWR-16 | a restore puts the /INT width gate back on the EFFECTIVE timing, in both copies | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1680 |
-| S3-DECL-CLOCK | Clock declares exactly the two fields the §17.1 golden carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1862 |
-| S3-WIDTH-CLOCK | Clock's declaration is 12 bytes wide — block 0 of the 2 292 965-byte stream | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1865 |
-| S3-DECL-RAM | Ram declares a u64 count prefix and the 2 MB blob — and the blob's length comes from the DECLARATION, which is what makes the prefix un-obeyable | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1881 |
-| S3-WIDTH-RAM | Ram's declaration is 2 097 160 bytes wide — block 1 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1885 |
-| S3-DECL-MMU | Mmu declares 45 fields in the order the golden carries them, ending with both BRAM blobs and the attribute-mux cursor | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1937 |
-| S3-WIDTH-MMU | Mmu's declaration is 24 634 bytes wide — block 2 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1941 |
-| S3-DECL-NEXTREG | NextReg declares the select latch, the 256-byte register file as a `bytes` (not a blob — under the §6.1 8 KB line) and the five appended scalars | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1962 |
-| S3-WIDTH-NEXTREG | NextReg's declaration is 262 bytes wide — block 3 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1966 |
-| S3-DECL-CPU | Z80Cpu declares the register file, MEMPTR/Q, and the three §9.5(3) values that are relative to the FUSE T-state counter | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1994 |
-| S3-WIDTH-CPU | Z80Cpu's declaration is 45 bytes wide — block 4 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1998 |
-| S3-DECL-IM2 | Im2Controller declares 14 named devices x 9 fields then the decoder / pulse / NR 0xC0 / DMA-delay scalars — 144 declarations, one per field, not 126 per device | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2053 |
-| S3-WIDTH-IM2 | Im2Controller's state declaration is 149 bytes wide — block 5 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2058 |
-| S3-DECL-IM2-TIMING | Im2Controller's SECOND declaration (§9.5(2)) is the GH #265 timing block, which travels in `int_timing` at the end of the Emulator stream and not in block 5 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2093 |
-| S3-WIDTH-IM2-TIMING | the IM2 timing declaration is 589 bytes wide — the first 589 of block 31's 609, the remaining 20 being the CPU's /INT pair and the CTC's chained triggers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2097 |
-| S3-KEYS-UNIQUE | no declaration names the same key twice — a duplicate is invisible to the byte stream, which ignores names, and silently drops a field from the JSON encoding, which does not | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2128 |
-| S5-DECL-CTC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2240 |
-| S5-WIDTH-CTC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2243 |
-| S5-DECL-CTC-TIMING | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2262 |
-| S5-WIDTH-CTC-TIMING | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2265 |
-| S5-DECL-DMA | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2316 |
-| S5-WIDTH-DMA | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2319 |
-| S5-DECL-SPI | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2337 |
-| S5-WIDTH-SPI | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2340 |
-| S5-DECL-I2C | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2368 |
-| S5-WIDTH-I2C | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2371 |
-| S5-DECL-RTC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2392 |
-| S5-WIDTH-RTC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2395 |
-| S5-DECL-UART | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2501 |
-| S5-WIDTH-UART | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2504 |
-| S5-DECL-DIVMMC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2544 |
-| S5-WIDTH-DIVMMC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measured — which since S5b is the STANDALONE block width, the machine-level one being 17 because the window became a reference (§17.0) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2547 |
-| S5-DECL-BEEPER | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2567 |
-| S5-WIDTH-BEEPER | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2570 |
-| S5-DECL-TURBOSOUND | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2669 |
-| S5-WIDTH-TURBOSOUND | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2672 |
-| S5-DECL-DAC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2688 |
-| S5-WIDTH-DAC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2691 |
-| S5-DECL-I2S | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2708 |
-| S5-WIDTH-I2S | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2711 |
-| S5-DECL-NMI | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2754 |
-| S5-WIDTH-NMI | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2757 |
-| S5-DECL-MULTIFACE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2787 |
-| S5-WIDTH-MULTIFACE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2790 |
-| S5-DECL-KEYBOARD | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2902 |
-| S5-WIDTH-KEYBOARD | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures, plus the 11 bytes of the guest's keyboard view that GH #450 appended | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2905 |
-| S5-DECL-JOYSTICK | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2926 |
-| S5-WIDTH-JOYSTICK | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2929 |
-| S5-DECL-MOUSE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2950 |
-| S5-WIDTH-MOUSE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2953 |
-| S5-DECL-MD6 | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2976 |
-| S5-WIDTH-MD6 | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2979 |
-| S5-DECL-MEMBRANE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3001 |
-| S5-WIDTH-MEMBRANE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3004 |
-| S5-DECL-IOMODE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3025 |
-| S5-WIDTH-IOMODE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3028 |
-| S5-KEYS-UNIQUE | no S5 declaration names the same key twice — a duplicate is invisible to the byte stream, which ignores names, and silently drops a field from the JSON encoding, which does not | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3059 |
-| S5-INPUT-BLOCK | the six input declarations sum to the 450 bytes the golden's sentinel map measures for the input block, plus the 11 bytes of the guest's keyboard view that GH #450 appended | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3083 |
-| S3-RAM-PREFIX | a RAM count prefix twelve times the real size neither moves the stream nor reaches past the buffer: the restore takes its length from the DECLARATION and the content is intact | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3134 |
-| S3-RAM-PREFIX-SANE | …and an honest save is still exactly the prefix plus the RAM | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3138 |
-| S3-ENUM-OFFSET | the machine_type ordinal really is at stream offset 28 — the row below is meaningless if it corrupts some other field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3163 |
-| S3-ENUM-MMU | an out-of-range machine_type ordinal leaves the field at its pre-load value instead of casting garbage into it, and the stream still ends exactly where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3173 |
-| S3-MMU-TIMING-PAIR | a deferred NR 0x03 timing commit — pending != effective — survives a full Emulator save/load, which is the case the retired old-format fallback would have collapsed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3206 |
-| S3-MMU-BRAM-PTR | a byte written into the bank-7 BRAM is readable through the restored slot: the single rebuild_ptr() pass runs AFTER the blobs land, which the mid-stream call never did | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3237 |
-| S3-MMU-NR8F-OFFSET | nr_8f_mode is at stream offset 32 and machine_type at 28 — the row below is meaningless if it pokes some other field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3268 |
-| S3-MMU-NR8F-MASK | a restored NR 0x8F keeps only its 2 declared bits (zxnext.vhd:3787-3794), its neighbour is untouched and the stream still ends where it should | zxnext.vhd:3787-3794 | pass | test/rewind/rewind_test.cpp:3278 |
-| S3-NEXTREG-NR03-OFFSET | the two NR 0x03 sub-fields are at stream offsets 259 and 261, behind the 256-byte register file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3302 |
-| S3-NEXTREG-NR03-MASK | both restored NR 0x03 sub-fields keep only their 3 declared bits (zxnext.vhd:1099, :1103) and the select latch is intact | zxnext.vhd:1099,1103 | pass | test/rewind/rewind_test.cpp:3312 |
-| S3-CPU-INT-WINDOW | the /INT window's first boundary is restored RELATIVE to whatever the T-state counter now is (0x50 behind it), not as the absolute stamp it was saved from | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3346 |
-| S4-DECL-PALETTE | PaletteManager declares the four RGB333 stores, the 14 scalars and the Layer 2 priority store in the order the golden carries them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3419 |
-| S4-WIDTH-PALETTE | PaletteManager's declaration is 4 622 bytes wide — block 6 of the 2 292 965-byte stream | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3423 |
-| S4-DECL-LAYER2 | Layer2 declares its 11 registers in stream order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3446 |
-| S4-WIDTH-LAYER2 | Layer2's declaration is 12 bytes wide — block 7 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3448 |
-| S4-DECL-SPRITES | SpriteEngine declares the 640-byte attribute file, the 16 KB pattern blob and the 15 control bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3480 |
-| S4-WIDTH-SPRITES | SpriteEngine's declaration is 17 039 bytes wide — block 8 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3483 |
-| S4-DECL-TILEMAP | Tilemap declares its 19 fields, both decoded base addresses included, in stream order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3513 |
-| S4-WIDTH-TILEMAP | Tilemap's declaration is 26 bytes wide — block 9 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3516 |
-| S4-DECL-BLOCK10 | Renderer's declaration nests the ULA's, then its own eight fields, then LoRes's four — the order the golden carries block 10 in | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3582 |
-| S4-WIDTH-BLOCK10 | the nested declaration is 3 688 bytes wide — block 10, of which the ULA is 3 357 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3586 |
-| S4-DECL-ULA-PREFIX | Ula::describe_state walked standalone is EXACTLY the first 25 fields / 3 357 bytes of block 10 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3602 |
-| S4-DECL-LORES-SUFFIX | Lores::describe_state walked standalone is EXACTLY the last four fields of block 10 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3613 |
-| S4-DECL-COPPER | Copper declares the 2 KB instruction RAM as one array, then the seven control fields | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3636 |
-| S4-WIDTH-COPPER | Copper's declaration is 2 057 bytes wide — block 11 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3639 |
-| S4-KEYS-UNIQUE | no video declaration names the same key twice, block 10's three-way nesting included | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3668 |
-| S4-PALETTE-ARGB | the post-walk ARGB rebuild covers all FOUR palettes in BOTH banks, and the u16 entries land little-endian at 2*(bank*256 + index) — which is what makes the ten-loop collapse into five `bytes` a transcription | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3753 |
-| S4-PALETTE-TARGET-OFFSET | target_palette really is the byte at offset 4 098, between the control byte and the auto-increment flag and equal to neither — the row below is meaningless if it corrupts another field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3770 |
-| S4-PALETTE-TARGET | an out-of-range target_palette ordinal is REFUSED: the field keeps its pre-load target instead of being cast in, the plain control byte beside it IS restored, and the stream still ends exactly where it should — the byte was consumed either way | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3788 |
-| S4-PALETTE-PRIORITY-OFFSET | the layer2 priority bytes start at offset 4 110 (bank-major, 256 per bank, ending the 4 622-byte save): an NR 0x44 priority write to bank 0 entry 0x30 is the byte at 4 110 + 0x30 and no neighbour | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3808 |
-| S4-ULA-MODE-OFFSET | screen_mode really is at offset 269 of a 3 357-byte ULA save, and is 6 where the raw port-0xFF register beside it is 7 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3834 |
-| S4-ULA-MODE | ordinal 4 is a HOLE in TimexScreenMode and is refused: the enum field keeps its pre-load mode instead of becoming a state the ULA cannot be in, the plain register byte beside it IS restored, and the stream still ends where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3849 |
-| S4-ULA-LOG-COUNT-OFFSET | the port-0xFF log count really is the u16 at offset 283, and one logged change reads as 1 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3874 |
-| S4-ULA-LOG-COUNT | a forged count 64x the capacity is clamped to the capacity declared IN THE CODE and the stream still ends where it should: the entry loop is bounded by the declaration, never by the file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3883 |
-| S4-LORES-NR6A-OFFSET | lores_nr6a really is the fourth and last byte of a LoRes save | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3902 |
-| S4-LORES-NR6A-MASK | NR $6A is restored masked to its six hardware bits (zxnext.vhd:5032-5034), so a stream carrying bits 7:6 cannot put the register in a state a live write could not | zxnext.vhd:5032-5034 | pass | test/rewind/rewind_test.cpp:3909 |
-| S4-BLEND-OFFSET | blend_mode really is at offset 3 363 — after the ULA's 3 357 bytes and the Renderer's first six | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3921 |
-| S4-BLEND-MASK | NR 0x68 bits 6:5 are restored masked to two bits, so a stream carrying more cannot select a blend mode the VHDL has no encoding for | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3930 |
-| S4-SPRITE-ATTR-ORDER | the 640-byte attribute file is sprite-major, five bytes each: sprite 37's five bytes are at offsets 185-189, exactly where the pre-migration 128-iteration loop put them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3955 |
-| S4-ULA-CURSOR-RESET | a restore restarts the port-0xFF replay cursor at the top of the RESTORED log: replaying line 7 applies the entry the stream carried, instead of finding a cursor left past the end by the log the object had before the load | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3993 |
-| S4-ULA-PERLINE-CLEARED | a restore deactivates the per-line control snapshot, so a render taken before the next frame initialises it reads the RESTORED live registers and not the pre-restore frame's rows | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4018 |
-| S4-RENDERER-NESTED-OFFSET | lores_nr6a really is the last byte of a Renderer save — the row below is meaningless if it corrupts another field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4039 |
-| S4-RENDERER-NESTED-AFTER-LOAD | a restore driven through Renderer — the path Emulator::load_state uses — runs BOTH nested subsystems' post-walk work: LoRes's NR $6A mask and the ULA's per-line deactivation, neither of which the nested walk itself performs | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4050 |
-| S4-COPPER-INSTR-ORDER | the 2 048-byte instruction array is instruction-major and little-endian within each 16-bit word: instruction 10 lands at byte offsets 0x14/0x15, exactly where 1 024 write_u16 calls put it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4070 |
-| S4-COPPER-MODE-OFFSET | mode really is at offset 2 050, straight after the array and the 16-bit PC | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4077 |
-| S4-COPPER-MODE | an out-of-range NR 0x62 mode ordinal is refused: the field keeps its pre-load mode instead of taking one the two-bit register cannot hold, and the stream still ends where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4087 |
-| S5-DMA-OFFSET | byte 32 of Dma's 43-byte block is turbo_ — the field the next row pokes, proved by an honest save of a known value | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4172 |
-| S5-DMA-TURBO | an over-wide turbo_ in the stream restores masked to its two VHDL bits instead of carrying six bits the hardware has no encoding for | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4183 |
-| S5-DMA-TIMER | an over-wide dma_timer_s_ restores masked to the 14 bits device/dma.vhd's burst prescaler actually has | device/dma.vhd | pass | test/rewind/rewind_test.cpp:4187 |
-| S5-DMA-TIMER-OFFSET | …and the restore consumed exactly the declared 43 bytes, so the two pokes landed inside Dma's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4190 |
-| S5-MD6-OFFSET | bytes 4, 6 and 8 of Md6ConnectorX2's 16-byte block are the two latches and the select counter — the three fields the next row pokes, proved by an honest save of three known values | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4203 |
-| S5-MD6-LATCH | two over-wide latches restore masked to the 12 bits the MD 6-button word has, which a re-save reads straight back out | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4222 |
-| S5-MD6-STATE | an over-wide select counter restores masked to the 9 bits md6_connector_x2.vhd's FSM counter has | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4226 |
-| S5-MD6-POS | …and the restore consumed exactly the declared 16 bytes, so the three pokes landed inside Md6's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4229 |
-| S5-MEMBRANE-OFFSET | bytes 71-72 of MembraneStick's 73-byte block are keymap_addr_ — the field the next row pokes, at the end of a block whose length is itself the proof that nothing follows it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4239 |
-| S5-MEMBRANE-ADDR | an over-wide keymap_addr_ restores masked to the 9 bits NR 0x28 gives it, which a re-save reads straight back out | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4251 |
-| S5-MEMBRANE-ADDR-POS | …and the restore consumed exactly the declared 73 bytes, so the poke landed inside MembraneStick's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4254 |
-| S5-DIVMMC-OFFSET | byte 0 of DivMmc's 131 089-byte block is the composite `enabled_` and bytes 131 087-131 088 are the two split levers — the exact firmware-reset shape, saved honestly | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4275 |
-| S5-DIVMMC-LEVERS | the two split enable levers restore from the STREAM, not from the composite byte: a snapshot holding port_io=1 / nr_0a_4=0 with enabled=0 survives, which deriving either from the composite would lose | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4288 |
-| S5-DIVMMC-LEVERS-POS | …and the restore consumed exactly the declared 131 089 bytes, 128 KB window included | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4294 |
-| S5-I2C-OFFSET | bytes 11 and 12 of I2cController's 13-byte block are the two pi_i2c1 line inputs — the fields the next row restores, proved by an honest save of a known pair | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4311 |
-| S5-I2C-PI | both pi_i2c1 line inputs restore from the stream, over the opposite live values — so a rewind replays the Pi's lines rather than keeping the ones the run had reached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4323 |
-| S5-I2C-PI-POS | …and the restore consumed exactly the declared 13 bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4328 |
-| S5-KB-COUNT-OFFSET | bytes 12-15 of Keyboard's 353-byte block are the auto-type queue count — the field the next row forges, proved by an honest save of a two-key queue | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4349 |
-| S5-KB-COUNT | a forged auto-type count of 2^30 restores clamped to the sixteen slots the stream actually carries — the rebuild loop is bounded by the DECLARED capacity, so it can neither index past the staging array nor resize the block | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4365 |
-| S5-KB-COUNT-POS | …and the restore consumed exactly the declared 353 bytes, so the forged count did not move the stream either | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4370 |
-| S5-KB-SAVE-PURE | saving twice gives byte-identical buffers and the queue still holds its two keys — one declaration serves both directions, so the write path's rebuild must put back exactly what it took and never mutate the machine being saved | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4389 |
-| JNSX-S5B-LENGTHS | the stream is 2 154 900 bytes on the Next and 2 163 092 on 48K/128K/+3 — every deliberate change to the byte stream is a number in a test rather than a fact in a commit message, and the machine-dependence is exactly the Multiface array and nothing else. S5b re-baselined it to 2 153 701 / 2 161 893 by removing the duplicated RAM; S6 adds 594: mf_type (1 byte, §10.2 P13) and the SD card's SPI FSM (589 + its 4-byte sentinel, §10.2 P1); GH #290 adds 1: the tail block's cvc_offset_delta; GH #450 adds 11: the keyboard's guest view (held flag, extended copy, eight matrix rows); GH #505 adds 593: the second SD card's SPI FSM (589 + its 4-byte sentinel). All five deltas are machine-independent, so the 8 192-byte gap between the two numbers is unchanged | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4455 |
-| S5B-DIVMMC-BLOCK | a DivMmc the Emulator backed writes 17 bytes, not 131 089: the 128 KB window is a REFERENCE to Ram page 16, which the same stream's `ram` block carries seventeen blocks earlier | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4489 |
-| S5B-DIVMMC-STANDALONE | …while one nothing backed still writes all 131 089, because a stream with no `ram` block in it has nowhere to point and the private array is then the only copy of itself | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4493 |
-| S5B-DIVMMC-RESTORE | DivMMC RAM still arrives after a whole-machine restore, now through the `ram` block rather than its own copy — and the stream is consumed exactly, so dropping 128 KB from the write side did not leave the read side reading them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4526 |
-| S5B-MF-NEXT-ABSENT | on the Next the Multiface RAM member is ABSENT, not zero-filled: the declaration drops it and the block is 8 bytes of flip-flops plus S6's mf_type byte, because the live 8 KB is Ram page 0x0B and the private array it used to write was dead zeros | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4562 |
-| S5B-MF-STANDALONE-PRESENT | …and on 48K/128K/+3, and in a standalone round-trip, it is still all 8 201 bytes, because with no backing the private array is the real store (§4.3(2)) — the one place the stream's width depends on the machine type | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4569 |
-| S5B-MF-NEXT-RESTORE | Multiface RAM still arrives on the Next after a whole-machine restore, through Ram page 0x0B — the window the device reads and writes is the page the `ram` block carries, which is why the private array was droppable in the first place | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4599 |
-| S5B-WARMSTART-VERSION | the warm-start state-stream format version is 5: S5b changed the shape of Emulator::save_state, S6 changed it again (mf_type + the SD FSM), GH #290 again (the tail's cvc_offset_delta) and GH #505 again (the second SD card's FSM), and a cache recorded by an older jnext would otherwise be read field-for-field wrong | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4616 |
-| S6-EMU-CMD18-MID | could not create a scratch SD image | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4644 |
-| S6-EMU-MF-TYPE | NR 0x0A's mf_type "10" survives a whole-machine save: the pre-S6 rebuild from the three mode booleans returned "01", so a guest could watch a bit it had written change under a save (design §10.2 P13, defect D2) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4769 |
-| S6-DECL-EMULATOR | the Emulator's own scalar declaration walks exactly the fields the golden's "emulator" block carries, in that order — the two hand-written values that open the block (the frame origin and the §9.5(3) monotonic fold) are not in it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4828 |
-| S6-WIDTH-EMULATOR | …and is exactly 56 bytes wide, which with the 8-byte frame origin and the 8-byte monotonic fold is the 72-byte block the pre-migration golden measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4833 |
-| S6-WIDTH-EMULATOR-BLOCKS | the four companion blocks measure 8 / 1 / 8 / 3 bytes (the tail's third is GH #290's cvc_offset_delta): one declaration per SENTINEL-DELIMITED block, because one describe_state cannot put its fields in two blocks (§9.5(2)) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4843 |
-| S6-EMU-SCALARS-01 | every field of all five Emulator blocks round-trips through the declaration: a stream of all-0x01 is already normalised, so a walk that reads it into the members and writes them back must reproduce it exactly, and a field bound to a local instead of its member writes a zero where a one belongs | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4911 |
-| S6-EMU-SCALARS-02 | the ULA interrupt enable is RE-DERIVED from the restored NR 0x22 bit after the walk: it is not a field, so nothing in the declaration carries it, and a restore that skipped the re-derivation would leave the machine taking frame interrupts the snapshot had switched off | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4946 |
-| S6-P7-ADVANCE-01 | a machine paused mid-frame is ADVANCED to the next frame boundary rather than refused: the save always works, and the cost — up to one frame past where the user paused — is the documented trade (design §10.2 P7, owner decision 2026-09-23) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5004 |
-| S6-P7-HISTORY-01 | …and the advance does NOT wipe the frame's per-scanline change log: the scroll written at the top of the frame is still replayed at row 0 and the one written from the paused machine at the bottom. Re-running begin_new_frame() mid-frame is the Task 40 defect that flattened beast.nex's Copper sky, and a save that quietly destroyed a frame's raster history would be worse than one that refused | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5012 |
-| S6-P7-DEBUG-INTACT | …and the debugging session is left exactly as it was found: still paused, still active, with its pending one-shot breakpoint intact — which resume()+pause() would have destroyed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5022 |
-| S6-P7-ADVANCE-02 | a machine already at a frame boundary is not advanced, and the call reports that it did nothing — the running-machine case (the save queued to the next begin_new_frame()) lands here | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5033 |
-| JNS-RT-01 | save_jns writes a non-empty archive from a machine that has been running | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5127 |
-| JNS-RT-02 | a machine restored from a .jns produces a BYTE-IDENTICAL binary state stream to the machine it was saved from — the complete oracle for the assembler's field coverage | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5154 |
-| JNS-RT-02b | …and RAM REALLY TRAVELLED: bytes the destination machine never wrote are present after the restore. The stream comparison above cannot see this on its own — both fixtures are built by the same helper, so their RAM agrees before the load, and dropping the blob read left every row green until a rendered frame caught it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5166 |
-| JNS-RT-03 | --snapshot-compression off round-trips IDENTICALLY, and the archive is larger than the deflated one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5199 |
-| JNS-RT-04 | …and it really is uncompressed: the STORED archive is bigger than the DEFLATE one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5205 |
-| JNS-RT-09 | the archive declares EXACTLY the expected subsystem members (`joy_uart` is absent here and that is correct — it is written only when a cable is attached, §9.5(5)) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5259 |
-| JNS-RT-10 | …and every one of them is actually in the archive: the writer cannot declare a subsystem it did not write | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5279 |
-| JNS-RT-13 | capture.frame counts the MACHINE's frames even with the rewind ring disabled — 120 were run. Built from `frame_num_` it would read 0 here, and every save made with rewind off (the default) would carry a provenance field a reader cannot tell from a real frame 0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5321 |
-| JNS-RT-05 | a machine that was NEVER loaded differs from the source — without this, JNS-RT-02 would pass just as happily against a comparison that had stopped discriminating | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5341 |
-| JNS-RT-06 | could not build the forged archive — state/esxdos_hostfs.json is not in the file any more, so this row is not testing what it says (fix it, do not delete it) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5441 |
-| JNS-RT-07 | (not reached) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5445 |
-| JNS-RT-11 | a `mem/ram.bin` 1 024 bytes SHORT of what the declaration says is REFUSED even when the MANIFEST agrees with it — not truncated, not zero-padded. That is the cross-version case: a file whose archive and manifest are perfectly consistent with each other and disagree with this build's declaration | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5598 |
-| JNS-RT-12 | …and the refusal NAMES the member, so a user can tell a corrupt file from an unsupported one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5604 |
-| GH289-24 | a .jns whose auto-type row1 is 0x40000000 is REFUSED by Emulator::load_jns, and the coordinate never becomes a queued key — the count beside it was already guarded, the values were not, and this is the value that wrote past Keyboard::matrix_ | membrane.vhd:38-39 | pass | test/rewind/rewind_test.cpp:5712 |
-| GH289-25 | …and the refusal NAMES the member AND the field, so a user can tell a corrupt snapshot from an unsupported one — a message that said only "invalid snapshot" would pass a refused-or-not row and tell nobody anything | membrane.vhd:38-39 | pass | test/rewind/rewind_test.cpp:5717 |
-| GH289-30 | all four CPU-speed divisors (8, 4, 2, 1) still restore — the legal set is the image of cpu_speed_divisor() over CpuSpeed, not a literal, so this is the arm a reject-everything check fails | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5798 |
-| GH289-31 | a snapshot CPU divisor of 0 is REFUSED — it is the right-hand side of Emulator::rebase_fuse_tstates_'s division, so it was SIGFPE on the next frame boundary | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5811 |
-| GH289-32 | a CPU divisor of 3 is REFUSED — in range for an i32, and the divisor of no CPU speed the hardware has | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5815 |
-| GH289-33 | a NEGATIVE CPU divisor is REFUSED — cast to uint64_t it is 2^64-8, which does not crash: every division answers 0 and the T-state counter silently stops advancing | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5818 |
-| GH289-34 | bytes 8-11 of Clock's 12-byte block are cpu_divisor — the field the next row forges, proved by an honest save of a known speed | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5856 |
-| GH289-35 | a forged divisor in the REWIND stream leaves the divisor at its pre-load value, still consumes the declared 12 bytes, and is NAMED in the log — a rewind has no return value to refuse with, so an unlogged drop would be invisible | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5874 |
-| GH289-40 | both UART channels (0 and 1) still restore, over the opposite live value — the arm a reject-everything check fails, and the one that proves the selector really travels | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5908 |
-| GH289-41 | a snapshot UART selector of 2 is REFUSED — it indexes channels_, which has two elements, so the guest's next port 0x143B/0x153B/0x163B access read past the array | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5915 |
-| GH289-42 | a NEGATIVE UART selector is REFUSED — the other side of the same one-bit range, and nothing the guest can write reaches it (the 0x153B arm masks to bit 6) | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5919 |
-| GH289-43 | the 0x40000000 shape from the issue report is REFUSED here too — the same class of value in the same kind of field | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5923 |
-| GH289-44 | bytes 0-3 of Uart's block are the channel selector — the field the next row forges, proved by an honest save with channel 1 selected | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5959 |
-| GH289-45 | a forged selector in the REWIND stream leaves the selector at its pre-load value, still consumes the whole declared block (so the ninety per-channel fields behind it do not desync), and is NAMED in the log | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5978 |
-| GH289-60 | register pointers 0 and 63 — both ends of the DS1307 map — still restore over a different live pointer; the arm a reject-everything check fails, and the one an off-by-one `>= 63` bound would fail too | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6024 |
-| GH289-61 | a register pointer of 64 is REFUSED — one past the 64-entry regs_ array, whose extent IS the bound | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6032 |
-| GH289-62 | a register pointer of 200 is REFUSED — the reviewer's proof-of-concept value, which wrote 136 bytes past regs_ on the next RTC write and read past it on the next RTC read | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6035 |
-| GH289-63 | the widest value a u8 can carry is REFUSED — the type's own range is 0..255 and the array's is 0..63, which is the whole defect in one sentence | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6039 |
-| GH289-64 | byte 0 of I2cRtc's 69-byte block is the register pointer — the field the next row forges, proved by an honest save of a known pointer | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6075 |
-| GH289-65 | a forged pointer in the REWIND stream leaves it at its pre-load value, still consumes the declared 69 bytes so the 64 register bytes behind it do not desync, and is NAMED in the log | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6093 |
-| GH289-46 | Emulator::load_jns REFUSES a .jns whose state/clock.json carries a CPU divisor of 0, whose state/uart.json carries a selector of 2, or whose state/rtc.json carries a register pointer of 200 — each refusal naming its own member AND field, which proves all three subsystems are really visited; the direct-declaration rows above cannot show that | zxnext.vhd:1299-1300,5817, uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:6196 |
-| JNS-RT-16 | an esxDOS handle open INSIDE the sandbox survives a .jns round trip and is genuinely USABLE: reading one byte through the restored handle returns the byte at the offset the saved machine had reached. The file's byte at offset N is N, so that single value says which file was reopened AND where in it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6307 |
-| JNS-RT-20 | the fixture really attaches a cable, really delivers bytes through the mux, and stops with a REMAINDER still to send — without all three the row below asserts nothing, which is how this path went six stages with no coverage at all | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6421 |
-| JNS-RT-21 | …and the RESTORED cable delivers the CONTINUATION byte through the mux into the UART — the file's byte at index N is N, so the value proves the cursor travelled and the source is still live. A source that silently rewound would deliver 0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6463 |
-| JNS-RT-17 | a preview is DECLARED in the manifest (present, width, height) and the meta/preview.png member is really in the archive — §10.2 P5's declared-rather-than-merely-present rule, so a reader can size it without inflating it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6519 |
-| JNS-RT-18 | …and the bytes come back BYTE-FOR-BYTE on load. meta/ is an OPEN namespace, so a writer that silently dropped the preview would produce a file every reader accepts — nothing else in the tree would ever have complained | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6538 |
-| JNS-RT-19 | no preview supplied means no member and nothing declared — legal and silent. Without this the two rows above would pass against a writer that always emitted one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6567 |
-| JNS-RT-14 | a .jns that does not list a subsystem still LOADS — §12.4 says that is a deliberate omission by the writer, not a broken file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6655 |
-| JNS-RT-15 | …and it WARNS, naming the subsystem: it has been left at its power-on defaults, which is a real difference from the machine the file came from and must not be silent | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6658 |
-| JNS-RT-08a | the fixture really is paused MID-FRAME before the save — without this the row below asserts nothing | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6686 |
-| JNS-RT-08 | a .jns save ADVANCES a mid-frame machine to a frame boundary and REPORTS that it did (§10.2 P7's always-advance, never-refuse rule): no unavailable menu item, no failure mode, and the caller can tell the user once | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6696 |
-| S6-EMU-TAPE-01 | a .tap attached by a relative name records an ABSOLUTE path and the digest of THAT file, whatever the working directory is at save time (GH #401) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6850 |
-| S6-EMU-TAPE-02 | the same through load_tzx, which installs the tape by move assignment | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6855 |
-| S6-EMU-TAPE-03 | the same through load_wav | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6859 |
-| S6-EMU-TAPE-04 | the archive loaded with a working directory that does NOT hold the tape (the tape still at its recorded path) raises no tape warning | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6878 |
-| S6-EMU-TAPE-05 | with the tape gone, a STRICT load still succeeds (§10.2 P4) and raises exactly one tape warning that names the full recorded path | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6888 |
-| S6-EMU-TAPE-06 | a file from a version that recorded only the file name (a bare name) loaded with the tape in the working directory raises no tape warning: old files keep loading as today | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6899 |
-| S6-EMU-TAPE-07 | the same legacy file loaded from a directory WITHOUT the tape warns, naming 'game.tap' | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6907 |
-| S6-EMU-TAPE-08 | absolute_host_path keeps non-ASCII UTF-8 bytes exact: absolute, starting with the working directory, ending with the original name in native separators | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6921 |
-| S6-EMU-TAPE-09 | a real-time TAP saved mid-DATA of its second block (found by measuring the deck) restores into a fresh machine with the deck at the same place: 400 frames later the state streams and decks are identical and the program has loaded every block | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7270 |
-| S6-EMU-TAPE-10 | the same for a real-time TZX saved mid-DATA of its second block: the player's pointers, edge time and counters come back, and the continuation is identical to the uninterrupted machine's | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7291 |
-| S6-EMU-TAPE-11 | a WAV deck playing for 90 frames restores playing from the same sample instant: 120 frames later the streams and decks are identical (the playback start travels as a distance from the saved clock) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7311 |
-| S6-EMU-TAPE-12 | a fast TAP saved after its first block restores with the cursor on the second: the next traps serve blocks 2 and 3 into RAM exactly as the uninterrupted machine's do | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7327 |
-| S6-EMU-TAPE-13 | a real-time deck held at a gap (auto play on, the program not listening) restores held with the poll detector as it was: after the program polls again both machines resume on the same read, load the next block and stay identical | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7348 |
-| S6-EMU-TAPE-14 | a snapshot saved with auto play OFF, loaded by a session with it ON, leaves the session's auto play ON (machine setting and config): a .jns restores the machine and the tape position, never a setting | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7373 |
-| S6-EMU-TAPE-15 | the mirror: saved ON, loaded by a session with it OFF, it stays OFF | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7377 |
-| S6-EMU-TAPE-16 | a fast TAP saved two frames after load_tap (the typist waiting for BASIC) restores a machine that types LOAD "" at the same moment: 300 frames later, with the first block trapped on both, the streams are identical; and one saved after the typing was done restores a typist that stays idle | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7405 |
-| S6-EMU-TAPE-17 | a tape file edited after the save is NOT reattached (its digest differs): the load succeeds with exactly one tape warning saying it changed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7436 |
-| S6-EMU-TAPE-18 | a state/tape.json whose block index is past the tape (999 of 3) is refused by the deck: the load succeeds, exactly one warning saying the position is not valid, nothing attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7462 |
-| S6-EMU-TAPE-24 | a state/tape.json that is not JSON never refuses the load: exactly one warning saying the position could not be read, nothing attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7465 |
-| S6-EMU-TAPE-19 | an older file (a tape in the manifest, no tape member) loads with exactly one warning saying it does not record where the tape was, and the tape is NOT attached at its start | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7468 |
-| S6-EMU-TAPE-20 | an older file whose tape is also missing raises exactly ONE tape warning, the container's, naming the path | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7484 |
-| S6-EMU-TAPE-21 | a tape extracted from a .zip is recorded by its archive and member: with the extracted copy deleted, a fresh load re-extracts it from the archive (a different scratch path), verifies the digest, attaches at the same position and warns nothing | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7516 |
-| S6-EMU-TAPE-22 | with the archive gone the load succeeds with exactly one warning naming the archive and the member, and nothing is attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7529 |
-| S6-EMU-TAPE-23 | a snapshot whose tape cannot be reattached leaves the deck already in the machine exactly as it was (same tape, same block, same mode) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7546 |
-| S6-EMU-TAPE-25 | state/tape.json is written, and listed in the manifest's subsystems, only when a tape is attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7570 |
-| S6-EMU-TAPE-26 | a real-time TAP saved mid-block and loaded in a FAST session keeps playing in real time to the end of that block, hands over to fast loading at the gap, and the ROM's third LD-BYTES is served by the trap: every block is whole in RAM and the program finishes (no block cut, none repeated) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7637 |
-| S6-EMU-TAPE-27 | a deck saved held at a gap and loaded in a fast session is fast at once, before the same block, and the next LD-BYTES is served by the trap with that block's bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7651 |
-| S6-EMU-TAPE-28 | a fast TAP saved between blocks and loaded in a real-time session with auto play ON starts HELD before the next block; the program's polling resumes it and the remaining blocks load in real time | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7662 |
-| S6-EMU-TAPE-30 | the same with auto play OFF: the deck is PLAYING the next block's pilot right after the load, auto play is still off, and the program loads the remaining blocks | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7671 |
-| S6-EMU-TAPE-29 | a fast TZX saved after its first block and loaded in a real-time session starts held at the recorded fast position (the second block, offset 217, not the start of the tape) and loads the remaining blocks | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7683 |
-| S6-EMU-TAPE-31 | a deck saved held, loaded by a session with auto play OFF, is resumed at once (a held deck must not stay stopped for ever), auto play stays off, and the block loads | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7696 |
-| S6-EMU-TAPE-32 | a TZX stopped at a stop block (saved with auto play off), loaded by a session with auto play ON, is held there and resumes when the program polls: the next block loads | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7707 |
-| S6-EMU-TAPE-33 | the poll run is restored when the snapshot's auto play setting equals the session's (the control, saved ON, loaded ON: polling) and reset when it differs (saved OFF, loaded ON: not polling) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7722 |
-| S6-EMU-TAPE-34 | a real-time snapshot loaded in a FAST session and then recorded to RZX keeps playing in real time (the pending switch to fast loading is cancelled, the traps being off): every block lands in RAM and the deck never turns fast, and the log says so (one line when the recording cancels the switch) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7768 |
-| S6-EMU-TAPE-35 | the same when the recording is already running at the load (--load x.jns --rzx-record): the restore suspends the traps itself and the deck stays real time to the end | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7780 |
-| S6-EMU-TAPE-36 | a TZX deck saved held at a gap and loaded in a fast session is fast at once with the fast cursor on the NEXT block (offset 217, not the recorded 10): the trap serves that block, never block 0 again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7793 |
-| S6-EMU-TAPE-37 | a real-time TZX saved mid-block and loaded in a FAST session finishes that block in real time, hands over to fast loading at the gap (the pending switch survives the loader's move into the machine) and the trap serves the third block: every block is whole in RAM | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7805 |
-| S6-EMU-TAPE-38 | a TZX deck saved held, loaded by a session with auto play OFF, is resumed at once, auto play stays off, and the block loads | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7818 |
-| S6-EMU-TAPE-39 | a tape file edited after it was attached but BEFORE the save is recorded by the digest of what the deck holds, so the load refuses to reattach it (one 'changed' warning), instead of attaching it at offsets that index other bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7839 |
-| S6-EMU-TAPE-40 | a manifest with an EMPTY digest is not reattached: exactly one warning, nothing attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7856 |
-| S6-EMU-TAPE-41 | a state/tape.json present but not listed in the manifest's subsystems is the older-file case, not a reattach: exactly one warning, nothing attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7858 |
-| S6-EMU-JNSFID-01 | a machine that never ran the binary save_state() writes state/ram.json size_bytes = the real RAM size, and the snapshot of the restored machine has the same state/ram.json and state/cpu.json as the file it was restored from | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7887 |
-| S6-EMU-JNSFID-02 | a machine saved right after EI (the interrupt grace pending at the boundary) writes ei_grace 0 into state/cpu.json (not a stale -1) and restores it: the restored machine's own snapshot says 0 again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7921 |
-| RWLOAD-PRE-01 | RWLOAD fixtures: .sna/.szx/.nex written | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7975 |
-| RWLOAD-PRE-02 | RWLOAD fixtures: Next .jns written (its slot is 8192 bytes smaller than the 48K one) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8004 |
-| RWLOAD-01 | a .sna load keeps the debugger-enabled rewind: ring rebuilt empty at size 8, recording again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8034 |
-| RWLOAD-02 | a .szx load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8044 |
-| RWLOAD-03 | a .z80 load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8053 |
-| RWLOAD-04 | a .nex load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8062 |
-| RWLOAD-05 | a machine-switching .jns keeps the rewind setting and re-measures the slot for the new machine | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8071 |
-| RWLOAD-06 | an in-memory snapshot load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8085 |
-| RWLOAD-07 | a load keeps the size chosen in the debugger, not the command-line one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8094 |
-| RWLOAD-08 | a load keeps a paused rewind paused; resuming records again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8112 |
-| RWLOAD-09 | a load keeps a rewind freed in the debugger freed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8120 |
-| RWLOAD-10 | a resize after a pause is recorded as running: the load keeps it enabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8131 |
-| RWLOAD-11 | control: a tape load re-inits nothing, so ring and history are kept | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8140 |
-| RWLOAD-12 | pause then resume then load: rewind comes back running, not paused | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8154 |
-| FBG-PRE-05 | rewind buffer exists | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8180 |
-| FBG-05 | rewind_to_frame() re-renders the framebuffer and advances the generation | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8184 |
-| FBG-06 | rewind_to_cycle() re-renders the framebuffer and advances the generation | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8192 |
+| RING-PRE-01 | rewind buffer exists with 4 frames | (jnext-internal) | pass | test/rewind/rewind_test.cpp:172 |
+| RING-01 | rewind buffer starts empty | (jnext-internal) | pass | test/rewind/rewind_test.cpp:173 |
+| RING-02 | ring depth caps at its 4-frame capacity after 6 frames | (jnext-internal) | pass | test/rewind/rewind_test.cpp:179 |
+| RING-03 | newest frame_num is 5 after the wrap (frames 0..5 taken) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:180 |
+| RING-04 | oldest frame_num is 2 after the wrap (the two earliest were overwritten) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:181 |
+| SB-PRE-01 | at least 20 trace entries after 2 frames | (jnext-internal) | pass | test/rewind/rewind_test.cpp:202 |
+| SB-01 | step_back(5) reports success | (jnext-internal) | pass | test/rewind/rewind_test.cpp:214 |
+| SB-02 | step_back(5) lands on the PC the trace recorded 5 instructions back | (jnext-internal) | pass | test/rewind/rewind_test.cpp:217 |
+| SB-05 | a step_back inside the last frame leaves frame_num() on that frame (the replay counts the restored frame once) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:224 |
+| SB-PRE-02 | at least 20 trace entries for emu2 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:235 |
+| SB-03 | step_back(10) reports success | (jnext-internal) | pass | test/rewind/rewind_test.cpp:239 |
+| SB-04 | step_back(10) lands on the PC the trace recorded 10 instructions back | (jnext-internal) | pass | test/rewind/rewind_test.cpp:242 |
+| RTF-PRE-01 | rewind buffer exists | (jnext-internal) | pass | test/rewind/rewind_test.cpp:268 |
+| RTF-01 | five frame snapshots are held after five frames | (jnext-internal) | pass | test/rewind/rewind_test.cpp:269 |
+| RTF-02 | rewind_to_frame() reports success for a frame still in the ring | (jnext-internal) | pass | test/rewind/rewind_test.cpp:277 |
+| RTF-03 | frame_num is target+1 after the rewind (the snapshot is taken at the start of the target frame) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:280 |
+| RTF-04 | the rewound machine reports it sits on a restored frame start | (jnext-internal) | pass | test/rewind/rewind_test.cpp:288 |
+| RTF-05 | the frame run again after a rewind is counted once and snapshotted under its own tag | (jnext-internal) | pass | test/rewind/rewind_test.cpp:292 |
+| RTF-06 | running forward from a rewind drops the abandoned snapshots (no tag held twice) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:297 |
+| RTF-07 | a load_state() after a rewind is an ordinary boundary: the next frame is counted | (jnext-internal) | pass | test/rewind/rewind_test.cpp:314 |
+| RW-RT-01 | a measured snapshot is larger than zero bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:338 |
+| RW-RT-02 | a measured snapshot stays under the 3 MB sanity bound | (jnext-internal) | pass | test/rewind/rewind_test.cpp:339 |
+| RW-RT-03 | save_state writes exactly the measured snap_size bytes (pass 1) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:345 |
+| RT-04 | save_state writes exactly the measured snap_size bytes again after a load (pass 2) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:355 |
+| RT-05 | save -> load -> save produces byte-identical snapshots (determinism) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:368 |
+| SBD-01 | no rewind buffer is allocated when rewind is disabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:382 |
+| SBD-02 | step_back reports failure when rewind is disabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:391 |
+| RW-V16-01 | post-init shadow == true (NR 0x85 default 0x8F → b0=1) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:454 |
+| RW-V16-PRE-01 | save_state writes exactly snap_size bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:463 |
+| RW-V16-02 | shadow planted false (pre-load divergence simulation) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:471 |
+| RW-V16-03 | V16-CPU-01: load_state re-pushes port_ulap_io_en from NR 0x85 b0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:483 |
+| RW-V16-04 | post-load contention_tick at $BF3B with default param fires non-zero stretch (V15-CPU-NIT-03 OR-fold sees true shadow) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:499 |
+| RW-TAPE-PRE-01 | mkstemp for TZX fixture | (jnext-internal) | pass | test/rewind/rewind_test.cpp:546 |
+| RW-TAPE-PRE-02 | write TZX fixture | (jnext-internal) | pass | test/rewind/rewind_test.cpp:547 |
+| RW-TAPE-PRE-03 | load_tzx (realtime) succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:553 |
+| RW-TAPE-01 | TZX realtime playback is live before snapshot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:554 |
+| RW-TAPE-02 | monotonic tape clock exactly restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:581 |
+| RW-TAPE-03 | post-restore clock advances by ~2 frames +-100 T | (jnext-internal) | pass | test/rewind/rewind_test.cpp:598 |
+| A1B-01 | no buffer with frames=0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:627 |
+| A1B-02 | rewind disabled with frames=0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:628 |
+| A1B-PRE-01 | buffer allocated live | (jnext-internal) | pass | test/rewind/rewind_test.cpp:632 |
+| A1B-03 | buffer empty until next frame | (jnext-internal) | pass | test/rewind/rewind_test.cpp:633 |
+| A1B-04 | snapshotting enabled by resize | (jnext-internal) | pass | test/rewind/rewind_test.cpp:634 |
+| A1B-05 | trace enabled by resize (step_back dependency) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:635 |
+| A1B-06 | snapshot taken at next frame start | (jnext-internal) | pass | test/rewind/rewind_test.cpp:639 |
+| A1B-07 | pause: no new snapshots while disabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:648 |
+| A1B-08 | pause: recorded history retained | (jnext-internal) | pass | test/rewind/rewind_test.cpp:650 |
+| A1B-09 | resume: snapshotting continues | (jnext-internal) | pass | test/rewind/rewind_test.cpp:656 |
+| A1B-10 | step_back works after live enable | (jnext-internal) | pass | test/rewind/rewind_test.cpp:660 |
+| A1B-11 | resize(0) frees the buffer | (jnext-internal) | pass | test/rewind/rewind_test.cpp:664 |
+| A1B-12 | resize(0) disables rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:665 |
+| SW-BND-00 | in-bounds write does not trip overflow | (jnext-internal) | pass | test/rewind/rewind_test.cpp:687 |
+| SW-BND-01 | write past capacity latches overflow flag | (jnext-internal) | pass | test/rewind/rewind_test.cpp:689 |
+| SW-BND-02 | overflowing write leaves adjacent bytes untouched | (jnext-internal) | pass | test/rewind/rewind_test.cpp:692 |
+| SW-BND-03 | position keeps counting intended stream offset | (jnext-internal) | pass | test/rewind/rewind_test.cpp:693 |
+| SW-BND-04 | measure mode never overflows | (jnext-internal) | pass | test/rewind/rewind_test.cpp:700 |
+| SR-BND-00 | in-bounds read does not trip flag | (jnext-internal) | pass | test/rewind/rewind_test.cpp:709 |
+| SR-BND-01 | read past end latches out_of_bounds flag | (jnext-internal) | pass | test/rewind/rewind_test.cpp:711 |
+| SR-BND-02 | out-of-bounds read returns zero, not adjacent memory | (jnext-internal) | pass | test/rewind/rewind_test.cpp:712 |
+| SENT-00 | exact-size save fills the buffer without overflow | (jnext-internal) | pass | test/rewind/rewind_test.cpp:741 |
+| SENT-OK-01 | pristine snapshot: load_state returns true | (jnext-internal) | pass | test/rewind/rewind_test.cpp:748 |
+| SENT-OK-02 | pristine snapshot: last_state_error is empty | (jnext-internal) | pass | test/rewind/rewind_test.cpp:749 |
+| SENT-CORRUPT-00 | mmu sentinel value occurs exactly once in the snapshot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:764 |
+| SENT-CORRUPT-01 | corrupted mmu sentinel: load_state returns false | (jnext-internal) | pass | test/rewind/rewind_test.cpp:770 |
+| SENT-CORRUPT-02 | corrupted mmu sentinel: error names subsystem 'mmu' | (jnext-internal) | pass | test/rewind/rewind_test.cpp:771 |
+| SENT-CORRUPT-03 | pristine reload after failed load succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:776 |
+| SENT-TRUNC-01 | truncated snapshot: load_state returns false | (jnext-internal) | pass | test/rewind/rewind_test.cpp:784 |
+| SENT-TRUNC-02 | truncated snapshot: failing subsystem is named | (jnext-internal) | pass | test/rewind/rewind_test.cpp:785 |
+| SENT-RESET-01 | a soft reset clears the failed-restore corruption flag | (jnext-internal) | pass | test/rewind/rewind_test.cpp:801 |
+| RB-FRAME-01 | undersized slot (simulated post-construction widening): the snapshot is dropped, not published | (jnext-internal) | pass | test/rewind/rewind_test.cpp:831 |
+| RB-FRAME-02 | exact-size slot still publishes normally: the size guard refuses only mismatched writes and is not sticky | (jnext-internal) | pass | test/rewind/rewind_test.cpp:839 |
+| RB-FRAME-03 | oversized slot (save_state shrank since construction) is refused too: the size claim would otherwise be a lie | (jnext-internal) | pass | test/rewind/rewind_test.cpp:848 |
+| RB-FRAME-04a | ring filled with 2 good snapshots | (jnext-internal) | pass | test/rewind/rewind_test.cpp:860 |
+| RB-FRAME-04 | failed write over full ring evicts exactly the destroyed oldest | (jnext-internal) | pass | test/rewind/rewind_test.cpp:863 |
+| RB-FRAME-05 | survivor is the second-oldest snapshot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:865 |
+| RB-FRAME-06 | failed snapshot is not published as newest | (jnext-internal) | pass | test/rewind/rewind_test.cpp:867 |
+| RB-SIZE-PRE-01 | precondition: port-0xFF log starts empty | (jnext-internal) | pass | test/rewind/rewind_test.cpp:902 |
+| RB-SIZE-PRE-02 | precondition: port-0xFF writes were logged | (jnext-internal) | pass | test/rewind/rewind_test.cpp:910 |
+| RB-SIZE-01 | snapshot size unchanged by port-0xFF writes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:914 |
+| RB-SIZE-02 | snapshot taken on a port-0xFF frame is published, not dropped | (jnext-internal) | pass | test/rewind/rewind_test.cpp:920 |
+| RB-SIZE-03 | port-0xFF log content survives the snapshot round-trip | (jnext-internal) | pass | test/rewind/rewind_test.cpp:934 |
+| RB-GEN-01 | a restore sets the load generation back to the slot's | (jnext-internal) | pass | test/rewind/rewind_test.cpp:952 |
+| RB-SIZE-04 | snapshot size unchanged by a queued auto-type sequence | (jnext-internal) | pass | test/rewind/rewind_test.cpp:973 |
+| RB-SIZE-05 | snapshot taken mid-auto-type is published, not dropped | (jnext-internal) | pass | test/rewind/rewind_test.cpp:978 |
+| RB-SIZE-06 | over-cap auto-type sequence still yields a constant-size snapshot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:989 |
+| RB-SIZE-06b | slot restores for the auto-type content row | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1020 |
+| RB-SIZE-07 | restored auto-type queue plays the correct key (row 1 col 3 = F) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1026 |
+| RB-SIZE-08 | restored auto-type queue does not press the row/col transpose (3,1) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1028 |
+| RB-SIZE-09 | snapshot size unchanged by bytes in flight in the UART RX FIFO | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1050 |
+| RB-SIZE-10 | snapshot taken with a non-empty UART FIFO is published, not dropped | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1055 |
+| RB-SIZE-10b | slot restores for the UART content row | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1065 |
+| RB-SIZE-11 | UART RX FIFO content and order survive the round-trip | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1070 |
+| SENT-CHAIN-PRE-01 | rewind buffer holds >= 2 real snapshots | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1096 |
+| SENT-CHAIN-00 | mmu sentinel corrupted in every stored slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1110 |
+| SENT-CHAIN-01 | step_back returns false on corrupted slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1115 |
+| SENT-CHAIN-02 | chain failure names subsystem 'mmu' | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1116 |
+| SENT-CHAIN-03 | rewind_to_frame returns false on corrupted slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1121 |
+| SENT-CHAIN-04 | rewind_to_cycle returns UINT64_MAX on corrupted slot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1125 |
+| RWR-PRE-01 | RWR fixture: S0 is live when the frame-1 snapshot is taken | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1368 |
+| RWR-PRE-02 | RWR fixture: frame 3 left S1/S2 render history behind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1378 |
+| RWR-PRE-03 | RWR fixture: rewind_to_frame(1) succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1384 |
+| RWR-01 | palette entry restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1391 |
+| RWR-02 | Layer 2 scroll/clip/bank/enable/NR 0x70 restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1398 |
+| RWR-03 | sprite attributes and pattern RAM restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1407 |
+| RWR-04 | tilemap NR 0x6B restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1414 |
+| RWR-05 | ULA scroll NR 0x26/0x27/0x68 b2 restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1419 |
+| RWR-06 | Ula NR 0x43 b1-3 / NR 0x6B b4 selector mirrors restored | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1426 |
+| RWR-07 | attribute mux shows the restored VRAM | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1433 |
+| RWR-08 | stencil/blend/NR 0x14/ULA-clip rows read the restored registers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1457 |
+| RWR-09 | tilemap scroll rows read the restored registers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1461 |
+| RWR-10 | LoRes rows read the restored registers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1465 |
+| RWR-PRE-04 | RWR fixture: the snapshot-instant frame shows the S0 tilemap | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1479 |
+| RWR-11 | frame rendered by rewind_to_frame equals a fresh render of the snapshot instant | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1489 |
+| RWR-PRE-05 | RWR fixture: rewind_to_cycle to the frame-1 snapshot | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1522 |
+| RWR-12 | rewind_to_cycle restores the Ula selector mirrors | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1534 |
+| RWR-PRE-06 | RWR fixture: OUT to port 0x5B ran, step_back(1) succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1555 |
+| RWR-13 | step_back over a port 0x5B write restores the pattern byte | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1562 |
+| RWR-14 | a guest soft reset keeps the rewind history and its live size | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1627 |
+| RWR-PRE-07 | RWR fixture: frame 1 is in the history | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1640 |
+| RWR-PRE-08 | RWR fixture: rewind_to_cycle into frame 1 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1642 |
+| RWR-15 | a guest soft reset replayed by rewind_to_cycle does not end the replay | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1649 |
+| RWR-PRE-09 | RWR fixture: +3 committed, rewind_to_frame(1) succeeds | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1670 |
+| RWR-16 | a restore puts the /INT width gate back on the EFFECTIVE timing, in both copies | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1681 |
+| S3-DECL-CLOCK | Clock declares exactly the two fields the §17.1 golden carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1863 |
+| S3-WIDTH-CLOCK | Clock's declaration is 12 bytes wide — block 0 of the 2 292 965-byte stream | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1866 |
+| S3-DECL-RAM | Ram declares a u64 count prefix and the 2 MB blob — and the blob's length comes from the DECLARATION, which is what makes the prefix un-obeyable | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1882 |
+| S3-WIDTH-RAM | Ram's declaration is 2 097 160 bytes wide — block 1 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1886 |
+| S3-DECL-MMU | Mmu declares 45 fields in the order the golden carries them, ending with both BRAM blobs and the attribute-mux cursor | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1938 |
+| S3-WIDTH-MMU | Mmu's declaration is 24 634 bytes wide — block 2 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1942 |
+| S3-DECL-NEXTREG | NextReg declares the select latch, the 256-byte register file as a `bytes` (not a blob — under the §6.1 8 KB line) and the five appended scalars | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1963 |
+| S3-WIDTH-NEXTREG | NextReg's declaration is 262 bytes wide — block 3 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1967 |
+| S3-DECL-CPU | Z80Cpu declares the register file, MEMPTR/Q, and the three §9.5(3) values that are relative to the FUSE T-state counter | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1995 |
+| S3-WIDTH-CPU | Z80Cpu's declaration is 45 bytes wide — block 4 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:1999 |
+| S3-DECL-IM2 | Im2Controller declares 14 named devices x 9 fields then the decoder / pulse / NR 0xC0 / DMA-delay scalars — 144 declarations, one per field, not 126 per device | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2054 |
+| S3-WIDTH-IM2 | Im2Controller's state declaration is 149 bytes wide — block 5 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2059 |
+| S3-DECL-IM2-TIMING | Im2Controller's SECOND declaration (§9.5(2)) is the GH #265 timing block, which travels in `int_timing` at the end of the Emulator stream and not in block 5 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2094 |
+| S3-WIDTH-IM2-TIMING | the IM2 timing declaration is 589 bytes wide — the first 589 of block 31's 609, the remaining 20 being the CPU's /INT pair and the CTC's chained triggers | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2098 |
+| S3-KEYS-UNIQUE | no declaration names the same key twice — a duplicate is invisible to the byte stream, which ignores names, and silently drops a field from the JSON encoding, which does not | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2129 |
+| S5-DECL-CTC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2241 |
+| S5-WIDTH-CTC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2244 |
+| S5-DECL-CTC-TIMING | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2263 |
+| S5-WIDTH-CTC-TIMING | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2266 |
+| S5-DECL-DMA | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2317 |
+| S5-WIDTH-DMA | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2320 |
+| S5-DECL-SPI | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2338 |
+| S5-WIDTH-SPI | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2341 |
+| S5-DECL-I2C | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2369 |
+| S5-WIDTH-I2C | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2372 |
+| S5-DECL-RTC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2393 |
+| S5-WIDTH-RTC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2396 |
+| S5-DECL-UART | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2502 |
+| S5-WIDTH-UART | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2505 |
+| S5-DECL-DIVMMC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2545 |
+| S5-WIDTH-DIVMMC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measured — which since S5b is the STANDALONE block width, the machine-level one being 17 because the window became a reference (§17.0) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2548 |
+| S5-DECL-BEEPER | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2568 |
+| S5-WIDTH-BEEPER | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2571 |
+| S5-DECL-TURBOSOUND | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2670 |
+| S5-WIDTH-TURBOSOUND | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2673 |
+| S5-DECL-DAC | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2689 |
+| S5-WIDTH-DAC | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2692 |
+| S5-DECL-I2S | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2709 |
+| S5-WIDTH-I2S | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2712 |
+| S5-DECL-NMI | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2755 |
+| S5-WIDTH-NMI | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2758 |
+| S5-DECL-MULTIFACE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2788 |
+| S5-WIDTH-MULTIFACE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2791 |
+| S5-DECL-KEYBOARD | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2903 |
+| S5-WIDTH-KEYBOARD | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures, plus the 11 bytes of the guest's keyboard view that GH #450 appended | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2906 |
+| S5-DECL-JOYSTICK | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2927 |
+| S5-WIDTH-JOYSTICK | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2930 |
+| S5-DECL-MOUSE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2951 |
+| S5-WIDTH-MOUSE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2954 |
+| S5-DECL-MD6 | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2977 |
+| S5-WIDTH-MD6 | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:2980 |
+| S5-DECL-MEMBRANE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3002 |
+| S5-WIDTH-MEMBRANE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3005 |
+| S5-DECL-IOMODE | the declaration walks exactly the fields the golden's block carries, in that order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3026 |
+| S5-WIDTH-IOMODE | the declaration is exactly as wide as the block the pre-migration golden's sentinel map measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3029 |
+| S5-KEYS-UNIQUE | no S5 declaration names the same key twice — a duplicate is invisible to the byte stream, which ignores names, and silently drops a field from the JSON encoding, which does not | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3060 |
+| S5-INPUT-BLOCK | the six input declarations sum to the 450 bytes the golden's sentinel map measures for the input block, plus the 11 bytes of the guest's keyboard view that GH #450 appended | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3084 |
+| S3-RAM-PREFIX | a RAM count prefix twelve times the real size neither moves the stream nor reaches past the buffer: the restore takes its length from the DECLARATION and the content is intact | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3135 |
+| S3-RAM-PREFIX-SANE | …and an honest save is still exactly the prefix plus the RAM | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3139 |
+| S3-ENUM-OFFSET | the machine_type ordinal really is at stream offset 28 — the row below is meaningless if it corrupts some other field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3164 |
+| S3-ENUM-MMU | an out-of-range machine_type ordinal leaves the field at its pre-load value instead of casting garbage into it, and the stream still ends exactly where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3174 |
+| S3-MMU-TIMING-PAIR | a deferred NR 0x03 timing commit — pending != effective — survives a full Emulator save/load, which is the case the retired old-format fallback would have collapsed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3207 |
+| S3-MMU-BRAM-PTR | a byte written into the bank-7 BRAM is readable through the restored slot: the single rebuild_ptr() pass runs AFTER the blobs land, which the mid-stream call never did | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3238 |
+| S3-MMU-NR8F-OFFSET | nr_8f_mode is at stream offset 32 and machine_type at 28 — the row below is meaningless if it pokes some other field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3269 |
+| S3-MMU-NR8F-MASK | a restored NR 0x8F keeps only its 2 declared bits (zxnext.vhd:3787-3794), its neighbour is untouched and the stream still ends where it should | zxnext.vhd:3787-3794 | pass | test/rewind/rewind_test.cpp:3279 |
+| S3-NEXTREG-NR03-OFFSET | the two NR 0x03 sub-fields are at stream offsets 259 and 261, behind the 256-byte register file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3303 |
+| S3-NEXTREG-NR03-MASK | both restored NR 0x03 sub-fields keep only their 3 declared bits (zxnext.vhd:1099, :1103) and the select latch is intact | zxnext.vhd:1099,1103 | pass | test/rewind/rewind_test.cpp:3313 |
+| S3-CPU-INT-WINDOW | the /INT window's first boundary is restored RELATIVE to whatever the T-state counter now is (0x50 behind it), not as the absolute stamp it was saved from | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3347 |
+| S4-DECL-PALETTE | PaletteManager declares the four RGB333 stores, the 14 scalars and the Layer 2 priority store in the order the golden carries them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3420 |
+| S4-WIDTH-PALETTE | PaletteManager's declaration is 4 622 bytes wide — block 6 of the 2 292 965-byte stream | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3424 |
+| S4-DECL-LAYER2 | Layer2 declares its 11 registers in stream order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3447 |
+| S4-WIDTH-LAYER2 | Layer2's declaration is 12 bytes wide — block 7 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3449 |
+| S4-DECL-SPRITES | SpriteEngine declares the 640-byte attribute file, the 16 KB pattern blob and the 15 control bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3481 |
+| S4-WIDTH-SPRITES | SpriteEngine's declaration is 17 039 bytes wide — block 8 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3484 |
+| S4-DECL-TILEMAP | Tilemap declares its 19 fields, both decoded base addresses included, in stream order | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3514 |
+| S4-WIDTH-TILEMAP | Tilemap's declaration is 26 bytes wide — block 9 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3517 |
+| S4-DECL-BLOCK10 | Renderer's declaration nests the ULA's, then its own eight fields, then LoRes's four — the order the golden carries block 10 in | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3583 |
+| S4-WIDTH-BLOCK10 | the nested declaration is 3 688 bytes wide — block 10, of which the ULA is 3 357 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3587 |
+| S4-DECL-ULA-PREFIX | Ula::describe_state walked standalone is EXACTLY the first 25 fields / 3 357 bytes of block 10 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3603 |
+| S4-DECL-LORES-SUFFIX | Lores::describe_state walked standalone is EXACTLY the last four fields of block 10 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3614 |
+| S4-DECL-COPPER | Copper declares the 2 KB instruction RAM as one array, then the seven control fields | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3637 |
+| S4-WIDTH-COPPER | Copper's declaration is 2 057 bytes wide — block 11 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3640 |
+| S4-KEYS-UNIQUE | no video declaration names the same key twice, block 10's three-way nesting included | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3669 |
+| S4-PALETTE-ARGB | the post-walk ARGB rebuild covers all FOUR palettes in BOTH banks, and the u16 entries land little-endian at 2*(bank*256 + index) — which is what makes the ten-loop collapse into five `bytes` a transcription | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3754 |
+| S4-PALETTE-TARGET-OFFSET | target_palette really is the byte at offset 4 098, between the control byte and the auto-increment flag and equal to neither — the row below is meaningless if it corrupts another field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3771 |
+| S4-PALETTE-TARGET | an out-of-range target_palette ordinal is REFUSED: the field keeps its pre-load target instead of being cast in, the plain control byte beside it IS restored, and the stream still ends exactly where it should — the byte was consumed either way | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3789 |
+| S4-PALETTE-PRIORITY-OFFSET | the layer2 priority bytes start at offset 4 110 (bank-major, 256 per bank, ending the 4 622-byte save): an NR 0x44 priority write to bank 0 entry 0x30 is the byte at 4 110 + 0x30 and no neighbour | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3809 |
+| S4-ULA-MODE-OFFSET | screen_mode really is at offset 269 of a 3 357-byte ULA save, and is 6 where the raw port-0xFF register beside it is 7 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3835 |
+| S4-ULA-MODE | ordinal 4 is a HOLE in TimexScreenMode and is refused: the enum field keeps its pre-load mode instead of becoming a state the ULA cannot be in, the plain register byte beside it IS restored, and the stream still ends where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3850 |
+| S4-ULA-LOG-COUNT-OFFSET | the port-0xFF log count really is the u16 at offset 283, and one logged change reads as 1 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3875 |
+| S4-ULA-LOG-COUNT | a forged count 64x the capacity is clamped to the capacity declared IN THE CODE and the stream still ends where it should: the entry loop is bounded by the declaration, never by the file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3884 |
+| S4-LORES-NR6A-OFFSET | lores_nr6a really is the fourth and last byte of a LoRes save | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3903 |
+| S4-LORES-NR6A-MASK | NR $6A is restored masked to its six hardware bits (zxnext.vhd:5032-5034), so a stream carrying bits 7:6 cannot put the register in a state a live write could not | zxnext.vhd:5032-5034 | pass | test/rewind/rewind_test.cpp:3910 |
+| S4-BLEND-OFFSET | blend_mode really is at offset 3 363 — after the ULA's 3 357 bytes and the Renderer's first six | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3922 |
+| S4-BLEND-MASK | NR 0x68 bits 6:5 are restored masked to two bits, so a stream carrying more cannot select a blend mode the VHDL has no encoding for | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3931 |
+| S4-SPRITE-ATTR-ORDER | the 640-byte attribute file is sprite-major, five bytes each: sprite 37's five bytes are at offsets 185-189, exactly where the pre-migration 128-iteration loop put them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3956 |
+| S4-ULA-CURSOR-RESET | a restore restarts the port-0xFF replay cursor at the top of the RESTORED log: replaying line 7 applies the entry the stream carried, instead of finding a cursor left past the end by the log the object had before the load | (jnext-internal) | pass | test/rewind/rewind_test.cpp:3994 |
+| S4-ULA-PERLINE-CLEARED | a restore deactivates the per-line control snapshot, so a render taken before the next frame initialises it reads the RESTORED live registers and not the pre-restore frame's rows | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4019 |
+| S4-RENDERER-NESTED-OFFSET | lores_nr6a really is the last byte of a Renderer save — the row below is meaningless if it corrupts another field | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4040 |
+| S4-RENDERER-NESTED-AFTER-LOAD | a restore driven through Renderer — the path Emulator::load_state uses — runs BOTH nested subsystems' post-walk work: LoRes's NR $6A mask and the ULA's per-line deactivation, neither of which the nested walk itself performs | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4051 |
+| S4-COPPER-INSTR-ORDER | the 2 048-byte instruction array is instruction-major and little-endian within each 16-bit word: instruction 10 lands at byte offsets 0x14/0x15, exactly where 1 024 write_u16 calls put it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4071 |
+| S4-COPPER-MODE-OFFSET | mode really is at offset 2 050, straight after the array and the 16-bit PC | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4078 |
+| S4-COPPER-MODE | an out-of-range NR 0x62 mode ordinal is refused: the field keeps its pre-load mode instead of taking one the two-bit register cannot hold, and the stream still ends where it should | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4088 |
+| S5-DMA-OFFSET | byte 32 of Dma's 43-byte block is turbo_ — the field the next row pokes, proved by an honest save of a known value | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4173 |
+| S5-DMA-TURBO | an over-wide turbo_ in the stream restores masked to its two VHDL bits instead of carrying six bits the hardware has no encoding for | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4184 |
+| S5-DMA-TIMER | an over-wide dma_timer_s_ restores masked to the 14 bits device/dma.vhd's burst prescaler actually has | device/dma.vhd | pass | test/rewind/rewind_test.cpp:4188 |
+| S5-DMA-TIMER-OFFSET | …and the restore consumed exactly the declared 43 bytes, so the two pokes landed inside Dma's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4191 |
+| S5-MD6-OFFSET | bytes 4, 6 and 8 of Md6ConnectorX2's 16-byte block are the two latches and the select counter — the three fields the next row pokes, proved by an honest save of three known values | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4204 |
+| S5-MD6-LATCH | two over-wide latches restore masked to the 12 bits the MD 6-button word has, which a re-save reads straight back out | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4223 |
+| S5-MD6-STATE | an over-wide select counter restores masked to the 9 bits md6_connector_x2.vhd's FSM counter has | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4227 |
+| S5-MD6-POS | …and the restore consumed exactly the declared 16 bytes, so the three pokes landed inside Md6's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4230 |
+| S5-MEMBRANE-OFFSET | bytes 71-72 of MembraneStick's 73-byte block are keymap_addr_ — the field the next row pokes, at the end of a block whose length is itself the proof that nothing follows it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4240 |
+| S5-MEMBRANE-ADDR | an over-wide keymap_addr_ restores masked to the 9 bits NR 0x28 gives it, which a re-save reads straight back out | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4252 |
+| S5-MEMBRANE-ADDR-POS | …and the restore consumed exactly the declared 73 bytes, so the poke landed inside MembraneStick's block and not past it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4255 |
+| S5-DIVMMC-OFFSET | byte 0 of DivMmc's 131 089-byte block is the composite `enabled_` and bytes 131 087-131 088 are the two split levers — the exact firmware-reset shape, saved honestly | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4276 |
+| S5-DIVMMC-LEVERS | the two split enable levers restore from the STREAM, not from the composite byte: a snapshot holding port_io=1 / nr_0a_4=0 with enabled=0 survives, which deriving either from the composite would lose | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4289 |
+| S5-DIVMMC-LEVERS-POS | …and the restore consumed exactly the declared 131 089 bytes, 128 KB window included | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4295 |
+| S5-I2C-OFFSET | bytes 11 and 12 of I2cController's 13-byte block are the two pi_i2c1 line inputs — the fields the next row restores, proved by an honest save of a known pair | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4312 |
+| S5-I2C-PI | both pi_i2c1 line inputs restore from the stream, over the opposite live values — so a rewind replays the Pi's lines rather than keeping the ones the run had reached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4324 |
+| S5-I2C-PI-POS | …and the restore consumed exactly the declared 13 bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4329 |
+| S5-KB-COUNT-OFFSET | bytes 12-15 of Keyboard's 353-byte block are the auto-type queue count — the field the next row forges, proved by an honest save of a two-key queue | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4350 |
+| S5-KB-COUNT | a forged auto-type count of 2^30 restores clamped to the sixteen slots the stream actually carries — the rebuild loop is bounded by the DECLARED capacity, so it can neither index past the staging array nor resize the block | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4366 |
+| S5-KB-COUNT-POS | …and the restore consumed exactly the declared 353 bytes, so the forged count did not move the stream either | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4371 |
+| S5-KB-SAVE-PURE | saving twice gives byte-identical buffers and the queue still holds its two keys — one declaration serves both directions, so the write path's rebuild must put back exactly what it took and never mutate the machine being saved | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4390 |
+| JNSX-S5B-LENGTHS | the stream is 2 154 900 bytes on the Next and 2 163 092 on 48K/128K/+3 — every deliberate change to the byte stream is a number in a test rather than a fact in a commit message, and the machine-dependence is exactly the Multiface array and nothing else. S5b re-baselined it to 2 153 701 / 2 161 893 by removing the duplicated RAM; S6 adds 594: mf_type (1 byte, §10.2 P13) and the SD card's SPI FSM (589 + its 4-byte sentinel, §10.2 P1); GH #290 adds 1: the tail block's cvc_offset_delta; GH #450 adds 11: the keyboard's guest view (held flag, extended copy, eight matrix rows); GH #505 adds 593: the second SD card's SPI FSM (589 + its 4-byte sentinel). All five deltas are machine-independent, so the 8 192-byte gap between the two numbers is unchanged | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4456 |
+| S5B-DIVMMC-BLOCK | a DivMmc the Emulator backed writes 17 bytes, not 131 089: the 128 KB window is a REFERENCE to Ram page 16, which the same stream's `ram` block carries seventeen blocks earlier | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4490 |
+| S5B-DIVMMC-STANDALONE | …while one nothing backed still writes all 131 089, because a stream with no `ram` block in it has nowhere to point and the private array is then the only copy of itself | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4494 |
+| S5B-DIVMMC-RESTORE | DivMMC RAM still arrives after a whole-machine restore, now through the `ram` block rather than its own copy — and the stream is consumed exactly, so dropping 128 KB from the write side did not leave the read side reading them | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4527 |
+| S5B-MF-NEXT-ABSENT | on the Next the Multiface RAM member is ABSENT, not zero-filled: the declaration drops it and the block is 8 bytes of flip-flops plus S6's mf_type byte, because the live 8 KB is Ram page 0x0B and the private array it used to write was dead zeros | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4563 |
+| S5B-MF-STANDALONE-PRESENT | …and on 48K/128K/+3, and in a standalone round-trip, it is still all 8 201 bytes, because with no backing the private array is the real store (§4.3(2)) — the one place the stream's width depends on the machine type | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4570 |
+| S5B-MF-NEXT-RESTORE | Multiface RAM still arrives on the Next after a whole-machine restore, through Ram page 0x0B — the window the device reads and writes is the page the `ram` block carries, which is why the private array was droppable in the first place | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4600 |
+| S5B-WARMSTART-VERSION | the warm-start state-stream format version is 5: S5b changed the shape of Emulator::save_state, S6 changed it again (mf_type + the SD FSM), GH #290 again (the tail's cvc_offset_delta) and GH #505 again (the second SD card's FSM), and a cache recorded by an older jnext would otherwise be read field-for-field wrong | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4617 |
+| S6-EMU-CMD18-MID | could not create a scratch SD image | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4645 |
+| S6-EMU-MF-TYPE | NR 0x0A's mf_type "10" survives a whole-machine save: the pre-S6 rebuild from the three mode booleans returned "01", so a guest could watch a bit it had written change under a save (design §10.2 P13, defect D2) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4770 |
+| S6-DECL-EMULATOR | the Emulator's own scalar declaration walks exactly the fields the golden's "emulator" block carries, in that order — the two hand-written values that open the block (the frame origin and the §9.5(3) monotonic fold) are not in it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4829 |
+| S6-WIDTH-EMULATOR | …and is exactly 56 bytes wide, which with the 8-byte frame origin and the 8-byte monotonic fold is the 72-byte block the pre-migration golden measures | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4834 |
+| S6-WIDTH-EMULATOR-BLOCKS | the four companion blocks measure 8 / 1 / 8 / 3 bytes (the tail's third is GH #290's cvc_offset_delta): one declaration per SENTINEL-DELIMITED block, because one describe_state cannot put its fields in two blocks (§9.5(2)) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4844 |
+| S6-EMU-SCALARS-01 | every field of all five Emulator blocks round-trips through the declaration: a stream of all-0x01 is already normalised, so a walk that reads it into the members and writes them back must reproduce it exactly, and a field bound to a local instead of its member writes a zero where a one belongs | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4912 |
+| S6-EMU-SCALARS-02 | the ULA interrupt enable is RE-DERIVED from the restored NR 0x22 bit after the walk: it is not a field, so nothing in the declaration carries it, and a restore that skipped the re-derivation would leave the machine taking frame interrupts the snapshot had switched off | (jnext-internal) | pass | test/rewind/rewind_test.cpp:4947 |
+| S6-P7-ADVANCE-01 | a machine paused mid-frame is ADVANCED to the next frame boundary rather than refused: the save always works, and the cost — up to one frame past where the user paused — is the documented trade (design §10.2 P7, owner decision 2026-09-23) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5005 |
+| S6-P7-HISTORY-01 | …and the advance does NOT wipe the frame's per-scanline change log: the scroll written at the top of the frame is still replayed at row 0 and the one written from the paused machine at the bottom. Re-running begin_new_frame() mid-frame is the Task 40 defect that flattened beast.nex's Copper sky, and a save that quietly destroyed a frame's raster history would be worse than one that refused | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5013 |
+| S6-P7-DEBUG-INTACT | …and the debugging session is left exactly as it was found: still paused, still active, with its pending one-shot breakpoint intact — which resume()+pause() would have destroyed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5023 |
+| S6-P7-ADVANCE-02 | a machine already at a frame boundary is not advanced, and the call reports that it did nothing — the running-machine case (the save queued to the next begin_new_frame()) lands here | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5034 |
+| JNS-RT-01 | save_jns writes a non-empty archive from a machine that has been running | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5128 |
+| JNS-RT-02 | a machine restored from a .jns produces a BYTE-IDENTICAL binary state stream to the machine it was saved from — the complete oracle for the assembler's field coverage | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5155 |
+| JNS-RT-02b | …and RAM REALLY TRAVELLED: bytes the destination machine never wrote are present after the restore. The stream comparison above cannot see this on its own — both fixtures are built by the same helper, so their RAM agrees before the load, and dropping the blob read left every row green until a rendered frame caught it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5167 |
+| JNS-RT-03 | --snapshot-compression off round-trips IDENTICALLY, and the archive is larger than the deflated one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5200 |
+| JNS-RT-04 | …and it really is uncompressed: the STORED archive is bigger than the DEFLATE one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5206 |
+| JNS-RT-09 | the archive declares EXACTLY the expected subsystem members (`joy_uart` is absent here and that is correct — it is written only when a cable is attached, §9.5(5)) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5260 |
+| JNS-RT-10 | …and every one of them is actually in the archive: the writer cannot declare a subsystem it did not write | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5280 |
+| JNS-RT-13 | capture.frame counts the MACHINE's frames even with the rewind ring disabled — 120 were run. Built from `frame_num_` it would read 0 here, and every save made with rewind off (the default) would carry a provenance field a reader cannot tell from a real frame 0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5322 |
+| JNS-RT-05 | a machine that was NEVER loaded differs from the source — without this, JNS-RT-02 would pass just as happily against a comparison that had stopped discriminating | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5342 |
+| JNS-RT-06 | could not build the forged archive — state/esxdos_hostfs.json is not in the file any more, so this row is not testing what it says (fix it, do not delete it) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5442 |
+| JNS-RT-07 | (not reached) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5446 |
+| JNS-RT-11 | a `mem/ram.bin` 1 024 bytes SHORT of what the declaration says is REFUSED even when the MANIFEST agrees with it — not truncated, not zero-padded. That is the cross-version case: a file whose archive and manifest are perfectly consistent with each other and disagree with this build's declaration | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5599 |
+| JNS-RT-12 | …and the refusal NAMES the member, so a user can tell a corrupt file from an unsupported one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:5605 |
+| GH289-24 | a .jns whose auto-type row1 is 0x40000000 is REFUSED by Emulator::load_jns, and the coordinate never becomes a queued key — the count beside it was already guarded, the values were not, and this is the value that wrote past Keyboard::matrix_ | membrane.vhd:38-39 | pass | test/rewind/rewind_test.cpp:5713 |
+| GH289-25 | …and the refusal NAMES the member AND the field, so a user can tell a corrupt snapshot from an unsupported one — a message that said only "invalid snapshot" would pass a refused-or-not row and tell nobody anything | membrane.vhd:38-39 | pass | test/rewind/rewind_test.cpp:5718 |
+| GH289-30 | all four CPU-speed divisors (8, 4, 2, 1) still restore — the legal set is the image of cpu_speed_divisor() over CpuSpeed, not a literal, so this is the arm a reject-everything check fails | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5799 |
+| GH289-31 | a snapshot CPU divisor of 0 is REFUSED — it is the right-hand side of Emulator::rebase_fuse_tstates_'s division, so it was SIGFPE on the next frame boundary | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5812 |
+| GH289-32 | a CPU divisor of 3 is REFUSED — in range for an i32, and the divisor of no CPU speed the hardware has | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5816 |
+| GH289-33 | a NEGATIVE CPU divisor is REFUSED — cast to uint64_t it is 2^64-8, which does not crash: every division answers 0 and the T-state counter silently stops advancing | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5819 |
+| GH289-34 | bytes 8-11 of Clock's 12-byte block are cpu_divisor — the field the next row forges, proved by an honest save of a known speed | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5857 |
+| GH289-35 | a forged divisor in the REWIND stream leaves the divisor at its pre-load value, still consumes the declared 12 bytes, and is NAMED in the log — a rewind has no return value to refuse with, so an unlogged drop would be invisible | zxnext.vhd:1299-1300,5817 | pass | test/rewind/rewind_test.cpp:5875 |
+| GH289-40 | both UART channels (0 and 1) still restore, over the opposite live value — the arm a reject-everything check fails, and the one that proves the selector really travels | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5909 |
+| GH289-41 | a snapshot UART selector of 2 is REFUSED — it indexes channels_, which has two elements, so the guest's next port 0x143B/0x153B/0x163B access read past the array | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5916 |
+| GH289-42 | a NEGATIVE UART selector is REFUSED — the other side of the same one-bit range, and nothing the guest can write reaches it (the 0x153B arm masks to bit 6) | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5920 |
+| GH289-43 | the 0x40000000 shape from the issue report is REFUSED here too — the same class of value in the same kind of field | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5924 |
+| GH289-44 | bytes 0-3 of Uart's block are the channel selector — the field the next row forges, proved by an honest save with channel 1 selected | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5960 |
+| GH289-45 | a forged selector in the REWIND stream leaves the selector at its pre-load value, still consumes the whole declared block (so the ninety per-channel fields behind it do not desync), and is NAMED in the log | uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:5979 |
+| GH289-60 | register pointers 0 and 63 — both ends of the DS1307 map — still restore over a different live pointer; the arm a reject-everything check fails, and the one an off-by-one `>= 63` bound would fail too | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6025 |
+| GH289-61 | a register pointer of 64 is REFUSED — one past the 64-entry regs_ array, whose extent IS the bound | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6033 |
+| GH289-62 | a register pointer of 200 is REFUSED — the reviewer's proof-of-concept value, which wrote 136 bytes past regs_ on the next RTC write and read past it on the next RTC read | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6036 |
+| GH289-63 | the widest value a u8 can carry is REFUSED — the type's own range is 0..255 and the array's is 0..63, which is the whole defect in one sentence | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6040 |
+| GH289-64 | byte 0 of I2cRtc's 69-byte block is the register pointer — the field the next row forges, proved by an honest save of a known pointer | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6076 |
+| GH289-65 | a forged pointer in the REWIND stream leaves it at its pre-load value, still consumes the declared 69 bytes so the 64 register bytes behind it do not desync, and is NAMED in the log | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6094 |
+| GH289-46 | Emulator::load_jns REFUSES a .jns whose state/clock.json carries a CPU divisor of 0, whose state/uart.json carries a selector of 2, or whose state/rtc.json carries a register pointer of 200 — each refusal naming its own member AND field, which proves all three subsystems are really visited; the direct-declaration rows above cannot show that | zxnext.vhd:1299-1300,5817, uart.vhd:123,280,301 | pass | test/rewind/rewind_test.cpp:6197 |
+| JNS-RT-16 | an esxDOS handle open INSIDE the sandbox survives a .jns round trip and is genuinely USABLE: reading one byte through the restored handle returns the byte at the offset the saved machine had reached. The file's byte at offset N is N, so that single value says which file was reopened AND where in it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6308 |
+| JNS-RT-20 | the fixture really attaches a cable, really delivers bytes through the mux, and stops with a REMAINDER still to send — without all three the row below asserts nothing, which is how this path went six stages with no coverage at all | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6422 |
+| JNS-RT-21 | …and the RESTORED cable delivers the CONTINUATION byte through the mux into the UART — the file's byte at index N is N, so the value proves the cursor travelled and the source is still live. A source that silently rewound would deliver 0 | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6464 |
+| JNS-RT-17 | a preview is DECLARED in the manifest (present, width, height) and the meta/preview.png member is really in the archive — §10.2 P5's declared-rather-than-merely-present rule, so a reader can size it without inflating it | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6520 |
+| JNS-RT-18 | …and the bytes come back BYTE-FOR-BYTE on load. meta/ is an OPEN namespace, so a writer that silently dropped the preview would produce a file every reader accepts — nothing else in the tree would ever have complained | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6539 |
+| JNS-RT-19 | no preview supplied means no member and nothing declared — legal and silent. Without this the two rows above would pass against a writer that always emitted one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6568 |
+| JNS-RT-14 | a .jns that does not list a subsystem still LOADS — §12.4 says that is a deliberate omission by the writer, not a broken file | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6656 |
+| JNS-RT-15 | …and it WARNS, naming the subsystem: it has been left at its power-on defaults, which is a real difference from the machine the file came from and must not be silent | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6659 |
+| JNS-RT-08a | the fixture really is paused MID-FRAME before the save — without this the row below asserts nothing | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6687 |
+| JNS-RT-08 | a .jns save ADVANCES a mid-frame machine to a frame boundary and REPORTS that it did (§10.2 P7's always-advance, never-refuse rule): no unavailable menu item, no failure mode, and the caller can tell the user once | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6697 |
+| S6-EMU-TAPE-01 | a .tap attached by a relative name records an ABSOLUTE path and the digest of THAT file, whatever the working directory is at save time (GH #401) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6851 |
+| S6-EMU-TAPE-02 | the same through load_tzx, which installs the tape by move assignment | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6856 |
+| S6-EMU-TAPE-03 | the same through load_wav | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6860 |
+| S6-EMU-TAPE-04 | the archive loaded with a working directory that does NOT hold the tape (the tape still at its recorded path) raises no tape warning | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6879 |
+| S6-EMU-TAPE-05 | with the tape gone, a STRICT load still succeeds (§10.2 P4) and raises exactly one tape warning that names the full recorded path | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6889 |
+| S6-EMU-TAPE-06 | a file from a version that recorded only the file name (a bare name) loaded with the tape in the working directory raises no tape warning: old files keep loading as today | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6900 |
+| S6-EMU-TAPE-07 | the same legacy file loaded from a directory WITHOUT the tape warns, naming 'game.tap' | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6908 |
+| S6-EMU-TAPE-08 | absolute_host_path keeps non-ASCII UTF-8 bytes exact: absolute, starting with the working directory, ending with the original name in native separators | (jnext-internal) | pass | test/rewind/rewind_test.cpp:6922 |
+| S6-EMU-TAPE-09 | a real-time TAP saved mid-DATA of its second block (found by measuring the deck) restores into a fresh machine with the deck at the same place: 400 frames later the state streams and decks are identical and the program has loaded every block | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7269 |
+| S6-EMU-TAPE-10 | the same for a real-time TZX saved mid-DATA of its second block: the player's pointers, edge time and counters come back, and the continuation is identical to the uninterrupted machine's | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7290 |
+| S6-EMU-TAPE-11 | a WAV deck playing for 90 frames restores playing from the same sample instant: 120 frames later the streams and decks are identical (the playback start travels as a distance from the saved clock) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7310 |
+| S6-EMU-TAPE-12 | a fast TAP saved after its first block restores with the cursor on the second: the next traps serve blocks 2 and 3 into RAM exactly as the uninterrupted machine's do | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7326 |
+| S6-EMU-TAPE-13 | a real-time deck held at a gap (auto play on, the program not listening) restores held with the poll detector as it was: after the program polls again both machines resume on the same read, load the next block and stay identical | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7347 |
+| S6-EMU-TAPE-14 | a snapshot saved with auto play OFF, loaded by a session with it ON, leaves the session's auto play ON (machine setting and config): a .jns restores the machine and the tape position, never a setting | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7372 |
+| S6-EMU-TAPE-15 | the mirror: saved ON, loaded by a session with it OFF, it stays OFF | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7376 |
+| S6-EMU-TAPE-16 | a fast TAP saved two frames after load_tap (the typist waiting for BASIC) restores a machine that types LOAD "" at the same moment: 300 frames later, with the first block trapped on both, the streams are identical; and one saved after the typing was done restores a typist that stays idle | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7404 |
+| S6-EMU-TAPE-17 | a tape file edited after the save is NOT reattached (its digest differs): the load succeeds with exactly one tape warning saying it changed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7435 |
+| S6-EMU-TAPE-18 | a state/tape.json whose block index is past the tape (999 of 3) is refused by the deck: the load succeeds, exactly one warning saying the position is not valid, nothing attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7461 |
+| S6-EMU-TAPE-24 | a state/tape.json that is not JSON never refuses the load: exactly one warning saying the position could not be read, nothing attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7464 |
+| S6-EMU-TAPE-19 | an older file (a tape in the manifest, no tape member) loads with exactly one warning saying it does not record where the tape was, and the tape is NOT attached at its start | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7467 |
+| S6-EMU-TAPE-20 | an older file whose tape is also missing raises exactly ONE tape warning, the container's, naming the path | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7483 |
+| S6-EMU-TAPE-21 | a tape extracted from a .zip is recorded by its archive and member: with the extracted copy deleted, a fresh load re-extracts it from the archive (a different scratch path), verifies the digest, attaches at the same position and warns nothing | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7515 |
+| S6-EMU-TAPE-22 | with the archive gone the load succeeds with exactly one warning naming the archive and the member, and nothing is attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7528 |
+| S6-EMU-TAPE-23 | a snapshot whose tape cannot be reattached leaves the deck already in the machine exactly as it was (same tape, same block, same mode) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7545 |
+| S6-EMU-TAPE-25 | state/tape.json is written, and listed in the manifest's subsystems, only when a tape is attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7569 |
+| S6-EMU-TAPE-26 | a real-time TAP saved mid-block and loaded in a FAST session keeps playing in real time to the end of that block, hands over to fast loading at the gap, and the ROM's third LD-BYTES is served by the trap: every block is whole in RAM and the program finishes (no block cut, none repeated) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7636 |
+| S6-EMU-TAPE-27 | a deck saved held at a gap and loaded in a fast session is fast at once, before the same block, and the next LD-BYTES is served by the trap with that block's bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7650 |
+| S6-EMU-TAPE-28 | a fast TAP saved between blocks and loaded in a real-time session with auto play ON starts HELD before the next block; the program's polling resumes it and the remaining blocks load in real time | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7661 |
+| S6-EMU-TAPE-30 | the same with auto play OFF: the deck is PLAYING the next block's pilot right after the load, auto play is still off, and the program loads the remaining blocks | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7670 |
+| S6-EMU-TAPE-29 | a fast TZX saved after its first block and loaded in a real-time session starts held at the recorded fast position (the second block, offset 217, not the start of the tape) and loads the remaining blocks | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7682 |
+| S6-EMU-TAPE-31 | a deck saved held, loaded by a session with auto play OFF, is resumed at once (a held deck must not stay stopped for ever), auto play stays off, and the block loads | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7695 |
+| S6-EMU-TAPE-32 | a TZX stopped at a stop block (saved with auto play off), loaded by a session with auto play ON, is held there and resumes when the program polls: the next block loads | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7706 |
+| S6-EMU-TAPE-33 | the poll run is restored when the snapshot's auto play setting equals the session's (the control, saved ON, loaded ON: polling) and reset when it differs (saved OFF, loaded ON: not polling) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7721 |
+| S6-EMU-TAPE-34 | a real-time snapshot loaded in a FAST session and then recorded to RZX keeps playing in real time (the pending switch to fast loading is cancelled, the traps being off): every block lands in RAM and the deck never turns fast, and the log says so (one line when the recording cancels the switch) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7767 |
+| S6-EMU-TAPE-35 | the same when the recording is already running at the load (--load x.jns --rzx-record): the restore suspends the traps itself and the deck stays real time to the end | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7779 |
+| S6-EMU-TAPE-36 | a TZX deck saved held at a gap and loaded in a fast session is fast at once with the fast cursor on the NEXT block (offset 217, not the recorded 10): the trap serves that block, never block 0 again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7792 |
+| S6-EMU-TAPE-37 | a real-time TZX saved mid-block and loaded in a FAST session finishes that block in real time, hands over to fast loading at the gap (the pending switch survives the loader's move into the machine) and the trap serves the third block: every block is whole in RAM | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7804 |
+| S6-EMU-TAPE-38 | a TZX deck saved held, loaded by a session with auto play OFF, is resumed at once, auto play stays off, and the block loads | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7817 |
+| S6-EMU-TAPE-39 | a tape file edited after it was attached but BEFORE the save is recorded by the digest of what the deck holds, so the load refuses to reattach it (one 'changed' warning), instead of attaching it at offsets that index other bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7838 |
+| S6-EMU-TAPE-40 | a manifest with an EMPTY digest is not reattached: exactly one warning, nothing attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7855 |
+| S6-EMU-TAPE-41 | a state/tape.json present but not listed in the manifest's subsystems is the older-file case, not a reattach: exactly one warning, nothing attached | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7857 |
+| S6-EMU-JNSFID-01 | a machine that never ran the binary save_state() writes state/ram.json size_bytes = the real RAM size, and the snapshot of the restored machine has the same state/ram.json and state/cpu.json as the file it was restored from | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7886 |
+| S6-EMU-JNSFID-02 | a machine saved right after EI (the interrupt grace pending at the boundary) writes ei_grace 0 into state/cpu.json (not a stale -1) and restores it: the restored machine's own snapshot says 0 again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7920 |
+| RWLOAD-PRE-01 | RWLOAD fixtures: .sna/.szx/.nex written | (jnext-internal) | pass | test/rewind/rewind_test.cpp:7974 |
+| RWLOAD-PRE-02 | RWLOAD fixtures: Next .jns written (its slot is 8192 bytes smaller than the 48K one) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8003 |
+| RWLOAD-01 | a .sna load keeps the debugger-enabled rewind: ring rebuilt empty at size 8, recording again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8033 |
+| RWLOAD-02 | a .szx load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8043 |
+| RWLOAD-03 | a .z80 load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8052 |
+| RWLOAD-04 | a .nex load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8061 |
+| RWLOAD-05 | a machine-switching .jns keeps the rewind setting and re-measures the slot for the new machine | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8070 |
+| RWLOAD-06 | an in-memory snapshot load keeps the debugger-enabled rewind | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8084 |
+| RWLOAD-07 | a load keeps the size chosen in the debugger, not the command-line one | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8093 |
+| RWLOAD-08 | a load keeps a paused rewind paused; resuming records again | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8111 |
+| RWLOAD-09 | a load keeps a rewind freed in the debugger freed | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8119 |
+| RWLOAD-10 | a resize after a pause is recorded as running: the load keeps it enabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8130 |
+| RWLOAD-11 | control: a tape load re-inits nothing, so ring and history are kept | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8139 |
+| RWLOAD-12 | pause then resume then load: rewind comes back running, not paused | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8153 |
+| FBG-PRE-05 | rewind buffer exists | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8179 |
+| FBG-05 | rewind_to_frame() re-renders the framebuffer and advances the generation | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8183 |
+| FBG-06 | rewind_to_cycle() re-renders the framebuffer and advances the generation | (jnext-internal) | pass | test/rewind/rewind_test.cpp:8191 |
 
 ## Floating Bus — `test/floating_bus/floating_bus_test.cpp`
 
@@ -4666,184 +4689,184 @@ Notes and rationale: [CONTENTION-TEST-PLAN-DESIGN.md](CONTENTION-TEST-PLAN-DESIG
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| CT-GATE-01 | ZX48K, mem_active_page=0x0A → is_contended_access()==true [zxnext.vhd:4481,4490] | zxnext.vhd:4481,4490 | pass | test/contention/contention_test.cpp:119 |
-| CT-GATE-02 | ZX48K, page=0x0A, set_contention_disable(true) → false [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:132 |
-| CT-GATE-03 | ZX48K, page=0x0A, set_cpu_speed(1) → false [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:145 |
-| CT-GATE-04 | ZX48K, page=0x0A, set_cpu_speed(2) → false [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:157 |
-| CT-GATE-05 | ZX48K, page=0x0A, set_cpu_speed(3) → false [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:169 |
-| CT-GATE-07 | ZX48K, all gates off, page=0x0A → true [zxnext.vhd:4481,4490] | zxnext.vhd:4481,4490 | pass | test/contention/contention_test.cpp:190 |
-| CT-GATE-08 | Default-constructed model (no build()) honours VHDL :1099/:1377 power-on TimingPlus3 default — page=0x02 (bit3=0) → false; page=0x0A (bit3=1) → true [V24-MEM-01 fix; zxnext.vhd:4492,5761-5777] | zxnext.vhd:4492,5761-5777 | pass | test/contention/contention_test.cpp:216 |
-| CT-M48-01 | 48K, page=0x0A (bank 5, bits(3:1)=101) → contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:241 |
-| CT-M48-03 | 48K, page=0x00 (bank 0, bits(3:1)=000) → not contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:252 |
-| CT-M48-05 | 48K, page=0x0E (bank 7, bits(3:1)=111) → not contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:263 |
-| CT-M48-06 | 48K, page=0x10 (high nibble != 0) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:275 |
-| CT-M48-08 | 48K, page=0xFF (floating-bus sentinel) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:287 |
-| CT-M128-01 | 128K, page=0x02 (bank 1, bit(1)=1) → contended [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:307 |
-| CT-M128-03 | 128K, page=0x04 (bank 2, bit(1)=0) → not contended [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:318 |
-| CT-M128-08 | 128K, page=0x10 (high nibble != 0) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:329 |
-| CT-MP3-01 | +3, page=0x08 (bank 4, bit(3)=1) → contended [zxnext.vhd:4492] | zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:349 |
-| CT-MP3-05 | +3, page=0x00 (bank 0, bit(3)=0) → not contended [zxnext.vhd:4492] | zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:360 |
-| CT-MP3-08 | +3, ROM access (page >= 0xF0) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:372 |
-| CT-IO-01 | 48K, cpu_a=0xFE (even port, ULA) → port_contend=1 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:398 |
-| CT-IO-02 | 48K, cpu_a=0xFF (odd port, non-ULA) → port_contend=0 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:406 |
-| CT-IO-03 | 48K, cpu_a=0x00 (even, lowest) → port_contend=1 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:414 |
-| CT-IO-04 | 48K, cpu_a=0x01 (odd, lowest) → port_contend=0 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:422 |
-| CT-IO-05 | 128K, cpu_a=0x7FFD bare-class port_contend → false today; Branch-A wires port_7ffd_active term [zxnext.vhd:4496,2594; contention.h:73-83 bare-class limitation] | zxnext.vhd:4496,2594 | pass | test/contention/contention_test.cpp:448 |
-| CT-IO-06 | 48K, cpu_a=0x7FFD (port_7ffd_active always 0 on 48K) → port_contend=0 [zxnext.vhd:4496,2594] | zxnext.vhd:4496,2594 | pass | test/contention/contention_test.cpp:460 |
-| CT-IO-07 | Any timing, cpu_a=0xBF3B (ULA+ index, port_bf3b OR-term) → 1 [zxnext.vhd:4496,2685] | zxnext.vhd:4496,2685 | pass | test/contention/contention_test.cpp:471 |
-| CT-IO-08 | Any timing, cpu_a=0xFF3B (ULA+ data, port_ff3b OR-term) → 1 [zxnext.vhd:4496,2686] | zxnext.vhd:4496,2686 | pass | test/contention/contention_test.cpp:479 |
-| CT-IO-09 | Any timing, cpu_a=0xBF3B, port_ulap_io_en=0 → port_contend=0 [zxnext.vhd:4496,2685] | zxnext.vhd:4496,2685 | pass | test/contention/contention_test.cpp:487 |
-| CT-WIN-01 | 48K, hc=0, vc=0 (hc_adj(3:2)=00 AND vc<64 border) → delay=0 [zxula.vhd:582-583; src/memory/contention.cpp:37-46] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:515 |
-| CT-WIN-02 | 48K, hc=3, vc=100 (hc_adj=4, (3:2)=01, first held tick) → delay=6 [zxula.vhd:582-583; Task 54 hc(3:0) table] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:531 |
-| CT-WIN-03 | 48K, hc=15, vc=100 (hc_adj=0 after 4-bit wrap) → delay=0 [zxula.vhd:178,582-583] | zxula.vhd:178,582-583 | pass | test/contention/contention_test.cpp:543 |
-| CT-WIN-04 | 48K, hc=255, vc=100 (last display col, hc_adj=0 wrap) → delay=0 [zxula.vhd:178,582-583] | zxula.vhd:178,582-583 | pass | test/contention/contention_test.cpp:555 |
-| CT-WIN-05 | 48K, hc=256, vc=100 (hc(8)=1 window gate off) → delay=0 [zxula.vhd:583; build()-loop bounds hc<=255] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:566 |
-| CT-WIN-06 | 48K, hc=100, vc=192 (border_active_v=1) → delay=0 [zxula.vhd:414,583] | zxula.vhd:414,583 | pass | test/contention/contention_test.cpp:581 |
-| CT-WIN-07 | 48K, hc=0..255 sweep at vc=100: per-phase LUT == inline VHDL-derived hc(3:0) table {0,0,0,6,6,5,5,4,4,3,3,2,2,1,1,0} (period 16 ticks = 8 T-states) [zxula.vhd:582-583; Task 54] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:618 |
-| CT-WIN-08 | +3 vs 48K, hc=15, vc=100: +3 clause-2 wait_s=1 → delay=1; 48K clause-2 absent → delay=0 [zxula.vhd:582-583; Task 54 hc(3:0) tables] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:643 |
-| CT-WIN-09 | 48K, hc=16, vc=100 (hc&0xF=0, hc_adj=1, (3:2)=00) → delay=0 [zxula.vhd:178,582-583] | zxula.vhd:178,582-583 | pass | test/contention/contention_test.cpp:659 |
-| CT-WIN-10 | 48K, hc=7, vc=100 (hc_adj=8 ⇒ wait_s=1, held 7..14) → delay=4 [zxula.vhd:582-583; Task 54 hc(3:0) table] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:675 |
-| CT-S48-01 | 48K bank-5 (page 0x0A) display+stretched (hc=4,vc=100) → gate=1 AND delay=6 [zxula.vhd:582-595; Task 54 table] | zxula.vhd:582-595 | pass | test/contention/contention_test.cpp:710 |
-| CT-S48-02 | 48K bank-5 display+NON-stretched (hc=0,vc=100) → gate=1 BUT delay=0 (hc_adj(3:2)=00) [zxula.vhd:582-595] | zxula.vhd:582-595 | pass | test/contention/contention_test.cpp:726 |
-| CT-S48-03 | 48K bank-0 (page 0x00, bits(3:1)=000) → not contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:740 |
-| CT-S48-04 | 128K bank-1 (page 0x02) display+stretched (hc=4,vc=100) → gate=1 AND delay=6 (Task 54 hc(3:0) table, {3,4}->6) [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:753 |
-| CT-S48-05 | 128K bank-4 (page 0x08, bit(1)=0) → not contended [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:768 |
-| CT-S48-06 | 48K port=0xFE, hc=4, vc=100 → port_contend=1 AND delay=6 (port stretched; Task 54 hc(3:0) table) [zxula.vhd:587-595; zxnext.vhd:4496] | zxula.vhd:587-595, zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:783 |
-| CT-S48-07 | 48K port=0xFF (odd, no ULA+, no 7FFD) → port_contend=0 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:798 |
-| CT-S48-08 | 48K bank-5 outside display window (vc=300) → gate=1 BUT delay=0 (border_active_v=1) [zxula.vhd:583] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:812 |
-| CT-SP3-01 | +3 bank-4 (page 0x08) display+stretched (hc=4,vc=100) → gate=1 AND delay=7 (+3 window covers 15,0; Task 54 table) [zxula.vhd:600; zxnext.vhd:4492] | zxula.vhd:600, zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:842 |
-| CT-SP3-02 | +3 bank-7 (page 0x0E) display+stretched (hc=4,vc=100) → gate=1 AND delay=7 (+3 window covers 15,0; Task 54 table) [zxula.vhd:600; zxnext.vhd:4492] | zxula.vhd:600, zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:860 |
-| CT-SP3-03 | +3 bank-0 (page 0x00, bit(3)=0) → not contended [zxnext.vhd:4492] | zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:874 |
-| CT-SP3-04 | +3 bank-4 outside display window (vc=300) → gate=1 BUT delay=0 (border) [zxula.vhd:583,600] | zxula.vhd:583,600 | pass | test/contention/contention_test.cpp:888 |
-| CT-SP3-05 | +3 bank-4 with contention_disable=1 → not contended (enable gate off) [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:902 |
-| CT-SP3-06 | +3 port=0xFE bare port_contend=1; +3 WAIT_n is memory-only so Branch-A tick does NOT stall on I/O [zxula.vhd:599-600 commented OR-with-iorq clause] | zxula.vhd:599-600 | pass | test/contention/contention_test.cpp:922 |
-| CT-SP3-07 | +3 port=0xFE with contended MMU bank → port_contend=1 (memory-bank state does NOT enter port_contend decode) [zxula.vhd:599-600; zxnext.vhd:4496] | zxula.vhd:599-600, zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:939 |
-| CT-SP3-08 | +3 hc=15 hc_adj=0 (3:1)=000 clause-2 wait_s=1 with bank 4: delay=1 (+3 wrap phase); 48K same hc=15 delay=0 (clause-1 fails) [zxula.vhd:582-583,600; Task 54 tables] | zxula.vhd:582-583,600 | pass | test/contention/contention_test.cpp:962 |
-| CT-TURBO-01 | 48K, cpu_speed=1 (7 MHz), page=0x0A → not contended (gate off) [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:1001 |
-| CT-TURBO-04 | Emulator::init failed (likely missing 48K ROM) — row would otherwise verify NR 0x07=0x01 → cpu_speed=7 MHz → contention gate off [zxnext.vhd:5787-5790,5817] | zxnext.vhd:5787-5790,5817 | pass | test/contention/contention_test.cpp:1025 |
-| CT-TURBO-05 | Emulator::init failed — would verify NR 0x08 bit 6 → contention_disable [zxnext.vhd:4481,5823] | zxnext.vhd:4481,5823 | pass | test/contention/contention_test.cpp:1075 |
-| CT-TURBO-06 | NR 0x08 bit 6 shadow latches on hc(8) rising edge: shadow alone does not affect gate; hc<256 does not commit; hc>=256 commits [zxnext.vhd:5822-5823] | zxnext.vhd:5822-5823 | pass | test/contention/contention_test.cpp:1140 |
-| CT-TURBO-07 | NR 0x07 cpu_speed shadow → effective commits only on bus-idle (mreq_n & iorq_n & m1_n & not dma_holds_bus): shadow alone does not affect gate; bus_idle=0 does not commit; dma_holds_bus=1 does not commit; bus_idle=1 AND dma_holds_bus=0 commits [zxnext.vhd:5796-5828] | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:1207 |
-| CT-TURBO-09 | NR 0x07=0/1/2/3 → Clock divisor 8/4/2/1 and the CPU is granted exactly master_cycles_per_frame/divisor T-states in one run_frame() (overshoot <= one instruction). Pins the 28 MHz-master ÷ NR 0x07 CPU clock end-to-end, not just the divisor value [zxnext.vhd:5787-5790,5809,5817; GH #165] | zxnext.vhd:5787-5790,5809,5817 | pass | test/contention/contention_test.cpp:2441 |
-| CT-TURBO-10 | Uncontended self-looping LDIR: iterations retired in one frame == (master_cycles_per_frame/divisor - setup)/21 at NR 0x07=0/1/2, and 14 MHz retires exactly 4x the 3.5 MHz count. Pins per-instruction T-state charging against the frame budget — the composition GH #165 claimed was 590x wrong [zxnext.vhd:4481,5787-5790,5809,5817; GH #165] | zxnext.vhd:4481,5787-5790,5809,5817 | pass | test/contention/contention_test.cpp:2496 |
-| CT-TURBO-11 | Emulator::init failed (likely missing 48K ROM) — row would otherwise verify NR 0x07=0x02 disables the runtime contention path [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:2532 |
-| CT-FB-01 | Emulator::init failed (likely missing +3 ROMs) — would verify p3_floating_bus_dat captures bank-4 read [zxnext.vhd:4498-4505] | zxnext.vhd:4498-4505 | pass | test/contention/contention_test.cpp:1251 |
-| CT-FB-02 | Emulator::init failed — would verify mem write capture [zxnext.vhd:4498-4508] | zxnext.vhd:4498-4508 | pass | test/contention/contention_test.cpp:1281 |
-| CT-FB-03 | Emulator::init failed — would verify latch hold on non-contended access [zxnext.vhd:4498-4501] | zxnext.vhd:4498-4501 | pass | test/contention/contention_test.cpp:1307 |
-| CT-FB-04 | Emulator::init failed — would verify I/O bypasses latch [zxnext.vhd:4501] | zxnext.vhd:4501 | pass | test/contention/contention_test.cpp:1336 |
-| CT-INT-01 | Emulator::init failed — would verify 48K contention-ON adds non-zero T-states [zxula.vhd:582-595; zxula_timing.vhd] | zxula.vhd:582-595, zxula_timing.vhd | pass | test/contention/contention_test.cpp:1382 |
-| CT-INT-02 | Emulator::init failed — would verify 48K contention-OFF matches baseline [zxnext.vhd:4481,5823] | zxnext.vhd:4481,5823 | pass | test/contention/contention_test.cpp:1416 |
-| CT-INT-03 | Regression suite plumbing: floating-bus reference PNG exists AND regression_tests.conf includes a `floating-bus` entry — contention regressions land via test/00regression/regression.sh [test/00regression/img/floating-bus-reference.png; test/00regression/regression_tests.conf] | — | pass | test/contention/contention_test.cpp:1495 |
-| CT-FUSE-01 | Emulator::init failed — would verify M1 fetch contention [zxula.vhd:583; zxnext.vhd:4481,4490] | zxula.vhd:583, zxnext.vhd:4481,4490 | pass | test/contention/contention_test.cpp:1974 |
-| CT-FUSE-02 | Emulator::init failed — would verify LDIR no-MREQ tail contention [zxula.vhd:583,595; z80_ed.c:418-433] | zxula.vhd:583,595 | pass | test/contention/contention_test.cpp:2052 |
-| CT-FUSE-03 | OUT (0xFE),A from an uncontended code page stretches the port cycle (on > off, delta within the 6-T wait_s envelope) while the same loop on odd port 0x00FF is untouched (on == off) [zxnext.vhd:4496 port_contend = not cpu_a(0); zxula.vhd:583 wait_s pattern, :600 one-clock gate] | zxnext.vhd:4496, zxula.vhd:583 | pass | test/contention/contention_test.cpp:2142 |
-| CT-FUSE-04 | IN A,(0xFE) from an uncontended code page stretches the port cycle (on > off, delta within the 6-T wait_s envelope) while the same loop on odd port 0x00FF is untouched (on == off) [zxnext.vhd:4496 port_contend = not cpu_a(0); zxula.vhd:600 keys on iorq_n alone, no rd/wr term] | zxnext.vhd:4496, zxula.vhd:600 | pass | test/contention/contention_test.cpp:2176 |
-| T51-INT-01 | Emulator::init(ZX128K) failed — Task 51 video-timing re-push probe | zxula_timing.vhd:147-280, zxnext.vhd:6694-6703 | pass | test/contention/contention_test.cpp:3305 |
-| T56-INT-01 | Emulator::init(ZX128K) failed — Task 56 50/60 Hz frame-edge commit probe | zxnext.vhd:6697-6703, zxula_timing.vhd:282-298 | pass | test/contention/contention_test.cpp:3382 |
-| CT-SW28-01 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3905 |
-| CT-SW28-02 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3906 |
-| CT-SW28-03 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3907 |
-| CT-SW28-04 | Emulator::init failed (Next machine) | zxnext.vhd:3154,3167,3171-3181 | pass | test/contention/contention_test.cpp:3908 |
-| CT-SW28-05 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3942 |
-| CT-SW28-06 | Emulator::init failed (Next machine) | zxnext.vhd:3171-3181 | pass | test/contention/contention_test.cpp:3946 |
-| CT-SW28-07 | Emulator::init failed (Next machine) | zxnext.vhd:3154,3167,3175 | pass | test/contention/contention_test.cpp:3949 |
-| CT-SW28-08 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3953 |
-| CT-SW28-09 | Emulator::init failed (Next machine) | zxnext.vhd:3144 | pass | test/contention/contention_test.cpp:3957 |
-| CT-SW28-10 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3964 |
-| CT-SW28-11 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3970 |
-| CT-SW28-12 | Emulator::init failed (Next machine) | zxnext.vhd:3144 | pass | test/contention/contention_test.cpp:3974 |
-| CT-SW28-13 | Emulator::init failed (Next machine) | zxnext.vhd:6592,3175 | pass | test/contention/contention_test.cpp:4007 |
-| CT-SW28-14 | Emulator::init failed (Next machine) | zxnext.vhd:6670-6685 | pass | test/contention/contention_test.cpp:4034 |
-| CT-SW28-15 | Emulator::init failed (Next machine) | zxnext.vhd:2964,3061 | pass | test/contention/contention_test.cpp:4060 |
-| CT-SW28-16 | Emulator::init failed (Next machine) | zxnext.vhd:1856 | pass | test/contention/contention_test.cpp:4097 |
-| CT-SW28-17 | Emulator::init failed (Next machine) | zxnext.vhd:3052-3053 | pass | test/contention/contention_test.cpp:4109 |
-| CT-SW28-18 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:4134 |
-| CT-SW28-19 | Emulator::init failed (Next machine) | zxnext.vhd:3084-3099 | pass | test/contention/contention_test.cpp:4167 |
-| CT-SW28-20 | Emulator::init failed (Next machine) | zxnext.vhd:3028-3035 | pass | test/contention/contention_test.cpp:4206 |
-| CT-SW28-21 | Emulator::init failed (Next machine) | zxnext.vhd:3077 | pass | test/contention/contention_test.cpp:4242 |
-| CT-SW28-22 | Emulator::init failed (Next machine) | zxnext.vhd:3037-3043 | pass | test/contention/contention_test.cpp:4271 |
-| CT-SW28-23 | Emulator::init failed (Next machine) | zxnext.vhd:3037-3043 | pass | test/contention/contention_test.cpp:4294 |
-| CT-SW28-24 | Emulator::init failed (Next machine) | zxnext.vhd:3042,3049,3092-3099 | pass | test/contention/contention_test.cpp:4319 |
-| CT-SW28-25 | Emulator::init failed (Next machine) | zxnext.vhd:3029-3036 | pass | test/contention/contention_test.cpp:4349 |
-| CT-SW28-26 | Emulator::init failed (Next machine) | zxnext.vhd:3065,3077 | pass | test/contention/contention_test.cpp:4375 |
-| CT-SW28-27 | Emulator::init failed (Next machine) | zxnext.vhd:2969-2971,3100-3107 | pass | test/contention/contention_test.cpp:4404 |
-| CT-SW28-28 | Emulator::init failed (Next machine) | zxnext.vhd | pass | test/contention/contention_test.cpp:4429 |
-| CT-SW28-29 | Emulator::init failed (Next machine) | zxnext.vhd:2969-2971,3100-3107 | pass | test/contention/contention_test.cpp:4454 |
-| CT-SW28-30 | Emulator::init failed (Next machine) | zxnext.vhd:2966-2971 | pass | test/contention/contention_test.cpp:4474 |
-| CT-SW28-31 | Emulator::init failed (Next machine) | zxnext.vhd:2967,3922 | pass | test/contention/contention_test.cpp:4495 |
-| CT-SW28-32 | Emulator::init failed (Next machine) | zxnext.vhd:2968,3919 | pass | test/contention/contention_test.cpp:4516 |
-| CT-GH183-01 | 48K: `contention_tick()` identical at both ticks of every T-state pair `{hc-1, hc}` over the contended span | zxula.vhd:582-583, zxula_timing.vhd:344,423-436 | pass | test/contention/contention_test.cpp:4819 |
-| CT-GH183-02 | 128K: same pair invariance | zxula.vhd:582-583, zxula_timing.vhd:344,423-436 | pass | test/contention/contention_test.cpp:4819 |
-| CT-GH183-03 | 48K: swapping jnext's independent (hc-12, vc) rebase for the VHDL-exact linear counter pair (hc-11) changes the contention delay at ZERO T-states of a full frame — the -12 in ula_prefetch_origin_hc() is unobservable here [zxula_timing.vhd:423-451] | zxula_timing.vhd:423-451 | pass | test/contention/contention_test.cpp:4842 |
-| CT-GH183-04 | 128K: same whole-frame VHDL-exact rebase comparison — zero differing T-states, identical per-frame contention total [zxula_timing.vhd:423-451] | zxula_timing.vhd:423-451 | pass | test/contention/contention_test.cpp:4854 |
-| CT-GH183-05 | +3: the hc_adj(3:1)=000 wait_s extension puts index pair {15,0} astride the i_hc(8) window edge, so the -12 vs -11 rebase relocates exactly 2 T-states per display line (384/frame) with an IDENTICAL per-frame contention total — a sub-T-state blip, not a delay change [zxula.vhd:583] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:4877 |
-| CT-GH183-06 | Emulator::init failed — would verify end-to-end origin invariance [zxula_timing.vhd:423-436] | zxula_timing.vhd:423-436 | pass | test/contention/contention_test.cpp:4900 |
-| CT-GH265-01 | 48K port-contended IN A,(C): the port handler runs after the I/O cycle's stretch, in its last clock (zxnext.vhd:4496; zxula.vhd:587-595; t80na.vhd:214-222) | zxnext.vhd:4496, zxula.vhd:587-595, t80na.vhd:214-222 | pass | test/contention/contention_test.cpp:4998 |
-| CT-GH265-02 | 48K IN A,(C) in the top border: no stretch, 12 T, handler at 11 T (zxula.vhd:414,583) | zxula.vhd:414,583 | pass | test/contention/contention_test.cpp:5014 |
-| CT-OVS-01 | Every IN of a 31-T loop over 4 frames finds the contention counter at clock - frame start: the frame start carries the overshoot (zxula.vhd:582-583 via derive_hc_vc) | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:5296 |
-| CT-OVS-02 | A DMA step moves the contention counter with the clock (dma_holds_bus: no CPU cycle, zxnext.vhd:1828-1844) | zxnext.vhd:1828-1844 | pass | test/contention/contention_test.cpp:5323 |
-| CT-OVS-03 | A parked frame advances the contention counter with the clock | — | pass | test/contention/contention_test.cpp:5345 |
-| CT-OVS-04 | After a 7 MHz -> 3.5 MHz switch mid-frame every IN finds the contention counter at clock - frame start (zxnext.vhd:5796-5828 commit) | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:5373 |
-| CT-OVS-05 | A tape-trap frame advances the contention counter with the clock | — | pass | test/contention/contention_test.cpp:5424 |
-| CT-IOC-01 | 48K IN A,(C) of 0x00FE (even port, uncontended page, N:1,C:3) matches FUSE 1.6 in all 8 phases (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5121 |
-| CT-IOC-02 | 48K IN A,(C) of 0x40FE (even port, contended page, C:1,C:3) matches FUSE 1.6 (zxula.vhd:587-595; zxnext.vhd:4489-4496) | zxula.vhd:587-595, zxnext.vhd:4489-4496 | pass | test/contention/contention_test.cpp:5124 |
-| CT-IOC-03 | 48K IN A,(C) of 0x40FF (odd port, contended page, C:1 x4) matches FUSE 1.6 (zxula.vhd:587-595; zxnext.vhd:4489-4493) | zxula.vhd:587-595, zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:5127 |
-| CT-IOC-04 | 48K IN A,(C) of 0x00FF (odd port, uncontended page, N:4) takes 12 T in every phase, as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5130 |
-| CT-IOC-05 | 48K IN A,(C) of 0x7FFD: no port_7ffd_active on 48K timing, so an odd port in bank 5's page (C:1 x4), as FUSE 1.6 (zxnext.vhd:2594,4489-4496) | zxnext.vhd:2594,4489-4496 | pass | test/contention/contention_test.cpp:5133 |
-| CT-IOC-06 | 48K OUT (C),A to 0x00FE matches FUSE 1.6 (N:1,C:3) (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5137 |
-| CT-IOC-07 | 48K OUT (C),A to 0x40FE matches FUSE 1.6 (C:1,C:3) (zxula.vhd:587-595; zxnext.vhd:4489-4496) | zxula.vhd:587-595, zxnext.vhd:4489-4496 | pass | test/contention/contention_test.cpp:5140 |
-| CT-IOC-08 | 48K OUT (C),A to 0x40FF matches FUSE 1.6 (C:1 x4) (zxula.vhd:587-595; zxnext.vhd:4489-4493) | zxula.vhd:587-595, zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:5143 |
-| CT-IOC-09 | 48K OUT (C),A to 0x00FF takes 12 T in every phase (N:4), as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5146 |
-| CT-IOC-10 | 48K IN A,(0xFF) with A=0x40 (port 0x40FF, contended page) matches FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5151 |
-| CT-IOC-11 | 48K IN A,(0xFF) with A=0x80 (port 0x80FF, bank 2 page) is never stretched, 11 T, as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5155 |
-| CT-IOC-12 | 128K IN A,(C) of 0xC0FF with bank 1 at 0xC000 (odd page, contended) matches FUSE 1.6 (C:1 x4; zxnext.vhd:4489-4493) | zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:5159 |
-| CT-IOC-13 | 128K IN A,(C) of 0xC0FE with bank 1 at 0xC000 matches FUSE 1.6 (C:1,C:3; zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5163 |
-| CT-IOC-14 | 128K OUT (C),A to 0xC0FF with bank 1 at 0xC000 matches FUSE 1.6 (C:1 x4) | zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:5167 |
-| CT-IOC-15 | 128K IN A,(C) of 0x40FF (bank 5) matches FUSE 1.6 (C:1 x4) | — | pass | test/contention/contention_test.cpp:5171 |
-| CT-IOC-16 | 128K IN A,(C) of 0x80FF (bank 2) takes 12 T in every phase, as FUSE 1.6 (N:4) | — | pass | test/contention/contention_test.cpp:5174 |
-| CT-IOC-17 | 128K IN A,(C) of 0x7FFE (keyboard half-row, even, bank 5) matches FUSE 1.6 (C:1,C:3) | — | pass | test/contention/contention_test.cpp:5177 |
-| CT-IOC-18 | 128K OUT (C),A to 0x7FFD: port_7ffd_active makes it a contended port in a contended page, C:1,C:3 (VHDL; FUSE differs) (zxnext.vhd:2594,4496; zxula.vhd:587-595) | zxnext.vhd:2594,4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5186 |
-| CT-IOC-19 | 128K OUT (C),A to 0xBF3B (ULA+ on, bank 2 page): a contended port in an uncontended page, N:1,C:3 (zxnext.vhd:2685,4496; zxula.vhd:587-595) | zxnext.vhd:2685,4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5192 |
-| CT-IOC-20 | 128K OUT (C),A to 0xFF3B (ULA+ on) with bank 1 at 0xC000: contended port and page, C:1,C:3 (zxnext.vhd:2686,4489-4496; zxula.vhd:587-595) | zxnext.vhd:2686,4489-4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5196 |
-| CT-IOC-21 | 128K OUT (C),A to 0xFF3B with ULA+ off (NR 0x85 b0=0), bank 1 at 0xC000: just an odd port in a contended page, C:1 x4 (zxnext.vhd:2439,2686,4496) | zxnext.vhd:2439,2686,4496 | pass | test/contention/contention_test.cpp:5201 |
-| CT-IOC-22 | 48K timing, MMU7 = page 10 (bank 5): IN A,(C) of 0xE0FF is in a contended page, C:1 x4 (zxnext.vhd:2952,4489-4493) | zxnext.vhd:2952,4489-4493 | pass | test/contention/contention_test.cpp:5211 |
-| CT-IOC-23 | 48K timing, MMU2 = page 4 (bank 2): IN A,(C) of 0x40FF is NOT in a contended page, N:4 (zxnext.vhd:2952,4489-4493) | zxnext.vhd:2952,4489-4493 | pass | test/contention/contention_test.cpp:5216 |
-| CT-IOC-24 | +3 timing: IN A,(C) of 0x40FE and 0x40FF are never stretched, 12 T in every phase (zxula.vhd:599-600) | zxula.vhd:599-600 | pass | test/contention/contention_test.cpp:5232 |
-| CT-DELAY-01 | Emulator::init failed for one or more machines — would verify per-frame contention drift bound across 48K/128K/+3 [zxula.vhd:582-595; zxnext.vhd:4481] | zxula.vhd:582-595, zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:1600 |
-| CT-FUSE-05 | Emulator::init failed — would verify single-contention-path invariant [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:2230 |
-| CT-TURBO-08 | Combined mid-line NR 0x07 + NR 0x08 b6 writes: each shadow commits on its OWN edge (NR 0x07 on bus-idle CLK_CPU; NR 0x08 b6 on bus-idle CLK_CPU AND hc(8)='1'); independent — one edge satisfied does not commit the other [zxnext.vhd:5796-5828] | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:2354 |
-| FIX-CONTEND-NR03-01 | ContentionModel::rebuild_for_type updates type/LUT and preserves ALL 5 dynamic gate fields (mem_active_page, cpu_speed, pending_cpu_speed, contention_disable/_shadow, port_7ffd_io_en) — VHDL :5137-5145 + :4489-4493; commit f5ec6d8 | — | pass | test/contention/contention_test.cpp:2667 |
-| FIX-CONTEND-NR03-INT-01 | Emulator::init(ZX48K) failed — would verify NR 0x03 dispatcher drives both axes | — | pass | test/contention/contention_test.cpp:2702 |
-| FIX-CONTEND-7FFD-01 | 128K + port 0x7FFD: port_contend gated on port_7ffd_io_en (NR 0x82 b1) — VHDL :4496/:2594/:2593; commit f5ec6d8 | zxnext.vhd:4496,2594,2593 | pass | test/contention/contention_test.cpp:2756 |
-| FIX-CONTEND-7FFD-02 | 48K + port 0x7FFD + io_en=1: port_contend=0 (s128/p3 timing gates off) — VHDL zxnext.vhd:2594; commit f5ec6d8 | zxnext.vhd:2594 | pass | test/contention/contention_test.cpp:2774 |
-| FIX-CONTEND-7FFD-03 | +3 + port 0x7FFD + io_en=1: port_contend=1 — VHDL zxnext.vhd:2593-2594; commit f5ec6d8 | zxnext.vhd:2593-2594 | pass | test/contention/contention_test.cpp:2792 |
-| FIX-MEMACTIVE-PAGE-01 | Emulator::init failed — would verify Mmu::get_page returns 0xFF sentinel for ROM slots 0/1 on 128K [zxnext.vhd:2949-2956,4489] | zxnext.vhd:2949-2956,4489 | pass | test/contention/contention_test.cpp:2826 |
-| FIX-MEMACTIVE-PAGE-INT-01 | Emulator::init failed — would verify CPU mem_active_page_for calls Mmu::get_page (NOT get_effective_page) | — | pass | test/contention/contention_test.cpp:2872 |
-| V15-CPU-NIT-03-01 | ZX128K, NR 0x85 b0=1, IORQ@$BF3B, default param port_ulap_io_en=false → contention_tick stretches > 0 (zxnext.vhd:2439,2685,4496; reviewer-promoted V15-CPU-NIT-03) | zxnext.vhd:2439,2685,4496 | pass | test/contention/contention_test.cpp:2977 |
-| V15-CPU-NIT-03-02 | ZX128K, NR 0x85 b0=1, IORQ@$FF3B, default param port_ulap_io_en=false → contention_tick stretches > 0 (zxnext.vhd:2439,2686,4496) | zxnext.vhd:2439,2686,4496 | pass | test/contention/contention_test.cpp:2995 |
-| V15-CPU-NIT-03-03 | ZX128K, NR 0x85 b0=0, IORQ@$BF3B → contention_tick stretch == 0 (gate disabled; zxnext.vhd:2685+4496) | zxnext.vhd:2685 | pass | test/contention/contention_test.cpp:3016 |
-| V15-CPU-NIT-03-04 | set_port_ulap_io_en(true) → port_ulap_io_en()==true; set_port_ulap_io_en(false) → port_ulap_io_en()==false (round-trip; mirrors port_7ffd_io_en pattern) | — | pass | test/contention/contention_test.cpp:3032 |
-| V15-CPU-NIT-03-05 | port_contend(0xBF3B, port_ulap_io_en=true) returns true regardless of shadow state (parameter override; zxnext.vhd:2685+4496) | zxnext.vhd:2685 | pass | test/contention/contention_test.cpp:3053 |
-| D3-CONTENTION-01 | tim_sel=128 / typ_sel=48 / page=0x02 — pre-fix follows typ_sel (48: bank-5 only → false); post-fix follows tim_sel (128: odd banks → true) per VHDL zxnext.vhd:4491,5761-5777 | zxnext.vhd:4491,5761-5777 | pass | test/contention/contention_test.cpp:3108 |
-| D3-CONTENTION-02 | tim_sel=+3 / typ_sel=128 / page=0x08 — pre-fix follows typ_sel (128: odd banks → false); post-fix follows tim_sel (+3: banks>=4 → true) per VHDL zxnext.vhd:4492,5761-5777 | zxnext.vhd:4492,5761-5777 | pass | test/contention/contention_test.cpp:3129 |
-| D3-CONTENTION-03 | video-frame deferred-commit latch — set_pending defers the new tim_sel until commit_pending_machine_timing() at the frame edge; pre-commit retains old effective value (VHDL zxnext.vhd:6694-6703) | zxnext.vhd:6694-6703 | pass | test/contention/contention_test.cpp:3166 |
-| D3-CONTENTION-04 | Emulator::init(ZX128K) failed | zxnext.vhd:4490-4492 | pass | test/contention/contention_test.cpp:3239 |
-| D3-CONTENTION-05 | Emulator::init(ZX128K) failed — Mmu::machine_timing_ axis storage + commit probe | — | pass | test/contention/contention_test.cpp:3409 |
-| D3-CONTENTION-06 | tim_sel=Pentagon disables contention regardless of typ_sel (VHDL zxnext.vhd:4481 — i_contention_en gates on NOT machine_timing_pentagon) | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:3467 |
-| D3-CONTENTION-NIT-01 | Emulator::init(ZX48K) failed — would verify load_state preserves machine_timing pair from Mmu schema | — | pass | test/contention/contention_test.cpp:3509 |
-| T50-01 | 48K, read $4000 at raw vc=10 (TOP BORDER, above c_min_vactive=64) on an hc phase that DOES contend in raw coordinates → NO contention (zxula.vhd:414 border_active_v is keyed on the ULA display-relative i_vc, reset at c_min_vactive per zxula_timing.vhd:441-452) | zxula.vhd:414, zxula_timing.vhd:441-452 | pass | test/contention/contention_test.cpp:3708 |
-| T50-02 | 48K, read $4000 at raw vc=64 (FIRST display line) → contends (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3719 |
-| T50-03 | 48K, read $4000 at raw vc=200 (BOTTOM display third, still within 64..255) → contends; pre-fix the raw vc tripped border_active_v and silently stopped contending (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3731 |
-| T50-04 | 48K, read $4000: raw vc=255 (LAST display line) contends, raw vc=256 (BOTTOM BORDER) does not — the window closes at exactly 192 ULA lines (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3742 |
-| T50-05 | 48K, read $4000 on a display line but at hc=4 (LEFT BORDER, before ula_min_hactive=c_min_hactive-12=116) → NO contention (zxula.vhd:416 border_active_ula = i_hc(8) or border_active_v; zxula_timing.vhd:423) | zxula.vhd:416, zxula_timing.vhd:423 | pass | test/contention/contention_test.cpp:3756 |
-| T50-06 | 128K (c_min_hactive=136, 228 T/line): top border does not contend and a display line does — proves the ULA counter origins are taken per-machine from VideoTiming, not hardcoded to the 48K values (zxula_timing.vhd:195,203) | zxula_timing.vhd:195,203 | pass | test/contention/contention_test.cpp:3784 |
-| CT-SW28-33 | Emulator::init failed (Next machine) | divmmc.vhd:148, zxnext.vhd:3084-3099,3037-3043 | pass | test/contention/contention_test.cpp:4557 |
-| CT-SW28-34 | Emulator::init failed (Next machine) | divmmc.vhd:128-131,141, zxnext.vhd:3084-3099,3037-3043 | pass | test/contention/contention_test.cpp:4586 |
-| CT-SW28-35 | Emulator::init failed (Next machine) | multiface.vhd:169,186, zxnext.vhd:3029-3036,3037-3043 | pass | test/contention/contention_test.cpp:4615 |
-| CT-SW28-36 | Emulator::init failed (Next machine) | divmmc.vhd:128-148, zxnext.vhd:3084-3099 | pass | test/contention/contention_test.cpp:4640 |
-| CT-SW28-37 | Emulator::init failed (Next machine) | divmmc.vhd:128-148, zxnext.vhd:3084-3099 | pass | test/contention/contention_test.cpp:4663 |
-| PENT-07 | --machine pentagon: a bank-5 access is not contended (machine_timing_pentagon gates i_contention_en off); the same access on ZX128K is [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:5449 |
-| PENT-25 | default_machine_timing_for(PENTAGON) is TimingPentagon, the 128K's is Timing128 [zxnext.vhd:5769-5770] | zxnext.vhd:5769-5770 | pass | test/contention/contention_test.cpp:5458 |
+| CT-GATE-01 | ZX48K, mem_active_page=0x0A → is_contended_access()==true [zxnext.vhd:4481,4490] | zxnext.vhd:4481,4490 | pass | test/contention/contention_test.cpp:120 |
+| CT-GATE-02 | ZX48K, page=0x0A, set_contention_disable(true) → false [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:133 |
+| CT-GATE-03 | ZX48K, page=0x0A, set_cpu_speed(1) → false [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:146 |
+| CT-GATE-04 | ZX48K, page=0x0A, set_cpu_speed(2) → false [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:158 |
+| CT-GATE-05 | ZX48K, page=0x0A, set_cpu_speed(3) → false [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:170 |
+| CT-GATE-07 | ZX48K, all gates off, page=0x0A → true [zxnext.vhd:4481,4490] | zxnext.vhd:4481,4490 | pass | test/contention/contention_test.cpp:191 |
+| CT-GATE-08 | Default-constructed model (no build()) honours VHDL :1099/:1377 power-on TimingPlus3 default — page=0x02 (bit3=0) → false; page=0x0A (bit3=1) → true [V24-MEM-01 fix; zxnext.vhd:4492,5761-5777] | zxnext.vhd:4492,5761-5777 | pass | test/contention/contention_test.cpp:217 |
+| CT-M48-01 | 48K, page=0x0A (bank 5, bits(3:1)=101) → contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:242 |
+| CT-M48-03 | 48K, page=0x00 (bank 0, bits(3:1)=000) → not contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:253 |
+| CT-M48-05 | 48K, page=0x0E (bank 7, bits(3:1)=111) → not contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:264 |
+| CT-M48-06 | 48K, page=0x10 (high nibble != 0) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:276 |
+| CT-M48-08 | 48K, page=0xFF (floating-bus sentinel) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:288 |
+| CT-M128-01 | 128K, page=0x02 (bank 1, bit(1)=1) → contended [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:308 |
+| CT-M128-03 | 128K, page=0x04 (bank 2, bit(1)=0) → not contended [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:319 |
+| CT-M128-08 | 128K, page=0x10 (high nibble != 0) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:330 |
+| CT-MP3-01 | +3, page=0x08 (bank 4, bit(3)=1) → contended [zxnext.vhd:4492] | zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:350 |
+| CT-MP3-05 | +3, page=0x00 (bank 0, bit(3)=0) → not contended [zxnext.vhd:4492] | zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:361 |
+| CT-MP3-08 | +3, ROM access (page >= 0xF0) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:373 |
+| CT-IO-01 | 48K, cpu_a=0xFE (even port, ULA) → port_contend=1 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:399 |
+| CT-IO-02 | 48K, cpu_a=0xFF (odd port, non-ULA) → port_contend=0 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:407 |
+| CT-IO-03 | 48K, cpu_a=0x00 (even, lowest) → port_contend=1 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:415 |
+| CT-IO-04 | 48K, cpu_a=0x01 (odd, lowest) → port_contend=0 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:423 |
+| CT-IO-05 | 128K, cpu_a=0x7FFD bare-class port_contend → false today; Branch-A wires port_7ffd_active term [zxnext.vhd:4496,2594; contention.h:73-83 bare-class limitation] | zxnext.vhd:4496,2594 | pass | test/contention/contention_test.cpp:449 |
+| CT-IO-06 | 48K, cpu_a=0x7FFD (port_7ffd_active always 0 on 48K) → port_contend=0 [zxnext.vhd:4496,2594] | zxnext.vhd:4496,2594 | pass | test/contention/contention_test.cpp:461 |
+| CT-IO-07 | Any timing, cpu_a=0xBF3B (ULA+ index, port_bf3b OR-term) → 1 [zxnext.vhd:4496,2685] | zxnext.vhd:4496,2685 | pass | test/contention/contention_test.cpp:472 |
+| CT-IO-08 | Any timing, cpu_a=0xFF3B (ULA+ data, port_ff3b OR-term) → 1 [zxnext.vhd:4496,2686] | zxnext.vhd:4496,2686 | pass | test/contention/contention_test.cpp:480 |
+| CT-IO-09 | Any timing, cpu_a=0xBF3B, port_ulap_io_en=0 → port_contend=0 [zxnext.vhd:4496,2685] | zxnext.vhd:4496,2685 | pass | test/contention/contention_test.cpp:488 |
+| CT-WIN-01 | 48K, hc=0, vc=0 (hc_adj(3:2)=00 AND vc<64 border) → delay=0 [zxula.vhd:582-583; src/memory/contention.cpp:37-46] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:516 |
+| CT-WIN-02 | 48K, hc=3, vc=100 (hc_adj=4, (3:2)=01, first held tick) → delay=6 [zxula.vhd:582-583; Task 54 hc(3:0) table] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:532 |
+| CT-WIN-03 | 48K, hc=15, vc=100 (hc_adj=0 after 4-bit wrap) → delay=0 [zxula.vhd:178,582-583] | zxula.vhd:178,582-583 | pass | test/contention/contention_test.cpp:544 |
+| CT-WIN-04 | 48K, hc=255, vc=100 (last display col, hc_adj=0 wrap) → delay=0 [zxula.vhd:178,582-583] | zxula.vhd:178,582-583 | pass | test/contention/contention_test.cpp:556 |
+| CT-WIN-05 | 48K, hc=256, vc=100 (hc(8)=1 window gate off) → delay=0 [zxula.vhd:583; build()-loop bounds hc<=255] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:567 |
+| CT-WIN-06 | 48K, hc=100, vc=192 (border_active_v=1) → delay=0 [zxula.vhd:414,583] | zxula.vhd:414,583 | pass | test/contention/contention_test.cpp:582 |
+| CT-WIN-07 | 48K, hc=0..255 sweep at vc=100: per-phase LUT == inline VHDL-derived hc(3:0) table {0,0,0,6,6,5,5,4,4,3,3,2,2,1,1,0} (period 16 ticks = 8 T-states) [zxula.vhd:582-583; Task 54] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:619 |
+| CT-WIN-08 | +3 vs 48K, hc=15, vc=100: +3 clause-2 wait_s=1 → delay=1; 48K clause-2 absent → delay=0 [zxula.vhd:582-583; Task 54 hc(3:0) tables] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:644 |
+| CT-WIN-09 | 48K, hc=16, vc=100 (hc&0xF=0, hc_adj=1, (3:2)=00) → delay=0 [zxula.vhd:178,582-583] | zxula.vhd:178,582-583 | pass | test/contention/contention_test.cpp:660 |
+| CT-WIN-10 | 48K, hc=7, vc=100 (hc_adj=8 ⇒ wait_s=1, held 7..14) → delay=4 [zxula.vhd:582-583; Task 54 hc(3:0) table] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:676 |
+| CT-S48-01 | 48K bank-5 (page 0x0A) display+stretched (hc=4,vc=100) → gate=1 AND delay=6 [zxula.vhd:582-595; Task 54 table] | zxula.vhd:582-595 | pass | test/contention/contention_test.cpp:711 |
+| CT-S48-02 | 48K bank-5 display+NON-stretched (hc=0,vc=100) → gate=1 BUT delay=0 (hc_adj(3:2)=00) [zxula.vhd:582-595] | zxula.vhd:582-595 | pass | test/contention/contention_test.cpp:727 |
+| CT-S48-03 | 48K bank-0 (page 0x00, bits(3:1)=000) → not contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:741 |
+| CT-S48-04 | 128K bank-1 (page 0x02) display+stretched (hc=4,vc=100) → gate=1 AND delay=6 (Task 54 hc(3:0) table, {3,4}->6) [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:754 |
+| CT-S48-05 | 128K bank-4 (page 0x08, bit(1)=0) → not contended [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:769 |
+| CT-S48-06 | 48K port=0xFE, hc=4, vc=100 → port_contend=1 AND delay=6 (port stretched; Task 54 hc(3:0) table) [zxula.vhd:587-595; zxnext.vhd:4496] | zxula.vhd:587-595, zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:784 |
+| CT-S48-07 | 48K port=0xFF (odd, no ULA+, no 7FFD) → port_contend=0 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:799 |
+| CT-S48-08 | 48K bank-5 outside display window (vc=300) → gate=1 BUT delay=0 (border_active_v=1) [zxula.vhd:583] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:813 |
+| CT-SP3-01 | +3 bank-4 (page 0x08) display+stretched (hc=4,vc=100) → gate=1 AND delay=7 (+3 window covers 15,0; Task 54 table) [zxula.vhd:600; zxnext.vhd:4492] | zxula.vhd:600, zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:843 |
+| CT-SP3-02 | +3 bank-7 (page 0x0E) display+stretched (hc=4,vc=100) → gate=1 AND delay=7 (+3 window covers 15,0; Task 54 table) [zxula.vhd:600; zxnext.vhd:4492] | zxula.vhd:600, zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:861 |
+| CT-SP3-03 | +3 bank-0 (page 0x00, bit(3)=0) → not contended [zxnext.vhd:4492] | zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:875 |
+| CT-SP3-04 | +3 bank-4 outside display window (vc=300) → gate=1 BUT delay=0 (border) [zxula.vhd:583,600] | zxula.vhd:583,600 | pass | test/contention/contention_test.cpp:889 |
+| CT-SP3-05 | +3 bank-4 with contention_disable=1 → not contended (enable gate off) [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:903 |
+| CT-SP3-06 | +3 port=0xFE bare port_contend=1; +3 WAIT_n is memory-only so Branch-A tick does NOT stall on I/O [zxula.vhd:599-600 commented OR-with-iorq clause] | zxula.vhd:599-600 | pass | test/contention/contention_test.cpp:923 |
+| CT-SP3-07 | +3 port=0xFE with contended MMU bank → port_contend=1 (memory-bank state does NOT enter port_contend decode) [zxula.vhd:599-600; zxnext.vhd:4496] | zxula.vhd:599-600, zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:940 |
+| CT-SP3-08 | +3 hc=15 hc_adj=0 (3:1)=000 clause-2 wait_s=1 with bank 4: delay=1 (+3 wrap phase); 48K same hc=15 delay=0 (clause-1 fails) [zxula.vhd:582-583,600; Task 54 tables] | zxula.vhd:582-583,600 | pass | test/contention/contention_test.cpp:963 |
+| CT-TURBO-01 | 48K, cpu_speed=1 (7 MHz), page=0x0A → not contended (gate off) [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:1002 |
+| CT-TURBO-04 | Emulator::init failed (likely missing 48K ROM) — row would otherwise verify NR 0x07=0x01 → cpu_speed=7 MHz → contention gate off [zxnext.vhd:5787-5790,5817] | zxnext.vhd:5787-5790,5817 | pass | test/contention/contention_test.cpp:1026 |
+| CT-TURBO-05 | Emulator::init failed — would verify NR 0x08 bit 6 → contention_disable [zxnext.vhd:4481,5823] | zxnext.vhd:4481,5823 | pass | test/contention/contention_test.cpp:1076 |
+| CT-TURBO-06 | NR 0x08 bit 6 shadow latches on hc(8) rising edge: shadow alone does not affect gate; hc<256 does not commit; hc>=256 commits [zxnext.vhd:5822-5823] | zxnext.vhd:5822-5823 | pass | test/contention/contention_test.cpp:1141 |
+| CT-TURBO-07 | NR 0x07 cpu_speed shadow → effective commits only on bus-idle (mreq_n & iorq_n & m1_n & not dma_holds_bus): shadow alone does not affect gate; bus_idle=0 does not commit; dma_holds_bus=1 does not commit; bus_idle=1 AND dma_holds_bus=0 commits [zxnext.vhd:5796-5828] | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:1208 |
+| CT-TURBO-09 | NR 0x07=0/1/2/3 → Clock divisor 8/4/2/1 and the CPU is granted exactly master_cycles_per_frame/divisor T-states in one run_frame() (overshoot <= one instruction). Pins the 28 MHz-master ÷ NR 0x07 CPU clock end-to-end, not just the divisor value [zxnext.vhd:5787-5790,5809,5817; GH #165] | zxnext.vhd:5787-5790,5809,5817 | pass | test/contention/contention_test.cpp:2442 |
+| CT-TURBO-10 | Uncontended self-looping LDIR: iterations retired in one frame == (master_cycles_per_frame/divisor - setup)/21 at NR 0x07=0/1/2, and 14 MHz retires exactly 4x the 3.5 MHz count. Pins per-instruction T-state charging against the frame budget — the composition GH #165 claimed was 590x wrong [zxnext.vhd:4481,5787-5790,5809,5817; GH #165] | zxnext.vhd:4481,5787-5790,5809,5817 | pass | test/contention/contention_test.cpp:2497 |
+| CT-TURBO-11 | Emulator::init failed (likely missing 48K ROM) — row would otherwise verify NR 0x07=0x02 disables the runtime contention path [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:2533 |
+| CT-FB-01 | Emulator::init failed (likely missing +3 ROMs) — would verify p3_floating_bus_dat captures bank-4 read [zxnext.vhd:4498-4505] | zxnext.vhd:4498-4505 | pass | test/contention/contention_test.cpp:1252 |
+| CT-FB-02 | Emulator::init failed — would verify mem write capture [zxnext.vhd:4498-4508] | zxnext.vhd:4498-4508 | pass | test/contention/contention_test.cpp:1282 |
+| CT-FB-03 | Emulator::init failed — would verify latch hold on non-contended access [zxnext.vhd:4498-4501] | zxnext.vhd:4498-4501 | pass | test/contention/contention_test.cpp:1308 |
+| CT-FB-04 | Emulator::init failed — would verify I/O bypasses latch [zxnext.vhd:4501] | zxnext.vhd:4501 | pass | test/contention/contention_test.cpp:1337 |
+| CT-INT-01 | Emulator::init failed — would verify 48K contention-ON adds non-zero T-states [zxula.vhd:582-595; zxula_timing.vhd] | zxula.vhd:582-595, zxula_timing.vhd | pass | test/contention/contention_test.cpp:1383 |
+| CT-INT-02 | Emulator::init failed — would verify 48K contention-OFF matches baseline [zxnext.vhd:4481,5823] | zxnext.vhd:4481,5823 | pass | test/contention/contention_test.cpp:1417 |
+| CT-INT-03 | Regression suite plumbing: floating-bus reference PNG exists AND regression_tests.conf includes a `floating-bus` entry — contention regressions land via test/00regression/regression.sh [test/00regression/img/floating-bus-reference.png; test/00regression/regression_tests.conf] | — | pass | test/contention/contention_test.cpp:1496 |
+| CT-FUSE-01 | Emulator::init failed — would verify M1 fetch contention [zxula.vhd:583; zxnext.vhd:4481,4490] | zxula.vhd:583, zxnext.vhd:4481,4490 | pass | test/contention/contention_test.cpp:1975 |
+| CT-FUSE-02 | Emulator::init failed — would verify LDIR no-MREQ tail contention [zxula.vhd:583,595; z80_ed.c:418-433] | zxula.vhd:583,595 | pass | test/contention/contention_test.cpp:2053 |
+| CT-FUSE-03 | OUT (0xFE),A from an uncontended code page stretches the port cycle (on > off, delta within the 6-T wait_s envelope) while the same loop on odd port 0x00FF is untouched (on == off) [zxnext.vhd:4496 port_contend = not cpu_a(0); zxula.vhd:583 wait_s pattern, :600 one-clock gate] | zxnext.vhd:4496, zxula.vhd:583 | pass | test/contention/contention_test.cpp:2143 |
+| CT-FUSE-04 | IN A,(0xFE) from an uncontended code page stretches the port cycle (on > off, delta within the 6-T wait_s envelope) while the same loop on odd port 0x00FF is untouched (on == off) [zxnext.vhd:4496 port_contend = not cpu_a(0); zxula.vhd:600 keys on iorq_n alone, no rd/wr term] | zxnext.vhd:4496, zxula.vhd:600 | pass | test/contention/contention_test.cpp:2177 |
+| T51-INT-01 | Emulator::init(ZX128K) failed — Task 51 video-timing re-push probe | zxula_timing.vhd:147-280, zxnext.vhd:6694-6703 | pass | test/contention/contention_test.cpp:3306 |
+| T56-INT-01 | Emulator::init(ZX128K) failed — Task 56 50/60 Hz frame-edge commit probe | zxnext.vhd:6697-6703, zxula_timing.vhd:282-298 | pass | test/contention/contention_test.cpp:3383 |
+| CT-SW28-01 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3906 |
+| CT-SW28-02 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3907 |
+| CT-SW28-03 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3908 |
+| CT-SW28-04 | Emulator::init failed (Next machine) | zxnext.vhd:3154,3167,3171-3181 | pass | test/contention/contention_test.cpp:3909 |
+| CT-SW28-05 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3943 |
+| CT-SW28-06 | Emulator::init failed (Next machine) | zxnext.vhd:3171-3181 | pass | test/contention/contention_test.cpp:3947 |
+| CT-SW28-07 | Emulator::init failed (Next machine) | zxnext.vhd:3154,3167,3175 | pass | test/contention/contention_test.cpp:3950 |
+| CT-SW28-08 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3954 |
+| CT-SW28-09 | Emulator::init failed (Next machine) | zxnext.vhd:3144 | pass | test/contention/contention_test.cpp:3958 |
+| CT-SW28-10 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3965 |
+| CT-SW28-11 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3971 |
+| CT-SW28-12 | Emulator::init failed (Next machine) | zxnext.vhd:3144 | pass | test/contention/contention_test.cpp:3975 |
+| CT-SW28-13 | Emulator::init failed (Next machine) | zxnext.vhd:6592,3175 | pass | test/contention/contention_test.cpp:4008 |
+| CT-SW28-14 | Emulator::init failed (Next machine) | zxnext.vhd:6670-6685 | pass | test/contention/contention_test.cpp:4035 |
+| CT-SW28-15 | Emulator::init failed (Next machine) | zxnext.vhd:2964,3061 | pass | test/contention/contention_test.cpp:4061 |
+| CT-SW28-16 | Emulator::init failed (Next machine) | zxnext.vhd:1856 | pass | test/contention/contention_test.cpp:4098 |
+| CT-SW28-17 | Emulator::init failed (Next machine) | zxnext.vhd:3052-3053 | pass | test/contention/contention_test.cpp:4110 |
+| CT-SW28-18 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:4135 |
+| CT-SW28-19 | Emulator::init failed (Next machine) | zxnext.vhd:3084-3099 | pass | test/contention/contention_test.cpp:4168 |
+| CT-SW28-20 | Emulator::init failed (Next machine) | zxnext.vhd:3028-3035 | pass | test/contention/contention_test.cpp:4207 |
+| CT-SW28-21 | Emulator::init failed (Next machine) | zxnext.vhd:3077 | pass | test/contention/contention_test.cpp:4243 |
+| CT-SW28-22 | Emulator::init failed (Next machine) | zxnext.vhd:3037-3043 | pass | test/contention/contention_test.cpp:4272 |
+| CT-SW28-23 | Emulator::init failed (Next machine) | zxnext.vhd:3037-3043 | pass | test/contention/contention_test.cpp:4295 |
+| CT-SW28-24 | Emulator::init failed (Next machine) | zxnext.vhd:3042,3049,3092-3099 | pass | test/contention/contention_test.cpp:4320 |
+| CT-SW28-25 | Emulator::init failed (Next machine) | zxnext.vhd:3029-3036 | pass | test/contention/contention_test.cpp:4350 |
+| CT-SW28-26 | Emulator::init failed (Next machine) | zxnext.vhd:3065,3077 | pass | test/contention/contention_test.cpp:4376 |
+| CT-SW28-27 | Emulator::init failed (Next machine) | zxnext.vhd:2969-2971,3100-3107 | pass | test/contention/contention_test.cpp:4405 |
+| CT-SW28-28 | Emulator::init failed (Next machine) | zxnext.vhd | pass | test/contention/contention_test.cpp:4430 |
+| CT-SW28-29 | Emulator::init failed (Next machine) | zxnext.vhd:2969-2971,3100-3107 | pass | test/contention/contention_test.cpp:4455 |
+| CT-SW28-30 | Emulator::init failed (Next machine) | zxnext.vhd:2966-2971 | pass | test/contention/contention_test.cpp:4475 |
+| CT-SW28-31 | Emulator::init failed (Next machine) | zxnext.vhd:2967,3922 | pass | test/contention/contention_test.cpp:4496 |
+| CT-SW28-32 | Emulator::init failed (Next machine) | zxnext.vhd:2968,3919 | pass | test/contention/contention_test.cpp:4517 |
+| CT-GH183-01 | 48K: `contention_tick()` identical at both ticks of every T-state pair `{hc-1, hc}` over the contended span | zxula.vhd:582-583, zxula_timing.vhd:344,423-436 | pass | test/contention/contention_test.cpp:4820 |
+| CT-GH183-02 | 128K: same pair invariance | zxula.vhd:582-583, zxula_timing.vhd:344,423-436 | pass | test/contention/contention_test.cpp:4820 |
+| CT-GH183-03 | 48K: swapping jnext's independent (hc-12, vc) rebase for the VHDL-exact linear counter pair (hc-11) changes the contention delay at ZERO T-states of a full frame — the -12 in ula_prefetch_origin_hc() is unobservable here [zxula_timing.vhd:423-451] | zxula_timing.vhd:423-451 | pass | test/contention/contention_test.cpp:4843 |
+| CT-GH183-04 | 128K: same whole-frame VHDL-exact rebase comparison — zero differing T-states, identical per-frame contention total [zxula_timing.vhd:423-451] | zxula_timing.vhd:423-451 | pass | test/contention/contention_test.cpp:4855 |
+| CT-GH183-05 | +3: the hc_adj(3:1)=000 wait_s extension puts index pair {15,0} astride the i_hc(8) window edge, so the -12 vs -11 rebase relocates exactly 2 T-states per display line (384/frame) with an IDENTICAL per-frame contention total — a sub-T-state blip, not a delay change [zxula.vhd:583] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:4878 |
+| CT-GH183-06 | Emulator::init failed — would verify end-to-end origin invariance [zxula_timing.vhd:423-436] | zxula_timing.vhd:423-436 | pass | test/contention/contention_test.cpp:4901 |
+| CT-GH265-01 | 48K port-contended IN A,(C): the port handler runs after the I/O cycle's stretch, in its last clock (zxnext.vhd:4496; zxula.vhd:587-595; t80na.vhd:214-222) | zxnext.vhd:4496, zxula.vhd:587-595, t80na.vhd:214-222 | pass | test/contention/contention_test.cpp:4999 |
+| CT-GH265-02 | 48K IN A,(C) in the top border: no stretch, 12 T, handler at 11 T (zxula.vhd:414,583) | zxula.vhd:414,583 | pass | test/contention/contention_test.cpp:5015 |
+| CT-OVS-01 | Every IN of a 31-T loop over 4 frames finds the contention counter at clock - frame start: the frame start carries the overshoot (zxula.vhd:582-583 via derive_hc_vc) | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:5297 |
+| CT-OVS-02 | A DMA step moves the contention counter with the clock (dma_holds_bus: no CPU cycle, zxnext.vhd:1828-1844) | zxnext.vhd:1828-1844 | pass | test/contention/contention_test.cpp:5324 |
+| CT-OVS-03 | A parked frame advances the contention counter with the clock | — | pass | test/contention/contention_test.cpp:5346 |
+| CT-OVS-04 | After a 7 MHz -> 3.5 MHz switch mid-frame every IN finds the contention counter at clock - frame start (zxnext.vhd:5796-5828 commit) | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:5374 |
+| CT-OVS-05 | A tape-trap frame advances the contention counter with the clock | — | pass | test/contention/contention_test.cpp:5422 |
+| CT-IOC-01 | 48K IN A,(C) of 0x00FE (even port, uncontended page, N:1,C:3) matches FUSE 1.6 in all 8 phases (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5122 |
+| CT-IOC-02 | 48K IN A,(C) of 0x40FE (even port, contended page, C:1,C:3) matches FUSE 1.6 (zxula.vhd:587-595; zxnext.vhd:4489-4496) | zxula.vhd:587-595, zxnext.vhd:4489-4496 | pass | test/contention/contention_test.cpp:5125 |
+| CT-IOC-03 | 48K IN A,(C) of 0x40FF (odd port, contended page, C:1 x4) matches FUSE 1.6 (zxula.vhd:587-595; zxnext.vhd:4489-4493) | zxula.vhd:587-595, zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:5128 |
+| CT-IOC-04 | 48K IN A,(C) of 0x00FF (odd port, uncontended page, N:4) takes 12 T in every phase, as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5131 |
+| CT-IOC-05 | 48K IN A,(C) of 0x7FFD: no port_7ffd_active on 48K timing, so an odd port in bank 5's page (C:1 x4), as FUSE 1.6 (zxnext.vhd:2594,4489-4496) | zxnext.vhd:2594,4489-4496 | pass | test/contention/contention_test.cpp:5134 |
+| CT-IOC-06 | 48K OUT (C),A to 0x00FE matches FUSE 1.6 (N:1,C:3) (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5138 |
+| CT-IOC-07 | 48K OUT (C),A to 0x40FE matches FUSE 1.6 (C:1,C:3) (zxula.vhd:587-595; zxnext.vhd:4489-4496) | zxula.vhd:587-595, zxnext.vhd:4489-4496 | pass | test/contention/contention_test.cpp:5141 |
+| CT-IOC-08 | 48K OUT (C),A to 0x40FF matches FUSE 1.6 (C:1 x4) (zxula.vhd:587-595; zxnext.vhd:4489-4493) | zxula.vhd:587-595, zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:5144 |
+| CT-IOC-09 | 48K OUT (C),A to 0x00FF takes 12 T in every phase (N:4), as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5147 |
+| CT-IOC-10 | 48K IN A,(0xFF) with A=0x40 (port 0x40FF, contended page) matches FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5152 |
+| CT-IOC-11 | 48K IN A,(0xFF) with A=0x80 (port 0x80FF, bank 2 page) is never stretched, 11 T, as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5156 |
+| CT-IOC-12 | 128K IN A,(C) of 0xC0FF with bank 1 at 0xC000 (odd page, contended) matches FUSE 1.6 (C:1 x4; zxnext.vhd:4489-4493) | zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:5160 |
+| CT-IOC-13 | 128K IN A,(C) of 0xC0FE with bank 1 at 0xC000 matches FUSE 1.6 (C:1,C:3; zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5164 |
+| CT-IOC-14 | 128K OUT (C),A to 0xC0FF with bank 1 at 0xC000 matches FUSE 1.6 (C:1 x4) | zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:5168 |
+| CT-IOC-15 | 128K IN A,(C) of 0x40FF (bank 5) matches FUSE 1.6 (C:1 x4) | — | pass | test/contention/contention_test.cpp:5172 |
+| CT-IOC-16 | 128K IN A,(C) of 0x80FF (bank 2) takes 12 T in every phase, as FUSE 1.6 (N:4) | — | pass | test/contention/contention_test.cpp:5175 |
+| CT-IOC-17 | 128K IN A,(C) of 0x7FFE (keyboard half-row, even, bank 5) matches FUSE 1.6 (C:1,C:3) | — | pass | test/contention/contention_test.cpp:5178 |
+| CT-IOC-18 | 128K OUT (C),A to 0x7FFD: port_7ffd_active makes it a contended port in a contended page, C:1,C:3 (VHDL; FUSE differs) (zxnext.vhd:2594,4496; zxula.vhd:587-595) | zxnext.vhd:2594,4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5187 |
+| CT-IOC-19 | 128K OUT (C),A to 0xBF3B (ULA+ on, bank 2 page): a contended port in an uncontended page, N:1,C:3 (zxnext.vhd:2685,4496; zxula.vhd:587-595) | zxnext.vhd:2685,4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5193 |
+| CT-IOC-20 | 128K OUT (C),A to 0xFF3B (ULA+ on) with bank 1 at 0xC000: contended port and page, C:1,C:3 (zxnext.vhd:2686,4489-4496; zxula.vhd:587-595) | zxnext.vhd:2686,4489-4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:5197 |
+| CT-IOC-21 | 128K OUT (C),A to 0xFF3B with ULA+ off (NR 0x85 b0=0), bank 1 at 0xC000: just an odd port in a contended page, C:1 x4 (zxnext.vhd:2439,2686,4496) | zxnext.vhd:2439,2686,4496 | pass | test/contention/contention_test.cpp:5202 |
+| CT-IOC-22 | 48K timing, MMU7 = page 10 (bank 5): IN A,(C) of 0xE0FF is in a contended page, C:1 x4 (zxnext.vhd:2952,4489-4493) | zxnext.vhd:2952,4489-4493 | pass | test/contention/contention_test.cpp:5212 |
+| CT-IOC-23 | 48K timing, MMU2 = page 4 (bank 2): IN A,(C) of 0x40FF is NOT in a contended page, N:4 (zxnext.vhd:2952,4489-4493) | zxnext.vhd:2952,4489-4493 | pass | test/contention/contention_test.cpp:5217 |
+| CT-IOC-24 | +3 timing: IN A,(C) of 0x40FE and 0x40FF are never stretched, 12 T in every phase (zxula.vhd:599-600) | zxula.vhd:599-600 | pass | test/contention/contention_test.cpp:5233 |
+| CT-DELAY-01 | Emulator::init failed for one or more machines — would verify per-frame contention drift bound across 48K/128K/+3 [zxula.vhd:582-595; zxnext.vhd:4481] | zxula.vhd:582-595, zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:1601 |
+| CT-FUSE-05 | Emulator::init failed — would verify single-contention-path invariant [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:2231 |
+| CT-TURBO-08 | Combined mid-line NR 0x07 + NR 0x08 b6 writes: each shadow commits on its OWN edge (NR 0x07 on bus-idle CLK_CPU; NR 0x08 b6 on bus-idle CLK_CPU AND hc(8)='1'); independent — one edge satisfied does not commit the other [zxnext.vhd:5796-5828] | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:2355 |
+| FIX-CONTEND-NR03-01 | ContentionModel::rebuild_for_type updates type/LUT and preserves ALL 5 dynamic gate fields (mem_active_page, cpu_speed, pending_cpu_speed, contention_disable/_shadow, port_7ffd_io_en) — VHDL :5137-5145 + :4489-4493; commit f5ec6d8 | — | pass | test/contention/contention_test.cpp:2668 |
+| FIX-CONTEND-NR03-INT-01 | Emulator::init(ZX48K) failed — would verify NR 0x03 dispatcher drives both axes | — | pass | test/contention/contention_test.cpp:2703 |
+| FIX-CONTEND-7FFD-01 | 128K + port 0x7FFD: port_contend gated on port_7ffd_io_en (NR 0x82 b1) — VHDL :4496/:2594/:2593; commit f5ec6d8 | zxnext.vhd:4496,2594,2593 | pass | test/contention/contention_test.cpp:2757 |
+| FIX-CONTEND-7FFD-02 | 48K + port 0x7FFD + io_en=1: port_contend=0 (s128/p3 timing gates off) — VHDL zxnext.vhd:2594; commit f5ec6d8 | zxnext.vhd:2594 | pass | test/contention/contention_test.cpp:2775 |
+| FIX-CONTEND-7FFD-03 | +3 + port 0x7FFD + io_en=1: port_contend=1 — VHDL zxnext.vhd:2593-2594; commit f5ec6d8 | zxnext.vhd:2593-2594 | pass | test/contention/contention_test.cpp:2793 |
+| FIX-MEMACTIVE-PAGE-01 | Emulator::init failed — would verify Mmu::get_page returns 0xFF sentinel for ROM slots 0/1 on 128K [zxnext.vhd:2949-2956,4489] | zxnext.vhd:2949-2956,4489 | pass | test/contention/contention_test.cpp:2827 |
+| FIX-MEMACTIVE-PAGE-INT-01 | Emulator::init failed — would verify CPU mem_active_page_for calls Mmu::get_page (NOT get_effective_page) | — | pass | test/contention/contention_test.cpp:2873 |
+| V15-CPU-NIT-03-01 | ZX128K, NR 0x85 b0=1, IORQ@$BF3B, default param port_ulap_io_en=false → contention_tick stretches > 0 (zxnext.vhd:2439,2685,4496; reviewer-promoted V15-CPU-NIT-03) | zxnext.vhd:2439,2685,4496 | pass | test/contention/contention_test.cpp:2978 |
+| V15-CPU-NIT-03-02 | ZX128K, NR 0x85 b0=1, IORQ@$FF3B, default param port_ulap_io_en=false → contention_tick stretches > 0 (zxnext.vhd:2439,2686,4496) | zxnext.vhd:2439,2686,4496 | pass | test/contention/contention_test.cpp:2996 |
+| V15-CPU-NIT-03-03 | ZX128K, NR 0x85 b0=0, IORQ@$BF3B → contention_tick stretch == 0 (gate disabled; zxnext.vhd:2685+4496) | zxnext.vhd:2685 | pass | test/contention/contention_test.cpp:3017 |
+| V15-CPU-NIT-03-04 | set_port_ulap_io_en(true) → port_ulap_io_en()==true; set_port_ulap_io_en(false) → port_ulap_io_en()==false (round-trip; mirrors port_7ffd_io_en pattern) | — | pass | test/contention/contention_test.cpp:3033 |
+| V15-CPU-NIT-03-05 | port_contend(0xBF3B, port_ulap_io_en=true) returns true regardless of shadow state (parameter override; zxnext.vhd:2685+4496) | zxnext.vhd:2685 | pass | test/contention/contention_test.cpp:3054 |
+| D3-CONTENTION-01 | tim_sel=128 / typ_sel=48 / page=0x02 — pre-fix follows typ_sel (48: bank-5 only → false); post-fix follows tim_sel (128: odd banks → true) per VHDL zxnext.vhd:4491,5761-5777 | zxnext.vhd:4491,5761-5777 | pass | test/contention/contention_test.cpp:3109 |
+| D3-CONTENTION-02 | tim_sel=+3 / typ_sel=128 / page=0x08 — pre-fix follows typ_sel (128: odd banks → false); post-fix follows tim_sel (+3: banks>=4 → true) per VHDL zxnext.vhd:4492,5761-5777 | zxnext.vhd:4492,5761-5777 | pass | test/contention/contention_test.cpp:3130 |
+| D3-CONTENTION-03 | video-frame deferred-commit latch — set_pending defers the new tim_sel until commit_pending_machine_timing() at the frame edge; pre-commit retains old effective value (VHDL zxnext.vhd:6694-6703) | zxnext.vhd:6694-6703 | pass | test/contention/contention_test.cpp:3167 |
+| D3-CONTENTION-04 | Emulator::init(ZX128K) failed | zxnext.vhd:4490-4492 | pass | test/contention/contention_test.cpp:3240 |
+| D3-CONTENTION-05 | Emulator::init(ZX128K) failed — Mmu::machine_timing_ axis storage + commit probe | — | pass | test/contention/contention_test.cpp:3410 |
+| D3-CONTENTION-06 | tim_sel=Pentagon disables contention regardless of typ_sel (VHDL zxnext.vhd:4481 — i_contention_en gates on NOT machine_timing_pentagon) | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:3468 |
+| D3-CONTENTION-NIT-01 | Emulator::init(ZX48K) failed — would verify load_state preserves machine_timing pair from Mmu schema | — | pass | test/contention/contention_test.cpp:3510 |
+| T50-01 | 48K, read $4000 at raw vc=10 (TOP BORDER, above c_min_vactive=64) on an hc phase that DOES contend in raw coordinates → NO contention (zxula.vhd:414 border_active_v is keyed on the ULA display-relative i_vc, reset at c_min_vactive per zxula_timing.vhd:441-452) | zxula.vhd:414, zxula_timing.vhd:441-452 | pass | test/contention/contention_test.cpp:3709 |
+| T50-02 | 48K, read $4000 at raw vc=64 (FIRST display line) → contends (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3720 |
+| T50-03 | 48K, read $4000 at raw vc=200 (BOTTOM display third, still within 64..255) → contends; pre-fix the raw vc tripped border_active_v and silently stopped contending (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3732 |
+| T50-04 | 48K, read $4000: raw vc=255 (LAST display line) contends, raw vc=256 (BOTTOM BORDER) does not — the window closes at exactly 192 ULA lines (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3743 |
+| T50-05 | 48K, read $4000 on a display line but at hc=4 (LEFT BORDER, before ula_min_hactive=c_min_hactive-12=116) → NO contention (zxula.vhd:416 border_active_ula = i_hc(8) or border_active_v; zxula_timing.vhd:423) | zxula.vhd:416, zxula_timing.vhd:423 | pass | test/contention/contention_test.cpp:3757 |
+| T50-06 | 128K (c_min_hactive=136, 228 T/line): top border does not contend and a display line does — proves the ULA counter origins are taken per-machine from VideoTiming, not hardcoded to the 48K values (zxula_timing.vhd:195,203) | zxula_timing.vhd:195,203 | pass | test/contention/contention_test.cpp:3785 |
+| CT-SW28-33 | Emulator::init failed (Next machine) | divmmc.vhd:148, zxnext.vhd:3084-3099,3037-3043 | pass | test/contention/contention_test.cpp:4558 |
+| CT-SW28-34 | Emulator::init failed (Next machine) | divmmc.vhd:128-131,141, zxnext.vhd:3084-3099,3037-3043 | pass | test/contention/contention_test.cpp:4587 |
+| CT-SW28-35 | Emulator::init failed (Next machine) | multiface.vhd:169,186, zxnext.vhd:3029-3036,3037-3043 | pass | test/contention/contention_test.cpp:4616 |
+| CT-SW28-36 | Emulator::init failed (Next machine) | divmmc.vhd:128-148, zxnext.vhd:3084-3099 | pass | test/contention/contention_test.cpp:4641 |
+| CT-SW28-37 | Emulator::init failed (Next machine) | divmmc.vhd:128-148, zxnext.vhd:3084-3099 | pass | test/contention/contention_test.cpp:4664 |
+| PENT-07 | --machine pentagon: a bank-5 access is not contended (machine_timing_pentagon gates i_contention_en off); the same access on ZX128K is [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:5447 |
+| PENT-25 | default_machine_timing_for(PENTAGON) is TimingPentagon, the 128K's is Timing128 [zxnext.vhd:5769-5770] | zxnext.vhd:5769-5770 | pass | test/contention/contention_test.cpp:5456 |
 
 ## LoRes — `test/lores/lores_test.cpp`
 
@@ -6519,94 +6542,99 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| ULA-INT-01 | ULA HC/VC interrupt fires at int_h/int_v → NR 0xC8 bit 0 set [zxnext.vhd:1937,1941; emulator.cpp:1988-1998; im2.cpp:264-266] | zxnext.vhd:1937,1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:142 |
-| ULA-INT-02 | ULA int suppressed when port_ff(6)/NR 0x22[2] set → NR 0xC8 bit 0 clear [zxnext.vhd:3619-3620, :3635, :6711; emulator.cpp:1989 gate] | zxnext.vhd:3619-3620,3635,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:172 |
-| ULA-INT-03 | NR 0xC4 read bit 0 = NOT port_ff_interrupt_disable [zxnext.vhd:6239, :6711; emulator.cpp:802] | zxnext.vhd:6239,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:196 |
-| ULA-INT-05 | NR 0x22 bit 1 drives line_interrupt_en, visible on NR 0xC4 read bit 1 [zxnext.vhd:5297, :6239; emulator.cpp:542-546, :801] | zxnext.vhd:5297,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:220 |
-| ULA-INT-04 | Line interrupt fires at cvc match (int_line pulse → NR 0xC8 bit 1) [zxula_timing.vhd:577-582; zxnext.vhd:1941; emulator.cpp:2392-2402] | zxula_timing.vhd:577-582, zxnext.vhd:1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:252 |
-| ULA-INT-06 | Line interrupt value 0 still fires within frame (VHDL: wraps to c_max_vc) [zxula_timing.vhd:566-570; emulator.cpp:2392-2402] | zxula_timing.vhd:566-570 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:279 |
-| ULA-INT-V12-NMP-02 | OUT (0xFF) bit 6 fans into ula_int_disabled_ shadow / scheduler — NR 0xC4 read bit 0 follows live port_ff_reg(6) for direct port-0xFF writes [zxnext.vhd:3614-3616, :3635, :6711, :6239] | zxnext.vhd:3614-3616,3635,6711,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:324 |
-| ULA-INT-V12-NMP-02b | OUT (0xFF),0x40 suppresses scheduled ULA INT — NR 0xC8 bit 0 stays clear [zxnext.vhd:3614-3616, :6711; emulator.cpp:1989 gate] | zxnext.vhd:3614-3616,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:344 |
-| ULA-INT-V19-IM2-01 | NR 0x22 bit 1 propagates to IM2 fabric dev_[LINE].int_en [zxnext.vhd:5297, :1950, :6711] | zxnext.vhd:5297,1950,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:394 |
-| ULA-INT-V19-IM2-02 | port_ff_reg(6) propagates to IM2 fabric dev_[ULA].int_en across all 3 writers (port-FF, NR 0x22 b2, NR 0xC4 b0 NOT) [zxnext.vhd:3614-3622, :3635, :6711, :1949] | zxnext.vhd:3614-3622,3635,6711,1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:456 |
-| ULA-INT-V19-IM2-02-PORTFF | Direct OUT (0xFF),A bit 6 fans into IM2 fabric dev_[ULA].int_en [zxnext.vhd:3614-3616, :3635, :6711, :1949] | zxnext.vhd:3614-3616,3635,6711,1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:494 |
-| CTC-INT-V20-IM2-01 | Pulse-mode CTC INT drives CPU /INT via pulse_int_n poll [zxnext.vhd:1840 z80_int_n composition; im2_peripheral.vhd:186 o_pulse_en for non-exception devices] | zxnext.vhd:1840, im2_peripheral.vhd:186 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:576 |
-| V20R-CPU-NIT-01-PREV-PULSE-PERSIST | emu_save construction failed | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:616 |
-| V20R-CPU-NIT-02-NO-DOUBLE-STAMP | Exactly one CPU /INT stamp per pulse-mode ULA frame-INT pulse [reviewer V20R-CPU-NIT-02; pre-fix legacy scheduler callback + V20 falling-edge poll both stamped → latent fast-EI double-INT] | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:725 |
-| ULA-INT-V19-IM2-04 | IM2 fabric int_line_asserted() drives CPU /INT in IM2 mode [zxnext.vhd:1840 z80_int_n composition] | zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:793 |
-| NR-C0-04 | NR 0xC0 read composes VVV_0_S_MM_I (vector + stackless + im_mode + int_mode) [zxnext.vhd:6229-6230; emulator.cpp:771-778] | zxnext.vhd:6229-6230 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:835 |
-| NR-C4-02 | NR 0xC4 bit 1 write drives line_interrupt_en (read bit 1 round-trip) [zxnext.vhd:5607-5610, :6239; emulator.cpp:792] | zxnext.vhd:5607-5610,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:856 |
-| NR-C4-03 | NR 0xC4 readback format E_00000_UU (expbus, 5x zero, line, ula) [zxnext.vhd:6239 / :3621-3622 / :3635 / :6711; emulator.cpp:796-804] | zxnext.vhd:6239/3621-3622/3635/6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:888 |
-| NR-C6-02 | NR 0xC6 read format 0_654_0_210 (bits 7 and 3 read as 0) [zxnext.vhd:6244-6245; emulator.cpp:828-831] | zxnext.vhd:6244-6245 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:904 |
-| ISC-09 | NR 0x20 read = LINE_ULA_00_CTC3..CTC0 mixed status [zxnext.vhd:5988-5989; emulator.cpp:917-926] | zxnext.vhd:5988-5989 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:944 |
-| ISC-10 | NR 0x22 read bit 7 = NOT pulse_int_n (reset: 0x00) [zxnext.vhd:5991-5992 — NR 0x22 read_handler missing in jnext; reset-state invariant only] | zxnext.vhd:5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:974 |
-| IM2C-G87-01 | RETI (ED 4D) advances IM2 FSM and pulses o_reti_seen [VHDL im2_control.vhd:158-209,234] | im2_control.vhd:158-209,234 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1029 |
-| IM2C-G87-02 | RETN (ED 45) advances IM2 FSM and pulses o_retn_seen [VHDL im2_control.vhd:233-238] | im2_control.vhd:233-238 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1053 |
-| NR-C2-01 | NR 0xC2 mirrors NMI return-address LSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6232] | zxnext.vhd:2050-2085,6232 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1087 |
-| NR-C3-01 | NR 0xC3 mirrors NMI return-address MSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6236] | zxnext.vhd:2050-2085,6236 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1092 |
-| PULSE-G89-01 | LDIRX (ED B4) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2095-2138] | t80n_mcode.vhd:2095-2138 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1141 |
-| PULSE-G89-02 | LDDRX (ED BC) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2230-2256] | t80n_mcode.vhd:2230-2256 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1182 |
-| PULSE-G89-03 | LDPIRX (ED B7) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0; HL stays fixed [VHDL t80n_mcode.vhd:1953-1991] | t80n_mcode.vhd:1953-1991 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1223 |
-| PULSE-G89-04 | LDIRSCALE (ED B6) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2188-2226] | t80n_mcode.vhd:2188-2226 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1262 |
-| PULSE-G89-INT | LDIRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2095-2138 + zxnext.vhd INT path] | t80n_mcode.vhd:2095-2138, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1352 |
-| PULSE-G89-INT-02 | LDDRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2230-2256 + zxnext.vhd INT path] | t80n_mcode.vhd:2230-2256, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1361 |
-| PULSE-G89-INT-03 | LDPIRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:1953-1991 + zxnext.vhd INT path] | t80n_mcode.vhd:1953-1991, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1370 |
-| PULSE-G89-INT-04 | LDIRSCALE inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2188-2226 + zxnext.vhd INT path] | t80n_mcode.vhd:2188-2226, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1379 |
-| SSTEP-01 | Pulse-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840; im2_peripheral.vhd:186-194] | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1452 |
-| SSTEP-02 | IM2-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840, :1999 ack vector composition] | zxnext.vhd:1840,1999 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1498 |
-| SSTEP-03 | Trace log records one entry per debugger single-step (parity with run_frame's per-instruction record) | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1526 |
-| SSTEP-04 | MD6 FSM latches raw inputs during debugger single-step [md6_joystick_connector_x2.vhd:103-114, :151-152] | md6_joystick_connector_x2.vhd:103-114,151-152 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1557 |
-| SSTEP-05 | ULA frame INT is scheduled and delivered during debugger single-step [zxula_timing.vhd:551; zxnext.vhd:1840] | zxula_timing.vhd:551, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1629 |
-| SSTEP-06 | A debugger Step at a HALT leaves the halt into the ISR [t80n.vhd:496, :502-503, :1727] | t80n.vhd:496,502-503,1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1663 |
-| SSTEP-07 | Frames keep turning over while stepping — a second HALT is also left [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1713 |
-| SSTEP-08 | A Step at a DI'd HALT is bounded and reports no progress [t80n.vhd:1727 — Halt_FF clears only on IntCycle/NMICycle] | t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1750 |
-| SSTEP-09 | A Step consumes the data-breakpoint latch, so a watchpoint firing inside a halt cannot freeze every later Step [t80n.vhd:502-503 — the halted core re-fetches every slot] | t80n.vhd:502-503 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1808 |
-| SSTEP-10 | A halt-run crossing a frame boundary takes the frame's rewind snapshot and leaves the machine rewindable [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1873 |
-| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1964 |
-| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2035 |
-| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 49/97/145 [ctc_chan.vhd:214-226,143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 193) | ctc_chan.vhd:214-226,143-146,162-170 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2093 |
-| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2145 |
-| CTC-C1-ACC-03 | timer ch1 armed by D3=1 started by ch0's ZC/TO at 17 through clk_trg_d, fires at 35 [ctc_chan.vhd:115-127,219-226,134-139; zxnext.vhd:4084]; tick(35) == 35x tick(1) | ctc_chan.vhd:115-127,219-226,134-139, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2192 |
-| PW-48K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2308 |
-| PW-48K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2308 |
-| PW-48K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2308 |
-| PW-NEXT-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2310 |
-| PW-NEXT-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2310 |
-| PW-NEXT-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2310 |
-| PW-128K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2317 |
-| PW-128K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2317 |
-| PW-128K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2317 |
-| PW-GH237-128K-SOFT | 128K keeps the 36-cycle /INT pulse width across RESET_SOFT — tim_sel "010" survives the reset, so machine_timing_128 is still the one-hot and the terminal still needs pulse_count(2) [zxnext.vhd:2033; :1099 + :4926-5111 no reset clause] | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2374 |
-| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2455 |
-| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2488 |
-| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | ctc_chan.vhd:269,276, zxnext.vhd:4067,4093 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2534 |
-| NR-C0-02 | NR 0xC0 bit 3 selects the stackless NMI acknowledge: set, the two acknowledge writes leave RAM untouched and arm the RETN substitution; clear, the interrupted PC is written to the stack and no substitution is armed (SP -= 2 either way) [zxnext.vhd:5598, :2075-2085; t80n.vhd:1765-1767] | zxnext.vhd:5598,2075-2085, t80n.vhd:1765-1767 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2626 |
-| NR-C5-02 | NR 0xC5 read returns the live per-channel ctc_int_en with bits 7:4 hardwired 0 — only nr_wr_dat(3:0) reaches the CTC on a write, and a control word's D7 moves the same bit [zxnext.vhd:6242, :4079, :4089, :4093; ctc_chan.vhd:269,276] | zxnext.vhd:6242,4079,4089,4093, ctc_chan.vhd:269,276 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2670 |
-| CTC-JOY-01 | in NR 0x0B iomode "01" each CTC channel-3 ZC/TO toggles joy_iomode_pin7, and a channel-0 ZC/TO does not [zxnext.vhd:3518-3524, :4088] | zxnext.vhd:3518-3524,4088 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2714 |
-| CTC-JOY-02 | the pin-7 toggle is conditioned on (nr_0b_joy_iomode_0='1' OR joy_iomode_pin7='0'): with NR 0x0B bit 0 clear a ZC/TO moves pin7 only from '0' to '1' and never back [zxnext.vhd:3519-3524] | zxnext.vhd:3519-3524 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2755 |
-| INT-GH265-01 | 48K pulse-mode INT taken at the first boundary whose last T-state starts on a CPU edge that samples the pulse low (zxula_timing.vhd:548-557; im2_peripheral.vhd:90-101,184-194; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:548-557, im2_peripheral.vhd:90-101,184-194, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2922 |
-| INT-GH265-02 | 128K pulse-mode INT taken at the first boundary >= 294 T (zxula_timing.vhd:187,199,548-557; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:187,199,548-557, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2944 |
-| INT-GH265-03 | hardware-IM2 INT: S_REQ on the first CPU edge after im2_int_req with M1_n high, INT_s one edge later (im2_peripheral.vhd:167-178; im2_device.vhd:91-107,150; t80n.vhd:1729-1731,1761,1788) | im2_peripheral.vhd:167-178, im2_device.vhd:91-107,150, t80n.vhd:1729-1731,1761,1788 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2968 |
-| INT-GH265-04 | 48K pulse: 32 CPU edges sample it low, the last at E_1 + 31*8; the boundary after that edge is the last taken (zxnext.vhd:2033-2044; t80n.vhd:1664,1742-1772) | zxnext.vhd:2033-2044, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2987 |
-| INT-GH265-05 | 128K pulse: 36 CPU edges, last boundary E_1 + 36*8 (zxnext.vhd:2033 pulse_count(5) and pulse_count(2)) | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3003 |
-| INT-GH265-06 | a pulse straddling the frame edge is still taken after it (zxnext.vhd:2017-2044 has no frame term) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3043 |
-| INT-GH265-10 | a pulse straddling the frame edge survives a snapshot taken there (zxnext.vhd:2017-2044) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3088 |
-| INT-GH265-11 | a pulse pending across a CPU-speed change lasts its remaining CPU edges at the new speed (zxnext.vhd:2035-2044) | zxnext.vhd:2035-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3136 |
-| INT-GH265-12 | EI grace survives a snapshot taken straight after the EI (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3189 |
-| INT-GH265-07 | EI grace across the frame edge (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3232 |
-| INT-GH265-08 | IM2 hardware mode, CPU in IM 1: the ULA's exception pulse is taken (im2_peripheral.vhd:192; zxnext.vhd:1840) | im2_peripheral.vhd:192, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3257 |
-| INT-GH265-09 | NR 0x20 unqualified request taken at the boundary after the OUT that writes it (zxnext.vhd:1946-1947,4747-4777; t80n.vhd:1664,1742-1772) | zxnext.vhd:1946-1947,4747-4777, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3285 |
-| ISC-GH265-01 | NR 0xC8 read by IN A,(C) sees a status set before the port_253b_dat load 83 cycles in, not one set on it (zxnext.vhd:5871-5882,6247-6248; im2_peripheral.vhd:154-162) | zxnext.vhd:5871-5882,6247-6248, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3325 |
-| ISC-GH265-02 | polling NR 0xC8 for the frame interrupt: an IN starting at 49 T sees it, one at 48 T does not (zxula_timing.vhd:548-557; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882,6247-6248) | zxula_timing.vhd:548-557, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882,6247-6248 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3367 |
-| ISC-GH265-03 | NR 0x22 bit 7 sees pulse_int_n fall on the CLK_28 falling edge after the request (zxnext.vhd:2017-2031,5991-5992) | zxnext.vhd:2017-2031,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3394 |
-| ISC-GH265-04 | NR 0x22 bit 7 clears on the load edge after the 32nd CPU edge of the pulse (zxnext.vhd:2033-2044,5991-5992) | zxnext.vhd:2033-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3422 |
-| ISC-GH265-05 | NR 0xC8 clear commits on its edge: a request set before it is cleared, one set on it survives (im2_peripheral.vhd:160; zxnext.vhd:1952-1955,4747-4777) | im2_peripheral.vhd:160, zxnext.vhd:1952-1955,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3453 |
-| ISC-GH265-06 | NR 0xC5 enable commits on its edge: a ZC/TO before it is not latched, one on it is (im2_peripheral.vhd:167-178; zxnext.vhd:1949,4747-4777) | im2_peripheral.vhd:167-178, zxnext.vhd:1949,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3489 |
-| ISC-GH265-07 | NR 0xC8 bit 1 sees the line interrupt from its registered int_line, one pixel after the hc_ula = 255 compare (zxula_timing.vhd:423-436,455-472,566-583; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882) | zxula_timing.vhd:423-436,455-472,566-583, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3517 |
-| ISC-GH265-08 | a request reaching the pulse fabric before pulse_int_n has returned to '1' is lost; one after it starts a new pulse (zxnext.vhd:2017-2044,5991-5992) | zxnext.vhd:2017-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3550 |
-| CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3593 |
-| CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3624 |
-| CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3662 |
+| ULA-INT-01 | ULA HC/VC interrupt fires at int_h/int_v → NR 0xC8 bit 0 set [zxnext.vhd:1937,1941; emulator.cpp:1988-1998; im2.cpp:264-266] | zxnext.vhd:1937,1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:143 |
+| ULA-INT-02 | ULA int suppressed when port_ff(6)/NR 0x22[2] set → NR 0xC8 bit 0 clear [zxnext.vhd:3619-3620, :3635, :6711; emulator.cpp:1989 gate] | zxnext.vhd:3619-3620,3635,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:173 |
+| ULA-INT-03 | NR 0xC4 read bit 0 = NOT port_ff_interrupt_disable [zxnext.vhd:6239, :6711; emulator.cpp:802] | zxnext.vhd:6239,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:197 |
+| ULA-INT-05 | NR 0x22 bit 1 drives line_interrupt_en, visible on NR 0xC4 read bit 1 [zxnext.vhd:5297, :6239; emulator.cpp:542-546, :801] | zxnext.vhd:5297,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:221 |
+| ULA-INT-04 | Line interrupt fires at cvc match (int_line pulse → NR 0xC8 bit 1) [zxula_timing.vhd:577-582; zxnext.vhd:1941; emulator.cpp:2392-2402] | zxula_timing.vhd:577-582, zxnext.vhd:1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:253 |
+| ULA-INT-06 | Line interrupt value 0 still fires within frame (VHDL: wraps to c_max_vc) [zxula_timing.vhd:566-570; emulator.cpp:2392-2402] | zxula_timing.vhd:566-570 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:280 |
+| ULA-INT-V12-NMP-02 | OUT (0xFF) bit 6 fans into ula_int_disabled_ shadow / scheduler — NR 0xC4 read bit 0 follows live port_ff_reg(6) for direct port-0xFF writes [zxnext.vhd:3614-3616, :3635, :6711, :6239] | zxnext.vhd:3614-3616,3635,6711,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:325 |
+| ULA-INT-V12-NMP-02b | OUT (0xFF),0x40 suppresses scheduled ULA INT — NR 0xC8 bit 0 stays clear [zxnext.vhd:3614-3616, :6711; emulator.cpp:1989 gate] | zxnext.vhd:3614-3616,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:345 |
+| ULA-INT-V19-IM2-01 | NR 0x22 bit 1 propagates to IM2 fabric dev_[LINE].int_en [zxnext.vhd:5297, :1950, :6711] | zxnext.vhd:5297,1950,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:395 |
+| ULA-INT-V19-IM2-02 | port_ff_reg(6) propagates to IM2 fabric dev_[ULA].int_en across all 3 writers (port-FF, NR 0x22 b2, NR 0xC4 b0 NOT) [zxnext.vhd:3614-3622, :3635, :6711, :1949] | zxnext.vhd:3614-3622,3635,6711,1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:457 |
+| ULA-INT-V19-IM2-02-PORTFF | Direct OUT (0xFF),A bit 6 fans into IM2 fabric dev_[ULA].int_en [zxnext.vhd:3614-3616, :3635, :6711, :1949] | zxnext.vhd:3614-3616,3635,6711,1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:495 |
+| CTC-INT-V20-IM2-01 | Pulse-mode CTC INT drives CPU /INT via pulse_int_n poll [zxnext.vhd:1840 z80_int_n composition; im2_peripheral.vhd:186 o_pulse_en for non-exception devices] | zxnext.vhd:1840, im2_peripheral.vhd:186 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:577 |
+| V20R-CPU-NIT-01-PREV-PULSE-PERSIST | emu_save construction failed | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:617 |
+| V20R-CPU-NIT-02-NO-DOUBLE-STAMP | Exactly one CPU /INT stamp per pulse-mode ULA frame-INT pulse [reviewer V20R-CPU-NIT-02; pre-fix legacy scheduler callback + V20 falling-edge poll both stamped → latent fast-EI double-INT] | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:726 |
+| ULA-INT-V19-IM2-04 | IM2 fabric int_line_asserted() drives CPU /INT in IM2 mode [zxnext.vhd:1840 z80_int_n composition] | zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:794 |
+| NR-C0-04 | NR 0xC0 read composes VVV_0_S_MM_I (vector + stackless + im_mode + int_mode) [zxnext.vhd:6229-6230; emulator.cpp:771-778] | zxnext.vhd:6229-6230 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:836 |
+| NR-C4-02 | NR 0xC4 bit 1 write drives line_interrupt_en (read bit 1 round-trip) [zxnext.vhd:5607-5610, :6239; emulator.cpp:792] | zxnext.vhd:5607-5610,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:857 |
+| NR-C4-03 | NR 0xC4 readback format E_00000_UU (expbus, 5x zero, line, ula) [zxnext.vhd:6239 / :3621-3622 / :3635 / :6711; emulator.cpp:796-804] | zxnext.vhd:6239/3621-3622/3635/6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:889 |
+| NR-C6-02 | NR 0xC6 read format 0_654_0_210 (bits 7 and 3 read as 0) [zxnext.vhd:6244-6245; emulator.cpp:828-831] | zxnext.vhd:6244-6245 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:905 |
+| ISC-09 | NR 0x20 read = LINE_ULA_00_CTC3..CTC0 mixed status [zxnext.vhd:5988-5989; emulator.cpp:917-926] | zxnext.vhd:5988-5989 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:945 |
+| ISC-10 | NR 0x22 read bit 7 = NOT pulse_int_n (reset: 0x00) [zxnext.vhd:5991-5992 — NR 0x22 read_handler missing in jnext; reset-state invariant only] | zxnext.vhd:5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:975 |
+| IM2C-G87-01 | RETI (ED 4D) advances IM2 FSM and pulses o_reti_seen [VHDL im2_control.vhd:158-209,234] | im2_control.vhd:158-209,234 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1030 |
+| IM2C-G87-02 | RETN (ED 45) advances IM2 FSM and pulses o_retn_seen [VHDL im2_control.vhd:233-238] | im2_control.vhd:233-238 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1054 |
+| NR-C2-01 | NR 0xC2 mirrors NMI return-address LSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6232] | zxnext.vhd:2050-2085,6232 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1088 |
+| NR-C3-01 | NR 0xC3 mirrors NMI return-address MSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6236] | zxnext.vhd:2050-2085,6236 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1093 |
+| PULSE-G89-01 | LDIRX (ED B4) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2095-2138] | t80n_mcode.vhd:2095-2138 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1142 |
+| PULSE-G89-02 | LDDRX (ED BC) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2230-2256] | t80n_mcode.vhd:2230-2256 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1183 |
+| PULSE-G89-03 | LDPIRX (ED B7) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0; HL stays fixed [VHDL t80n_mcode.vhd:1953-1991] | t80n_mcode.vhd:1953-1991 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1224 |
+| PULSE-G89-04 | LDIRSCALE (ED B6) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2188-2226] | t80n_mcode.vhd:2188-2226 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1263 |
+| PULSE-G89-INT | LDIRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2095-2138 + zxnext.vhd INT path] | t80n_mcode.vhd:2095-2138, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1353 |
+| PULSE-G89-INT-02 | LDDRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2230-2256 + zxnext.vhd INT path] | t80n_mcode.vhd:2230-2256, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1362 |
+| PULSE-G89-INT-03 | LDPIRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:1953-1991 + zxnext.vhd INT path] | t80n_mcode.vhd:1953-1991, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1371 |
+| PULSE-G89-INT-04 | LDIRSCALE inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2188-2226 + zxnext.vhd INT path] | t80n_mcode.vhd:2188-2226, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1380 |
+| SSTEP-01 | Pulse-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840; im2_peripheral.vhd:186-194] | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1453 |
+| SSTEP-02 | IM2-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840, :1999 ack vector composition] | zxnext.vhd:1840,1999 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1499 |
+| SSTEP-03 | Trace log records one entry per debugger single-step (parity with run_frame's per-instruction record) | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1527 |
+| SSTEP-04 | MD6 FSM latches raw inputs during debugger single-step [md6_joystick_connector_x2.vhd:103-114, :151-152] | md6_joystick_connector_x2.vhd:103-114,151-152 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1558 |
+| SSTEP-05 | ULA frame INT is scheduled and delivered during debugger single-step [zxula_timing.vhd:551; zxnext.vhd:1840] | zxula_timing.vhd:551, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1630 |
+| SSTEP-06 | A debugger Step at a HALT leaves the halt into the ISR [t80n.vhd:496, :502-503, :1727] | t80n.vhd:496,502-503,1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1664 |
+| SSTEP-07 | Frames keep turning over while stepping — a second HALT is also left [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1714 |
+| SSTEP-08 | A Step at a DI'd HALT is bounded and reports no progress [t80n.vhd:1727 — Halt_FF clears only on IntCycle/NMICycle] | t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1751 |
+| SSTEP-09 | A Step consumes the data-breakpoint latch, so a watchpoint firing inside a halt cannot freeze every later Step [t80n.vhd:502-503 — the halted core re-fetches every slot] | t80n.vhd:502-503 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1809 |
+| SSTEP-10 | A halt-run crossing a frame boundary takes the frame's rewind snapshot and leaves the machine rewindable [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1874 |
+| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1965 |
+| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2036 |
+| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 49/97/145 [ctc_chan.vhd:214-226,143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 193) | ctc_chan.vhd:214-226,143-146,162-170 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2094 |
+| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2146 |
+| CTC-C1-ACC-03 | timer ch1 armed by D3=1 started by ch0's ZC/TO at 17 through clk_trg_d, fires at 35 [ctc_chan.vhd:115-127,219-226,134-139; zxnext.vhd:4084]; tick(35) == 35x tick(1) | ctc_chan.vhd:115-127,219-226,134-139, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2193 |
+| PW-48K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2309 |
+| PW-48K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2309 |
+| PW-48K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2309 |
+| PW-NEXT-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2311 |
+| PW-NEXT-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2311 |
+| PW-NEXT-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2311 |
+| PW-128K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2318 |
+| PW-128K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2318 |
+| PW-128K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2318 |
+| PW-GH237-128K-SOFT | 128K keeps the 36-cycle /INT pulse width across RESET_SOFT — tim_sel "010" survives the reset, so machine_timing_128 is still the one-hot and the terminal still needs pulse_count(2) [zxnext.vhd:2033; :1099 + :4926-5111 no reset clause] | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2375 |
+| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2456 |
+| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2489 |
+| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | ctc_chan.vhd:269,276, zxnext.vhd:4067,4093 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2535 |
+| NR-C0-02 | NR 0xC0 bit 3 selects the stackless NMI acknowledge: set, the two acknowledge writes leave RAM untouched and arm the RETN substitution; clear, the interrupted PC is written to the stack and no substitution is armed (SP -= 2 either way) [zxnext.vhd:5598, :2075-2085; t80n.vhd:1765-1767] | zxnext.vhd:5598,2075-2085, t80n.vhd:1765-1767 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2627 |
+| NR-C5-02 | NR 0xC5 read returns the live per-channel ctc_int_en with bits 7:4 hardwired 0 — only nr_wr_dat(3:0) reaches the CTC on a write, and a control word's D7 moves the same bit [zxnext.vhd:6242, :4079, :4089, :4093; ctc_chan.vhd:269,276] | zxnext.vhd:6242,4079,4089,4093, ctc_chan.vhd:269,276 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2671 |
+| CTC-JOY-01 | in NR 0x0B iomode "01" each CTC channel-3 ZC/TO toggles joy_iomode_pin7, and a channel-0 ZC/TO does not [zxnext.vhd:3518-3524, :4088] | zxnext.vhd:3518-3524,4088 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2715 |
+| CTC-JOY-02 | the pin-7 toggle is conditioned on (nr_0b_joy_iomode_0='1' OR joy_iomode_pin7='0'): with NR 0x0B bit 0 clear a ZC/TO moves pin7 only from '0' to '1' and never back [zxnext.vhd:3519-3524] | zxnext.vhd:3519-3524 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2756 |
+| INT-GH265-01 | 48K pulse-mode INT taken at the first boundary whose last T-state starts on a CPU edge that samples the pulse low (zxula_timing.vhd:548-557; im2_peripheral.vhd:90-101,184-194; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:548-557, im2_peripheral.vhd:90-101,184-194, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2923 |
+| INT-GH265-02 | 128K pulse-mode INT taken at the first boundary >= 294 T (zxula_timing.vhd:187,199,548-557; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:187,199,548-557, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2945 |
+| INT-GH265-03 | hardware-IM2 INT: S_REQ on the first CPU edge after im2_int_req with M1_n high, INT_s one edge later (im2_peripheral.vhd:167-178; im2_device.vhd:91-107,150; t80n.vhd:1729-1731,1761,1788) | im2_peripheral.vhd:167-178, im2_device.vhd:91-107,150, t80n.vhd:1729-1731,1761,1788 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2969 |
+| INT-GH265-04 | 48K pulse: 32 CPU edges sample it low, the last at E_1 + 31*8; the boundary after that edge is the last taken (zxnext.vhd:2033-2044; t80n.vhd:1664,1742-1772) | zxnext.vhd:2033-2044, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2988 |
+| INT-GH265-05 | 128K pulse: 36 CPU edges, last boundary E_1 + 36*8 (zxnext.vhd:2033 pulse_count(5) and pulse_count(2)) | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3004 |
+| INT-GH265-06 | a pulse straddling the frame edge is still taken after it (zxnext.vhd:2017-2044 has no frame term) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3044 |
+| INT-GH265-10 | a pulse straddling the frame edge survives a snapshot taken there (zxnext.vhd:2017-2044) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3089 |
+| INT-GH265-11 | a pulse pending across a CPU-speed change lasts its remaining CPU edges at the new speed (zxnext.vhd:2035-2044) | zxnext.vhd:2035-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3137 |
+| INT-GH265-12 | EI grace survives a snapshot taken straight after the EI (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3190 |
+| INT-GH265-07 | EI grace across the frame edge (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3233 |
+| INT-GH265-08 | IM2 hardware mode, CPU in IM 1: the ULA's exception pulse is taken (im2_peripheral.vhd:192; zxnext.vhd:1840) | im2_peripheral.vhd:192, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3258 |
+| INT-GH265-09 | NR 0x20 unqualified request taken at the boundary after the OUT that writes it (zxnext.vhd:1946-1947,4747-4777; t80n.vhd:1664,1742-1772) | zxnext.vhd:1946-1947,4747-4777, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3286 |
+| ISC-GH265-01 | NR 0xC8 read by IN A,(C) sees a status set before the port_253b_dat load 83 cycles in, not one set on it (zxnext.vhd:5871-5882,6247-6248; im2_peripheral.vhd:154-162) | zxnext.vhd:5871-5882,6247-6248, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3326 |
+| ISC-GH265-02 | polling NR 0xC8 for the frame interrupt: an IN starting at 49 T sees it, one at 48 T does not (zxula_timing.vhd:548-557; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882,6247-6248) | zxula_timing.vhd:548-557, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882,6247-6248 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3368 |
+| ISC-GH265-03 | NR 0x22 bit 7 sees pulse_int_n fall on the CLK_28 falling edge after the request (zxnext.vhd:2017-2031,5991-5992) | zxnext.vhd:2017-2031,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3395 |
+| ISC-GH265-04 | NR 0x22 bit 7 clears on the load edge after the 32nd CPU edge of the pulse (zxnext.vhd:2033-2044,5991-5992) | zxnext.vhd:2033-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3423 |
+| ISC-GH265-05 | NR 0xC8 clear commits on its edge: a request set before it is cleared, one set on it survives (im2_peripheral.vhd:160; zxnext.vhd:1952-1955,4747-4777) | im2_peripheral.vhd:160, zxnext.vhd:1952-1955,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3454 |
+| ISC-GH265-06 | NR 0xC5 enable commits on its edge: a ZC/TO before it is not latched, one on it is (im2_peripheral.vhd:167-178; zxnext.vhd:1949,4747-4777) | im2_peripheral.vhd:167-178, zxnext.vhd:1949,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3490 |
+| ISC-GH265-07 | NR 0xC8 bit 1 sees the line interrupt from its registered int_line, one pixel after the hc_ula = 255 compare (zxula_timing.vhd:423-436,455-472,566-583; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882) | zxula_timing.vhd:423-436,455-472,566-583, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3518 |
+| ISC-GH265-08 | a request reaching the pulse fabric before pulse_int_n has returned to '1' is lost; one after it starts a new pulse (zxnext.vhd:2017-2044,5991-5992) | zxnext.vhd:2017-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3551 |
+| CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3594 |
+| CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3625 |
+| CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3663 |
+| CTCI-556-01 | hw IM2, line handler `EI ; RETI`, CTC handlers `EI ; RETI`: the CTC count rises in every 10-frame window for 100 frames (the line device never sticks in S_ISR; im2_control.vhd:181-192, im2_device.vhd:122-127) | im2_control.vhd:181-192, im2_device.vhd:122-127 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3774 |
+| CTCI-556-02 | same with NR CC=03/CD=07 and a 1152-byte DMA to port 0x5B started in a loop: transfers keep completing in every window (the DMA is not held for ever by CTCs stuck in S_REQ; im2_device.vhd:151) | im2_device.vhd:151 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3784 |
+| CTCI-556-03 | line handler `NOP ; EI ; RETI` (the ED is the 3rd fetch after the CTC handler's RETI): still serviced for 100 frames | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3793 |
+| CTCI-556-05 | line handler is a bare RETI (ED 4D, the ED being the first fetch after the CTC handler's RETI): still serviced for 100 frames | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3804 |
+| CTCI-556-04 | CTC0 request latched, then NR C5 bit 0 cleared before the acknowledge: still acknowledged exactly once, held the DMA until then, no further CTC0 interrupts (im2_peripheral.vhd:167-178, im2_device.vhd:148/:151) | im2_peripheral.vhd:167-178, im2_device.vhd:148/151 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3824 |
 
 ### Companion integration suite — `test/nextreg/nextreg_integration_test.cpp`
 
@@ -7017,70 +7045,70 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:190 |
-| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:214 |
-| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:239 |
-| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:260 |
-| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:279 |
-| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:343 |
-| BP-04 | port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep (zxnext.vhd:3459+3604; emulator.cpp:1163-1185) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:467 |
-| BP-20 | port 0xFE READ — bit 6 = i_AUDIO_EAR OR port_fe_ear: 0 idle, 1 after OUT 0xFE bit 4 (zxnext.vhd:3459 + :3598) | zxnext.vhd:3459,3598 | pass | test/input/input_integration_test.cpp:486 |
-| BP-21 | port 0xFE READ — bit 5 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:519 |
-| BP-22 | port 0xFE READ — bits [4:0] = keyboard column mux for A[15:8] (zxnext.vhd:3463-3468 + membrane.vhd:251; Keyboard::read_rows) | zxnext.vhd:3463-3468, membrane.vhd:251 | pass | test/input/input_integration_test.cpp:559 |
-| BP-23 | port 0xFE READ — bit 7 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:591 |
-| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | zxnext.vhd:5157-5158, membrane_stick.vhd:117-149 | pass | test/input/input_integration_test.cpp:651 |
-| JOY-WIRE-02 | SDL_EVENT_GAMEPAD_BUTTON_* → Joystick port 0x1F (K1 mode) (zxnext.vhd:3441-3442 + :3470-3479; G42) | zxnext.vhd:3441-3442,3470-3479 | pass | test/input/input_integration_test.cpp:706 |
-| JOY-WIRE-03 | SDL_EVENT_GAMEPAD_AXIS_MOTION → digital U/D/L/R threshold (symmetric ±AXIS_THRESHOLD=16384; G42) | — | pass | test/input/input_integration_test.cpp:764 |
-| JOY-WIRE-04 | SDL idx 0/1 → joy_left / joy_right; idx >= 2 ignored (JOY-WIRE-04 routing policy; G42) | — | pass | test/input/input_integration_test.cpp:820 |
-| JOY-WIRE-04-SDL | handle_sdl_event resolves SDL_JoystickID → slot via map; ignores unmapped + non-controller events (G42) | — | pass | test/input/input_integration_test.cpp:877 |
-| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5839-5841, zxnext.vhd:6343, zxnext.vhd:6345, zxnext.vhd:5861-5863, zxnext.vhd:5789-5791, zxnext.vhd:1107-1108 | pass | test/input/input_integration_test.cpp:996 |
-| GH233-01 | NR 0x02 bit 0 (RESET_SOFT) disarms a pending TAP autostart | — | pass | test/input/input_integration_test.cpp:1036 |
-| GH233-02 | after a soft reset a full ROM keyboard scan queues no keystrokes — the cancelled autostart cannot type into the machine that came up after the reset | — | pass | test/input/input_integration_test.cpp:1056 |
-| GH233-03 | a mid-scan soft reset cancels the autostart outright (the pre-reset row accumulator cannot complete afterwards) | — | pass | test/input/input_integration_test.cpp:1077 |
-| GH233-04 | a hard reset (frontend cold boot) also disarms a pending TAP autostart — a full ROM keyboard scan afterwards queues no keystrokes | — | pass | test/input/input_integration_test.cpp:1105 |
-| GH233-05 | arming AFTER a reset still fires — the reset-on-init does not cancel a legitimate autostart (load always follows init) | — | pass | test/input/input_integration_test.cpp:1128 |
-| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1234 |
-| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1252 |
-| GPH-01 | a real SDL3 device's instance id is nonzero (0 is the invalid id) | — | pass | test/input/input_integration_test.cpp:1330 |
-| GPH-02 | enumerate_existing_devices() finds an already-attached pad and maps it to connector 1 (GH #57) | — | pass | test/input/input_integration_test.cpp:1345 |
-| GPH-03 | a button press on the opened device reaches connector 1's bits | — | pass | test/input/input_integration_test.cpp:1359 |
-| GPH-04 | a duplicate ADDED for an open device is deduped: same slot, connector 2 still free (GH #57) | — | pass | test/input/input_integration_test.cpp:1374 |
-| GPH-05 | REMOVED closes the slot and unmaps the instance id | — | pass | test/input/input_integration_test.cpp:1389 |
-| GPH-06 | an event from a removed device is refused, not applied to a connector | — | pass | test/input/input_integration_test.cpp:1400 |
-| GPA-01 | identical pads share a GUID: ids <guid> and <guid>#2; another model differs | — | pass | test/input/input_integration_test.cpp:1437 |
-| GPA-02 | enumerate with nothing assigned: first two on Joy 1/2, the third unbound | — | pass | test/input/input_integration_test.cpp:1437 |
-| GPA-04 | assigning A1's id to Joy 2 pre-empts A2, which was holding Joy 2 | — | pass | test/input/input_integration_test.cpp:1437 |
-| GPA-05 | unplug+replug: the vacated connector adopts the idle pad, then the replugged pad (same id) takes it back | — | pass | test/input/input_integration_test.cpp:1437 |
-| GPA-06 | an assigned id that is not present falls back to the first free controller | — | pass | test/input/input_integration_test.cpp:1438 |
-| GPA-07 | unplugging a pad with a button held releases the connector | — | pass | test/input/input_integration_test.cpp:1438 |
-| GPA-08 | switching a connector back to Sdl adopts a pad that is already plugged in | — | pass | test/input/input_integration_test.cpp:1438 |
-| GPA-09 | on_devices_changed fires once per enumerate/arrival/removal and not on a button | — | pass | test/input/input_integration_test.cpp:1438 |
-| GPA-10 | switching a connector to None unbinds its pad and leaves the other connector alone | — | pass | test/input/input_integration_test.cpp:1438 |
-| GPA-11 | after a replug and a host rebuild (cold boot) the assignment stays on the same physical pad, ids unchanged | — | pass | test/input/input_integration_test.cpp:1439 |
-| GPA-12 | fallback line: once on entry, silent on a no-change re-resolve, again after a new assignment and after a match | — | pass | test/input/input_integration_test.cpp:1439 |
-| GPA-13 | a lone remaining pad keeps its '#2' id and Joy 2 across a host rebuild | — | pass | test/input/input_integration_test.cpp:1439 |
-| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1779 |
-| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1798 |
-| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1830 |
-| HIC-01 | 128K: a key set between frames is first seen by the main loop after frame N+1's ISR | zxula_timing.vhd:187/199 | pass | test/input/input_integration_test.cpp:2059 |
-| HIC-02 | 128K: the ISR of N+1 reads the key down as its very first instruction and the main loop's last IN before it read it up, in every one of 48 loop phases (FUSE order) | — | pass | test/input/input_integration_test.cpp:2082 |
-| HIC-03 | 48K: key seen only after the ISR (INT at 116,0, zxula_timing.vhd:257/:265) | zxula_timing.vhd:257/265 | pass | test/input/input_integration_test.cpp:2096 |
-| HIC-04 | Pentagon: the main loop polls the whole pre-INT frame and does not see the key (INT at 439,319, zxula_timing.vhd:155/:163) | zxula_timing.vhd:155/163 | pass | test/input/input_integration_test.cpp:2118 |
-| HIC-05 | 128K: a program that pages a bank on its first sight of a key with EI survives (the interrupt vector is read from bank 0) | — | pass | test/input/input_integration_test.cpp:2174 |
-| HIC-06 | 128K: a queued key pulse commits at the next frame's interrupt, like a host key | — | pass | test/input/input_integration_test.cpp:2194 |
-| HIC-07 | Next: NR 0xB0 shows an extended key to the main loop only after the ISR of N+1 (zxnext.vhd:6208) | zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2210 |
-| HIC-08 | Next, ULA INT disabled, DI: the first sighting is at the interrupt position, not at the frame edge | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2245 |
-| HIC-09 | a rewind replay and a load_state of a boundary snapshot with a pending key both commit at the interrupt | — | pass | test/input/input_integration_test.cpp:2284 |
-| HIC-10 | Caps Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2310 |
-| HIC-11 | outside run_frame the port, the raw accessors and NR 0xB0 see a key at once; inside a frame before the interrupt input_state() shows it while the guest does not | — | pass | test/input/input_integration_test.cpp:2368 |
-| HIC-12 | 128K: Z (row 0, port $FEFE) pressed between frames is seen by the main loop only after the ISR of N+1 | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2385 |
-| HIC-13 | Next: an extended key (UP) folded into port $EFFE (membrane.vhd:238) is seen only after the ISR of N+1 | membrane.vhd:238 | pass | test/input/input_integration_test.cpp:2401 |
-| HIC-14 | Next: an extended key released between frames still reads down before N+1's interrupt, through NR 0xB0 and through the port 0xFE fold | membrane.vhd:238, zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2425 |
-| HIC-15 | Symbol Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2447 |
-| HIC-16 | Next: NR 0xB1 shows an extended key (DELETE) to the main loop only after the ISR of N+1 (zxnext.vhd:6212) | zxnext.vhd:6212 | pass | test/input/input_integration_test.cpp:2462 |
-| HIC-17 | a .jns load (emulator_apply_load) leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2489 |
-| HIC-18 | a soft reset leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2509 |
-| HIC-19 | 128K, DI: a read whose instruction starts at or after the interrupt position (offset+4) sees the key and every earlier read does not, over a one-T sweep of the read's start | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2576 |
+| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:191 |
+| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:215 |
+| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:240 |
+| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:261 |
+| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:280 |
+| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:344 |
+| BP-04 | port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep (zxnext.vhd:3459+3604; emulator.cpp:1163-1185) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:468 |
+| BP-20 | port 0xFE READ — bit 6 = i_AUDIO_EAR OR port_fe_ear: 0 idle, 1 after OUT 0xFE bit 4 (zxnext.vhd:3459 + :3598) | zxnext.vhd:3459,3598 | pass | test/input/input_integration_test.cpp:487 |
+| BP-21 | port 0xFE READ — bit 5 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:520 |
+| BP-22 | port 0xFE READ — bits [4:0] = keyboard column mux for A[15:8] (zxnext.vhd:3463-3468 + membrane.vhd:251; Keyboard::read_rows) | zxnext.vhd:3463-3468, membrane.vhd:251 | pass | test/input/input_integration_test.cpp:560 |
+| BP-23 | port 0xFE READ — bit 7 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:592 |
+| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | zxnext.vhd:5157-5158, membrane_stick.vhd:117-149 | pass | test/input/input_integration_test.cpp:652 |
+| JOY-WIRE-02 | SDL_EVENT_GAMEPAD_BUTTON_* → Joystick port 0x1F (K1 mode) (zxnext.vhd:3441-3442 + :3470-3479; G42) | zxnext.vhd:3441-3442,3470-3479 | pass | test/input/input_integration_test.cpp:707 |
+| JOY-WIRE-03 | SDL_EVENT_GAMEPAD_AXIS_MOTION → digital U/D/L/R threshold (symmetric ±AXIS_THRESHOLD=16384; G42) | — | pass | test/input/input_integration_test.cpp:765 |
+| JOY-WIRE-04 | SDL idx 0/1 → joy_left / joy_right; idx >= 2 ignored (JOY-WIRE-04 routing policy; G42) | — | pass | test/input/input_integration_test.cpp:821 |
+| JOY-WIRE-04-SDL | handle_sdl_event resolves SDL_JoystickID → slot via map; ignores unmapped + non-controller events (G42) | — | pass | test/input/input_integration_test.cpp:878 |
+| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5839-5841, zxnext.vhd:6343, zxnext.vhd:6345, zxnext.vhd:5861-5863, zxnext.vhd:5789-5791, zxnext.vhd:1107-1108 | pass | test/input/input_integration_test.cpp:997 |
+| GH233-01 | NR 0x02 bit 0 (RESET_SOFT) disarms a pending TAP autostart | — | pass | test/input/input_integration_test.cpp:1037 |
+| GH233-02 | after a soft reset a full ROM keyboard scan queues no keystrokes — the cancelled autostart cannot type into the machine that came up after the reset | — | pass | test/input/input_integration_test.cpp:1057 |
+| GH233-03 | a mid-scan soft reset cancels the autostart outright (the pre-reset row accumulator cannot complete afterwards) | — | pass | test/input/input_integration_test.cpp:1078 |
+| GH233-04 | a hard reset (frontend cold boot) also disarms a pending TAP autostart — a full ROM keyboard scan afterwards queues no keystrokes | — | pass | test/input/input_integration_test.cpp:1106 |
+| GH233-05 | arming AFTER a reset still fires — the reset-on-init does not cancel a legitimate autostart (load always follows init) | — | pass | test/input/input_integration_test.cpp:1129 |
+| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1235 |
+| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1253 |
+| GPH-01 | a real SDL3 device's instance id is nonzero (0 is the invalid id) | — | pass | test/input/input_integration_test.cpp:1331 |
+| GPH-02 | enumerate_existing_devices() finds an already-attached pad and maps it to connector 1 (GH #57) | — | pass | test/input/input_integration_test.cpp:1346 |
+| GPH-03 | a button press on the opened device reaches connector 1's bits | — | pass | test/input/input_integration_test.cpp:1360 |
+| GPH-04 | a duplicate ADDED for an open device is deduped: same slot, connector 2 still free (GH #57) | — | pass | test/input/input_integration_test.cpp:1375 |
+| GPH-05 | REMOVED closes the slot and unmaps the instance id | — | pass | test/input/input_integration_test.cpp:1390 |
+| GPH-06 | an event from a removed device is refused, not applied to a connector | — | pass | test/input/input_integration_test.cpp:1401 |
+| GPA-01 | identical pads share a GUID: ids <guid> and <guid>#2; another model differs | — | pass | test/input/input_integration_test.cpp:1438 |
+| GPA-02 | enumerate with nothing assigned: first two on Joy 1/2, the third unbound | — | pass | test/input/input_integration_test.cpp:1438 |
+| GPA-04 | assigning A1's id to Joy 2 pre-empts A2, which was holding Joy 2 | — | pass | test/input/input_integration_test.cpp:1438 |
+| GPA-05 | unplug+replug: the vacated connector adopts the idle pad, then the replugged pad (same id) takes it back | — | pass | test/input/input_integration_test.cpp:1438 |
+| GPA-06 | an assigned id that is not present falls back to the first free controller | — | pass | test/input/input_integration_test.cpp:1439 |
+| GPA-07 | unplugging a pad with a button held releases the connector | — | pass | test/input/input_integration_test.cpp:1439 |
+| GPA-08 | switching a connector back to Sdl adopts a pad that is already plugged in | — | pass | test/input/input_integration_test.cpp:1439 |
+| GPA-09 | on_devices_changed fires once per enumerate/arrival/removal and not on a button | — | pass | test/input/input_integration_test.cpp:1439 |
+| GPA-10 | switching a connector to None unbinds its pad and leaves the other connector alone | — | pass | test/input/input_integration_test.cpp:1439 |
+| GPA-11 | after a replug and a host rebuild (cold boot) the assignment stays on the same physical pad, ids unchanged | — | pass | test/input/input_integration_test.cpp:1440 |
+| GPA-12 | fallback line: once on entry, silent on a no-change re-resolve, again after a new assignment and after a match | — | pass | test/input/input_integration_test.cpp:1440 |
+| GPA-13 | a lone remaining pad keeps its '#2' id and Joy 2 across a host rebuild | — | pass | test/input/input_integration_test.cpp:1440 |
+| ROMKB-01 | B 2 ENTER delivered in one host gap reaches the 48K ROM as BORDER 2 (48.rom KEYBOARD 0x02BF-0x02F4: a third key inside 5 frames is dropped) | — | pass | test/input/input_integration_test.cpp:1778 |
+| ROMKB-02 | B 1 1 delivered in one host gap types BORDER 11, not BORDER 1 (48.rom K-REPEAT 0x0310: the same key inside 5 frames is a repeat) | — | pass | test/input/input_integration_test.cpp:1797 |
+| ROMKB-03 | a key the host pressed just before a snapshot load reaches the ROM through the frontends' load helper (the load wipes the matrix), and does not without it | — | pass | test/input/input_integration_test.cpp:1829 |
+| HIC-01 | 128K: a key set between frames is first seen by the main loop after frame N+1's ISR | zxula_timing.vhd:187/199 | pass | test/input/input_integration_test.cpp:2056 |
+| HIC-02 | 128K: the ISR of N+1 reads the key down as its very first instruction and the main loop's last IN before it read it up, in every one of 48 loop phases (FUSE order) | — | pass | test/input/input_integration_test.cpp:2079 |
+| HIC-03 | 48K: key seen only after the ISR (INT at 116,0, zxula_timing.vhd:257/:265) | zxula_timing.vhd:257/265 | pass | test/input/input_integration_test.cpp:2093 |
+| HIC-04 | Pentagon: the main loop polls the whole pre-INT frame and does not see the key (INT at 439,319, zxula_timing.vhd:155/:163) | zxula_timing.vhd:155/163 | pass | test/input/input_integration_test.cpp:2115 |
+| HIC-05 | 128K: a program that pages a bank on its first sight of a key with EI survives (the interrupt vector is read from bank 0) | — | pass | test/input/input_integration_test.cpp:2171 |
+| HIC-06 | 128K: a queued key pulse commits at the next frame's interrupt, like a host key | — | pass | test/input/input_integration_test.cpp:2191 |
+| HIC-07 | Next: NR 0xB0 shows an extended key to the main loop only after the ISR of N+1 (zxnext.vhd:6208) | zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2207 |
+| HIC-08 | Next, ULA INT disabled, DI: the first sighting is at the interrupt position, not at the frame edge | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2242 |
+| HIC-09 | a rewind replay and a load_state of a boundary snapshot with a pending key both commit at the interrupt | — | pass | test/input/input_integration_test.cpp:2281 |
+| HIC-10 | Caps Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2307 |
+| HIC-11 | outside run_frame the port, the raw accessors and NR 0xB0 see a key at once; inside a frame before the interrupt input_state() shows it while the guest does not | — | pass | test/input/input_integration_test.cpp:2365 |
+| HIC-12 | 128K: Z (row 0, port $FEFE) pressed between frames is seen by the main loop only after the ISR of N+1 | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2382 |
+| HIC-13 | Next: an extended key (UP) folded into port $EFFE (membrane.vhd:238) is seen only after the ISR of N+1 | membrane.vhd:238 | pass | test/input/input_integration_test.cpp:2398 |
+| HIC-14 | Next: an extended key released between frames still reads down before N+1's interrupt, through NR 0xB0 and through the port 0xFE fold | membrane.vhd:238, zxnext.vhd:6208 | pass | test/input/input_integration_test.cpp:2422 |
+| HIC-15 | Symbol Shift: down to the guest until frame N+1's interrupt, still down for the first scan after it (membrane.vhd:178 hold), released after | membrane.vhd:178 | pass | test/input/input_integration_test.cpp:2444 |
+| HIC-16 | Next: NR 0xB1 shows an extended key (DELETE) to the main loop only after the ISR of N+1 (zxnext.vhd:6212) | zxnext.vhd:6212 | pass | test/input/input_integration_test.cpp:2459 |
+| HIC-17 | a .jns load (emulator_apply_load) leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2486 |
+| HIC-18 | a soft reset leaves the guest seeing every key released before the next interrupt | — | pass | test/input/input_integration_test.cpp:2506 |
+| HIC-19 | 128K, DI: a read whose instruction starts at or after the interrupt position (offset+4) sees the key and every earlier read does not, over a one-T sweep of the read's start | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2573 |
 
 ### Companion native-only suite — `test/input/input_integration_native_test.cpp`
 
