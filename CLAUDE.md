@@ -207,6 +207,11 @@ The single authoritative protocol for landing any implemented change on `main`:
 > text + phpBB for spectrumcomputing.co.uk and z88dk.org), one line per feature,
 > and the rule that trivia (keyboard changes, bug fixes, internal work) is not
 > advertised.
+>
+> **Its §2.3: every milestone carries two guide audit issues** (`milestone <M>: User Guide
+> audit and review`, `milestone <M>: Developer Guide audit and review`), created when work on
+> the milestone starts if missing, run last, and closed before a public release that closes
+> the milestone (owner, 2026-11-24).
 
 When the user asks to bump the version, follow these steps in order:
 

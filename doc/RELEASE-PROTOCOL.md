@@ -150,6 +150,25 @@ Before a public bump:
 Private patch bumps (answered `N`) do not require step 2, but `cli-check` runs
 anyway as a prerequisite of `make regression`.
 
+### 2.3 Every milestone carries two guide audits (owner, 2026-11-24)
+
+Every milestone has two independent issues, assigned to it:
+
+- `milestone <M>: User Guide audit and review`
+- `milestone <M>: Developer Guide audit and review`
+
+`<M>` is the milestone's title (e.g. `v1.5`). Each audit checks that the milestone's features
+(user guide) and its internal changes (developer guide) are in the guide, and that the guide
+agrees with the software: read against the running product and the code, as in §2.2.
+
+- **When work on a milestone starts**, look for both issues in it (`gh issue list --milestone
+  <M> --state all`). A missing one is created then, with that exact title, label
+  `documentation`, assigned to the milestone. An existing audit issue with another title counts
+  only for the guide it covers; the other one is still created.
+- **They run last**, after every other issue and epic of the milestone, so they see the
+  finished milestone.
+- **A public release that closes a milestone** waits until both are closed (§7, step 1).
+
 ---
 
 ## 3. What a bump commits — `packaging/sync-version.sh`
@@ -389,6 +408,8 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 
 ## 7. Release checklist — when the user says "release vX.Y.Z"
 
+0. **A release that closes a milestone:** both guide audits of that milestone
+   (§2.3) are closed. Open → do them first.
 1. **Green triplet** on `main`: `make unit-test`, FUSE suite, `make regression`
    — no FAIL and no SKIP (a SKIP is a row that was not tested; every harness
    exits non-zero on one; per CLAUDE.md "Version bumping") — plus `make unit-test-sdl`, as
