@@ -47,6 +47,34 @@ step shown right after one is the start of the new shape.
 The **Hex** box swaps the decoded view for the raw table: all 16 registers of
 the three chips side by side, named.
 
+### Recording a .psg
+
+The row at the top of the Chips tab records what the program writes to the AY chips
+as `.psg` files. **Record PSG...** asks for a file name and starts; the label beside
+the buttons reads **Recording PSG** (with the file name as its tooltip) until **Stop**
+ends it. From the command line the same recording is `--psg-record FILE`, and the
+two give the same bytes. A recording that is running when JNEXT exits is finished
+like any other capture.
+
+- The file holds the layout Fuse writes for its AY log: a header, then for each
+  frame in which the program wrote any of the registers R0 to R13 the register and
+  value pairs in register order, with a separator for every frame in between. R14
+  and R15 (the I/O ports) are not recorded.
+- **One file per chip.** The first chip's file is the name you gave. The second
+  and third chips go to the same name with `-ay1` or `-ay2` before the extension
+  (`tune.psg` gives `tune-ay1.psg`), and a file is created only if that chip is
+  written. The files are aligned to the start of the recording, so they stay in
+  step if you play them together.
+- **Last write wins.** When a program writes the same register more than once in a
+  frame, the file keeps the last value. Fuse keeps the first.
+- **Resets, rewinds and state loads** never take the file back in time. A reset or a load
+  keeps the time that passed: the silent frames before it stay in the file, and a soft
+  or hard reset splits the frame it happens in. A rewind keeps what was already written
+  and carries on after it (the frames a rewind replays are not recorded again).
+- The recording does not depend on the Log tab: it works with the log off, and
+  stopping the log does not stop it. Like the mute buttons it is invisible to the
+  program being debugged and is not part of a saved state.
+
 The Chips tab is refreshed every frame while the Audio panel is visible and
 Chips is the current tab; with another tab current, or the panel hidden behind
 another one, the panel is refreshed at about 4 Hz with the rest of the window.

@@ -747,6 +747,7 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-10 | A parked CPU looping `OUT (C),A` to port 0x00B3 with NR 0x84 bit 6 off (thousands of dropped writes a frame); `clear_audio_drops()` in one run only | State bytes and framebuffer hash are equal: the dropped-write counters are outside `describe_state()`. The counters do move (a probe machine counts more than 1000) |
 | AIZ-11 | A CTC timer (P16, TC 109) and an auto-restarting DMA burst to port 0x00DF (prescaler 55); 20 `ctc_state()` and 20 `dma_state()` calls after each of 50 frames in one run only | State bytes and framebuffer hash are equal. Both engines were seen moving; a real AY register write between the runs makes them differ |
 | AIZ-13 | `build()` machine, a stem recording (`stems_record_start()`) on in one run and stopped in the other (GH #539), 50 frames | State bytes and framebuffer hash are equal: the stems and the per-chip latch are outside `describe_state()`. Run A's recording wrote more than 1000 frames |
+| AIZ-12 | A parked CPU looping over every audio write site (as AIZ-07); `psg_record_start()` on in one run, `psg_record_stop()` in the other | State bytes and framebuffer hash are equal over 50 frames: the `.psg` recording only reads (section 8.13). Positive control: the AY#1 file of the run that recorded holds the program's R13 pair |
 | AIZ-14 | `build()` machine, the source tap requested through a client and dropped in the other run (GH #536), 50 frames | State bytes and framebuffer hash are equal: the tap and its ring are outside `describe_state()`. Run A's tap pushed more than 1000 samples |
 
 ### 8.3 `Debugger::audio_state()`
@@ -1130,7 +1131,82 @@ The strip itself (its labels, the dot plot, the window box, the per-row details 
 whose steady frames write on the interrupt line and whose late and missed frames show) is DAP-81..87 in
 `debugger_audio_panel_test`.
 
-### 8.13 Per-source WAV stems (GH #539)
+### 8.13 `.psg` export (`src/audio/psg_writer.h`, `src/debug/psg_recorder.h`)
+
+`Debugger::psg_record_start()` / `psg_record_stop()` and `--psg-record` (GH #538): each AY chip's register
+stream in the layout of Fuse 1.6.0's AY log. Oracles: Fuse 1.6.0 `psg.c` (`psg_start_recording`, `psg_frame`,
+`write_frame_separator`, `psg_stop_recording`, `psg_write_register`) for the layout, and for PSF the committed
+`test/audio/fixtures/psg_fixture.fuse.psg`, recorded from the packaged Fuse 1.6.0 by `tools/fuse-psg-reference.sh`
+(maintainer tool; CI compares against the committed file). The one deliberate difference from `psg.c`: jnext keeps the
+LAST value written to a register in a frame, Fuse the first (PSG-14). Every expected byte string is a literal in the
+test with its derivation from `psg.c`: with L the last frame that wrote a block (start frame - 1 at the start), a
+block in frame F follows F - L separator frames, the end S + 1 - L, and n separator frames are `FE k` for every
+4k <= n (k <= 255), then one `FF` each. `H` is the 16-byte header `50 53 47 1A` and 12 zero bytes.
+
+The writer rows drive `PsgWriter` directly (`begin(100)` unless said).
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| PSG-01 | `begin(100)`                                     | Exactly `H`                                                |
+| PSG-02 | R8 = 0x0F in f100, `end(100)`                    | `H FF 08 0F FF`                                            |
+| PSG-03 | R8 = 0x01 in f100, `end(101)`                    | `H FF 08 01 FF FF`                                         |
+| PSG-04 | R0 in f100 and f103, `end(103)`                  | `H FF 00 01 FF FF FF 00 02 FF`                             |
+| PSG-05 | Blocks in f100 and f104                          | `H FF 00 01 FE 01 00 02 FF`                                |
+| PSG-06 | Blocks in f100 and f107                          | `H FF 00 01 FE 01 FF FF FF 00 02 FF`                       |
+| PSG-07 | Blocks 1021 frames apart                         | `... FE FF FF ...` (the 255 clamp, then one `FF`)          |
+| PSG-08 | Blocks 2043 frames apart (2 x 1020 + 3)          | `... FE FF FE FF FF FF FF ...`                             |
+| PSG-09 | Nothing in the start frame, a block in f101      | `H FF FF 00 01 FF`                                         |
+| PSG-10 | `end(100)`, no block                             | `H FF FF`                                                  |
+| PSG-11 | `end(1119)`, no block (1021 frames)              | `H FE FF FF`                                               |
+| PSG-12 | R13 = 0xFF, R0 = 0xFE, R7 = 0x3F in one frame    | `H FF 00 FE 07 3F 0D FF FF`: register order, 0xFE/0xFF values raw |
+| PSG-13 | R0 in f100, R14 and R15 only in f102, R0 in f104 | `H FF 00 01 FE 01 00 02 FF`: R14/R15 only is an empty frame (4 frames apart) |
+
+The recorder rows feed `PsgRecorder` hand-built `AudioLogEntry` lists (chip 0, CPU source unless said, `start(path, 100)`).
+The frame mapping (epic decision D3) is PSG-20 to PSG-24, 28 to 30.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| PSG-14 | f100: R8 = 1 then R8 = 2                         | `H FF 08 02 FF` (last value wins; Fuse would write 01)     |
+| PSG-15 | f100: R13, R0, R7 in that order                  | `H FF 00 FE 07 38 0D 0E FF`                                |
+| PSG-16 | f100: R14, R15; f101: R0                         | `H FF FF 00 01 FF`                                         |
+| PSG-17 | f100: a Dropped R8, a chip select, a DAC, a mirror and a beeper entry; f102 R0 | `H FF FF FF 00 01 FF`: only applied AY registers count |
+| PSG-18 | f100 chip 0 R0; f102 chip 1 R1; `stop(103)`      | FILE `H FF 00 01 FE 01`; FILE-ay1 `H FF FF FF 01 02 FF FF` (begun at the start frame); no FILE-ay2 |
+| PSG-19 | `chip_path` on `d/tune.psg`, `tune`, `a.b/tune`, `.psg`, `x.tar.psg` | `-ayN` before the last component's extension; chip 0 unchanged |
+| PSG-20 | f100 R8; a DAC entry in f103; a Rewind marker (frame 50); f50, f52 writes | Blocks at 100, 104, 106: `H FF 08 01 FE 01 08 02 FF FF 08 03 FF` |
+| PSG-21 | f100 R8; a Reset marker at f105; f107 R8         | Numbering kept: `H FF 08 01 FE 01 FF FF FF 08 02 FF`      |
+| PSG-22 | f100 R8; a Reset marker at f100; f100 R8         | The reset splits the frame: `H FF 08 01 FF 08 02 FF`       |
+| PSG-23 | f100 R8; f90 R8, no marker                       | `H FF 08 01 FF 08 02 FF`                                   |
+| PSG-24 | f100 R8; a StateLoad marker at f5000; f5000 R8   | Continues right after: `H FF 08 01 FF 08 02 FF`            |
+| PSG-25 | `psg_record_start` on an uncreatable path, a valid one, a second start; `psg_record_stop` twice | RefusedUnavailable, Ok, RefusedUnavailable; Ok, RefusedUnavailable; `psg_recording()` follows |
+| PSG-26 | `audio_tap_active()` before, during and after a recording; with the log on | Off, on, off; the stop leaves it on while a client asks for the log |
+| PSG-27 | TurboSound on, log off; AY#0 R0 and AY#1 R8 through real port writes, a plain select, a select of 0x1D and a (dropped) data write | FILE `H FF 00 10 FF FF FF`, FILE-ay1 `H FF FF 08 0A FF FF`, no FILE-ay2 |
+| PSG-28 | Log off; R8, a soft reset, R8 in one frame       | `H FF 08 01 FF 08 02 FF`: the marker reached the recorder  |
+| PSG-29 | Ten frames each writing R8 = its index, a rewind landing 4 frames back, R8 = 0x55 | The ten blocks stay, then one `FF 08 55`, one trailing `FF` |
+| PSG-30 | R8, a hard reset (machine rebuilt), R8 in the new frame 0, log off | `H FF 08 01 FF 08 02 FF`: the rebuild's Reset marker splits them |
+| PSG-31 | Writer: blocks in f100, f100 and f90 (frames not above the last) | One `FF` each, no runaway: `H FF 00 01 FF 00 02 FF 00 03 FF` |
+| PSG-32 | Recorder: 100000 consecutive single-write frames | 16 + 3 x 100000 + 1 bytes, `FF 00 v` per frame, one trailing `FF` |
+| PSG-33 | As PSG-29, then a landing, 3 silent frames and R8 = 0x56 | The landing's marker keeps the numbering offset: the write 2 frame readings after the landing is 3 file frames after the last block, `... 08 09 FF FF FF 08 56 FF` |
+| PSG-34 | A Debugger destroyed mid-recording: AY#0 R0 and AY#1 R8 in f0, a DAC write 3 frames later | Both files finish up to the last frame seen: FILE `H FF 00 10 FE 01`, FILE-ay1 `H FF 08 0A FE 01` |
+| PSG-35 | `FILE-ay1` exists as a directory; AY#1 blocks follow, the directory is removed after the first | `psg_record_stop` RefusedUnavailable; FILE complete (`H FF 00 10 FF FF FF`); AY#1 opened once, the file is never created |
+| PSG-36 | R8 = 1, 100 silent frames, a hard reset, R8 = 2 | Elapsed time kept: `H FF 08 01 FE 19 FF 08 02 FF` |
+| PSG-37 | R8 = 1, 100 silent frames, `load_state_bytes` of an earlier state, R8 = 2 | Elapsed time kept: `H FF 08 01 FE 19 FF 08 02 FF` |
+
+The Fuse rows run the program of `psg_fixture.asm` (a gate on a key, a sentinel frame writing R7 = 0x3F, 8 empty frames,
+300 frames of descending-order register sets with gaps of 1, 3, 4, 5, 9 and 1100 frames, an R14-only frame and an
+R15 + R0 frame) and compare from the sentinel on (`psg_normalise()`, `tools/psg-normalise.py`).
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| PSF-01 | The program in process on a 128K machine, the space key held, 1500 frames, recorded | The header and the normalised body equal the committed Fuse recording's, byte for byte; no AY#1/#2 file |
+| PSF-02 | `psg_normalise()` on hand-built files            | Equal after the sentinel whatever precedes and trails it; a changed value after it differs; `00 FF` before it is a pair; no sentinel, two sentinels, and `(07,3F)` followed by 8 or 10 frames are errors |
+| PSF-03 | The committed Fuse file alone                    | Header, one sentinel, 299 song blocks, the separator runs 9, 2, 4, 2, 5, 6, 10, 1101 where the program's design puts them (numbers from the `.asm`), block shapes of k = 0, 1, 101, ascending registers below 14, a 0xFF and a 0xFE value, a repeated R13, normalised length == 4728 (the pin the `psg-record-func` row shares) |
+
+The panel's rows (`DAP-88` to `DAP-92`, `debugger_audio_panel_test`) cover the Record PSG... row of the Chips tab: its
+widgets, a recording through the panel and one started elsewhere, a refused path, and the panel's bytes against the
+backend verb's. The regression row `psg-record-func` runs `--psg-record` headless on a 128K machine and compares with the
+Fuse file, with and without `--silent`, refuses an unwritable FILE and exits 1 on a write error.
+
+### 8.14 Per-source WAV stems (GH #539)
 
 `Mixer::integrate_span_tapped()`'s stem terms, `TurboSound::hw_chip_pcm()` and the `Debugger::stems_record_start()` /
 `stems_record_stop()` verbs. A stem is the mixer's `rounded_average_x4` of one source's hardware term over an output

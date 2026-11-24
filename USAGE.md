@@ -964,6 +964,22 @@ page. An unwritable *FILE* is refused before the machine starts. A write
 error, or writes lost because more than 65536 arrived between two
 services of the loop, makes the run exit non-zero.
 
+**--psg-record** *FILE*  
+Record each AY chip’s register stream as `.psg`, in the layout Fuse
+writes for its AY log: a 16-byte header, then for every frame in which a
+register from R0 to R13 was written the register/value pairs in register
+order, with frame separators between the frames. *FILE* takes AY#0; AY#1
+and AY#2 go to *FILE* with `-ay1` or `-ay2` before the extension
+(`tune.psg` gives `tune-ay1.psg`), created at that chip’s first write
+and aligned to the start of the recording. When a register is written
+more than once in a frame the last value is kept. R14 and R15 are not
+recorded. A reset or a state load keeps the elapsed time, and a rewind
+keeps what was written and carries on after it. It works in every
+frontend, headless, with **--silent** and in a browser page. An
+unwritable *FILE* is refused before the machine starts. A write error
+makes the run exit non-zero. The same recording starts from the Chips
+tab of the debugger’s Audio panel.
+
 **--audio-gain-db** *DB*  
 Set master host audio gain from -24 dB to +24 dB (default 0 dB). The
 gain is applied after the emulated hardware mix; overflow saturates at
@@ -2531,6 +2547,10 @@ Notes worth knowing:
 - The audio write log (**--audio-log** *FILE*) records the decoded AY,
   DAC and beeper writes with their timestamps, the same rows the
   debugger’s Audio panel shows on its Log tab.
+
+- The `.psg` recording (**--psg-record** *FILE*) saves each AY chip’s
+  register writes, one file per chip in use, in the layout Fuse writes
+  for its AY log.
 
 - Master and per-subsystem host gains are available under **Settings \>
   Preferences \> Audio**, or for one run with the **--audio-gain-**

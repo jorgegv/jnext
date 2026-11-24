@@ -125,6 +125,7 @@ enum class OptId {
     WavRecordStems,
     DacTrace,
     AudioLog,
+    PsgRecord,
     AudioGainDb,
     AudioGainBeeperDb,
     AudioGainAy0Db,
@@ -708,6 +709,10 @@ inline constexpr Option OPTIONS[] = {
       "FILE",
       "Record decoded audio writes (AY, DAC, NR 0x2C-0x2E mirrors, beeper)\n"
       "to CSV" },
+    { "--psg-record", 1, Doc::Documented, OptId::PsgRecord,
+      "FILE",
+      "Record each AY chip's register stream as .psg: FILE for AY#0,\n"
+      "FILE-ay1 / FILE-ay2 for AY#1 / AY#2 (created at their first write)" },
     { "--audio-gain-db", 1, Doc::Documented, OptId::AudioGainDb,
       "DB",
       "Host audio gain in dB (-24..+24, default 0);\n"
