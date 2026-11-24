@@ -5324,7 +5324,7 @@ to a directory outside the tree); <code>rename()</code> and <code>make_dir()</co
 under <code>normalize_dest_path()</code>'s name rules and never overwrite (an existing name is <code>DestExists</code>).
 <code>FileAddStatus</code> is the status of all of them. No <code>ImageLock</code> is taken: the manager works on images a slot of
 this process has mounted, so the process already holds the lock, and a second <code>flock</code> on the same file from
-the same process would be refused. Rows: <code>SDOPS-01..22</code> and <code>SDOPS-24..54</code> (<code>sdcard_card_ops_test</code>),
+the same process would be refused. Rows: <code>SDOPS-01..22</code> and <code>SDOPS-24..56</code> (<code>sdcard_card_ops_test</code>),
 <code>SDWP-01</code> for <code>SdCardDevice::write_protected()</code> (<code>sdcard_test</code>).</p>
 <p><strong>The glue caches sectors.</strong> FatFs keeps one sector window per volume, so every path lookup
 re-reads its directory, and an uncached <code>disk_read</code> costs an <code>lseek</code> plus an 8 KiB stream-buffer
