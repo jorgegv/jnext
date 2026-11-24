@@ -73,7 +73,7 @@ Result Debugger::stems_record_start(ClientId by, const std::string& dir) {
         return Result::RefusedUnavailable;
     }
     im.stems = std::move(rec);
-    im.sync_audio_scope(/*force=*/true);
+    im.sync_audio_scope();
     im.bump_revision();
     return Result::Ok;
 }
@@ -84,7 +84,7 @@ Result Debugger::stems_record_stop(ClientId by) {
     if (!im.stems || !im.stems->recording()) return Result::RefusedUnavailable;
     // Detach first: the tap stops feeding the recorder before the files are finalised.
     std::unique_ptr<StemRecorder> rec = std::move(im.stems);
-    im.sync_audio_scope(/*force=*/true);
+    im.sync_audio_scope();
     std::string why;
     const bool ok = rec->stop(why);
     if (!ok) Log::debugger()->error("Stem recording: {}", why);

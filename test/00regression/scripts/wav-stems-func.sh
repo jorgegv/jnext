@@ -14,7 +14,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #           frames; mix.wav byte-identical to W (stems and --wav-record see the same samples across the
 #           cold boot, none dropped or added); for every frame and channel |sum of the six source
 #           stems - mix| <= 3 (the mixer's seven roundings, see the developer guide), the maximum
-#           printed; pi.wav all zero (no Pi attached: the I2S term sits at its rest level).
+#           printed; pi.wav all zero (no Pi attached: the I2S term sits at its rest level); ay0, ay1 and ay2 all zero (the
+#           fixture plays no AY: the plan's ay1/ay2-only check, widened to the three files after measuring ay0 silent too).
 if want wav-stems-func; then
     begin_func wav-stems-func
     ws_dir="$TMP_DIR/wav-stems"
@@ -88,6 +89,10 @@ if worst > 3:
     raise SystemExit(f"the six source stems differ from the mix by {worst} (bound 3)")
 if any(stem["pi"]):
     raise SystemExit("pi.wav is not silent without a Pi")
+# The selector and red.nex play no AY: every AY chip is silent (measured on this fixture: all three files are 0 throughout).
+for n in ("ay0", "ay1", "ay2"):
+    if any(stem[n]):
+        raise SystemExit(f"{n}.wav is not silent: the fixture programs no AY")
 print(f"{frames} frames across the selector cold boot, mix.wav == --wav-record, max |sum - mix| = {worst}")
 PY
     ); then

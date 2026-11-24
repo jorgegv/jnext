@@ -1,5 +1,6 @@
 #include "debug/stem_recorder.h"
 
+#include <cstdio>
 #include <filesystem>
 #include <system_error>
 
@@ -27,21 +28,37 @@ bool StemRecorder::start(const std::string& dir, std::string& why)
 {
     namespace fs = std::filesystem;
     std::error_code ec;
+    const bool dir_existed = fs::is_directory(fs::path(dir), ec);
     fs::create_directories(fs::path(dir), ec);
     if (ec || !fs::is_directory(fs::path(dir), ec)) {
         why = "cannot create the directory '" + dir + "'";
         return false;
     }
+    // A refused start changes nothing: every name that already exists must be a regular file that can be
+    // opened for writing, checked WITHOUT truncating (a probe open for update), before any file is touched.
+    bool existed[FILES];
+    for (size_t i = 0; i < FILES; ++i) {
+        const fs::path p = fs::path(dir) / NAMES[i];
+        existed[i] = fs::exists(fs::symlink_status(p, ec));
+        if (!existed[i]) continue;
+        std::FILE* probe = fs::is_regular_file(p, ec) ? std::fopen(p.string().c_str(), "rb+") : nullptr;
+        if (!probe) {
+            why = "cannot write '" + p.string() + "'";
+            if (!dir_existed) fs::remove(fs::path(dir), ec);   // only an empty directory this call made
+            return false;
+        }
+        std::fclose(probe);
+    }
     for (size_t i = 0; i < FILES; ++i) {
         const std::string path = (fs::path(dir) / NAMES[i]).string();
         if (!rec_[i].start(path)) {
             why = rec_[i].last_error().empty() ? "cannot create '" + path + "'" : rec_[i].last_error();
-            // Close and remove the files this call made; a name that is not a regular file (a directory in the
-            // way, which is why the open failed) is never touched.
+            // Take back only what this call created: a file that was there before is left as it is (the
+            // probe above makes reaching this a race), and so is anything that is not a regular file.
             for (size_t j = 0; j <= i; ++j) {
                 rec_[j].stop();
                 const fs::path made = fs::path(dir) / NAMES[j];
-                if (fs::is_regular_file(made, ec)) fs::remove(made, ec);
+                if (!existed[j] && fs::is_regular_file(made, ec)) fs::remove(made, ec);
             }
             return false;
         }

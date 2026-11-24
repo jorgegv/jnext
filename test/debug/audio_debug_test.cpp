@@ -5644,7 +5644,7 @@ int main() {
         //   the scope's pre-routing Ay1A in the same tap reads 4 x 7 = 28.
         // (c): the beeper term is beep_mic_final, not the MIC bit (zxnext.vhd:7113,7126): with the MIC bit set and beep_mic_final low (a playing
         //   tape's high level XOR the MIC bit) the beeper stem is 0, with it high 4 x 128 = 512. And on an Emulator with the issue-2 keyboard bit
-        //   (NR 0x08 b0), OUT 0xFE with MIC = 1, EAR = 0 and no tape, i_AUDIO_EAR is the issue-2 MIC level (ear_relax, zxnext.vhd:3599), so
+        //   (NR 0x08 b0), OUT 0xFE with MIC = 1, EAR = 0 and no tape, i_AUDIO_EAR is the issue-2 MIC level (ear_relax, zxnext_top_issue2.vhd:662 at core 3.02.03; port_fe_mic, zxnext.vhd:3599 there), so
         //   beep_mic_final = 1 xor (1 and 1) xor 1 = 1 and the beeper stem is 512; the stems sum to the mix exactly.
         StemRig a;
         stem_dc_levels(a.ts);
@@ -5688,7 +5688,7 @@ int main() {
         for (const auto& fr : sink.f)
             c_ok = c_ok && fr[S_BEEP] == 512 && fr[S_BEEP + 1] == 512 && stem_sum(fr, 0) == fr[S_MIX] && stem_sum(fr, 1) == fr[S_MIX + 1];
         check("STM-02", "post-pan and post-mono: ACB with chip 0 mono, chip 1 pan 10, chip 2 pan 01 gives ay0 (36,36), ay1 (84,0), ay2 (0,256); a chip out of the mix is (0,0) while the scope's Ay1A reads 28; "
-              "the beeper stem follows beep_mic_final, not the MIC bit (0 with it low, 512 with it high; 512 for MIC with the issue-2 keyboard bit and no tape); the stems sum to the mix in all (turbosound.vhd:186-202,323-335; zxnext.vhd:3599,7113)",
+              "the beeper stem follows beep_mic_final, not the MIC bit (0 with it low, 512 with it high; 512 for MIC with the issue-2 keyboard bit and no tape); the stems sum to the mix in all (turbosound.vhd:186-202,323-335; ear_relax zxnext_top_issue2.vhd:662 and beep_mic_final zxnext.vhd:6503 at core 3.02.03)",
               a_ok && b_ok && c_ok);
     }
     {
@@ -5728,7 +5728,7 @@ int main() {
     {
         // STM-05: the per-chip latch. Leg 1: chip 0 at volume 15 on A and B (YM 255 each, ym2149.vhd:157-162), pan 11, latch on, settled.
         // Then the pan command setting chip 0's pan to 00 (0x9F), NO tick, a 10-cycle slice, then a tick (the recompute) and the other 625
-        // cycles. The hardware sum still held the old pan for those 10 cycles (turbosound.vhd:323-335): ay0 L = round(4 x 510 x 10 / 635)
+        // cycles. In jnext's model (the mix is recomputed on a PSG tick, GH #440) the sum still held the old pan for those 10 cycles, and a stem must sum to it: ay0 L = round(4 x 510 x 10 / 635)
         // = round(32.13) = 32 and R = B + C = 255 + 0 (volume 0 is level 0, ym2149.vhd:483-484): round(4 x 255 x 10 / 635) = round(16.06) = 16.
         // Computed on the fly from the new pan both would be 0. Leg 2: the latch is turned off, chip 0's pan is cleared on the
         // hot path, the latch is turned on again: the first sample's ay0 is (0, 0), the estimate from the inputs, not the stale loud latch.
@@ -5765,10 +5765,25 @@ int main() {
         c.span(10);
         c.ts.tick();
         c.span(625);
+        c.ts.set_channel_mute_mask(1);
+        const bool mask_getter = c.ts.channel_mute_mask() == 1;   // the latch bit is not part of the mute (F4)
+        c.ts.set_channel_mute_mask(0);
         const bool leg3 = c.sink.f.size() == 1 && c.sink.f[0][S_AY0] == 32 && c.sink.f[0][S_AY0 + 1] == 16 &&
-                          stem_sum(c.sink.f[0], 0) == c.sink.f[0][S_MIX];
+                          stem_sum(c.sink.f[0], 0) == c.sink.f[0][S_MIX] && mask_getter && c.ts.channel_mute_mask() == 0;
+        // Leg 4: reset_ay_only() (the NR 0x06 AY reset, any machine reset) clears the latch with the sum: chip 0 loud and settled, reset,
+        // a 10-cycle slice before the next PSG tick, then the tick and 625 cycles: ay0 (0, 0) and the stems sum to the mix (0).
+        StemRig d;
+        d.ts.set_enabled(true);
+        ts_reg(d.ts, 0, 7, 0x3F); ts_reg(d.ts, 0, 8, 15); ts_reg(d.ts, 0, 9, 15);
+        for (int i = 0; i < 20; ++i) d.ts.tick();
+        d.ts.reset_ay_only();
+        d.span(10);
+        d.ts.tick();
+        d.span(625);
+        const bool leg4 = d.sink.f.size() == 1 && d.sink.f[0][S_AY0] == 0 && d.sink.f[0][S_AY0 + 1] == 0 &&
+                          stem_sum(d.sink.f[0], 0) == d.sink.f[0][S_MIX] && stem_sum(d.sink.f[0], 1) == d.sink.f[0][S_MIX + 1];
         check("STM-05", "the latch holds the hardware per-chip value of the recompute that made the sum: a pan write 10 cycles before its tick leaves ay0 (32, 16) (not 0), and the stems still sum to the mix; "
-              "a latch turned off, a hot-path change and a latch turned on again gives the estimate (0,0), not the stale latch; a channel mute set and cleared leaves the latch working (turbosound.vhd:323-335)", leg1 && leg2 && leg3);
+              "a latch turned off, a hot-path change and a latch turned on again gives the estimate (0,0), not the stale latch; a channel mute set and cleared leaves the latch working and the getter hides it; reset_ay_only() clears the latch (per-chip pans and outputs: turbosound.vhd:118-138,323-330; the one-tick delay is jnext's recompute model)", leg1 && leg2 && leg3 && leg4);
     }
     {
         // STM-06: the post-load estimate. State Y: chip 1 at volume 15 on A and B and volume 0 on C (level 0, ym2149.vhd:483-484), pan 11:
@@ -5953,6 +5968,7 @@ int main() {
         const ClientId cid = dbg.attach(client("stm11")).value;
         jnext::dbg::LoopDriver d;
         d.cold_boot = [&]() { emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{}); return true; };
+        d.load = [](const std::string&) { return true; };   // an in-place load: no init(), the mixer keeps its partial sample
         dbg.set_loop_driver(d);
         nr_write(emu, 0x08, 0x0A);
         ay_select(emu, 0); ay_write(emu, 7, 0x3E); ay_write(emu, 0, 100); ay_write(emu, 8, 15);
@@ -5981,6 +5997,11 @@ int main() {
         frames(2);
         ok = ok && saved.status == Result::Ok && dbg.load_state_bytes(cid, saved.value.data(), saved.value.size()) == Result::Ok;
         frames(3);
+        // An in-place Debugger::load (a .tap, a .wav) re-installs the same tap through the reconstruct re-application: the tap keeps its
+        // partial sample, so no stem frame is lost (a frame boundary is mid-sample for the mixer).
+        { Out o; drain(emu, o); mixed += o.l.size(); }
+        ok = ok && dbg.load(cid, "stm11.tap") == Result::Ok;
+        frames(3);
         // The replay: well into a frame, step back; nothing is mixed or recorded by it.
         dbg.pause(cid);
         for (int i = 0; i < 3000; ++i) emu.execute_single_instruction();
@@ -5997,7 +6018,7 @@ int main() {
         const int worst = stems_error(dir, nframes);
         std::error_code ec;
         std::filesystem::remove_all(dir, ec);
-        check("STM-11", "stems recording across reset(Soft), init(), reset(Hard), a state load and a rewind replay: the files hold exactly the mixer's emitted sample count, the six source stems sum to the mix within 3 on every sample, "
+        check("STM-11", "stems recording across reset(Soft), init(), reset(Hard), a state load, an in-place load and a rewind replay: the files hold exactly the mixer's emitted sample count, the six source stems sum to the mix within 3 on every sample, "
               "the new machine has the latch on, and the replay moves neither count",
               ok && worst >= 0 && worst <= 3 && nframes == mixed && nframes > 2000);
     }
@@ -6041,10 +6062,12 @@ int main() {
         const AudioSourceTap* t0 = e2.audio_scope_tap();
         e2.run_frame();
         const std::string dir2 = stem_dir("stm12b");
-        const bool st_ok = d2.stems_record_start(c2, dir2) == Result::Ok && e2.audio_scope_tap() == t0 && d2.audio_scope_enabled();
+        const bool st_ok = d2.stems_record_start(c2, dir2) == Result::Ok && e2.audio_scope_tap() == t0 && d2.audio_scope_enabled() &&
+                           e2.turbosound().hw_chip_latch();   // the latch follows the stems on a tap that was already installed
         e2.run_frame();
         const uint64_t mid = d2.audio_scope_samples(0).value.first_sample;
-        const bool sp_ok = d2.stems_record_stop(c2) == Result::Ok && e2.audio_scope_tap() == t0 && d2.audio_scope_enabled();
+        const bool sp_ok = d2.stems_record_stop(c2) == Result::Ok && e2.audio_scope_tap() == t0 && d2.audio_scope_enabled() &&
+                           !e2.turbosound().hw_chip_latch();
         e2.run_frame();
         const bool kept = st_ok && sp_ok && mid > 1000 && d2.audio_scope_samples(0).value.first_sample > mid && t0 != nullptr;
         std::error_code ec;
@@ -6083,14 +6106,39 @@ int main() {
                                   emu.audio_scope_tap() == nullptr && !std::filesystem::exists(std::filesystem::path(half) / "ay0.wav") &&
                                   !std::filesystem::exists(std::filesystem::path(half) / "beeper.wav") &&
                                   std::filesystem::is_directory(std::filesystem::path(half) / "mix.wav");
+        // F1: a refused start changes nothing the user already had. Names of an existing directory and an existing file: a directory in
+        // the place of pi.wav (cannot be opened) refuses the start BEFORE ay0.wav (user data, earlier in the list) is truncated; then a
+        // write-protected regular pi.wav with content (where permissions are enforced: probed by opening it) survives byte for byte too.
+        const std::string keep = (std::filesystem::path(base) / "keep").string();
+        std::filesystem::create_directories(std::filesystem::path(keep) / "pi.wav");
+        auto put = [](const std::filesystem::path& p, const char* text) { if (std::FILE* f = std::fopen(p.string().c_str(), "wb")) { std::fputs(text, f); std::fclose(f); } };
+        put(std::filesystem::path(keep) / "ay0.wav", "user ay0 data");
+        const bool keep_refused = dbg.stems_record_start(cid, keep) == Result::RefusedUnavailable && !dbg.stems_recording() &&
+                                  slurp((std::filesystem::path(keep) / "ay0.wav").string()) == "user ay0 data" &&
+                                  std::filesystem::is_directory(std::filesystem::path(keep) / "pi.wav");
+        const std::string ro = (std::filesystem::path(base) / "ro").string();
+        std::filesystem::create_directories(ro);
+        put(std::filesystem::path(ro) / "ay0.wav", "user ay0 data");
+        put(std::filesystem::path(ro) / "pi.wav", "precious user data");
+        std::error_code pec;
+        std::filesystem::permissions(std::filesystem::path(ro) / "pi.wav", std::filesystem::perms::owner_read | std::filesystem::perms::group_read |
+                                     std::filesystem::perms::others_read, pec);
+        std::FILE* probe = std::fopen((std::filesystem::path(ro) / "pi.wav").string().c_str(), "rb+");
+        const bool enforced = probe == nullptr;   // false as root and where the host ignores the mode: the leg has nothing to protect
+        if (probe) std::fclose(probe);
+        const bool ro_refused = !enforced ||
+                                (dbg.stems_record_start(cid, ro) == Result::RefusedUnavailable && !dbg.stems_recording() &&
+                                 slurp((std::filesystem::path(ro) / "pi.wav").string()) == "precious user data" &&
+                                 slurp((std::filesystem::path(ro) / "ay0.wav").string()) == "user ay0 data");
+        std::filesystem::permissions(std::filesystem::path(ro) / "pi.wav", std::filesystem::perms::owner_write, std::filesystem::perm_options::add, pec);
         const std::string nested = (std::filesystem::path(base) / "a" / "b").string();
         const bool nested_ok = dbg.stems_record_start(cid, nested) == Result::Ok && dbg.stems_recording() &&
                                std::filesystem::exists(std::filesystem::path(nested) / "mix.wav");
         dbg.stems_record_stop(cid);
         std::error_code ec;
         std::filesystem::remove_all(base, ec);
-        check("STM-13", "refusals: under --silent the start is refused and creates nothing; a DIR under a regular file is refused and leaves nothing (only the file in its parent); a failed open of the last file takes back the six before it and spares a directory in the way; a missing nested DIR is created",
-              silent_refused && bad_refused && half_refused && entries == 1 && nested_ok);
+        check("STM-13", "refusals: under --silent the start is refused and creates nothing; a DIR under a regular file is refused and leaves nothing (only the file in its parent); a failed open of the last file takes back the six before it and spares a directory in the way; a refused start leaves pre-existing user files byte for byte (a directory or a write-protected file in the way, ay0.wav before it); a missing nested DIR is created",
+              silent_refused && bad_refused && half_refused && keep_refused && ro_refused && entries == 1 && nested_ok);
     }
     {
         // STM-14: the stems' sync rule (SCP-04's twin). 100 cycles reach the mixer alone (EAR high, the stems were not there), then the stem

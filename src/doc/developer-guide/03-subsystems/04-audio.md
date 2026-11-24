@@ -438,8 +438,9 @@ only be for one PSG tick. The latch is not machine state: not serialised, and `r
 
 *Alignment.* A frame is pushed for every sample the mixer emits, from the first sample that starts after the
 recording starts. `Emulator::init()` discards the mixer's partial sample, so it also calls
-`AudioSourceTap::clear_partial()`, and so does every `set_audio_scope_tap()` (which also switches the latch
-to match `stems`): otherwise the next sample would not be whole for one of the two and one stem frame would be
+`AudioSourceTap::clear_partial()`, and so does `set_audio_scope_tap()` when it installs a tap that is not the
+one already installed (it also switches the latch to match `stems`, and a re-install of the same tap, which the
+backend does after an in-place load, keeps the partial sample): otherwise the next sample would not be whole for one of the two and one stem frame would be
 lost per reset. A cold boot builds a new `Emulator` whose tap is installed by the backend's
 reconstruct re-application, before its first frame. Stem recording installs the tap, so it refuses the HALT and
 raster-poll batches like a scope does.

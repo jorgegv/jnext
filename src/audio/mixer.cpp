@@ -332,6 +332,12 @@ inline void Mixer::tap_accumulate_(AudioSourceTap& tap, const Beeper& beeper, co
 }
 
 namespace {
+// The stem extremes fit int16 without a clamp: AY 4 x 765 = 3060 per chip at most (A + B + C), DAC 4 x ((255 + 255) << 2) less 4096,
+// beeper 4 x 640, Pi 4 x 1023 less 2048, mix 4 x (640 + 3 x 765 + 2040 + 1023) less 6144 (audio_mixer.vhd:99-100).
+static_assert(4 * 765 <= 32767 && 4 * ((255 + 255) << 2) - 4096 <= 32767 && -4096 >= -32768 &&
+              4 * 640 <= 32767 && 4 * 1023 - 2048 <= 32767 && -2048 >= -32768 &&
+              4 * (640 + 3 * 765 + ((255 + 255) << 2) + 1023) - 6144 <= 32767 && -6144 >= -32768,
+              "every stem fits int16 without a clamp");
 // The mixer's own rounding (emit_sample_impl_): x4 before the divide, round to nearest. Terms are >= 0.
 inline int16_t stem_r4(int64_t acc, int64_t cyc, int64_t rest)
 {

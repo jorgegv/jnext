@@ -336,7 +336,7 @@ that you can bring one part of the sound into an editor or a tracker without the
 rest. **Record stems...** asks for a directory (created if it does not exist) and
 **Stop** ends the recording; the label reads `Recording stems` while it runs, and
 `Cannot write <directory>` or `Write error in <directory>` when something went
-wrong. The files are 44.1 kHz 16-bit stereo:
+wrong. Files of those names already in the chosen directory are overwritten without asking. The files are 44.1 kHz 16-bit stereo:
 
 | File | What it holds |
 |---|---|

@@ -1461,12 +1461,14 @@ public:
     /// saved or reset (like the mute masks). Installing one routes the audio path through a cold
     /// out-of-line span (`audio_divert_`, below); nullptr restores the untapped path.
     void set_audio_scope_tap(AudioSourceTap* t) {
+        const bool changed = t != audio_scope_tap_;
         audio_scope_tap_ = t;
         refresh_audio_divert_();
-        // GH #539: the stems read the per-chip hardware values the cold mix recompute latches; a (re)install
-        // also starts the tap's sample afresh, aligned with the mixer's (see Emulator::init()).
+        // GH #539: the stems read the per-chip hardware values the cold mix recompute latches. A NEW tap
+        // starts its sample afresh, aligned with the mixer's (see Emulator::init()); re-installing the SAME
+        // one (the backend does, after an in-place load) must keep its partial sample or one frame is lost.
         turbosound_.set_hw_chip_latch(t && t->stems);
-        if (t) t->clear_partial();
+        if (t && changed) t->clear_partial();
     }
     const AudioSourceTap* audio_scope_tap() const { return audio_scope_tap_; }
 
