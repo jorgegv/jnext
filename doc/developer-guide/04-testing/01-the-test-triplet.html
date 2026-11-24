@@ -3244,11 +3244,15 @@ whose lines were added, removed, re-pinned or re-marked (<code>?</code>) are pla
 <code># os:</code> or <code># expect:</code> line plans no suite of its own, because every <code>--only</code> run makes the
 manifest checks (registry both ways, gate, OS, the total) on the whole manifest and they refuse
 a wrong directive or total; a line of no known shape, or no git diff to read, is FULL. In
-<code>test/CMakeLists.txt</code> the file is parsed into statements, each identified by its enclosing
-<code>if()</code>/<code>foreach()</code> chain and its text, and the statements added, removed or moved into another
-context select the declared suites they name (a target, <code>target_link_libraries</code>, the
-<code>add_test(... COMMAND &lt;suite&gt;)</code>); a changed statement that names no declared suite (an include
-path, a shared variable) is FULL. A change to either file, to <code>test/refresh-traceability-matrix.pl</code>
+<code>test/CMakeLists.txt</code> the file is parsed into an ordered list of statements, each with its enclosing
+<code>if()</code>/<code>else()</code>/<code>foreach()</code> chain, comments stripped with quotes respected. CMake is order-dependent
+(directory options reach later targets only, a <code>file(GLOB)</code> precedes its <code>foreach</code>), so the list is
+diffed as a sequence: every statement added, removed or moved is a changed statement. A changed
+target-level statement (<code>add_executable</code>, <code>target_*</code>, <code>add_test</code>, <code>set_target_properties</code>,
+<code>set_tests_properties</code>, <code>add_dependencies</code>) selects the declared suites it names; any other changed
+statement, a shared statement moved, or a suite's statement moved past a shared one, is FULL. So is a
+file the scanner cannot read with confidence (bracket arguments or comments, an unterminated
+statement or quote, unbalanced <code>end*()</code>). A change to either file, to <code>test/refresh-traceability-matrix.pl</code>
 or to the matrix also plans <code>make traceability-check-subset</code> and <code>make traceability-selftest</code>:
 the first generates the matrix with <code>--no-fails</code> (every suite taken as passing, since a subset
 run keeps no logs) and fails if the committed copy differs, so a wrong or missing row, summary
@@ -3266,7 +3270,7 @@ with <code>main</code> (<code>origin/main</code> when there is no local <code>ma
 <code>TEST-AFFECTED MISS</code>, so the map or the conf is fixed on the same branch; with no such base, or in a
 platform tree (SDL-only, Windows, WebAssembly), the check is silent. A docs-only plan ran no suite, so
 every suite that fails is a miss. The planner's rows are
-<code>TAF-01..10</code> and <code>TAF-12..47</code> in <code>test/test-affected-selftest.sh</code> (<code>make test-affected-selftest</code>,
+<code>TAF-01..10</code> and <code>TAF-12..61</code> in <code>test/test-affected-selftest.sh</code> (<code>make test-affected-selftest</code>,
 part of <code>make unit-test</code>), on a hand-written fixture build tree, and <code>HS-194a..j</code> in the harness
 self-test.</p>
 <p>What <code>make test-affected</code> does not do: it runs the traceability check only when the manifest, the test
