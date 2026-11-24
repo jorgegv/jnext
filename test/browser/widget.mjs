@@ -500,7 +500,7 @@ const mustCredit = (r) => {
   must(Math.abs(r.iconW - 18) <= 0.5 && Math.abs(r.iconH - 18) <= 0.5, 'icon size ' + r.iconW + 'x' + r.iconH);
 };
 
-row('WIDGET-18', 'the widget shows the JNext attribution link (www.jnext.es, icon 18 px + text, new tab) under the screen, right edge on the player panel's, no overlap with the canvas, in light and dark at a 1600 px viewport', async () => {
+row('WIDGET-18', 'the widget shows the JNext attribution link (www.jnext.es, icon 18 px + text, new tab) under the screen, right edge on the player panel edge, no overlap with the canvas, in light and dark at a 1600 px viewport', async () => {
   const out = [];
   for (const scheme of ['light', 'dark']) {
     const page = await open(`${AURL}/widget.html?` + QUERY, { colorScheme: scheme, viewport: { width: 1600, height: 900 } });
