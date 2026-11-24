@@ -33,6 +33,7 @@
 #           or directive, a pin plus another suite's source, and a line of no known shape (FULL);
 #           test/CMakeLists.txt statements (a new block, a changed link, an if() context, a statement
 #           naming no suite = FULL); the matrix and its generator plan the traceability check
+#   TAF-78..79 GH #564 review: UNIT_TEST_LINTS names lint-test-scripts; the target fails when a lint does
 #   TAF-77  each of ci-gate.sh and regression-package.sh alone plans both makes
 #   TAF-75..76 GH #564: a changed test shell script plans make lint-test-scripts (the preflight lints
 #           a branch never runs); that target runs the four test-script lints
@@ -610,7 +611,16 @@ for l in test/00regression/lint-traps.sh test/lint-timeouts.sh test/lint-pipe-gr
 done
 row TAF-76 $r76 "the lint-test-scripts recipe runs all four test-script lints (traps, timeouts, quiet pipe grep, bare sed -i), each an existing script"
 
+ul=$(sed -n 's/^UNIT_TEST_LINTS *:= *//p' "$HERE/../Makefile")
+row TAF-78 $([[ " $ul " == *" lint-test-scripts "* ]] && echo 1 || echo 0) \
+    "UNIT_TEST_LINTS names lint-test-scripts, so make unit-test and make test-affected lint every tracked test script whatever the plan (GH #564 review: 7 scripts no conf rule reached)"
+
+PL=$(mktemp -d "$W/plant.XXXXXX"); printf '#!/bin/bash\ntimeout 5 true\n' >"$PL/bad.sh"
+LTS_OUT=$(JNEXT_LINT_TIMEOUTS_DIR="$PL" LANG=C make -C "$HERE/.." --no-print-directory lint-test-scripts 2>&1); LTS_RC=$?
+row TAF-79 $([[ $LTS_RC -ne 0 && "$LTS_OUT" == *"[lint-timeouts]"*"offenders: 1"* && "$LTS_OUT" == *"[lint-pipe-grepq] scanned"* && "$LTS_OUT" == *"[lint-sed-i] scanned"* ]] && echo 1 || echo 0) \
+    "make lint-test-scripts exits non-zero when one lint finds a planted offender, and the lints after it still ran (rc=$LTS_RC)"
+
 echo ""
 echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
-[[ "$total" -eq 76 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 76"; exit 1; }
+[[ "$total" -eq 78 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 78"; exit 1; }
 [[ "$failed" -eq 0 ]]

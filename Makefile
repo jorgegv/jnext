@@ -58,7 +58,7 @@ JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev
 # docs-check and sdcard-image stay prerequisites of unit-test itself, sdcard-image last: sdcard-ensure-func greps for
 # that, and HS-102 needs the cite check in `make -n unit-test`, which a prerequisite that fails under the self-test's
 # scratch HOME (sdcard-image) would cut off before the recipe if docs-check were in it.
-UNIT_TEST_LINTS      := lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text traceability-accounting-check wasm-function-size-selftest traceability-dup-check
+UNIT_TEST_LINTS      := lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-test-scripts traceability-accounting-check wasm-function-size-selftest traceability-dup-check
 UNIT_TEST_CHECKS     := lint-user-docs-card-selftest docs-tree-same-selftest traceability-selftest cmake-guard-selftest test-affected-selftest
 UNIT_TEST_POST       := schema-check snapshot-zip-check minimal-image-test package-contract-test test-affected-check
 UNIT_TEST_CHECK_JOBS ?= 6
@@ -1350,8 +1350,9 @@ test-affected-check: $(UNIT_TEST_BUILD_DEP)
 lint-test-scripts:
 	@# The same four scripts scripts/00-preflight-lint.sh runs, without `make regression`: a branch runs
 	@# no full regression, so a test script that breaks one (GH #564: bare `sed -i`, which BSD sed on
-	@# macOS misreads) was only found by the batch gate. `make test-affected` plans this target whenever
-	@# a test script changes. All four run; the target fails if any did.
+	@# macOS misreads) was only found by the batch gate. It is in UNIT_TEST_LINTS, so `make unit-test` and
+	@# `make test-affected` run it whatever changed (~7 s; the lints scan every tracked test script, so no
+	@# per-file planning can miss one). All four run; the target fails if any did.
 	@rc=0; for l in test/00regression/lint-traps.sh test/lint-timeouts.sh test/lint-pipe-grepq.sh test/lint-sed-inplace.sh; do \
 	   bash $$l || rc=1; done; exit $$rc
 
