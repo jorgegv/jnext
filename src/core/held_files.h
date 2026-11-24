@@ -27,8 +27,10 @@
 namespace held_files {
 
 namespace detail {
-inline std::mutex& mu() { static std::mutex m; return m; }
-inline std::map<std::string, int>& counts() { static std::map<std::string, int> c; return c; }
+// Never destroyed: a Hold in an object with static storage (a global device, a recorder) is released AFTER
+// function-local statics built later have gone, and must still find a live registry.
+inline std::mutex& mu() { static std::mutex* m = new std::mutex; return *m; }
+inline std::map<std::string, int>& counts() { static auto* c = new std::map<std::string, int>; return *c; }
 }  // namespace detail
 
 inline void add(const std::string& path) {
