@@ -231,7 +231,7 @@ go_remote() {
         fb=(); [[ $i -ne $((n - 1)) ]] || fb=(--fallback-local "$OV_WT")
         admit_log "remote $h"
         echo "[slot.sh] sending to the remote host ($h), run id $id, log $LOGDIR/$id.log: ${OV_TARGETS[*]}" >&2
-        env JNEXT_REMOTE_RUN_HOST="$h" JNEXT_SLOT_NO_OVERFLOW=1 REMOTE_RUN_LOCAL_WRAP="$SELF --dir $DIR" \
+        env JNEXT_REMOTE_RUN_HOST="$h" JNEXT_SLOT_NO_OVERFLOW=1 REMOTE_RUN_LOCAL_WRAP="$SELF --dir $DIR" REMOTE_RUN_BASE_REPO="$OV_WT" \
             "$RR" --stream "${fb[@]}" --keep-going --id "$id" --log-dir "$LOGDIR" \
             "$OV_BRANCH" "$sha" "${OV_TARGETS[@]}" &
         pid=$!

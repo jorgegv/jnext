@@ -11,6 +11,7 @@
 //   Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d
 #include "platform/startup_report.h"
 
+#include "core/cli_options.h"
 #include "core/log.h"
 #include "../row_id.h"
 
@@ -190,15 +191,50 @@ int main() {
             all_terminal = all_terminal && !classify(static_cast<int>(a.size()), a.data()).windowed;
         }
         auto base = argv_of({"--sdcard-export-base", "B"});
-        // --sdcard-export-base alone starts nothing special: it is not a command of its own
-        const bool base_alone_windowed = classify(static_cast<int>(base.size()), base.data()).windowed ==
-#ifdef __EMSCRIPTEN__
-            false;
-#else
-            true;
-#endif
-        check("STARTERR-08", "classify(): --sdcard-writes-flatten, --sdcard-export-changes and --sdcard-import-changes are terminal commands (not windowed), like --sdcard-file-add",
-              all_terminal && base_alone_windowed);
+        // --sdcard-export-base is a companion of --sdcard-export-changes and is refused alone (exit 1): like the
+        // other companions it is terminal by the table, so that refusal never opens a box
+        const bool base_alone_terminal = !classify(static_cast<int>(base.size()), base.data()).windowed;
+        check("STARTERR-08", "classify(): --sdcard-writes-flatten, --sdcard-export-changes and --sdcard-import-changes are terminal commands (not windowed), like --sdcard-file-add, and so is their companion --sdcard-export-base alone",
+              all_terminal && base_alone_terminal);
+    }
+
+    {
+        // The companions of --sdcard-file-add are refused when given alone (exit 1); a modal box there blocks
+        // forever under Cocoa and wine (the v1.3.70 gate), so each is terminal by the table, alone or not.
+        bool dest_alone = false, force_alone = false, table_ok = true;
+        {
+            auto d = argv_of({"--sdcard-file-dest", "/X.BIN"});
+            auto f = argv_of({"--sdcard-file-force"});
+            dest_alone = !classify(static_cast<int>(d.size()), d.data()).windowed;
+            force_alone = !classify(static_cast<int>(f.size()), f.data()).windowed;
+        }
+        // The terminal set, spelled out: the copy-and-exit commands and their companions, the options that print
+        // and exit, --headless, and every option main.cpp refuses (exit 1) without --headless.
+        const std::vector<const char*> expected = {
+            "--headless", "--help", "-h", "--version", "-V", "--sdcard-file-add", "--sdcard-file-extract",
+            "--sdcard-file-dest", "--sdcard-file-force", "--sdcard-writes-flatten", "--sdcard-export-changes",
+            "--sdcard-export-base", "--sdcard-import-changes", "--sdcard-go-back", "--sdcard-delete-backup",
+            "--delayed-keypress", "--delayed-keypress-frames", "--delayed-nmi", "--delayed-nmi-frames",
+            "--delayed-sdcard-insert-frames", "--delayed-sdcard2-insert-frames", "--delayed-snapshot",
+            "--delayed-snapshot-frames", "--script-key", "--benchmark", "--benchmark-label"};
+        size_t marked = 0;
+        for (const char* name : expected) {
+            const cli::Option* o = cli::find(name);
+            table_ok = table_ok && o && o->terminal;
+        }
+        for (const cli::Option& o : cli::OPTIONS)
+            if (o.terminal) ++marked;
+        // and no other row is marked: the count of marked rows is exactly the expected set's
+        table_ok = table_ok && marked == expected.size();
+        {
+            // a headless-only option alone is refused (exit 1) and must never open a box
+            auto k = argv_of({"--delayed-keypress", "5", "a"});
+            auto bm = argv_of({"--benchmark-label", "x"});
+            table_ok = table_ok && !classify(static_cast<int>(k.size()), k.data()).windowed &&
+                       !classify(static_cast<int>(bm.size()), bm.data()).windowed;
+        }
+        check("STARTERR-13", "classify(): the companions of --sdcard-file-add and the options main.cpp refuses without --headless are not windowed alone (their refusal never opens a box); the terminal rows of the table are exactly the expected set",
+              dest_alone && force_alone && table_ok);
     }
 
     {

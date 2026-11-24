@@ -18,7 +18,9 @@ which runs after the suites and reads their own logs
 (`build/test-logs/<suite>.log`, `refresh-traceability-matrix.pl --fails-from-logs=DIR`)
 instead of running every traced suite a second time; a missing log, or one with
 no `Total:` line, is a refusal, never an empty FAIL set. The standalone
-`make traceability-check` still runs the suites itself.
+`make traceability-check` still runs the suites itself. `make test-affected` runs
+`make traceability-check-subset` when the manifest, the test CMake file, the generator or the matrix
+changed: it passes `--no-fails` (every suite taken as passing), because a subset run keeps no logs.
 
 ## Where each column comes from
 

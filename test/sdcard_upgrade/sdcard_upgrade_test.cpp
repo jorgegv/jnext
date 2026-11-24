@@ -24,6 +24,15 @@
 
 #include <zlib.h>
 
+#if defined(__linux__)
+#include <fcntl.h>
+#include <linux/fs.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+#elif defined(__APPLE__)
+#include <copyfile.h>
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -92,10 +101,54 @@ bool make_card(const std::string& path, const Fat32Tree& tree) {
     return fat32_format_and_populate(path, kLba, kSectors, tree, err);
 }
 
-bool sparse_copy(const std::string& src, const std::string& dst) {
+// Fixture copy of a 600 MB sparse card. A copy-on-write clone where the filesystem has one (Linux FICLONE,
+// APFS clonefile through copyfile), else a copy that reads only the data extents (Linux SEEK_DATA), else the
+// product's copy_sparse_file. Every path yields a file with the source's exact bytes; DST must not exist.
+bool fast_copy(const std::string& src, const std::string& dst) {
+#if defined(__linux__)
+    const int in = ::open(src.c_str(), O_RDONLY);
+    if (in >= 0) {
+        const int out = ::open(dst.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0644);
+        if (out >= 0) {
+            bool ok = ::ioctl(out, FICLONE, in) == 0;
+            if (!ok) {
+                const off_t size = ::lseek(in, 0, SEEK_END);
+                ok = size >= 0 && ::ftruncate(out, size) == 0;
+                std::vector<char> buf(1 << 20);
+                off_t pos = 0;
+                while (ok && pos < size) {
+                    const off_t d = ::lseek(in, pos, SEEK_DATA);
+                    if (d < 0) break;                       // ENXIO: no data left, the rest is a hole
+                    off_t h = ::lseek(in, d, SEEK_HOLE);
+                    if (h < 0) h = size;
+                    for (off_t o = d; ok && o < h;) {
+                        const size_t n = static_cast<size_t>(std::min<off_t>(static_cast<off_t>(buf.size()), h - o));
+                        const ssize_t r = ::pread(in, buf.data(), n, o);
+                        ok = r > 0 && ::pwrite(out, buf.data(), static_cast<size_t>(r), o) == r;
+                        if (ok) o += r;
+                    }
+                    pos = h;
+                }
+                // SEEK_DATA is a feature of the filesystem: where it does not exist every offset reads as data
+                // (lseek succeeds with d == pos), so the loop above is still a full copy there.
+            }
+            ::close(out);
+            ::close(in);
+            if (ok) return true;
+            std::error_code rec;
+            fs::remove(dst, rec);
+        } else {
+            ::close(in);
+        }
+    }
+#elif defined(__APPLE__)
+    if (::copyfile(src.c_str(), dst.c_str(), nullptr, COPYFILE_CLONE | COPYFILE_DATA) == 0) return true;
+    { std::error_code rec; fs::remove(dst, rec); }
+#endif
     std::string err;
     return carry::copy_sparse_file(src, dst, err);
 }
+bool sparse_copy(const std::string& src, const std::string& dst) { return fast_copy(src, dst); }
 void put_text(const std::string& p, const std::string& t) { std::ofstream(p, std::ios::trunc | std::ios::binary) << t; }
 std::string get_text(const std::string& p) {   // CR dropped: write_text_line writes in text mode (CRLF on Windows)
     std::ifstream f(p, std::ios::binary);
@@ -104,15 +157,41 @@ std::string get_text(const std::string& p) {   // CR dropped: write_text_line wr
     return t;
 }
 bool exists(const std::string& p) { std::error_code ec; return fs::exists(p, ec); }
+// 64-bit content digest of a file: four independent multiply-xor lanes over 8-byte words (a 600 MB card in a
+// fraction of the time of a byte-at-a-time loop), and a block that is all zero (most of a sparse card) costs one
+// compare and is folded in as such. Every byte of the file, its position and its length reach the digest.
 uint64_t digest(const std::string& p) {
     std::ifstream f(p, std::ios::binary);
-    uint64_t h = 1469598103934665603ull;
-    std::vector<char> buf(1 << 20);
+    constexpr uint64_t P = 0x9E3779B97F4A7C15ull, Q = 0xC2B2AE3D27D4EB4Full;
+    uint64_t h[4] = {1469598103934665603ull, 1099511628211ull, 0x27D4EB2F165667C5ull, 0x165667B19E3779F9ull};
+    std::vector<uint64_t> buf((1 << 20) / 8);
+    uint64_t block = 0, total = 0;
     while (f) {
-        f.read(buf.data(), static_cast<std::streamsize>(buf.size()));
-        for (std::streamsize i = 0; i < f.gcount(); ++i) { h ^= static_cast<uint8_t>(buf[i]); h *= 1099511628211ull; }
+        f.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(buf.size() * 8));
+        const size_t n = static_cast<size_t>(f.gcount());
+        if (n == 0) break;
+        total += n;
+        const size_t words = n / 8;
+        if (n % 8) std::memset(reinterpret_cast<char*>(buf.data()) + n, 0, 8 - n % 8);   // a short tail: padded, its length is mixed below
+        const size_t used = words + (n % 8 ? 1 : 0);
+        uint64_t any = 0;
+        for (size_t i = 0; i < used; ++i) any |= buf[i];
+        if (any == 0) {
+            h[0] = (h[0] ^ (block * Q + n)) * P;                // an all-zero block: its index and length
+        } else {
+            for (size_t i = 0; i < used; i += 4)
+                for (size_t k = 0; k < 4 && i + k < used; ++k) {
+                    h[k] ^= buf[i + k];
+                    h[k] *= P;
+                    h[k] ^= h[k] >> 29;
+                }
+            h[1] = (h[1] ^ (block * Q + n + 1)) * P;            // position and length of a data block
+        }
+        ++block;
     }
-    return h;
+    uint64_t r = total * Q;
+    for (uint64_t x : h) { r ^= x; r *= P; r ^= r >> 32; }
+    return r;
 }
 
 // A card's files by upper-cased path, read by the foreign reader.
@@ -244,6 +323,7 @@ const std::string kNew = "sn-emulator-99.99.zip";
 const std::string kOld = "sn-emulator-24.11.zip";
 
 struct World {
+    std::string old_raw_sha;   // SHA-256 of the old template raw, computed once
     std::string cfg, dir, raw, fixed, raw_sha, raw_distro, fixed_distro, recipe, declined;
     std::string old_raw_t, old_card_t;     // templates
     std::string new_zip, norom_zip;
@@ -270,6 +350,7 @@ bool build_world() {
     w.old_card_t = tmp("oldcard");
     if (!make_card(w.old_raw_t, tree_old())) { w.err = "old raw"; return false; }
     const std::string sha = sdcard::sha256_file(w.old_raw_t);
+    w.old_raw_sha = sha;
     if (!sparse_copy(w.old_raw_t, w.old_card_t)) { w.err = "old card copy"; return false; }
     std::string e;
     if (!sdcard::patch_image_for_recipe(w.old_card_t, sdcard::kFixedImageRecipe, sha, e)) { w.err = "patch old: " + e; return false; }
@@ -299,7 +380,7 @@ void install_old() {
     fs::create_directories(w.dir, ec);
     sparse_copy(w.old_raw_t, w.raw);
     sparse_copy(w.old_card_t, w.fixed);
-    put_text(w.raw_sha, sdcard::sha256_file(w.raw) + "  cspect-next-1gb.img\n");
+    put_text(w.raw_sha, w.old_raw_sha + "  cspect-next-1gb.img\n");   // w.raw is a byte copy of the template
     put_text(w.raw_distro, kOld + "\n");
     put_text(w.fixed_distro, kOld + "\n");
     put_text(w.recipe, std::to_string(sdcard::kFixedImageRecipe) + "\n");
