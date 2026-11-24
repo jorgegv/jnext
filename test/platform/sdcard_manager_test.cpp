@@ -37,6 +37,7 @@
 #include "core/sha256.h"
 #include "debug/debugger.h"
 #include "peripheral/sd_card.h"
+#include "peripheral/sd_write_journal.h"
 #include "platform/emulator_boot.h"
 #include "../row_id.h"
 #include "../scratch_dir.h"
@@ -107,6 +108,7 @@ const Bytes kD1 = payload(200, 21), kD2 = payload(210, 22);
 const Bytes kQ = payload(90, 12), kOk = payload(95, 13);
 // a host name every host file system takes and the card name rules refuse (printable ASCII only)
 const char* const kNonAscii = "caf\xC3\xA9.bin";
+const Bytes kLongF = payload(310, 51);
 const Bytes kOne = payload(300, 41), kTwo = payload(310, 42), kX = payload(120, 43);
 
 // The card every row copies: /GAMES/WOTEF.NEX, /GAMES/SUB/DEEP, /MYDIR/{A.BIN,B.BIN}, /FILE.BIN, /EMPTYD, /RO
@@ -120,7 +122,8 @@ bool populate(FATFS& fsv, Pokes& pokes) {
               fat_write("0:/RO/A_RO.BIN", kQ) && f_chmod("0:/RO/A_RO.BIN", AM_RDO, AM_RDO) == FR_OK &&
               fat_write("0:/RO/OK.BIN", kOk);
     ok = ok && f_mkdir("0:/DATA") == FR_OK && f_mkdir("0:/ODD") == FR_OK && f_mkdir("0:/ESC") == FR_OK &&
-         fat_write("0:/DATA/D1.BIN", kD1) && fat_write("0:/DATA/D2.BIN", kD2);
+         fat_write("0:/DATA/D1.BIN", kD1) && fat_write("0:/DATA/D2.BIN", kD2) &&
+         fat_write("0:/DATA/Long File Name.txt", kLongF);
     if (!ok) return false;
     const uint32_t c1 = file_cluster("0:/DATA/D1.BIN"), c2 = file_cluster("0:/DATA/D2.BIN");
     hand_dir(fsv, dir_cluster("0:/ODD"), 2,
@@ -130,6 +133,25 @@ bool populate(FATFS& fsv, Pokes& pokes) {
     hand_dir(fsv, dir_cluster("0:/ESC"), 2,
              {{u"\u001b[2Jevil", "EVIL~1     ", 0x20, c1, static_cast<uint32_t>(kD1.size())}}, pokes);
     return c1 != 0 && c2 != 0;
+}
+
+// A tiny valid TAP: a CODE header and a 2-byte data block (SDMT-23 loads it so the emulator holds a tape file).
+Bytes tap_blk(uint8_t flag, const Bytes& pl) {
+    Bytes b;
+    const unsigned n = static_cast<unsigned>(pl.size()) + 2;
+    b.push_back(static_cast<uint8_t>(n & 0xFF));
+    b.push_back(static_cast<uint8_t>(n >> 8));
+    b.push_back(flag);
+    uint8_t x = flag;
+    for (uint8_t v : pl) { b.push_back(v); x ^= v; }
+    b.push_back(x);
+    return b;
+}
+Bytes tap_pair() {
+    Bytes h{3, 't', 'a', 'p', 'e', 't', 'e', 's', 't', ' ', ' ', 2, 0, 0, 0x80, 0, 0};
+    Bytes a = tap_blk(0, h), d = tap_blk(0xFF, Bytes{1, 2});
+    a.insert(a.end(), d.begin(), d.end());
+    return a;
 }
 
 // A private copy of a master card, removed when the block ends.
@@ -283,6 +305,7 @@ struct Rig {
 
 int main() {
     g_dir = make_scratch_dir("sdmgr");
+    sd_write_journal::forget_all_for_test();
 
     const std::string G = tmp_name("general") + ".img";
     const int gt = make_card(G, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, populate);
@@ -440,6 +463,37 @@ int main() {
         check("SDMS-10", "outside an open session nothing is allowed and close is a no-op; open twice is refused; a declined write is not noted as a change",
               !before_open && closed_unopened == sm::SdManagerSession::CloseResult::NotOpen && !second_open && !declined &&
                   not_changed && accepted && res == sm::SdManagerSession::CloseResult::ResetAndResumed);
+    }
+
+    // SDMS-11
+    {
+        // paused by A, a change, B resumes the machine, close: the reset runs on a machine paused again, and the result is true
+        Rig r;
+        const ClientId a = r.dbg->attach(ClientInfo{"A", ClientKind::Test}).value;
+        r.dbg->pause(a);
+        std::string why;
+        r.ss.open(*r.dbg, why);
+        r.ss.before_card_write([] { return true; });
+        const ClientId b = r.dbg->attach(ClientInfo{"B", ClientKind::Test}).value;
+        r.dbg->run(b);
+        const bool ran = !r.paused();
+        const auto res = r.ss.close(r.emu);
+        check("SDMS-11", "a remote resume before close: the session pauses again before the hard reset (it runs on a paused machine), and the result is the machine's real state",
+              ran && r.boots == 1 && r.boot_saw_paused && res == sm::SdManagerSession::CloseResult::ResetStayedPaused && r.paused());
+    }
+    // SDMS-12
+    {
+        // paused by A, A detaches mid-session (an observer holds no pause): a no-change close reports what the machine does
+        Rig r;
+        const ClientId a = r.dbg->attach(ClientInfo{"A", ClientKind::Test}).value;
+        r.dbg->pause(a);
+        std::string why;
+        r.ss.open(*r.dbg, why);
+        r.dbg->detach(a);
+        const bool lost = !r.paused();
+        const auto res = r.ss.close(r.emu);
+        check("SDMS-12", "the pause of the client that detaches is lost: a no-change close reports Resumed exactly when the machine runs, StayedPaused exactly when it is paused",
+              lost && res == sm::SdManagerSession::CloseResult::Resumed && !r.paused());
     }
 
     // ======================= slots =======================
@@ -748,7 +802,7 @@ int main() {
         Img c(G);
         Hk hk;
         sm::TransferHooks h = hk.hooks();
-        const sm::TransferReport r = sm::delete_items(sm::Side::Card, c.p, {"/MYDIR", "/EMPTYD", "/RO", "/FILE.BIN"}, h);
+        const sm::TransferReport r = sm::delete_items(sm::Side::Card, c.p, {"/MYDIR", "/EMPTYD", "/RO", "/FILE.BIN"}, {}, h);
         const bool card_ok = r.done.size() == 2 && r.failed == "/RO" && r.error.find("A_RO.BIN") != std::string::npos &&
                              r.not_attempted.size() == 1 && r.not_attempted[0] == "/FILE.BIN" && !on_card(c.p, "/MYDIR") &&
                              !on_card(c.p, "/EMPTYD") && on_card(c.p, "/RO/OK.BIN") && on_card(c.p, "/FILE.BIN") &&
@@ -761,7 +815,7 @@ int main() {
         Hk hk2;
         sm::TransferHooks h2 = hk2.hooks();
         hk2.on_trash = [&](const std::string& p) { if (p == (hd / "d2").string()) hk2.trash_ok = false; };
-        const sm::TransferReport r2 = sm::delete_items(sm::Side::Host, G, {(hd / "d1").string(), (hd / "d2").string(), (hd / "d3").string()}, h2);
+        const sm::TransferReport r2 = sm::delete_items(sm::Side::Host, G, {(hd / "d1").string(), (hd / "d2").string(), (hd / "d3").string()}, {}, h2);
         const bool host_ok = r2.done.size() == 1 && r2.failed == (hd / "d2").string() && r2.not_attempted.size() == 1 &&
                              !fs::exists(hd / "d1") && fs::exists(hd / "d2") && fs::exists(hd / "d3") && hk2.count("trash") == 2 &&
                              hk2.count("gate") == 0 && !r2.card_write_attempted;
@@ -822,7 +876,7 @@ int main() {
         Img c(G);
         Hk hk;
         sm::TransferHooks h = hk.hooks();
-        const sm::TransferReport del = sm::delete_items(sm::Side::Card, c.p, {"/MYDIR", "/mydir/A.BIN", "/MYDIR/", "/FILE.BIN"}, h);
+        const sm::TransferReport del = sm::delete_items(sm::Side::Card, c.p, {"/MYDIR", "/mydir/A.BIN", "/MYDIR/", "/FILE.BIN"}, {}, h);
         const bool dd = del.done.size() == 2 && del.skipped.size() == 2 && del.failed.empty() && !on_card(c.p, "/MYDIR") &&
                         !on_card(c.p, "/FILE.BIN") && hk.count("gate") == 2;
         Img c2(G);
@@ -835,7 +889,7 @@ int main() {
         write_host_file(hd / "f", kOne);
         Hk hk3;
         sm::TransferHooks h3 = hk3.hooks();
-        const sm::TransferReport hdel = sm::delete_items(sm::Side::Host, G, {hd.string(), (hd / "f").string()}, h3);
+        const sm::TransferReport hdel = sm::delete_items(sm::Side::Host, G, {hd.string(), (hd / "f").string()}, {}, h3);
         check("SDMT-15", "a selection that repeats an item or holds an item inside another selected one runs each once (the nested or repeated one is skipped, not failed), on the card, onto it, and on the host",
               dd && cc && hdel.done.size() == 1 && hdel.skipped.size() == 1 && hk3.count("trash") == 1,
               rep_str(del) + " | " + rep_str(cp));
@@ -894,18 +948,15 @@ int main() {
         const sm::TransferReport a = sm::run_transfer(host_req(img, "/MYDIR", {fs::path(img)}), h);
         const sm::TransferReport b = sm::run_transfer(host_req(img, "/MYDIR", {cards}), h);
         const sm::TransferReport mv = sm::run_transfer(host_req(img, "/MYDIR", {cards}, true), h);
-        const sm::TransferReport d1 = sm::delete_items(sm::Side::Host, img, {img}, h);
-        const sm::TransferReport d2 = sm::delete_items(sm::Side::Host, img, {cards.string()}, h);
+        const sm::TransferReport d1 = sm::delete_items(sm::Side::Host, img, {img}, {}, h);
+        const sm::TransferReport d2 = sm::delete_items(sm::Side::Host, img, {cards.string()}, {}, h);
         // a relative spelling of the same file is the same file
-        const sm::TransferReport d3 = sm::delete_items(sm::Side::Host, img, {(cards / ".." / cards.filename() / "mounted.img").string()}, h);
-        // card to host: replacing the image itself is refused
-        const fs::path same_name_dir = cards;
+        const sm::TransferReport d3 = sm::delete_items(sm::Side::Host, img, {(cards / ".." / cards.filename() / "mounted.img").string()}, {}, h);
         const std::string sha_after = sha_file(img);
         check("SDMT-18", "the mounted image is refused as a copy source, a move source and a delete target, by identity (it, a folder holding it, a relative spelling); it is never trashed or changed",
               !a.failed.empty() && !b.failed.empty() && !mv.failed.empty() && !d1.failed.empty() && !d2.failed.empty() &&
                   !d3.failed.empty() && hk.count("trash") == 0 && hk.count("gate") == 0 && fs::exists(img) && sha_after == sha,
               rep_str(a) + " | " + rep_str(d2));
-        (void)same_name_dir;
     }
     // SDMT-19
     {
@@ -933,7 +984,7 @@ int main() {
         const sm::TransferReport missing = sm::run_transfer(card_req(G, dd.string(), {"/GAMES/NOPE.BIN"}), h);
         // a delete by a typed long name is refused the same way and leaves both entries
         Img c(G);
-        const sm::TransferReport del = sm::delete_items(sm::Side::Card, c.p, {"/ODD/NAME."}, h);
+        const sm::TransferReport del = sm::delete_items(sm::Side::Card, c.p, {"/ODD/NAME."}, {}, h);
         const bool del_refused = !del.failed.empty() && ls(c.p, "/ODD").size() == 2;
         check("SDMT-19", "a card item named by its typed long name (trailing dot), a traversal, a backslash, the root or a missing name copies and deletes NOTHING and never reaches the gate; the one addressed by its open_name copies that entry's bytes",
               plain == "NAME" && !alias.empty() && alias != "NAME." && typed_refused && good.done.size() == 1 && bytes_ok &&
@@ -942,6 +993,247 @@ int main() {
               "alias=" + alias + " tr=" + std::to_string(typed_refused) + " bytes=" + std::to_string(bytes_ok) + " up=" + rep_str(up) +
                   " back=" + rep_str(back) + " root=" + rep_str(root) + " miss=" + rep_str(missing) + " delr=" + std::to_string(del_refused) +
                   " gates=" + std::to_string(hk.count("gate")) + " tree=" + std::to_string(t.size()));
+    }
+
+    // SDMT-21
+    {
+        // F1: BOTH slots' images are safe, whichever slot the pane shows: as copy source, move source, delete target, Replace target
+        Img a(G);
+        const fs::path dir_b = fresh_dir("slot2");
+        const std::string img_b = (dir_b / "second.img").string();
+        fs::copy_file(G, img_b, fs::copy_options::overwrite_existing);
+        const std::string sha_a = sha_file(a.p), sha_b = sha_file(img_b);
+        Hk hk;
+        sm::TransferHooks h = hk.hooks();
+        bool all = true;
+        std::string bad;
+        auto refused = [&](const char* what, const sm::TransferReport& r) {
+            if (r.failed.empty() || !r.done.empty()) { all = false; bad += std::string(what) + " "; }
+        };
+        for (int pane = 0; pane < 2; ++pane) {
+            const std::string pane_img = pane == 0 ? a.p : img_b;
+            const std::string other = pane == 0 ? img_b : a.p;
+            const fs::path other_dir = fs::path(other).parent_path();
+            const std::vector<std::string> held = {a.p, img_b};
+            sm::TransferRequest cp = host_req(pane_img, "/MYDIR", {fs::path(other)});
+            cp.held_files = held;
+            refused("copy", sm::run_transfer(cp, h));
+            sm::TransferRequest cpd = host_req(pane_img, "/MYDIR", {other_dir});
+            cpd.held_files = held;
+            refused("copy-dir", sm::run_transfer(cpd, h));
+            sm::TransferRequest mv = host_req(pane_img, "/MYDIR", {fs::path(other)}, true);
+            mv.held_files = held;
+            refused("move", sm::run_transfer(mv, h));
+            sm::TransferRequest mvd = host_req(pane_img, "/MYDIR", {other_dir}, true);
+            mvd.held_files = held;
+            refused("move-dir", sm::run_transfer(mvd, h));
+            refused("delete", sm::delete_items(sm::Side::Host, pane_img, {other}, held, h));
+            refused("delete-dir", sm::delete_items(sm::Side::Host, pane_img, {other_dir.string()}, held, h));
+        }
+        // Replace target: a card entry whose host name is the other slot's image
+        const fs::path dir_c = fresh_dir("slot2r");
+        fs::copy_file(G, dir_c / "FILE.BIN", fs::copy_options::overwrite_existing);
+        const std::string held_c = (dir_c / "FILE.BIN").string();
+        const std::string sha_c = sha_file(held_c);
+        hk.answers = {sm::OverwriteAnswer::Replace, sm::OverwriteAnswer::Replace};
+        sm::TransferRequest rp = card_req(a.p, dir_c.string(), {"/FILE.BIN"});
+        rp.held_files = {a.p, held_c};
+        refused("replace", sm::run_transfer(rp, h));
+        // the same request with nothing held is a normal Replace (negative control: the check is the held set)
+        sm::TransferRequest rn = card_req(a.p, dir_c.string(), {"/FILE.BIN"});
+        const sm::TransferReport free_run = sm::run_transfer(rn, h);
+        check("SDMT-21", "BOTH slots' images are protected whichever slot the pane shows: the other slot's image and a folder holding it are refused as copy source, move source, delete target, and a card entry never replaces it; the same Replace with nothing held goes through",
+              all && hk.count("trash") == 1 && hk.count("gate") == 0 && sha_file(a.p) == sha_a && sha_file(img_b) == sha_b &&
+                  fs::exists(img_b) && free_run.done.size() == 1 && sha_file(held_c) != sha_c,
+              bad + rep_str(free_run));
+    }
+    // SDMT-22
+    {
+        // F2: an SD-writes file (existing, or not yet created) is a held file: delete target, move source, copy source, Replace target
+        Img a(G);
+        const fs::path dw = fresh_dir("writes");
+        const std::string wf = (dw / "card.sdw").string();           // not created yet
+        const std::string wf2 = (dw / "WOTEF.NEX").string();          // exists, named like a card entry
+        write_host_file(wf2, kX);
+        Hk hk;
+        sm::TransferHooks h = hk.hooks();
+        const std::vector<std::string> held = {wf, wf2};
+        sm::TransferRequest cp = host_req(a.p, "/MYDIR", {fs::path(wf2)});
+        cp.held_files = held;
+        const sm::TransferReport r1 = sm::run_transfer(cp, h);
+        sm::TransferRequest mv = host_req(a.p, "/MYDIR", {dw}, true);
+        mv.held_files = held;
+        const sm::TransferReport r2 = sm::run_transfer(mv, h);
+        const sm::TransferReport r3 = sm::delete_items(sm::Side::Host, a.p, {wf}, held, h);
+        const sm::TransferReport r4 = sm::delete_items(sm::Side::Host, a.p, {wf2}, held, h);
+        hk.answers = {sm::OverwriteAnswer::Replace};
+        sm::TransferRequest rp = card_req(a.p, dw.string(), {"/GAMES/WOTEF.NEX"});
+        rp.held_files = held;
+        const sm::TransferReport r5 = sm::run_transfer(rp, h);
+        const bool msg = r3.error.find("emulator is using") != std::string::npos && r5.error.find("emulator is using") != std::string::npos;
+        check("SDMT-22", "an SD-writes file, existing or not created yet, is protected as copy source, move source (and the folder holding it), delete target and Replace target, with the reason stated",
+              !r1.failed.empty() && !r2.failed.empty() && !r3.failed.empty() && !r4.failed.empty() && !r5.failed.empty() && msg &&
+                  hk.count("trash") == 0 && hk.count("gate") == 0 && hk.count("ask") == 0 && read_host_file(wf2) == kX,
+              rep_str(r3) + " | " + rep_str(r5));
+    }
+    // SDMT-23
+    {
+        // the whole class, from a real emulator: images and writes files of both slots, the tape-save target, the loaded tape, the esxDOS root
+        const fs::path d = fresh_dir("held");
+        const std::string ia = (d / "a.img").string(), ib = (d / "b.img").string();
+        fs::copy_file(G, ia, fs::copy_options::overwrite_existing);
+        fs::copy_file(F16, ib, fs::copy_options::overwrite_existing);
+        const std::string wa = (d / "a.sdw").string(), wb = (d / "b.sdw").string();
+        for (const auto& pr : {std::make_pair(ia, wa), std::make_pair(ib, wb)}) {
+            sd_write_journal::Binding bd;
+            bd.bytes = fs::file_size(pr.first);
+            bd.sha256.fill(0x5C);
+            std::string why;
+            sd_write_journal::bind(pr.first, pr.second, bd, false, why);
+        }
+        fs::create_directories(d / "stub");
+        const fs::path tape = d / "loaded.tap";
+        write_host_file(tape, tap_pair());
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.tape_save_file = (d / "save.tap").string();
+        cfg.esxdos_stub_root = (d / "stub").string();
+        emu.init(cfg);
+        emu.sd_card().mount(ia, false);
+        emu.sd_card2().mount(ib, false);
+        const bool tape_loaded = emu.tape().load(tape.string());
+        const std::vector<std::string> held = sm::held_host_files(emu);
+        auto has = [&](const std::string& p) { return std::find(held.begin(), held.end(), p) != held.end(); };
+        const bool listed = has(ia) && has(ib) && has(wa) && has(wb) && has(cfg.tape_save_file) && has(cfg.esxdos_stub_root) &&
+                            (!tape_loaded || has(tape.string()));
+        // each of them, and the folder holding them all, is refused as a delete target; so is a journal-mode copy's writes file once it exists
+        Hk hk;
+        sm::TransferHooks h = hk.hooks();
+        const sm::TransferReport put = sm::run_transfer(host_req(ia, "/MYDIR", {host / "one.bin"}), h);
+        const bool journal_made = put.done.size() == 1 && sd_write_journal::peek_file(wa).is_journal && sha_file(ia) != std::string();
+        std::vector<std::string> targets = {ia, ib, wa, wb, cfg.tape_save_file, cfg.esxdos_stub_root, d.string()};
+        if (tape_loaded) targets.push_back(tape.string());
+        bool all_refused = true;
+        for (const std::string& t : targets) {
+            const sm::TransferReport r = sm::delete_items(sm::Side::Host, ia, {t}, held, h);
+            if (r.failed.empty() || !r.done.empty()) all_refused = false;
+        }
+        const sm::TransferReport mv = sm::run_transfer([&] { auto q = host_req(ia, "/MYDIR", {fs::path(wa)}, true); q.held_files = held; return q; }(), h);
+        check("SDMT-23", "held_host_files lists what a real emulator holds (both slots' images and bound writes files, the tape-save target, the loaded tape, the esxDOS root); each is refused as a delete target, and a writes file that a journal-mode copy created cannot be moved off the host",
+              listed && journal_made && all_refused && !mv.failed.empty() && hk.count("trash") == 0 && sd_write_journal::peek_file(wa).is_journal && fs::exists(wa),
+              "listed=" + std::to_string(listed) + " journal=" + std::to_string(journal_made) + " held=" + std::to_string(held.size()));
+        emu.sd_card().unmount();
+        emu.sd_card2().unmount();
+        sd_write_journal::forget_all_for_test();
+    }
+    // SDMT-24
+    {
+        // F3: a host name equal to another entry's 8.3 alias would overwrite THAT entry: refused, naming it; the listing decides what exists
+        Img c(G);
+        Hk hk;
+        sm::TransferHooks h = hk.hooks();
+        write_host_file(host / "LONGFI~1.TXT", kOne);
+        const sm::TransferReport alias = sm::run_transfer(host_req(c.p, "/DATA", {host / "LONGFI~1.TXT"}), h);
+        const bool refused = !alias.failed.empty() && alias.error.find("Long File Name.txt") != std::string::npos && hk.count("ask") == 0 &&
+                             hk.count("gate") == 0 && sha_file(c.p) == sha_g;
+        // the hand-made entry: NAME. is listed with the alias NAME~1
+        write_host_file(host / "NAME~1", kOne);
+        const sm::TransferReport odd = sm::run_transfer(host_req(c.p, "/ODD", {host / "NAME~1"}), h);
+        const bool odd_ok = !odd.failed.empty() && hk.count("ask") == 0 && sha_file(c.p) == sha_g;
+        // a name that differs only in case from the STORED name is a Replace, asked with the stored name's path
+        write_host_file(host / "long file name.TXT", kOne);
+        hk.answers = {sm::OverwriteAnswer::Replace};
+        const sm::TransferReport same = sm::run_transfer(host_req(c.p, "/DATA", {host / "long file name.TXT"}), h);
+        const bool same_ok = same.done.size() == 1 && hk.count("ask:/DATA/Long File Name.txt:file") == 1 &&
+                             extracted(c.p, "/DATA/Long File Name.txt") == Tree{{"Long File Name.txt", kOne}};
+        // an unrelated new name is just copied
+        write_host_file(host / "OTHER.TXT", kX);
+        const sm::TransferReport fresh = sm::run_transfer(host_req(c.p, "/DATA", {host / "OTHER.TXT"}), h);
+        check("SDMT-24", "host to card: a name that is another entry's 8.3 alias is refused naming that entry (no question, nothing written); a case variant of a stored name is a Replace asked with the stored name's path; a new name is copied",
+              refused && odd_ok && same_ok && fresh.done.size() == 1 && on_card(c.p, "/DATA/OTHER.TXT"),
+              rep_str(alias) + " | " + rep_str(odd) + " | " + rep_str(same));
+    }
+    // SDMT-25
+    {
+        // F4: a Replace trashed the old host entry and then the copy failed (here: something recreated the name): the report says it is in the trash
+        const fs::path dd = fresh_dir("f4");
+        write_host_file(dd / "WOTEF.NEX", kX);
+        Hk hk;
+        hk.answers = {sm::OverwriteAnswer::Replace};
+        hk.on_trash = [&](const std::string&) {};
+        sm::TransferHooks h = hk.hooks();
+        auto inner = h.trash_host;
+        h.trash_host = [&, inner](const std::string& p, std::string& err) {
+            const bool ok = inner(p, err);
+            write_host_file(p, kD2);   // a racing process recreates the name after the trash
+            return ok;
+        };
+        const sm::TransferReport r = sm::run_transfer(card_req(G, dd.string(), {"/GAMES/WOTEF.NEX"}), h);
+        check("SDMT-25", "a Replace whose copy fails after the old host entry went to the trash says so in the report (and names the entry)",
+              !r.failed.empty() && r.done.empty() && r.error.find("already sent to the trash") != std::string::npos &&
+                  r.error.find((dd / "WOTEF.NEX").string()) != std::string::npos && hk.count("trash") == 1,
+              rep_str(r));
+    }
+    // SDMT-26
+    {
+        // R01: card to host Replace whose target is a held file (here: the very image, named like a card entry), or a folder holding one
+        const fs::path dd = fresh_dir("r01");
+        const std::string img = (dd / "FILE.BIN").string();
+        fs::copy_file(G, img, fs::copy_options::overwrite_existing);
+        const std::string sha = sha_file(img);
+        Hk hk;
+        hk.answers = {sm::OverwriteAnswer::Replace, sm::OverwriteAnswer::Replace};
+        sm::TransferHooks h = hk.hooks();
+        const sm::TransferReport own = sm::run_transfer(card_req(img, dd.string(), {"/FILE.BIN"}), h);
+        // a card FOLDER whose host target folder holds a held file
+        const fs::path d3 = fresh_dir("r01b");
+        fs::create_directories(d3 / "MYDIR");
+        write_host_file(d3 / "MYDIR" / "held.bin", kX);
+        sm::TransferRequest rq = card_req(G, d3.string(), {"/MYDIR"});
+        rq.held_files = {(d3 / "MYDIR" / "held.bin").string()};
+        const sm::TransferReport folder = sm::run_transfer(rq, h);
+        check("SDMT-26", "a card entry that would replace a held host file (the image itself) or a folder holding one is refused before any question: nothing trashed, the file untouched",
+              !own.failed.empty() && !folder.failed.empty() && hk.count("ask") == 0 && hk.count("trash") == 0 && sha_file(img) == sha &&
+                  read_host_file(d3 / "MYDIR" / "held.bin") == kX,
+              rep_str(own) + " | " + rep_str(folder));
+    }
+    // SDMT-27
+    {
+        // R02: the Replace target is a dangling link (POSIX), or a plain file (Windows: wine cannot make links): asked, the entry itself trashed, then copied
+        const fs::path dd = fresh_dir("r02");
+        bool made = true;
+#ifndef _WIN32
+        std::error_code lec;
+        fs::create_symlink(dd / "no-such-target", dd / "WOTEF.NEX", lec);
+        made = !lec;
+#else
+        write_host_file(dd / "WOTEF.NEX", kX);
+#endif
+        Hk hk;
+        hk.answers = {sm::OverwriteAnswer::Replace};
+        sm::TransferHooks h = hk.hooks();
+        const sm::TransferReport r = sm::run_transfer(card_req(G, dd.string(), {"/GAMES/WOTEF.NEX"}), h);
+        check("SDMT-27", "an existing host entry that is a dangling link (a plain file on Windows) is found, asked about, sent to the trash itself, and replaced by the copy",
+              made && r.done.size() == 1 && hk.count("ask:" + (dd / "WOTEF.NEX").string()) == 1 && hk.count("trash:" + (dd / "WOTEF.NEX").string()) == 1 &&
+                  read_host_file(dd / "WOTEF.NEX") == kWotef,
+              rep_str(r));
+    }
+    // SDMT-28
+    {
+        // R14 and R37: a card delete on a card that is not writable is refused before any hook; so is the card root
+        Img c(G);
+        Hk hk;
+        sm::TransferHooks h = hk.hooks();
+        const std::string s16 = sha_file(F16);
+        const sm::TransferReport fat16 = sm::delete_items(sm::Side::Card, F16, {"/GAMES"}, {}, h);
+        const sm::TransferReport given = sm::delete_items(sm::Side::Card, c.p, {"/FILE.BIN"}, {}, h, "the card is write-protected in this session (--sdcard-readonly)");
+        const sm::TransferReport root = sm::delete_items(sm::Side::Card, c.p, {"/"}, {}, h);
+        const sm::TransferReport rootw = sm::delete_items(sm::Side::Card, c.p, {"//"}, {}, h);
+        check("SDMT-28", "delete on a FAT16 card or with a read-only reason is refused before any hook, the image byte-identical; deleting the card root is refused and never reaches the gate",
+              !fat16.error.empty() && fat16.done.empty() && !given.error.empty() && given.done.empty() && !root.failed.empty() &&
+                  !rootw.failed.empty() && hk.log.empty() && sha_file(F16) == s16 && sha_file(c.p) == sha_g,
+              rep_str(fat16) + " | " + rep_str(given) + " | " + rep_str(root));
     }
 
     // ======================= what the window opens on =======================
@@ -1075,6 +1367,30 @@ int main() {
         const std::string folded = sm::resolve_remembered(r, s, "", "").card_dir;
         check("SDMR-04", "a card directory with CP437 bytes, ESC and '%' round-trips through its stored form; a malformed value reads as the root; tampered values (traversal, backslash, a typed long name, a file, a missing directory) give the root",
               round && malformed && all_root && folded == "/GAMES/SUB", bad + folded);
+    }
+
+    // SDMR-05
+    {
+        // R09: a relative host_dir that DOES exist relative to the working directory is still not trusted; a remembered card image with a NUL is not examined
+        const fs::path fb = fresh_dir("fb05");
+        std::array<sm::SlotInfo, 2> none{};
+        auto host_of = [&](const std::string& rem) {
+            sm::Remembered r;
+            r.host_dir = rem;
+            return sm::resolve_remembered(r, none, fb.string(), "").host_dir;
+        };
+        const bool rel_ok = host_of(".") == fb.string() && host_of("..") == fb.string() && host_of("./") == fb.string();
+        Img c1(G), c2(F16);
+        std::array<sm::SlotInfo, 2> s{};
+        s[0] = {0, true, c1.p, true, ""};
+        s[1] = {1, true, c2.p, false, "x"};
+        sm::Remembered r;
+        r.card_image = c2.p + std::string("\0tail", 5);   // c_str() of it is c2's path
+        const int nul_slot = sm::resolve_remembered(r, s, "", "").slot;
+        r.card_image = c2.p;
+        const int plain_slot = sm::resolve_remembered(r, s, "", "").slot;
+        check("SDMR-05", "a relative host directory that exists relative to the working directory (\".\", \"..\") still gives the fallback; a remembered card image holding a NUL is not matched against the slots (the first mounted slot is shown), the plain one is",
+              rel_ok && nul_slot == 0 && plain_slot == 1, std::to_string(nul_slot) + std::to_string(plain_slot));
     }
 
     std::error_code ec;

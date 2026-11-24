@@ -101,6 +101,8 @@ public:
 
     bool changed() const { return changed_; }
 
+    /// close() reports the machine's REAL state afterwards (Debugger::state().paused): a remote client can
+    /// resume it, and an observer does not hold a pause when its owner detaches.
     enum class CloseResult {
         NotOpen,            ///< close() without an open session: nothing was done
         Resumed,            ///< no change, and the machine ran before: it runs again
@@ -111,7 +113,8 @@ public:
                             ///< and the machine is left PAUSED; the user resumes after the restart
     };
 
-    /// End the session. Call it OUTSIDE the tick and outside any debugger event delivery (Debugger::reset
+    /// End the session. A changed session re-pauses first (ensure_paused), so the reset really runs on a
+    /// paused machine. Call it OUTSIDE the tick and outside any debugger event delivery (Debugger::reset
     /// refuses inside one): the window does it from a zero-delay timer after its `finished`.
     ///
     /// Unchanged: run() if the machine was running at open. Changed: Debugger::reset(Hard) FIRST, which is
@@ -132,6 +135,18 @@ private:
     bool may_change_ = false;
     bool changed_ = false;
 };
+
+// ---- the host files the running emulator holds -----------------------------
+
+/// Every host file (or directory) the running emulator holds open, writes to, or serves, which the
+/// manager must never delete, trash, replace or copy onto the card: both slots' images (mounted and
+/// configured, card 0 keeps its path across an eject), each one's SD-writes file (Journal::file(); it is
+/// reopened by path on every commit, so a trashed one comes back headerless and the guest's writes are
+/// lost), the tape-save target, a running tape recorder, an RZX recording and a video recording, the
+/// loaded TAP, TZX and WAV tapes, the NEX a read overlay serves, and the esxDOS host-filesystem root.
+/// A path may not exist yet (a writes file before its first commit). A transfer or delete refuses an
+/// item that IS one of these or a folder HOLDING one (TransferRequest::held_files, delete_items).
+std::vector<std::string> held_host_files(Emulator& emu);
 
 // ---- transfers ------------------------------------------------------------
 
@@ -154,6 +169,10 @@ struct TransferRequest {
     std::string dest_dir;                ///< a card directory (from open_names) or a host directory
     std::vector<TransferItem> items;
     bool        move = false;            ///< the source goes after a successful copy
+    /// Host files the machine holds (held_host_files(), BOTH slots, not only `image`). `image` itself is
+    /// always held too. Refused as a copy or move source, as a Replace target and (delete_items) as a
+    /// delete target, together with any folder holding one of them.
+    std::vector<std::string> held_files;
     /// Why the card must not be changed (slots(): empty = writable). Any run that would write the card
     /// (a copy onto it, or a move off it) is refused up front, before a hook runs, when this is set; the
     /// card is probed again here as well.
@@ -189,10 +208,12 @@ struct TransferReport {
 ///
 /// Host to card: the destination card directory must exist (the engine would otherwise create it); the
 /// card name comes from the host path's file name and must pass the file-add name rules; an existing
-/// card entry asks (a file of the wrong type for the source is refused without asking); the host item
-/// that IS the mounted image, or a folder holding it, is refused. Card to host: the host name is the
+/// card entry asks (a file of the wrong type for the source is refused without asking); an existing entry
+/// is decided from the directory's LISTING by stored name, and a name that is only another entry's 8.3 alias
+/// is refused, naming that entry; a held host file, or a folder holding one, is refused. Card to host: the host name is the
 /// one extract_from_image creates (carry::escape_name of the STORED name, looked up from the card
-/// path); an existing host entry asks and Replace sends it to the trash first; never overwritten.
+/// path); an existing host entry asks and Replace sends it to the trash first (a failed copy afterwards
+/// says the old entry is in the trash); never overwritten; a held host file is never a Replace target.
 /// Move: the host source goes to the trash only after its copy succeeded; the card source is removed
 /// (a card write: the gate) only after its extract succeeded, and a failure of that removal fails the item.
 TransferReport run_transfer(const TransferRequest& r, TransferHooks& h);
@@ -202,7 +223,8 @@ TransferReport run_transfer(const TransferRequest& r, TransferHooks& h);
 /// path, stopping at the first failure. Host: each to the trash (`h.trash_host`), never permanently;
 /// a path that is the mounted image or holds it is refused. `card_read_only_reason` as for a transfer.
 TransferReport delete_items(Side side, const std::string& image, const std::vector<std::string>& paths,
-                            TransferHooks& h, const std::string& card_read_only_reason = {});
+                            const std::vector<std::string>& held_files, TransferHooks& h,
+                            const std::string& card_read_only_reason = {});
 
 /// New Folder. Card: cardops::make_dir in card directory `dir` through the gate (it never overwrites;
 /// the name rules are the engine's). Host: one new directory under `dir`; the name must be a single
@@ -240,6 +262,8 @@ std::string decode_card_dir(const std::string& stored);
 ///     the remembered path is a directory that exists on the card now, matched by the open_name of a
 ///     listed entry (so a spelling that a listing would not produce, a "..", a backslash, a name FatFs
 ///     would resolve to another entry, all fail). Anything else gives "/": no nearest parent.
+///   * `card_image` that holds a NUL (or, on Windows, is a UNC or device path) is ignored: examining it
+///     could block.
 ///   * Host directory (not emulator state): the deepest existing ancestor of the remembered one, then
 ///     `host_fallback` (the Load directory), then `host_home`; "" when none is an existing directory. A
 ///     value that is relative, holds a NUL, or (Windows) is a UNC or device path is ignored.

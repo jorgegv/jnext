@@ -10,6 +10,7 @@
 #include "core/sdcard_carry.h"
 #include "core/sdcard_file_add.h"
 #include "core/sdcard_file_extract.h"
+#include "peripheral/sd_write_journal.h"
 
 namespace sdmanager {
 
@@ -106,24 +107,28 @@ std::vector<bool> covered_flags(Side side, const std::vector<std::string>& paths
 // The mounted image must never be an item of the manager's own host operations
 // ---------------------------------------------------------------------------
 
-// Is `host_path` the image, or a directory that holds it? By identity (device + inode) at every level of
-// the image's own path, so a symlink, a hard link, a relative spelling or a case-folded spelling does
-// not get past it.
-bool host_holds_image(const std::string& host_path, const std::string& image) {
-    if (image.empty()) return false;
-    if (sdcard::same_image_file(host_path, image)) return true;
-    std::error_code ec;
-    fs::path p = fs::weakly_canonical(fs::path(image), ec);
-    if (ec) p = fs::absolute(fs::path(image), ec).lexically_normal();
-    ec.clear();
-    const fs::path host(host_path);
-    if (!fs::is_directory(host, ec)) return false;
-    for (int guard = 0; guard < 4096; ++guard) {
-        std::error_code e2;
-        if (fs::equivalent(p, host, e2) && !e2) return true;
-        const fs::path parent = p.parent_path();
-        if (parent == p || parent.empty()) break;
-        p = parent;
+// Is `host_path` one of the held files (or directories), or a directory that holds one? By identity
+// (device + inode) at every level of the held path, so a symlink, a hard link, a relative spelling or a
+// case-folded spelling does not get past it; a held path that does not exist yet (a writes file before its
+// first commit) is compared by its normalised path through same_image_file's fallback and by the existing
+// ancestors it would sit under.
+bool host_holds_any(const std::string& host_path, const std::vector<std::string>& held) {
+    for (const std::string& h : held) {
+        if (h.empty()) continue;
+        if (sdcard::same_image_file(host_path, h)) return true;
+        std::error_code ec;
+        fs::path p = fs::weakly_canonical(fs::path(h), ec);
+        if (ec) p = fs::absolute(fs::path(h), ec).lexically_normal();
+        ec.clear();
+        const fs::path host(host_path);
+        if (!fs::is_directory(host, ec)) continue;
+        for (int guard = 0; guard < 4096; ++guard) {
+            std::error_code e2;
+            if (fs::equivalent(p, host, e2) && !e2) return true;
+            const fs::path parent = p.parent_path();
+            if (parent == p || parent.empty()) break;
+            p = parent;
+        }
     }
     return false;
 }
@@ -293,6 +298,33 @@ std::array<SlotInfo, 2> slots(Emulator& emu) {
     return out;
 }
 
+std::vector<std::string> held_host_files(Emulator& emu) {
+    std::vector<std::string> v;
+    auto add = [&](const std::string& p) {
+        if (!p.empty()) v.push_back(p);
+    };
+    auto add_card = [&](const std::string& image) {
+        add(image);
+        if (const auto j = sd_write_journal::for_image(image)) add(j->file());
+    };
+    for (int s = 0; s < 2; ++s) {
+        const SdCardDevice& dev = s == 0 ? emu.sd_card() : emu.sd_card2();
+        if (dev.mounted()) add_card(dev.image_path());
+    }
+    add_card(emu.config().sd_card_image);    // card 0 keeps its path across an eject
+    add_card(emu.config().sd_card2_image);
+    if (emu.sd_card().has_read_overlay()) add(emu.config().load_file);   // the NEX the overlay serves
+    add(emu.config().tape_save_file);
+    if (emu.tape_recorder().active()) add(emu.tape_recorder().path());
+    if (emu.rzx_recorder().is_recording()) add(emu.rzx_recorder().output_path());
+    if (emu.video_recorder().is_recording()) add(emu.video_recorder().output_path());
+    add(emu.tape().path());
+    add(emu.tzx_tape().path());
+    add(emu.wav_tape().path());
+    add(emu.config().esxdos_stub_root);
+    return v;
+}
+
 // ===========================================================================
 // SdManagerSession
 // ===========================================================================
@@ -358,25 +390,30 @@ bool SdManagerSession::before_card_write(const std::function<bool()>& ask) {
 
 SdManagerSession::CloseResult SdManagerSession::close(Emulator& emu) {
     if (!open_ || !dbg_) return CloseResult::NotOpen;
-    open_ = false;
     const bool changed = changed_;
+    // A remote client can have resumed the machine since the last write. A reset must run on a paused
+    // machine (no frame on the old one over the changed card), so pause it again first; if that is refused
+    // the reset still runs, synchronously, and the result below reports what the machine is really doing.
+    if (changed) (void)ensure_paused();
+    open_ = false;
     changed_ = false;
     may_change_ = false;
+    // The result is the machine's REAL state after the verbs: a pause that was lost (the owner detached; an
+    // observer holds none) or a run that was refused must not be reported as the other.
+    auto paused_now = [&] { return dbg_->state().paused; };
     if (!changed) {
-        if (was_paused_) return CloseResult::StayedPaused;
-        if (dbg_->run(cid_) == jnext::dbg::Result::Ok) return CloseResult::Resumed;
-        return CloseResult::StayedPaused;   // refused (an unacknowledged corruption): it stays paused
+        if (!was_paused_) (void)dbg_->run(cid_);
+        return paused_now() ? CloseResult::StayedPaused : CloseResult::Resumed;
     }
-    // Synchronous and paused: the machine is replaced before any frame runs on it over the changed card.
-    // (If the cold boot itself fails the machine was rebuilt all the same, and the deferred request below
-    // boots it once more; harmless.)
+    // Synchronous, and on the paused machine: it is replaced before any frame runs on it over the changed
+    // card. (If the cold boot itself fails the machine was rebuilt all the same, and the deferred request
+    // below boots it once more; harmless.)
     if (dbg_->reset(cid_, jnext::dbg::ResetKind::Hard) != jnext::dbg::Result::Ok) {
         emu.request_hard_reset();
         return CloseResult::ResetDeferred;
     }
-    if (was_paused_) return CloseResult::ResetStayedPaused;
-    if (dbg_->run(cid_) == jnext::dbg::Result::Ok) return CloseResult::ResetAndResumed;
-    return CloseResult::ResetStayedPaused;
+    if (!was_paused_) (void)dbg_->run(cid_);
+    return paused_now() ? CloseResult::ResetStayedPaused : CloseResult::ResetAndResumed;
 }
 
 // ===========================================================================
@@ -408,6 +445,7 @@ struct Ctx {
     TransferHooks& h;
     TransferReport& rep;
     std::string card_dest_dir;   // host to card: the destination directory, spelt with the card's own names
+    std::vector<std::string> held;   // host files the machine holds (request's plus the image)
     bool replace_all = false, skip_all = false;
 };
 
@@ -429,8 +467,9 @@ ItemOutcome host_to_card(Ctx& c, const TransferItem& it, const std::string& labe
         fail(c, label, "'" + it.source + "' does not exist");
         return ItemOutcome::Failed;
     }
-    if (host_holds_image(it.source, c.r.image)) {
-        fail(c, label, "'" + it.source + "' is, or holds, the SD card image in use; it is not copied onto itself");
+    if (host_holds_any(it.source, c.held)) {
+        fail(c, label, "'" + it.source + "' is, or holds, a file the emulator is using (a card image, an SD-writes file, a "
+                       "recording...); it is not copied");
         return ItemOutcome::Failed;
     }
     const std::string dest = card_child(c.card_dest_dir, name);
@@ -439,10 +478,32 @@ ItemOutcome host_to_card(Ctx& c, const TransferItem& it, const std::string& labe
         fail(c, label, err);
         return ItemOutcome::Failed;
     }
-    bool exists = false, is_dir = false;
-    if (ops::stat(c.r.image, dest, exists, is_dir, err) != FileAddStatus::Ok) {
+    // Does the destination exist? Decided from the LISTING of the directory, by stored name, never by
+    // FatFs's resolution of the typed name: a host name equal to another entry's 8.3 alias would resolve to
+    // THAT entry and overwrite it, after a question naming a path the pane does not show.
+    std::vector<ops::CardEntry> list;
+    if (ops::list_dir(c.r.image, c.card_dest_dir, list, err) != FileAddStatus::Ok) {
         fail(c, label, err);
         return ItemOutcome::Failed;
+    }
+    const std::string want = folded(name);
+    const ops::CardEntry* same = nullptr;
+    for (const ops::CardEntry& e : list) {
+        if (folded(e.name) == want) { if (!same) same = &e; }
+        else if (!e.altname.empty() && folded(e.altname) == want) {
+            fail(c, label, "'" + name + "' is the 8.3 name of '" + ops::display_name(e) +
+                               "' on the card; copying under it would overwrite that file");
+            return ItemOutcome::Failed;
+        }
+    }
+    bool exists = false, is_dir = false;
+    if (same) {
+        if (same->open_name.empty()) {
+            fail(c, label, "'" + ops::display_name(*same) + "' on the card cannot be addressed; it is not replaced");
+            return ItemOutcome::Failed;
+        }
+        exists = true;
+        is_dir = same->dir;
     }
     const bool src_dir = fs::is_directory(src);
     bool overwrite = false;
@@ -452,7 +513,7 @@ ItemOutcome host_to_card(Ctx& c, const TransferItem& it, const std::string& labe
                                ", and this item is a " + (src_dir ? "folder" : "file"));
             return ItemOutcome::Failed;
         }
-        switch (ask_once(c.h, dest, is_dir, c.replace_all, c.skip_all)) {
+        switch (ask_once(c.h, card_child(c.card_dest_dir, ops::display_name(*same)), is_dir, c.replace_all, c.skip_all)) {
             case OverwriteAnswer::Skip: return ItemOutcome::Skipped;
             case OverwriteAnswer::Cancel: return ItemOutcome::Cancelled;
             default: overwrite = true; break;
@@ -495,26 +556,30 @@ ItemOutcome card_to_host(Ctx& c, const TransferItem& it, const std::string& labe
         fail(c, label, "cannot examine '" + target.string() + "' (" + sec.message() + ")");
         return ItemOutcome::Failed;
     }
+    bool trashed_old = false;
     if (ts.type() != fs::file_type::not_found) {
+        if (host_holds_any(target.string(), c.held)) {
+            fail(c, label, "'" + target.string() + "' is, or holds, a file the emulator is using (a card image, an "
+                           "SD-writes file, a recording...); it is not replaced");
+            return ItemOutcome::Failed;
+        }
         switch (ask_once(c.h, target.string(), fs::is_directory(ts), c.replace_all, c.skip_all)) {
             case OverwriteAnswer::Skip: return ItemOutcome::Skipped;
             case OverwriteAnswer::Cancel: return ItemOutcome::Cancelled;
             default: break;
         }
         std::string terr;
-        if (host_holds_image(target.string(), c.r.image)) {
-            fail(c, label, "'" + target.string() + "' is, or holds, the SD card image in use; it is not replaced");
-            return ItemOutcome::Failed;
-        }
         if (!c.h.trash_host || !c.h.trash_host(target.string(), terr)) {
             fail(c, label, "the existing '" + target.string() + "' could not be sent to the trash" +
                                (terr.empty() ? std::string() : " (" + terr + ")") + "; it is left as it is");
             return ItemOutcome::Failed;
         }
+        trashed_old = true;
     }
     const FileAddStatus st = sdcard::extract_from_image(c.r.image, canon, c.r.dest_dir, err);
     if (st != FileAddStatus::Ok) {
-        fail(c, label, err);
+        fail(c, label, trashed_old ? err + "; the existing '" + target.string() + "' was already sent to the trash (restore it from there)"
+                                   : err);
         return ItemOutcome::Failed;
     }
     if (c.r.move) {
@@ -557,7 +622,8 @@ TransferReport run_transfer(const TransferRequest& r, TransferHooks& h) {
     TransferReport rep;
     for (size_t i = 0; i < r.items.size(); ++i)
         if (skip_flags[i]) rep.skipped.push_back(labels[i] + " (already covered by another selected item)");
-    Ctx c{r, h, rep, card_dest};
+    Ctx c{r, h, rep, card_dest, r.held_files};
+    c.held.push_back(r.image);
     for (size_t i = 0; i < r.items.size(); ++i) {
         if (skip_flags[i]) continue;
         ItemOutcome oc = ItemOutcome::Failed;
@@ -584,7 +650,10 @@ TransferReport run_transfer(const TransferRequest& r, TransferHooks& h) {
 }
 
 TransferReport delete_items(Side side, const std::string& image, const std::vector<std::string>& paths,
-                            TransferHooks& h, const std::string& card_read_only_reason) {
+                            const std::vector<std::string>& held_files, TransferHooks& h,
+                            const std::string& card_read_only_reason) {
+    std::vector<std::string> held = held_files;
+    held.push_back(image);
     if (paths.empty()) return {};
     if (side == Side::Card) {
         std::string why;
@@ -615,8 +684,9 @@ TransferReport delete_items(Side side, const std::string& image, const std::vect
             } else {
                 if (fs::path(paths[i]).filename().empty() || host_leaf(paths[i]).empty()) {
                     err = "'" + paths[i] + "' is not a deletable item";
-                } else if (host_holds_image(paths[i], image)) {
-                    err = "'" + paths[i] + "' is, or holds, the SD card image in use";
+                } else if (host_holds_any(paths[i], held)) {
+                    err = "'" + paths[i] + "' is, or holds, a file the emulator is using (a card image, an SD-writes file, a "
+                          "recording...)";
                 } else if (!h.trash_host) {
                     err = "there is no trash to send it to";
                 } else {
@@ -710,16 +780,19 @@ std::string decode_card_dir(const std::string& stored) {
 
 namespace {
 
-// Is `s` safe to treat as a host path at all?
-bool host_path_acceptable(const std::string& s) {
+// A remembered value that may be examined at all: not empty, no NUL, and (Windows) not a UNC or device
+// path, which can block on an unreachable server just to be examined.
+bool host_path_acceptable_name(const std::string& s) {
     if (s.empty() || s.find('\0') != std::string::npos) return false;
-    const fs::path p(s);
-    if (!p.is_absolute()) return false;
 #ifdef _WIN32
-    // A UNC or device path can block on an unreachable server or device just to be examined.
     if (s.size() >= 2 && (s[0] == '\\' || s[0] == '/') && (s[1] == '\\' || s[1] == '/')) return false;
 #endif
     return true;
+}
+
+// Is `s` safe to treat as a host directory path (the above, and absolute)?
+bool host_path_acceptable(const std::string& s) {
+    return host_path_acceptable_name(s) && fs::path(s).is_absolute();
 }
 
 // The deepest existing directory at or above `s`, "" when none.
@@ -757,8 +830,10 @@ Resolved resolve_remembered(const Remembered& r, const std::array<SlotInfo, 2>& 
     Resolved out;
     // The emulator wins: the remembered card's slot if it is mounted, else the first mounted slot.
     bool remembered_card_shown = false;
+    // A remembered image that holds a NUL, or (Windows) is a UNC or device path, is not examined at all.
+    const bool card_image_ok = host_path_acceptable_name(r.card_image);
     for (const SlotInfo& si : s)
-        if (si.mounted && !r.card_image.empty() && sdcard::same_image_file(r.card_image, si.image)) {
+        if (si.mounted && card_image_ok && sdcard::same_image_file(r.card_image, si.image)) {
             out.slot = si.slot;
             remembered_card_shown = true;
             break;
