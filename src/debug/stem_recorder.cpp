@@ -47,28 +47,28 @@ bool StemRecorder::start(const std::string& dir, std::string& why)
         }
         std::fclose(probe);
     }
-    // A name that is missing must be creatable (a read-only directory): probe with a scratch file, so a refused
-    // start has not truncated an existing file before the first create fails.
-    bool any_missing = false;
-    for (size_t i = 0; i < FILES; ++i) any_missing = any_missing || !existed[i];
-    if (any_missing) {
-        const fs::path scratch = fs::path(dir) / ".jnext-stems-probe";
-        std::FILE* f = std::fopen(scratch.string().c_str(), "wb");
+    // A name that is missing must be creatable (a read-only directory): create the FIRST missing stem name itself, so a refused
+    // start has not truncated an existing file before the first create fails. No foreign name is touched; the empty file is one
+    // this call made (existed[] is false), start truncates it next, and any later refusal takes it back.
+    for (size_t i = 0; i < FILES; ++i) {
+        if (existed[i]) continue;
+        const std::string path = (fs::path(dir) / NAMES[i]).string();
+        std::FILE* f = std::fopen(path.c_str(), "wb");
         if (!f) {
-            why = "cannot create files in '" + dir + "'";
+            why = "cannot create '" + path + "'";
             return false;
         }
         std::fclose(f);
-        fs::remove(scratch, ec);
+        break;
     }
     for (size_t i = 0; i < FILES; ++i) {
         const std::string path = (fs::path(dir) / NAMES[i]).string();
         if (!rec_[i].start(path)) {
             why = rec_[i].last_error().empty() ? "cannot create '" + path + "'" : rec_[i].last_error();
-            // Take back only what this call created: a file that was there before is left as it is (the
-            // probe above makes reaching this a race), and so is anything that is not a regular file.
-            for (size_t j = 0; j <= i; ++j) {
-                rec_[j].stop();
+            // Take back only what this call created (the empty file of the create probe included): a file that was there before is left as it is (the
+            // probes above make reaching this a race), and so is anything that is not a regular file.
+            for (size_t j = 0; j < FILES; ++j) {
+                if (j <= i) rec_[j].stop();
                 const fs::path made = fs::path(dir) / NAMES[j];
                 if (!existed[j] && fs::is_regular_file(made, ec)) fs::remove(made, ec);
             }

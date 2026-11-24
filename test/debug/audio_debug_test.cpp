@@ -6147,13 +6147,33 @@ int main() {
                                   slurp((std::filesystem::path(rod) / "ay0.wav").string()) == "user ay0 data");
         std::filesystem::permissions(rod, std::filesystem::perms::owner_write, std::filesystem::perm_options::add, pec);
         const std::string nested = (std::filesystem::path(base) / "a" / "b").string();
-        const bool nested_ok = dbg.stems_record_start(cid, nested) == Result::Ok && dbg.stems_recording() &&
-                               std::filesystem::exists(std::filesystem::path(nested) / "mix.wav");
+        // G2: a successful start into a fresh directory leaves exactly the seven stem files there and nothing else.
+        bool nested_ok = dbg.stems_record_start(cid, nested) == Result::Ok && dbg.stems_recording() &&
+                         std::filesystem::exists(std::filesystem::path(nested) / "mix.wav");
+        {
+            std::vector<std::string> names;
+            for (const auto& e : std::filesystem::directory_iterator(nested)) names.push_back(e.path().filename().string());
+            std::sort(names.begin(), names.end());
+            std::vector<std::string> want(STEM_FILES, STEM_FILES + 7);
+            std::sort(want.begin(), want.end());
+            nested_ok = nested_ok && names == want;
+        }
         dbg.stems_record_stop(cid);
+        // G-N1: all seven files already there in a directory that takes no new files (0555) but whose files are writable: nothing needs
+        // creating, so the start is Ok (no spurious refusal from a creatability check).
+        const std::string all7 = (std::filesystem::path(base) / "all7").string();
+        std::filesystem::create_directories(all7);
+        for (const char* n : STEM_FILES) put(std::filesystem::path(all7) / n, "old");
+        std::filesystem::permissions(all7, std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec |
+                                     std::filesystem::perms::group_read | std::filesystem::perms::group_exec |
+                                     std::filesystem::perms::others_read | std::filesystem::perms::others_exec, pec);
+        const bool all7_ok = dbg.stems_record_start(cid, all7) == Result::Ok && dbg.stems_recording();
+        dbg.stems_record_stop(cid);
+        std::filesystem::permissions(all7, std::filesystem::perms::owner_write, std::filesystem::perm_options::add, pec);
         std::error_code ec;
         std::filesystem::remove_all(base, ec);
-        check("STM-13", "refusals: under --silent the start is refused and creates nothing; a DIR under a regular file is refused and leaves nothing (only the file in its parent); a refused start leaves pre-existing user files byte for byte (a directory or a write-protected file in the way, a directory that cannot take new files, ay0.wav before it); a directory in the way of the last file refuses before anything is created; a missing nested DIR is created",
-              silent_refused && bad_refused && half_refused && keep_refused && ro_refused && rod_refused && entries == 1 && nested_ok);
+        check("STM-13", "refusals: under --silent the start is refused and creates nothing; a DIR under a regular file is refused and leaves nothing (only the file in its parent); a refused start leaves pre-existing user files byte for byte (a directory or a write-protected file in the way, a directory that cannot take new files, ay0.wav before it); a directory in the way of the last file refuses before anything is created; a start into a fresh directory leaves exactly the seven files; all seven present in a directory that takes no new files starts Ok; a missing nested DIR is created",
+              silent_refused && bad_refused && half_refused && keep_refused && ro_refused && rod_refused && all7_ok && entries == 1 && nested_ok);
     }
     {
         // STM-14: the stems' sync rule (SCP-04's twin). 100 cycles reach the mixer alone (EAR high, the stems were not there), then the stem
