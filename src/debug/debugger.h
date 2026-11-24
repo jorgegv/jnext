@@ -313,7 +313,7 @@ struct LoopDriver {
 /// `Emulator` precisely so the reconstruct cannot lose them (CTL-12, CTL-15).
 // ---------------------------------------------------------------------------
 // DIRECT-VALUE QUERIES — the complete exception to "every verb returns a
-// `Result`" (`result.h`'s banner). These 61 read live machine state that always
+// `Result`" (`result.h`'s banner). These 62 read live machine state that always
 // exists, so they have no refusal case by construction and return their value
 // directly. THE LIST IS THE AUDIT: a query not on it must return `Result` or
 // `Expected<T>`, and moving one onto it is a claim that it cannot fail. The
@@ -327,13 +327,14 @@ struct LoopDriver {
 //                     at_frame_boundary, rewind_enabled, rewind_range
 //   registers/memory (6): registers, mmu_slots, paging_ports, rom_select,
 //                     nextreg_peek, nextreg_selected
-//   video/audio (24): raster, machine, time, time_epoch, sprites, pattern_ram,
+//   video/audio (25): raster, machine, time, time_epoch, sprites, pattern_ram,
 //                     sprite_clip, copper, framebuffer, palette,
 //                     palette_priority, active_ula_palette_bank,
 //                     ula_screen_regs, clip_window, turbosound_enabled,
 //                     ay_mode, stereo_mode, audio_mute_mask, audio_state,
 //                     audio_channel_mute_mask, audio_log_enabled,
-//                     audio_scope_enabled, ctc_state, dma_state
+//                     audio_scope_enabled, ctc_state, dma_state,
+//                     psg_recording
 //   disasm/trace (10): disassemble, instruction_length, is_call_like,
 //                     memory_reader, operand_reader, call_stack, call_stack_enabled,
 //                     trace_enabled, coverage_enabled, coverage
@@ -712,6 +713,19 @@ public:
 
     /// INS-25 -- the DMA's pacing and transfer state (GH #537). A DIRECT VALUE.
     DmaState dma_state() const;
+
+    /// INS-24 -- record each AY chip's register stream as .psg (the layout of Fuse 1.6.0's AY
+    /// log; the LAST value written to a register in a frame). FILE takes AY#0; AY#1 and AY#2
+    /// go to FILE with "-ay1" / "-ay2" before the extension, created at that chip's first
+    /// write and aligned to the recording's start. Host state: invisible to the Z80, never in
+    /// a snapshot, and independent of the audio log. RefusedUnavailable when a recording is
+    /// already running or FILE cannot be created. `by` is attribution only (CLIENT_NONE allowed).
+    Result psg_record_start(ClientId by, const std::string& path);
+    /// Finish the files. RefusedUnavailable when nothing records, or on a write error (the
+    /// files are closed either way).
+    Result psg_record_stop(ClientId by);
+    /// INS-24 -- DIRECT VALUE: a recording is running.
+    bool   psg_recording() const;
 
     /// INS-11 — disassemble `n` instructions from `addr` over `peek(Cpu)`.
     /// `symbols` may be null; pass `&symbols()` for the backend's own table.

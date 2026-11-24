@@ -4949,7 +4949,7 @@ player <code>machine: '48k'</code>, <code>'128k'</code>, <code>'plus3'</code> or
 <p>Some options make JNEXT write a file: a recording (<code>--wav-record</code>, <code>--dac-trace</code>, <code>--tape-save</code>), a
 screenshot (<code>--delayed-screenshot</code>), a trace or profile (<code>--compositor-trace</code>, <code>--profile</code> with
 <code>--profile-output</code>), an export (<code>--export-skoolkit</code>, <code>--export-ghidra</code>), a bug report
-(<code>--bug-report</code>), the audio write log (<code>--audio-log</code>) or the log (<code>--log-file</code>). A page gives them in <code>args</code>. The files live in the
+(<code>--bug-report</code>), the audio write log (<code>--audio-log</code>), a <code>.psg</code> recording (<code>--psg-record</code>) or the log (<code>--log-file</code>). A page gives them in <code>args</code>. The files live in the
 page's memory, and the page collects them with <code>listFiles()</code> and <code>readFile()</code>:</p>
 <pre><code class="language-js">const player = await jnext.mount(el, { machine: '48k', args: ['--wav-record', '/tmp/game.wav'] });
 // ... the visitor plays ...

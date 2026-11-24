@@ -123,7 +123,7 @@ frames. `Debugger::audio_state()` publishes them as `AudioState::drops`.
 tab and `--audio-log`. `Emulator` holds one `AudioTapSink*` (`src/debug/audio_tap.h`,
 the core-to-backend seam, implemented by the debugger backend) and one bool,
 `audio_tap_active_`; the backend switches it on while any client asks for the log or a live `AudioWrite`
-subscription exists (`Emulator::set_audio_tap()`, called by `publish_audio_tap()`). The sites are the three AY handlers (0xFFFD, 0xBFFD and
+subscription exists, or a `.psg` recording runs (`Emulator::set_audio_tap()`, called by `publish_audio_tap()`). The sites are the three AY handlers (0xFFFD, 0xBFFD and
 0xBFF5), the 14 DAC channel writes in the 11 DAC handlers (`Emulator::dac_write_()`
 wraps each), the three NextREG 0x2C-0x2E mirror handlers, the 0xFE handler and
 `note_audio_drop_()`, so the counter and the log come from one call. Each site tests
@@ -133,7 +133,7 @@ what the entry needs (the chip, the address, the previous byte) before the write
 writes (`dac_write_()`), the NR 0x2C-0x2E mirrors and the 0xFE handler record BEFORE it (the previous value is
 still in place, and `tap_beeper_` must run before `beeper_.set_ear()`). Either way the hot path's own writes stay
 where they are, and the log cannot drift from them.
-The sink has two consumers, the log ring and the `AudioWrite` event latch (`09-2`), and the core knows of neither.
+The sink has three consumers, the log ring, the `AudioWrite` event latch (`09-2`) and the `.psg` recorder (below), and the core knows of none.
 The cold bodies are in `src/core/emulator_audio_tap.cpp`, marked cold and out of line,
 so adding one cannot move inlining in `emulator.cpp`. They return at once while a rewind
 replays frames (`replay_mode_`). A plain register select is not logged; an applied
@@ -184,6 +184,53 @@ entries by source alone, because their PC is the slot's, not theirs. A gap is an
 whatever the interrupt acceptance jitter does to a single interval. `nearest_pacing()` pairs a CPU writer
 with the running CTC channel whose rate is nearest and a DMA writer with the DMA. The DMA's own spacing
 is at least the prescaler's (`dma.vhd`, the timer cleared at TRANSFERING_READ_1 and the gate at WAITING_CYCLES), so its measured rate is at most the nominal one.
+
+**The `.psg` recorder.** `Debugger::psg_record_start()` / `psg_record_stop()` (INS-24) and `--psg-record` record each
+chip's register stream in the layout of Fuse 1.6.0's AY log (`psg.c`: `psg_start_recording`, `psg_frame`,
+`write_frame_separator`, `psg_stop_recording`; the source tree is in `doc/REFERENCES.md`). Two classes do it.
+`audio::PsgWriter` (`src/audio/psg_writer.h`) is the pure encoder: `begin()`, `frame()`, `end()`, with the frame
+numbers the caller's. It knows the header, the register order (R0-R13 ascending, R14/R15 never) and the separators:
+a block at frame F follows the previous block's frame L by F - L separator frames, and the end by S + 1 - L, where
+a run of n frames is `FE k` for every 4k <= n (k <= 255) and then one `FF` each. `dbg::PsgRecorder`
+(`src/debug/psg_recorder.h`, internal like `audio_tap.h`) is the third consumer of the tap: `Debugger::Impl::AudioLogSink`
+feeds it every entry, markers included, before the ring test, so a recording needs no log and loses nothing to the ring's
+size, a Log Clear or the marker dedup. It groups with one `AudioFrameAccumulator` for the three chips and writes each
+completed frame to the chip's file: FILE for AY#0, `-ay1` / `-ay2` before the extension for the others, created at that
+chip's first block with their writer begun at the recording's start frame so the three stay aligned. The tap is on while
+`psg` is set (`publish_audio_tap()`), and `sync_audio_log(force)` emits the rebuild's `Reset` marker when a recording runs
+as well as when the log is asked for.
+
+*Frame mapping.* A file's frames never go back and never repeat, though the stamper's frame number does (a hard reset
+restarts it, a rewind and a state load put it back). `file frame = stamper frame + off`; `seen` is the highest file frame of
+any non-marker entry (DAC, beeper and select entries too). A discontinuity is a marker, or a frame number below the last
+entry's. At one, `off = max(off, seen + 1 - M)` with M the new frame number, except a `StateLoad`, which always takes
+`seen + 1 - M` because a loaded frame number says nothing about time that played. So a soft reset, or any marker whose
+numbering still moves forward, keeps the numbering and a reset in the frame of the last write splits it, and anything
+that would go back continues right after the last frame seen. The frame the accumulator returns at a discontinuity is
+written with the mapping in force before it. The writes of a rewound future were played and stay in the file.
+A hard reset or a state load keeps elapsed time: `Impl::prepare_rebuild()` (every rebuild path: `reset_hard()`, `load()` and the
+guest's `on_cold_boot_begin()`) and `Debugger::load_state_bytes()` call `PsgRecorder::note_time(frame_tag(emu))` before the machine
+is replaced, which raises `seen` to the frame current at that moment, so the new frame 0 (or the loaded frame number, which means
+nothing) maps right after it. Menu and Quick Load loads reach a rebuild through `cold_boot()` and so `prepare_rebuild()`. A chip file that cannot be created is tried once (`chip_failed_`): it flags the
+I/O error `stop()` reports and that chip's blocks are dropped. The destructor finishes the files up to `seen`, which
+`main()`'s early returns after `--psg-record` started rely on.
+
+*Differences from Fuse*, both kept out of the fixture. `psg_write_register()` keeps the FIRST value written to a register
+in a frame and jnext keeps the last (the tap's value is the raw byte the guest wrote, as Fuse's is). Fuse keeps 4 bits of a
+register select (`set_current_register`: `value & 0x0f`), so a select of 0x1D writes R13 there; the Next drops the data
+write (`AyAddressHigh`, counted as dropped).
+
+*The check against Fuse.* `test/audio/fixtures/psg_fixture.asm` is a program of our own: a gate that waits for a key,
+a sentinel frame writing R7 = 0x3F, 8 empty frames, then 300 frames of pseudo-random register sets written in descending
+order, with gaps of 1, 3, 4, 5, 9 and 1100 frames (the 1100 checks the clamp of a separator run at 255) and an R14-only
+frame, an R15 and R0 frame. Writes come about 20000 T-states after the `HALT`, so the frame they fall in does not depend
+on where an emulator puts its interrupt. `psg_fixture.fuse.psg` is Fuse's recording of it, made by
+`tools/fuse-psg-reference.sh` (it needs `fuse`, `xdotool` and `xvfb-run`, drives File > AY Logging > Record... on an Xvfb
+display, and is never run by CI). Both the reference and jnext's recording are cut to the body from the sentinel on
+(`psg_normalise()` in `audio_debug_test.cpp`, `tools/psg-normalise.py` for the shell; both pinned to the same body length)
+and compared byte for byte: in process on a 128K machine (PSF-01..03) and through `--psg-record` in the
+`psg-record-func` regression row. To regenerate the reference after changing the program, run the tool, check the new body
+length and update the two pins.
 
 **Frame grouping and the tracker.** `src/debug/audio_frames.h` is a pure, published helper that
 groups the log's entries, oldest first, into one `AudioFrame` per frame that holds counted AY

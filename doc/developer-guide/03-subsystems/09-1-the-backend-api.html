@@ -3494,7 +3494,7 @@ fetches <code>audio_log_entries(since_seq)</code> can tell what it missed. Entri
 (3.4); reset, state-load and rewind enter as marker rows, and a rewind landing removes the rows from
 its own cycle on. <code>audio_log_export()</code>, the Qt Log tab's Export and the <code>--audio-log</code> stream
 (<code>AudioLogStream</code>, an observer and a <code>Service</code> whose <code>pump()</code> hook drains the ring into the file) all
-write through <code>src/debug/audio_log_csv.h</code>, so the three formats cannot differ. A frontend must call
+write through <code>src/debug/audio_log_csv.h</code>, so the three formats cannot differ. <code>psg_record_start()</code> / <code>psg_record_stop()</code> / <code>psg_recording()</code> (INS-24) are a second, independent consumer of the same tap: the <code>.psg</code> recorder is fed straight from the sink, not from the ring, so it works with the log off (see 3.4). A frontend must call
 <code>set_audio_log_enabled(false)</code> when it stops looking: the tap costs the machine nothing while no one asks,
 and nothing else turns it off. Log, counters and both mute masks are host state: never in a snapshot or
 an RZX, and invisible to the Z80 (<code>audio_debug_test</code>, AIZ rows).</p>

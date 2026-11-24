@@ -71,7 +71,7 @@ attachment of that generation:
 - The record comes from the **attachment cache**, `Impl::attach_cache`: one
   `Attachment` per generation, holding the sidecar `SourceMap` and `SymbolTable`
   (shared, immutable), the reason text, and the sidecar identity checks still to
-  make. It keeps the last `ATTACH_CACHE_MAX` = 4 (`ATTACH_CACHE_MAX`, `debugger_impl.h:205`); when
+  make. It keeps the last `ATTACH_CACHE_MAX` = 4 (`ATTACH_CACHE_MAX`, `debugger_impl.h:206`); when
   a fifth is added the oldest record is evicted. `cache_push_current()` erases a
   generation's existing record and appends the new one, so a replaced record becomes
   the newest and is the last to be evicted.
@@ -211,7 +211,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
 - **The history.** `dot_record()` (`debugger_source.cpp:213`) appends a snapshot `{generation, cycle, entry_ok, units,
   spans, held}` to `DeferredCheck::history` at every judgement and every change of the check, replacing
   the records of the same generation from that cycle on (a re-run replaces what the first run recorded
-  from there), and keeping at most `kDotHistoryMax` = 256 (`kDotHistoryMax`, `debugger_impl.h:168`; the oldest go, and
+  from there), and keeping at most `kDotHistoryMax` = 256 (`kDotHistoryMax`, `debugger_impl.h:169`; the oldest go, and
   a landing older than the oldest reads pending). `dot_landing(false)` picks the last record of the
   landed generation strictly *before* the landed cycle (a verdict at cycle C applies to the instruction
   about to run at C, which a landing at C has not run); none means pending. Records of earlier generations
@@ -225,7 +225,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
   at start-up and the verify hook does not distinguish a replayed session from a live one
   (`replay_mode()` is the rewind replay's flag, `emulator.h:1457`, not RZX's). What the row
   `z88dk-dot-source-rzx-func` pins is the attach and the refusal, not a verdict reached during playback.
-- **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1299`, set at `SourceMapStatus::dot`, `debugger_source.cpp:603`) tells the Source tab to word its pending note
+- **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1313`, set at `SourceMapStatus::dot`, `debugger_source.cpp:603`) tells the Source tab to word its pending note
   *...when the dot command runs* ([7.7](07-frontends.md)).
 
 ## What the backend cannot see

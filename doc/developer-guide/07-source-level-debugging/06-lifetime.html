@@ -3147,7 +3147,7 @@ attachment of that generation:</p>
 <li>The record comes from the <strong>attachment cache</strong>, <code>Impl::attach_cache</code>: one
   <code>Attachment</code> per generation, holding the sidecar <code>SourceMap</code> and <code>SymbolTable</code>
   (shared, immutable), the reason text, and the sidecar identity checks still to
-  make. It keeps the last <code>ATTACH_CACHE_MAX</code> = 4 (<code>ATTACH_CACHE_MAX</code>, <code>debugger_impl.h:205</code>); when
+  make. It keeps the last <code>ATTACH_CACHE_MAX</code> = 4 (<code>ATTACH_CACHE_MAX</code>, <code>debugger_impl.h:206</code>); when
   a fifth is added the oldest record is evicted. <code>cache_push_current()</code> erases a
   generation's existing record and appends the new one, so a replaced record becomes
   the newest and is the last to be evicted.</li>
@@ -3282,7 +3282,7 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
 <li><strong>The history.</strong> <code>dot_record()</code> (<code>debugger_source.cpp:213</code>) appends a snapshot <code>{generation, cycle, entry_ok, units,
   spans, held}</code> to <code>DeferredCheck::history</code> at every judgement and every change of the check, replacing
   the records of the same generation from that cycle on (a re-run replaces what the first run recorded
-  from there), and keeping at most <code>kDotHistoryMax</code> = 256 (<code>kDotHistoryMax</code>, <code>debugger_impl.h:168</code>; the oldest go, and
+  from there), and keeping at most <code>kDotHistoryMax</code> = 256 (<code>kDotHistoryMax</code>, <code>debugger_impl.h:169</code>; the oldest go, and
   a landing older than the oldest reads pending). <code>dot_landing(false)</code> picks the last record of the
   landed generation strictly <em>before</em> the landed cycle (a verdict at cycle C applies to the instruction
   about to run at C, which a landing at C has not run); none means pending. Records of earlier generations
@@ -3296,7 +3296,7 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
   at start-up and the verify hook does not distinguish a replayed session from a live one
   (<code>replay_mode()</code> is the rewind replay's flag, <code>emulator.h:1457</code>, not RZX's). What the row
   <code>z88dk-dot-source-rzx-func</code> pins is the attach and the refusal, not a verdict reached during playback.</li>
-<li><strong>Where it shows.</strong> <code>SourceMapStatus::dot</code> (<code>debugger.h:1299</code>, set at <code>SourceMapStatus::dot</code>, <code>debugger_source.cpp:603</code>) tells the Source tab to word its pending note
+<li><strong>Where it shows.</strong> <code>SourceMapStatus::dot</code> (<code>debugger.h:1313</code>, set at <code>SourceMapStatus::dot</code>, <code>debugger_source.cpp:603</code>) tells the Source tab to word its pending note
   <em>...when the dot command runs</em> (<a href="07-frontends.html">7.7</a>).</li>
 </ul>
 <h2 id="what-the-backend-cannot-see">What the backend cannot see<a class="headerlink" href="#what-the-backend-cannot-see" title="Permanent link">&para;</a></h2>

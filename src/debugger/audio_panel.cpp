@@ -6,6 +6,7 @@
 #include "debug/audio_math.h"
 #include "debug/debugger.h"   // also AudioMute::* (via inspect.h)
 
+#include <QFileDialog>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -261,6 +262,30 @@ QWidget* AudioPanel::create_chips_tab() {
     layout->setContentsMargins(2, 2, 2, 2);
     layout->setSpacing(4);
 
+    // --- The .psg recording: Record PSG... / Stop / what it is doing ---
+    {
+        auto* row = new QHBoxLayout;
+        row->setContentsMargins(0, 0, 0, 0);
+        psg_record_ = new QPushButton(tr("Record PSG..."), page);
+        psg_record_->setObjectName("audio_psg_record");
+        psg_stop_ = new QPushButton(tr("Stop"), page);
+        psg_stop_->setObjectName("audio_psg_stop");
+        psg_stop_->setEnabled(false);
+        psg_status_ = new QLabel(tr("Not recording PSG"), page);
+        psg_status_->setObjectName("audio_psg_status");
+        row->addWidget(psg_record_);
+        row->addWidget(psg_stop_);
+        row->addWidget(psg_status_, 1);
+        layout->addLayout(row);
+        connect(psg_record_, &QPushButton::clicked, this, [this] {
+            const QString path = QFileDialog::getSaveFileName(this, tr("Record PSG"),
+                                                              QStringLiteral("audio.psg"), tr("PSG (*.psg)"));
+            if (path.isEmpty()) return;
+            start_psg_recording(path);
+        });
+        connect(psg_stop_, &QPushButton::clicked, this, [this] { stop_psg_recording(); });
+    }
+
     // --- Global header: the three live signals, the PSG mode, the AY ports ---
     auto* info_box = new QGroupBox(tr("Info"), page);
     auto* info_layout = new QVBoxLayout(info_box);
@@ -427,9 +452,46 @@ void AudioPanel::apply_source_mutes() {
     dbg_->set_audio_mute_mask(client_, mask);   // INS-10, attributed
 }
 
+bool AudioPanel::start_psg_recording(const QString& path) {
+    if (!dbg_) return false;
+    const bool ok = dbg_->psg_record_start(client_, path.toStdString()) == jnext::dbg::Result::Ok;
+    psg_path_ = ok ? path : QString();
+    psg_note_ = ok ? QString() : tr("Cannot write %1").arg(path);
+    refresh_psg_();
+    return ok;
+}
+
+bool AudioPanel::stop_psg_recording() {
+    if (!dbg_) return false;
+    const bool was = dbg_->psg_recording();
+    const bool ok = dbg_->psg_record_stop(client_) == jnext::dbg::Result::Ok;
+    psg_note_ = (was && !ok) ? (psg_path_.isEmpty() ? tr("Write error on the PSG files")
+                                                      : tr("Write error on %1 or its -ay1/-ay2 files").arg(psg_path_))
+                             : QString();
+    psg_path_.clear();
+    refresh_psg_();
+    return ok;
+}
+
+// The status label and the two buttons follow the backend, so a recording started elsewhere (the
+// command line) shows here and this Stop stops it: the last verb wins.
+void AudioPanel::refresh_psg_() {
+    const bool rec = dbg_ && dbg_->psg_recording();
+    psg_record_->setEnabled(!rec);
+    psg_stop_->setEnabled(rec);
+    if (rec) {
+        psg_status_->setText(tr("Recording PSG"));
+        psg_status_->setToolTip(psg_path_);
+    } else {
+        psg_status_->setText(psg_note_.isEmpty() ? tr("Not recording PSG") : psg_note_);
+        psg_status_->setToolTip(QString());
+    }
+}
+
 void AudioPanel::refresh() {
     if (!dbg_)
         return;
+    refresh_psg_();
 
     // One consistent read of the audio chain (INS-22).
     const jnext::dbg::AudioState st = dbg_->audio_state();
