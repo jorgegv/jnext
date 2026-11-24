@@ -2019,8 +2019,8 @@ run created (an existing local name is refused up front with `symlink_status`, s
 The host names are `carry::escape_name(name, true)`, the same function the export uses. An entry FatFs
 cannot open by its long name (a trailing dot or space, a control byte, a character FAT forbids in a path)
 is opened by its 8.3 alias. The guards against a damaged card are the set of start clusters of the
-directories read (the FAT32 root is normalised to cluster 0, which is in the set from the start, so a
-directory that points at itself, its parent or the root is refused and the walk terminates) and a
+directories read (a directory that points at itself, its parent or the root is reached a second time,
+which is refused, so the walk terminates) and a
 per-directory set of host names folded to upper case (two entries a case-insensitive host could not tell
 apart). `main()` counts the verb with the others (one per run, `headless`, a terminal command for
 `startup_report::classify()`), and the card lock returns 5 for it like the other verbs.

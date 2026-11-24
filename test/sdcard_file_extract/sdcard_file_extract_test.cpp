@@ -166,14 +166,15 @@ bool populate_dotdot(FATFS& fsv, Pokes& pokes) {
     return c != 0;
 }
 
-// /DUP: the short entry ABC and the long entry "abc" (another file): the host cannot tell them apart.
+// /DUP: the short entry ABC and the long entry "abc" (the same bytes, so only the names tell them apart):
+// FatFs reads "abc" as ABC, and a case-insensitive host cannot hold both.
 bool populate_dup(FATFS& fsv, Pokes& pokes) {
     if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/DUP") != FR_OK || !fat_write("0:/DATA/D1.BIN", kD1) ||
         !fat_write("0:/DATA/D2.BIN", kD2))
         return false;
     hand_dir(fsv, dir_cluster("0:/DUP"), 2,
              {{u"", "ABC        ", 0x20, file_cluster("0:/DATA/D1.BIN"), static_cast<uint32_t>(kD1.size())},
-              {u"abc", "ABC~1      ", 0x20, file_cluster("0:/DATA/D2.BIN"), static_cast<uint32_t>(kD2.size())}},
+              {u"abc", "ABC~1      ", 0x20, file_cluster("0:/DATA/D1.BIN"), static_cast<uint32_t>(kD1.size())}},
              pokes);
     return true;
 }
@@ -352,18 +353,24 @@ int main() {
         const Run a = run(G, "/MYDIR/../FILE.BIN");
         const Run b = run(G, "/./FILE.BIN");
         check("SDFX-14", "a '..' or '.' component is refused up front (status 2) and the message names it",
-              is(a, FileAddStatus::SourceUnreadable) && a.err.find("'..'") != std::string::npos &&
-                  is(b, FileAddStatus::SourceUnreadable) && b.err.find("'.'") != std::string::npos &&
+              is(a, FileAddStatus::SourceUnreadable) && a.err.find("contains '..'") != std::string::npos &&
+                  a.err.find("full path from the card root") != std::string::npos &&
+                  is(b, FileAddStatus::SourceUnreadable) && b.err.find("contains '.'") != std::string::npos &&
+                  b.err.find("full path from the card root") != std::string::npos &&
                   empty_dest(a) && empty_dest(b),
               info(a) + " | " + info(b));
     }
     {
         const Run a = run(G, "/FILE.BIN.");
         const Run b = run(G, "/FILE.BIN ");
-        check("SDFX-15", "a trailing dot or space is refused (FatFs strips them, so /FILE.BIN. would open /FILE.BIN): status 2, nothing extracted",
+        // the same inside the path, with either separator (FatFs would open /MYDIR/SUB/C.BIN for SUB.)
+        const Run c = run(G, "/MYDIR/SUB./C.BIN");
+        const Run d = run(G, "\\MYDIR\\SUB.\\C.BIN");
+        check("SDFX-15", "a trailing dot or space is refused (FatFs strips them, so /FILE.BIN. would open /FILE.BIN), also on a directory in the middle of the path with / or \\: status 2, nothing extracted",
               is(a, FileAddStatus::SourceUnreadable) && is(b, FileAddStatus::SourceUnreadable) &&
-                  empty_dest(a) && empty_dest(b),
-              info(a) + " | " + info(b));
+                  is(c, FileAddStatus::SourceUnreadable) && is(d, FileAddStatus::SourceUnreadable) &&
+                  empty_dest(a) && empty_dest(b) && empty_dest(c) && empty_dest(d),
+              info(a) + " | " + info(b) + " | " + info(c) + " | " + info(d));
     }
     {
         const Run r = run(G, "/caf\xC3\xA9");
@@ -401,8 +408,12 @@ int main() {
         std::vector<std::string> esc = r.sum.escaped;
         std::sort(esc.begin(), esc.end());
         const std::vector<std::string> want_esc = {"%43ON.TXT", "A%3AB", "FOO%2E", "caf%82", "x%2Fy"};
-        check("SDFX-19", "LFN names CON.TXT, A:B, FOO. (read by its 8.3 name), x/y and a CP437 byte 0x82 land as %43ON.TXT, A%3AB, FOO%2E, x%2Fy, caf%82 with their own bytes; all five are listed",
-              t == FS_FAT16 && is(r, FileAddStatus::Ok) && tree_of(r.dest) == want && esc == want_esc,
+        // the same entry as the TOP of an extraction, asked for by its 8.3 alias: the local name is escaped too
+        const Run top = run(p, "/ODD/A_B");
+        check("SDFX-19", "LFN names CON.TXT, A:B, FOO. (read by its 8.3 name), x/y and a CP437 byte 0x82 land as %43ON.TXT, A%3AB, FOO%2E, x%2Fy, caf%82 with their own bytes; all five are listed; the top entry A:B asked for by its 8.3 name lands as A%3AB",
+              t == FS_FAT16 && is(r, FileAddStatus::Ok) && tree_of(r.dest) == want && esc == want_esc &&
+                  is(top, FileAddStatus::Ok) && tree_of(top.dest) == Tree{{"A%3AB", kD2}} &&
+                  top.sum.escaped == std::vector<std::string>{"A%3AB"},
               info(r) + " tree=" + [&] { std::string s; for (auto& kv : tree_of(r.dest)) s += kv.first + ";"; return s; }());
     }
     {

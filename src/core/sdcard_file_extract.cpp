@@ -118,7 +118,6 @@ struct PlanItem {
     std::string              fat;      // "0:/..." as FatFs is to be asked
     std::vector<std::string> rel;      // host path components below the top entry (escaped)
     bool                     dir = false;
-    uint32_t                 size = 0;
 };
 
 std::string join_slash(const std::vector<std::string>& v) {
@@ -252,16 +251,12 @@ FileAddStatus extract_from_image(const std::string& image_path, const std::strin
     PlanItem first;
     first.fat = typed;
     first.dir = top_is_dir;
-    first.size = top_is_dir ? 0 : static_cast<uint32_t>(top.fsize);
     plan.push_back(first);
     std::vector<std::string> escaped;
     if (top_host != top_name) escaped.push_back(top_host);
 
     if (top_is_dir) {
-        // Start clusters of the directories read; the root is 0 (a FAT12/16 root has no cluster, a FAT32
-        // root's is normalised to 0 below) and is in the set from the start: a subdirectory that points
-        // at the root can never be a legitimate part of the tree below the top entry.
-        std::set<DWORD> visited{0};
+        std::set<DWORD> visited;               // start clusters of the directories read (the root is 0)
         struct Pending { std::string fat; std::vector<std::string> rel; std::string shown; };
         std::vector<Pending> stack{{typed, {}, stored}};
         while (!stack.empty()) {
@@ -273,9 +268,7 @@ FileAddStatus extract_from_image(const std::string& image_path, const std::strin
                 err = "cannot read directory '" + cur.shown + "' on the card (" + fr_text(fr) + ")";
                 return St::ImageUnusable;
             }
-            DWORD key = dj.obj.sclust;
-            if (card.fs.fs_type >= FS_FAT32 && key == static_cast<DWORD>(card.fs.dirbase)) key = 0;
-            if (!visited.insert(key).second) {
+            if (!visited.insert(dj.obj.sclust).second) {
                 f_closedir(&dj);
                 err = "directory '" + cur.shown + "' on the card is reached twice (a damaged "
                       "directory structure: a directory that points at itself, its parent or the root)";
@@ -318,7 +311,6 @@ FileAddStatus extract_from_image(const std::string& image_path, const std::strin
                 it.rel = cur.rel;
                 it.rel.push_back(esc);
                 it.dir = (fno.fattrib & AM_DIR) != 0;
-                it.size = it.dir ? 0 : static_cast<uint32_t>(fno.fsize);
                 if (esc != lname) escaped.push_back(join_slash(it.rel));
                 if (it.dir) stack.push_back({it.fat, it.rel, shown});
                 plan.push_back(std::move(it));
@@ -394,13 +386,6 @@ FileAddStatus extract_from_image(const std::string& image_path, const std::strin
             err = "cannot write '" + hp.string() + "' (disk full?)";
             rollback();
             return St::DestInvalid;
-        }
-        if (got_total != it.size) {
-            err = "'" + it.fat.substr(2) + "' on the card holds " + std::to_string(got_total) +
-                  " bytes but its directory entry says " + std::to_string(it.size) +
-                  " (a damaged file)";
-            rollback();
-            return St::ImageUnusable;
         }
         ++files;
         bytes += got_total;
