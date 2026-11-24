@@ -133,7 +133,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Video recorder (child process) |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (screen ingest) |      167 |      167 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |      117 |      117 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Extended NEX streaming |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Extended NEX streaming |       62 |       62 |      0 |       0 |    100% | 🟢 All tests pass. |
 | TAP loader (container) |       67 |       67 |      0 |       0 |    100% | 🟢 All tests pass. |
 | TAP loader (auto play/stop) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ZIP program archives  |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -258,6 +258,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      203 |      203 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **18011**| **18011**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **18029**| **18029**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
