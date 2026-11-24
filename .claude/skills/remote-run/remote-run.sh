@@ -274,9 +274,20 @@ main() {
     [[ "$BRANCH" =~ ^[A-Za-z0-9._][A-Za-z0-9._/-]*$ ]] || die "bad branch name '$BRANCH'"
     # test-affected's base (GH #562): the merge base of the commit with LOCAL main, which the remote run tree
     # takes as its origin/main. Empty when there is no local main or no such commit: the remote falls back.
-    if [[ -n "$SHA" ]]; then
-        BASE=$(git -C "${base_repo:-${REMOTE_RUN_BASE_REPO:-${fallback_dir:-.}}}" merge-base "$SHA" main 2>/dev/null) || BASE=""
-        [[ "$BASE" =~ ^[0-9a-f]{40}$ ]] || BASE=""
+    # Not for --gate: a batch gate's TEST-AFFECTED MISS check compares against what was last pushed (origin/main);
+    # against local main the gated commit would be its own base and every failing suite would read as a MISS.
+    BASE_NOTE=""
+    if [[ $gate -eq 1 ]]; then
+        BASE_NOTE="test-affected base: none sent (--gate compares against origin/main)"
+    elif [[ -n "$SHA" ]]; then
+        local brepo=${base_repo:-${REMOTE_RUN_BASE_REPO:-${fallback_dir:-.}}}
+        BASE=$(git -C "$brepo" merge-base "$SHA" main 2>/dev/null) || BASE=""
+        if [[ "$BASE" =~ ^[0-9a-f]{40}$ ]]; then
+            BASE_NOTE="test-affected base: $BASE (git -C $brepo merge-base ${SHA:0:12} main)"
+        else
+            BASE=""
+            BASE_NOTE="test-affected base: none computed (no local main in $brepo, or ${SHA:0:12} is not in it); the remote uses origin/main"
+        fi
     fi
     TIMEOUT=${TIMEOUT:-$TIMEOUT_DEFAULT}
     [[ "$TIMEOUT" =~ ^[0-9]+$ && "$TIMEOUT" -gt 0 ]] || die "--timeout needs a positive number of seconds"
@@ -292,6 +303,7 @@ main() {
     LOG="$logdir/$ID.log"
     : > "$LOG"
     log_info "run $ID: $BRANCH ${SHA:+@ ${SHA:0:12}}; log $LOG"
+    [[ -z "$BASE_NOTE" ]] || log_info "$BASE_NOTE"
 
     if [[ $warm -eq 0 && $gate -eq 0 ]]; then
         local t

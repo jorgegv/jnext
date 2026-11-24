@@ -9,7 +9,7 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-49. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-53. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -17,7 +17,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=49
+EXPECTED_ROWS=53
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -877,6 +877,50 @@ mb49b=$(cat "$FAKE_STATE/mergebase" 2>/dev/null)
 row RRUN-49 "$([[ $rc49a -eq 0 && $RC -eq 0 && "$mb49a" == "$MAIN_SHA" && "$mb49b" == "$MAIN_SHA" \
     && "$o49a" == *"is not an ancestor of $SHA, ignored; using origin/main"* && "$(cat "$TMP/logs/b49b.log")" == *"is not an ancestor of $SHA, ignored"* ]] && echo 1 || echo 0)" \
     "a base that is no ancestor (descendant $mb49a, unknown object $mb49b) is ignored: the base stays origin/main (rc $rc49a/$RC)"
+
+# RRUN-50 .. RRUN-53 (GH #562 review): WHICH repository's main gives the base. Two local repositories whose mains
+# differ: LOC47 (main = L1) and LOC52 (main = L2, one commit above L1); the branch under test, gh52, sits above both,
+# so the merge base is L1 in LOC47, L2 in LOC52, and MAIN_SHA (origin/main) when the driver computes none. The driver
+# runs from a directory outside any git repository, so "." cannot supply a base.
+git -C "$LOC47" checkout -q -b gh52 main
+git -C "$LOC47" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "second landing"
+L2_SHA=$(git -C "$LOC47" rev-parse HEAD)
+git -C "$LOC47" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "branch work 2"
+B2_SHA=$(git -C "$LOC47" rev-parse HEAD)
+git -C "$LOC47" checkout -q main
+git -C "$REPO" fetch -q "$LOC47" gh52:gh52
+LOC52=$TMP/local52
+git clone -q "$LOC47" "$LOC52"
+git -C "$LOC52" checkout -q --detach "$L2_SHA"
+git -C "$LOC52" branch -q -f main "$L2_SHA"
+NOGIT=$TMP/nogit; mkdir -p "$NOGIT"
+# drive_in <fake-refs-id> <args...>: like drive, from outside any repository; sets OUT, RC and MBX (the run tree's base)
+drive_in() {
+    reset_state; rm -f "$FAKE_STATE/mergebase"
+    OUT=$(cd "$NOGIT" && FAKE_REFS=1 FAKE_RC=0 timeout --kill-after=5s 120s bash "$DRIVER" --local-shell --log-dir "$TMP/logs" "$@" 2>&1); RC=$?
+    MBX=$(cat "$FAKE_STATE/mergebase" 2>/dev/null)
+}
+# RRUN-50: only REMOTE_RUN_BASE_REPO (what slot.sh sets on every host): its main gives the base
+REMOTE_RUN_BASE_REPO=$LOC52 drive_in --id b50 gh52 "$B2_SHA" unit-test
+row RRUN-50 "$([[ $RC -eq 0 && "$MBX" == "$L2_SHA" && "$MBX" != "$MAIN_SHA" ]] && echo 1 || echo 0)" \
+    "REMOTE_RUN_BASE_REPO alone, run from outside a repository: the base is that repository's merge base ($MBX) (rc $RC)"
+# RRUN-51: only --fallback-local DIR (the documented normal call): DIR's main gives the base
+drive_in --id b51 --fallback-local "$LOC47" gh52 "$B2_SHA" unit-test
+row RRUN-51 "$([[ $RC -eq 0 && "$MBX" == "$L1_SHA" && "$MBX" != "$MAIN_SHA" ]] && echo 1 || echo 0)" \
+    "--fallback-local alone, run from outside a repository: the base is its merge base ($MBX) (rc $RC)"
+# RRUN-52: precedence --base-repo > REMOTE_RUN_BASE_REPO > --fallback-local, each pair with different mains
+REMOTE_RUN_BASE_REPO=$LOC47 drive_in --id b52a --base-repo "$LOC52" --fallback-local "$LOC47" gh52 "$B2_SHA" unit-test
+mb52a=$MBX; rc52a=$RC
+REMOTE_RUN_BASE_REPO=$LOC52 drive_in --id b52b --fallback-local "$LOC47" gh52 "$B2_SHA" unit-test
+row RRUN-52 "$([[ $rc52a -eq 0 && $RC -eq 0 && "$mb52a" == "$L2_SHA" && "$MBX" == "$L2_SHA" && "$L1_SHA" != "$L2_SHA" ]] && echo 1 || echo 0)" \
+    "--base-repo beats the variable and --fallback-local ($mb52a), the variable beats --fallback-local ($MBX); L1 and L2 differ"
+# RRUN-53: --gate sends no base (a gate's miss check compares against origin/main), and a failed computation says why
+drive_in --id b53 --gate --base-repo "$LOC52" gh52 "$B2_SHA"
+mb53=$MBX; o53=$OUT; rc53=$RC
+drive_in --id b53b --base-repo "$NOMAINLOC" gh52 "$B2_SHA" unit-test
+row RRUN-53 "$([[ "$mb53" == "$MAIN_SHA" && "$o53" == *"none sent (--gate compares against origin/main)"* && "$o53" != *"merge-base"* \
+    && "$OUT" == *"none computed (no local main in $NOMAINLOC"* && "$MBX" == "$MAIN_SHA" ]] && echo 1 || echo 0)" \
+    "--gate sends no base ($mb53, rc $rc53); a repository without main logs 'none computed' with the directory"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
 # the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green

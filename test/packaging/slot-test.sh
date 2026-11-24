@@ -11,14 +11,14 @@
 # remote lane, long or short, and runs here only when every lane is busy) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-66. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-67. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=66
+EXPECTED_ROWS=67
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -636,6 +636,14 @@ fresh
 out=$(slot env LANG=C make -C "$WT" test-affected 2>&1); rc=$?
 row SLOT-66 "$([[ $rc -eq 0 && "$(rr_calls)" == *"BASE_REPO=$WT"* && "$(rr_calls)" != *"BASE_REPO=unset"* ]] && echo 1 || echo 0)" \
     "a remote run is given REMOTE_RUN_BASE_REPO=<the branch's worktree> (rc=$rc)"
+
+# SLOT-67 (GH #562 review): two hosts, both free: the first takes the run WITHOUT --fallback-local and still gets
+# the base repository (the variable is not tied to the fallback flag, which only the last host carries)
+fresh
+JNEXT_REMOTE_RUN_HOSTS="hostA hostB" slot env LANG=C make -C "$WT" test-affected >/dev/null 2>&1; rc=$?
+row SLOT-67 "$([[ $rc -eq 0 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 && "$(rr_calls)" == *"HOST=hostA"* \
+    && "$(rr_calls)" != *"--fallback-local"* && "$(rr_calls)" == *"BASE_REPO=$WT"* ]] && echo 1 || echo 0)" \
+    "first of two free hosts: no --fallback-local, BASE_REPO=<worktree> (rc=$rc)"
 
 # ---- thread caps (owner, 2026-11-23): a locally admitted run gets nproc/NSLOTS threads ------------------------
 # Oracle: the measurement in slot.sh's apply_thread_caps comment (6 threads each beat 12 each for two concurrent
