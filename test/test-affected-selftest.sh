@@ -33,6 +33,7 @@
 #           or directive, a pin plus another suite's source, and a line of no known shape (FULL);
 #           test/CMakeLists.txt statements (a new block, a changed link, an if() context, a statement
 #           naming no suite = FULL); the matrix and its generator plan the traceability check
+#   TAF-77  each of ci-gate.sh and regression-package.sh alone plans both makes
 #   TAF-75..76 GH #564: a changed test shell script plans make lint-test-scripts (the preflight lints
 #           a branch never runs); that target runs the four test-script lints
 #   TAF-13  a fixture file is selected by the suite whose sources name its directory, and is FULL
@@ -297,7 +298,7 @@ row TAF-30 $([[ $RC -eq 0 && "$OUT" == *"TEST-AFFECTED MISS: s1_test was not sel
     "--explain-miss: s1 (not pulled y) is named, s2 (selected) is not, a FULL plan names nothing, a docs-only plan (no suite ran) names the failing suite"
 
 run test/ci-gate.sh test/regression-package.sh
-row TAF-32 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_get makes)" == package-contract-test ]] && echo 1 || echo 0) \
+row TAF-32 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_get makes)" == "lint-test-scripts package-contract-test" ]] && echo 1 || echo 0) \
     "test/ci-gate.sh and test/regression-package.sh plan package-contract-test, not FULL (makes: $(plan_get makes), mode $(plan_get mode))"
 
 # ---- GH #564: test/unit-tests.conf and test/CMakeLists.txt are planned by what changed (git mode)
@@ -594,6 +595,13 @@ run test/00regression/scripts/foo-func.sh
 [[ "$(plan_get rows)" == foo-func ]] || r75=0
 row TAF-75 $r75 "a changed test shell script (generic, harness dir, packaging, the selftest, a row script) plans make lint-test-scripts, the preflight lints a branch otherwise never runs (GH #564)"
 
+r77=1
+for tf in test/ci-gate.sh test/regression-package.sh; do
+    run "$tf"
+    [[ "$(plan_get makes)" == "lint-test-scripts package-contract-test" ]] || { r77=0; echo "  (TAF-77: $tf plans makes=[$(plan_get makes)])"; }
+done
+row TAF-77 $r77 "test/ci-gate.sh and test/regression-package.sh EACH plan package-contract-test and lint-test-scripts (TAF-32 runs them together, which hides a rule that lost one)"
+
 lts=$(awk '/^lint-test-scripts:/{f=1} f&&/^$/{exit} f' "$HERE/../Makefile")
 r76=1
 for l in test/00regression/lint-traps.sh test/lint-timeouts.sh test/lint-pipe-grepq.sh test/lint-sed-inplace.sh; do
@@ -604,5 +612,5 @@ row TAF-76 $r76 "the lint-test-scripts recipe runs all four test-script lints (t
 
 echo ""
 echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
-[[ "$total" -eq 75 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 75"; exit 1; }
+[[ "$total" -eq 76 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 76"; exit 1; }
 [[ "$failed" -eq 0 ]]
