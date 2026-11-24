@@ -29,7 +29,7 @@
 #           its row, a removed _WIN32 arm still flags windows; --explain-miss (the stateless MISS, also for a docs-only plan)
 #   TAF-32  test/ci-gate.sh and test/regression-package.sh plan package-contract-test, not FULL
 #   TAF-31  Qt's QT_TESTCASE_* test-data define counts only for a suite that calls QFINDTESTDATA
-#   TAF-33..61 GH #564, in a git fixture: a changed pin, a new or removed suite line, a changed ? marker
+#   TAF-33..71 GH #564, in a git fixture: a changed pin, a new or removed suite line, a changed ? marker
 #           or directive, a pin plus another suite's source, and a line of no known shape (FULL);
 #           test/CMakeLists.txt statements (a new block, a changed link, an if() context, a statement
 #           naming no suite = FULL); the matrix and its generator plan the traceability check
@@ -512,6 +512,52 @@ row TAF-59 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" ==
     "removing a suite from the manifest and from CMake together is not FULL (the base manifest names it) (got $(plan_get mode) $(plan_suites))"
 reset_fx
 
+# ---- GH #564 round 3: a failing child the planner reads is FULL; every parse-anomaly arm has its row
+STUB="$W/stub"; mkdir -p "$STUB"
+printf '#!/bin/sh\nexit 2\n' >"$STUB/diff"; chmod +x "$STUB/diff"
+sed -i 's/^set(SHARED "a;b")$/set(SHARED "a;b;c")/' "$cmk"
+OUT=$(PATH="$STUB:$PATH" perl "$TOOL" "${TOK[@]}" --base HEAD 2>&1); RC=$?
+row TAF-62 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not diff"* ]] && echo 1 || echo 0) \
+    "a diff that exits 2 makes a CMake change FULL, never an empty change list (got $(plan_get mode))"
+NOD="$W/nodiff"; mkdir -p "$NOD"; for t in perl git env; do ln -sf "$(command -v $t)" "$NOD/$t"; done
+OUT=$(PATH="$NOD" "$(command -v perl)" "$TOOL" "${TOK[@]}" --base HEAD 2>&1); RC=$?
+row TAF-63 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not diff"* ]] && echo 1 || echo 0) \
+    "with no diff on PATH a CMake change is FULL (got $(plan_get mode))"
+reset_fx
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = diff ] && exit 128; done\nexec %s "$@"\n' "$(command -v git)" >"$STUB/git"; chmod +x "$STUB/git"; rm -f "$STUB/diff"
+sed -i 's/^set(SHARED "a;b")$/set(SHARED "a;b;c")/' "$cmk"
+OUT=$(PATH="$STUB:$PATH" perl "$TOOL" "${TOK[@]}" --base HEAD 2>&1); RC=$?
+row TAF-64 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"git command that reads the change failed"* ]] && echo 1 || echo 0) \
+    "a failing git diff makes the plan FULL, not an empty change set (got $(plan_get mode))"
+reset_fx; rm -f "$STUB/git"
+
+sed -i '/^set(SHARED "a;b")$/d' "$cmk"
+trun
+row TAF-65 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"names no declared suite: set(SHARED"* ]] && echo 1 || echo 0) \
+    "deleting a shared statement is FULL (the old side is attributed too) (got $(plan_get mode))"
+reset_fx
+
+anomaly() {  # anomaly ID TEXT-TO-APPEND DESCRIPTION: appended text only, so the sole reason for FULL is the parse
+    printf '%b' "$2" >>"$cmk"
+    trun
+    row "$1" $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"cannot read with confidence"* ]] && echo 1 || echo 0) "$3 (got $(plan_get mode))"
+    reset_fx
+}
+anomaly TAF-66 ']\n' "a stray top-level token is a parse anomaly: FULL"
+anomaly TAF-67 'word\n' "an identifier not followed by ( is a parse anomaly: FULL"
+anomaly TAF-68 'endif()\n' "an end*() with nothing open is a parse anomaly: FULL"
+anomaly TAF-69 'if(WIN32)\n' "an if() still open at the end of the file is a parse anomaly: FULL"
+anomaly TAF-70 'target_link_libraries(s2_test PRIVATE liba #[[ note ]]\n    libb)\n' "a bracket comment inside a statement is a parse anomaly: FULL"
+
+echo 'target_compile_definitions(s1_test PRIVATE X="a\")" Y=1)' >>"$cmk"
+variant
+sed -i 's/Y=1)/Y=2)/' "$cmk"
+trun
+row TAF-71 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,smoke_test" ]] && echo 1 || echo 0) \
+    "an escaped quote inside a quoted argument does not end it: a change after \")\" selects only the suite (got $(plan_get mode) $(plan_suites))"
+reset_fx
+unvariant
+
 r45=1
 for tf in doc/testing/TRACEABILITY-MATRIX.md test/refresh-traceability-matrix.pl; do
     printf '%s\n' "$tf" >"$W/files"
@@ -527,5 +573,5 @@ row TAF-46 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not
 
 echo ""
 echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
-[[ "$total" -eq 60 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 60"; exit 1; }
+[[ "$total" -eq 70 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 70"; exit 1; }
 [[ "$failed" -eq 0 ]]

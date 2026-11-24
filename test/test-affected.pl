@@ -238,11 +238,14 @@ my @rules;
 sub classify { my $f = shift; for my $r (@rules) { return $r->[1] if $f =~ $r->[0] } return undef }
 
 # ---------------------------------------------------------------- --check
+my ($GIT_RC, $git_bad) = (0, 0);   # exit status of the last git(); gitc() latches a failure into the plan (FULL)
+sub gitc { my @l = git(@_); $git_bad = 1 if $GIT_RC != 0; return @l }
 sub git {   # stderr is silenced: a root that is not a git checkout (a fixture) just yields no lines
     my @c = ('git', '-C', $root, @_);
     open(my $olderr, '>&', \*STDERR); open(STDERR, '>', '/dev/null');
     my $ok = open(my $p, '-|', @c);
     my @l = $ok ? <$p> : (); close $p if $ok;
+    $GIT_RC = $ok ? $? : -1;
     open(STDERR, '>&', $olderr);
     chomp @l; return @l;
 }
@@ -275,9 +278,9 @@ if ($o{files}) {
     $base = $o{base} // (git('merge-base', 'HEAD', 'main'))[0] // (git('merge-base', 'HEAD', 'origin/main'))[0];
     refuse("no base: pass --base REF (no `main` or `origin/main` to take a merge-base with)") unless $base;
     my %s;
-    $s{$_} = 1 for git('diff', '--name-only', '--no-renames', $base);
-    $s{$_} = 1 for git('diff', '--name-only', '--no-renames', $base, 'HEAD');   # a gitlink with no checkout shows only here
-    $s{$_} = 1 for git('ls-files', '--others', '--exclude-standard');
+    $s{$_} = 1 for gitc('diff', '--name-only', '--no-renames', $base);
+    $s{$_} = 1 for gitc('diff', '--name-only', '--no-renames', $base, 'HEAD');   # a gitlink with no checkout shows only here
+    $s{$_} = 1 for gitc('ls-files', '--others', '--exclude-standard');
     @changed = sort keys %s;
 }
 
@@ -443,6 +446,7 @@ sub diff_lines {   # normal diff of two line lists -> [ [type, old_from, old_to,
         push @h, [$ty, $of, $ot, $nf, $nt];
     }
     close $ph;
+    return undef unless !($? & 127) && ($? >> 8) <= 1;   # only diff's 0 (same) and 1 (differ) are success
     return \@h;
 }
 
@@ -495,7 +499,7 @@ for my $f (@changed) {
         # re-pinned. A directive (# gate:, # os:) or the # expect: total is proven by the whole
         # manifest checks every --only run still makes (registry, gate, os, total); a line this
         # cannot read makes the plan FULL.
-        my @d = ($have_git && !$o{files}) ? git('diff', '-U0', '--no-renames', $base, '--', $f) : ();
+        my @d = ($have_git && !$o{files}) ? gitc('diff', '-U0', '--no-renames', $base, '--', $f) : ();
         my $n = 0;
         for my $l (@d) {
             next unless $l =~ /^[+-]/ && $l !~ /^(\+\+\+|---)/;
@@ -514,7 +518,7 @@ for my $f (@changed) {
         # test/CMakeLists.txt (GH #564): the suites whose statements the change added, removed or
         # moved into another if()/foreach() context. A changed statement that names no declared
         # suite (a shared setting, a library, a variable) makes the plan FULL.
-        my ($old) = ($have_git && !$o{files}) ? join("\n", git('show', "$base:$f")) : '';
+        my ($old) = ($have_git && !$o{files}) ? join("\n", gitc('show', "$base:$f")) : '';
         my %names = %is_declared;
         for my $l ($have_git && !$o{files} ? git('show', "$base:test/unit-tests.conf") : ()) {
             $names{$1} = 1 if $l =~ /^\s*\??(\S+)\s+\d+/ && $l !~ /^\s*#/;
@@ -568,6 +572,7 @@ for my $f (@changed) {
     else { refuse("$confile: unknown action '$act' (glob matched $f)") }
     }
 }
+if ($git_bad) { $full = 1; $full_why{"(a git command that reads the change failed: the change set cannot be trusted)"} = 1 }
 if (@unmapped) { $full = 1; $full_why{"$_ (UNMAPPED: in no depfile, matches no glob)"} = 1 for @unmapped }
 my $only_docs = $docs && !$full && !%suites && !%rows && !%makes;
 $suites{$_} = 1 for @smoke;
@@ -579,7 +584,7 @@ my $harness_re = qr{^test/(run-unit-tests\.sh|unit-tests\.conf|row_id\.h)$};
 for my $f (@changed) {
     my $t = ($f =~ m{\.(cpp|h|hpp|c|cc|mm|cmake|sh|txt|mjs|js|in)$} || $f =~ /CMakeLists\.txt$|^Makefile$/) ? slurp($f) : '';
     # What the change REMOVED counts too: deleting the last _WIN32 arm still changes that tree.
-    $t .= "\n" . join("\n", map { substr($_, 1) } grep { /^-[^-]/ } git('diff', '-U0', $base, '--', $f)) if $have_git && !$o{files};
+    $t .= "\n" . join("\n", map { substr($_, 1) } grep { /^-[^-]/ } gitc('diff', '-U0', $base, '--', $f)) if $have_git && !$o{files};
     my $browser_only = $f =~ m{^src/platform/(browser_frontend\.|web/)};
     my $iscmake = $f =~ /(^|\/)CMakeLists\.txt$|\.cmake$/;
     # sdl
