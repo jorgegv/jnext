@@ -3894,6 +3894,10 @@ check('SELF-239', 'a marked call is REFUSED when another call of the row has a f
     for my $s ('mmu_test', 'uart_test') {
         system("sh '$TR/build/test/$s' > '$TR/logs/$s.log'") == 0 or die "logs547: relog $s";
     }
+    # From here the mmu_test BINARY fails MMU-09 (its log, read by --fails-from-logs, stays green): a
+    # generator or a make target that runs the suites shows MMU-09 as fail and differs from the
+    # all-pass matrix, so "no run" is asserted, not claimed.
+    $stub->('mmu_test', 'MMU-09');
     my ($rc_nf, undef) = $gen->("--emit-to='$TR/no-fails.md'", "--no-fails");
     my ($rc_ok, undef) = $gen->("--emit-to='$TR/all-pass.md'", "--fails-from-logs='$TR/logs'");
     my ($nf_md, $ok_md) = ($slurp->("$TR/no-fails.md"), $slurp->("$TR/all-pass.md"));

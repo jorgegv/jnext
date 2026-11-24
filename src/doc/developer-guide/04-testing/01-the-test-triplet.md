@@ -179,11 +179,15 @@ whose lines were added, removed, re-pinned or re-marked (`?`) are planned; a cha
 `# os:` or `# expect:` line plans no suite of its own, because every `--only` run makes the
 manifest checks (registry both ways, gate, OS, the total) on the whole manifest and they refuse
 a wrong directive or total; a line of no known shape, or no git diff to read, is FULL. In
-`test/CMakeLists.txt` the file is parsed into statements, each identified by its enclosing
-`if()`/`foreach()` chain and its text, and the statements added, removed or moved into another
-context select the declared suites they name (a target, `target_link_libraries`, the
-`add_test(... COMMAND <suite>)`); a changed statement that names no declared suite (an include
-path, a shared variable) is FULL. A change to either file, to `test/refresh-traceability-matrix.pl`
+`test/CMakeLists.txt` the file is parsed into an ordered list of statements, each with its enclosing
+`if()`/`else()`/`foreach()` chain, comments stripped with quotes respected. CMake is order-dependent
+(directory options reach later targets only, a `file(GLOB)` precedes its `foreach`), so the list is
+diffed as a sequence: every statement added, removed or moved is a changed statement. A changed
+target-level statement (`add_executable`, `target_*`, `add_test`, `set_target_properties`,
+`set_tests_properties`, `add_dependencies`) selects the declared suites it names; any other changed
+statement, a shared statement moved, or a suite's statement moved past a shared one, is FULL. So is a
+file the scanner cannot read with confidence (bracket arguments or comments, an unterminated
+statement or quote, unbalanced `end*()`). A change to either file, to `test/refresh-traceability-matrix.pl`
 or to the matrix also plans `make traceability-check-subset` and `make traceability-selftest`:
 the first generates the matrix with `--no-fails` (every suite taken as passing, since a subset
 run keeps no logs) and fails if the committed copy differs, so a wrong or missing row, summary
@@ -203,7 +207,7 @@ with `main` (`origin/main` when there is no local `main`; the remote-run host's 
 `TEST-AFFECTED MISS`, so the map or the conf is fixed on the same branch; with no such base, or in a
 platform tree (SDL-only, Windows, WebAssembly), the check is silent. A docs-only plan ran no suite, so
 every suite that fails is a miss. The planner's rows are
-`TAF-01..10` and `TAF-12..47` in `test/test-affected-selftest.sh` (`make test-affected-selftest`,
+`TAF-01..10` and `TAF-12..59` in `test/test-affected-selftest.sh` (`make test-affected-selftest`,
 part of `make unit-test`), on a hand-written fixture build tree, and `HS-194a..j` in the harness
 self-test.
 

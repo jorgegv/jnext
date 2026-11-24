@@ -39,6 +39,7 @@ use warnings;
 use File::Basename qw(dirname basename);
 use File::Spec;
 use Cwd qw(abs_path);
+use File::Temp;
 
 my $here = abs_path(dirname($0));
 my %o = (root => abs_path("$here/.."));
@@ -371,46 +372,78 @@ sub grep_refs {   # suites and rows whose sources/args/row scripts name path $p 
 
 sub slurp { my $f = shift; open(my $fh, '<', "$root/$f") or return ''; local $/; my $t = <$fh>; close $fh; $t }
 
-# The statements of a CMake file as a multiset: identity = the enclosing if()/foreach() chain plus
-# the statement text, so a block wrapped in a new condition shows as changed. Comments stripped;
-# quotes and nested parentheses respected.
+# The statements of a CMake file as an ORDERED list (CMake is order-dependent: directory options
+# apply to later targets only, a GLOB precedes its foreach). Each entry is [context, text]: the
+# enclosing if()/foreach() chain (else/elseif included) and the statement, comments stripped
+# quote-aware. Returns undef when the text uses anything this scanner cannot read with confidence
+# (bracket arguments or comments, an unterminated statement or quote, a stray token, unbalanced
+# end*()): the caller then plans FULL.
 sub cmake_statements {
     my $t = shift;
-    my (%h, @stack);
+    my (@out, @stack);
     my $i = 0; my $n = length $t;
     while ($i < $n) {
         my $c = substr($t, $i, 1);
-        if ($c eq '#') { $i++ while $i < $n && substr($t, $i, 1) ne "\n"; next }
-        if ($c !~ /[A-Za-z_]/) { $i++; next }
+        if ($c =~ /\s/) { $i++; next }
+        if ($c eq '#') {
+            return undef if substr($t, $i, 2) eq '#[';
+            $i++ while $i < $n && substr($t, $i, 1) ne "\n"; next;
+        }
+        return undef unless $c =~ /[A-Za-z_]/;
         my $s = $i;
         $i++ while $i < $n && substr($t, $i, 1) =~ /[A-Za-z0-9_]/;
         my $cmd = lc substr($t, $s, $i - $s);
         my $j = $i; $j++ while $j < $n && substr($t, $j, 1) =~ /[ \t]/;
-        next unless $j < $n && substr($t, $j, 1) eq '(';
-        my ($depth, $q) = (0, 0);
-        my $k = $j;
+        return undef unless $j < $n && substr($t, $j, 1) eq '(';
+        my ($depth, $q, $body) = (0, 0, '');
+        my $k = $j; my $closed = 0;
         for (; $k < $n; $k++) {
             my $ch = substr($t, $k, 1);
-            if ($q) { $k++ if $ch eq '\\'; $q = 0 if $ch eq '"'; next }
-            if    ($ch eq '"') { $q = 1 }
-            elsif ($ch eq '#') { $k++ while $k < $n && substr($t, $k, 1) ne "\n" }
-            elsif ($ch eq '(') { $depth++ }
-            elsif ($ch eq ')') { last if --$depth == 0 }
+            if ($q) {
+                if ($ch eq '\\') { $body .= $ch . substr($t, ++$k, 1); next }
+                $q = 0 if $ch eq '"';
+                $body .= $ch; next;
+            }
+            if    ($ch eq '\\') { $body .= $ch . substr($t, ++$k, 1); next }
+            elsif ($ch eq '"')  { $q = 1 }
+            elsif ($ch eq '#')  { return undef if substr($t, $k, 2) eq '#['; $k++ while $k < $n && substr($t, $k, 1) ne "\n"; $body .= ' '; next }
+            elsif ($ch eq '[')  { return undef if substr($t, $k) =~ /^\[=*\[/ }
+            elsif ($ch eq '(')  { $depth++ }
+            elsif ($ch eq ')')  { if (--$depth == 0) { $body .= $ch; $closed = 1; last } }
+            $body .= $ch;
         }
-        my $body = substr($t, $j, $k - $j + 1);
-        $body =~ s/#[^\n]*//g;
+        return undef unless $closed && !$q;
         $body =~ s/\s+/ /g;
         my $st = "$cmd$body";
         $i = $k + 1;
-        if    ($cmd eq 'if' || $cmd eq 'foreach' || $cmd eq 'while' || $cmd eq 'function' || $cmd eq 'macro' || $cmd eq 'block') { push @stack, [$st] }
-        elsif ($cmd eq 'elseif' || $cmd eq 'else') { push @{ $stack[-1] }, $st if @stack }
-        elsif ($cmd =~ /^end(if|foreach|while|function|macro|block)$/) { pop @stack }
-        else {
-            my $ctx = join(' >> ', map { join(' | ', @$_) } @stack);
-            $h{"$ctx\x01$st"}++;
-        }
+        if    ($cmd =~ /^(if|foreach|while|function|macro|block)$/) { push @stack, [$st] }
+        elsif ($cmd eq 'elseif' || $cmd eq 'else') { return undef unless @stack; push @{ $stack[-1] }, $st }
+        elsif ($cmd =~ /^end(if|foreach|while|function|macro|block)$/) { return undef unless @stack; pop @stack }
+        else { push @out, [join(' >> ', map { join(' | ', @$_) } @stack), $st] }
     }
-    return \%h;
+    return undef if @stack;
+    return \@out;
+}
+
+# Commands whose statement belongs to the suite(s) it names; any other command is shared.
+my $TARGET_CMD = qr/^(add_executable|add_test|add_dependencies|set_target_properties|set_tests_properties|target_\w+)\(/;
+
+sub diff_lines {   # normal diff of two line lists -> [ [type, old_from, old_to, new_from, new_to], ... ]
+    my ($x, $y) = @_;
+    my $d = File::Temp->newdir();
+    for my $p (['x', $x], ['y', $y]) { open(my $fh, '>', "$d/$p->[0]") or return undef; print $fh "$_\n" for @{ $p->[1] }; close $fh }
+    open(my $ph, '-|', 'env', 'LANG=C', 'diff', "$d/x", "$d/y") or return undef;
+    my @h;
+    while (<$ph>) {
+        chomp;
+        next unless /^([\d,]+)([acd])([\d,]+)$/;
+        my ($o, $ty, $nw) = ($1, $2, $3);
+        my ($of, $ot) = split /,/, $o; $ot //= $of;
+        my ($nf, $nt) = split /,/, $nw; $nt //= $nf;
+        push @h, [$ty, $of, $ot, $nf, $nt];
+    }
+    close $ph;
+    return \@h;
 }
 
 my $have_git = -e "$root/.git";
@@ -488,18 +521,43 @@ for my $f (@changed) {
         }
         if (!length $old) { $full = 1; $full_why{"$f (could not read the base version)"} = 1; next }
         my $new = slurp($f);
-        my ($oh, $nh) = (cmake_statements($old), cmake_statements($new));
-        my %seen_k;
-        for my $k (grep { !$seen_k{$_}++ } keys %$oh, keys %$nh) {
-            next if ($oh->{$k} // 0) == ($nh->{$k} // 0);
-            (my $st = $k) =~ s/^.*\x01//s;
-            my @hit = grep { $names{$_} } $st =~ /([A-Za-z_][A-Za-z0-9_]*)/g;
-            if (@hit) { $suites{$_} = 1 for @hit }
-            else {
-                $st =~ s/\s+/ /g; $st = substr($st, 0, 60) . '...' if length $st > 63;
-                $full = 1; $full_why{"$f (a changed statement names no declared suite: $st)"} = 1;
-            }
+        my ($os, $ns) = (cmake_statements($old), cmake_statements($new));
+        if (!$os || !$ns) { $full = 1; $full_why{"$f (the CMake text uses syntax the planner cannot read with confidence)"} = 1; next }
+        my $key = sub { "$_[0][0]\x01$_[0][1]" };
+        my $suite_of = sub {   # suites a statement names, or () when it is shared
+            my $st = $_[0][1];
+            return () unless $st =~ $TARGET_CMD;
+            return grep { $names{$_} } $st =~ /([A-Za-z_][A-Za-z0-9_]*)/g;
+        };
+        my $attribute = sub {
+            my ($e) = @_;
+            my @hit = $suite_of->($e);
+            if (@hit) { $suites{$_} = 1 for @hit; return }
+            (my $st = $e->[1]) =~ s/\s+/ /g; $st = substr($st, 0, 60) . '...' if length $st > 63;
+            $full = 1; $full_why{"$f (a changed statement names no declared suite: $st)"} = 1;
+        };
+        # The statements, in order, as lines: a changed line is a statement added, removed or moved.
+        my $dl = diff_lines([ map { $key->($_) } @$os ], [ map { $key->($_) } @$ns ]);
+        if (!$dl) { $full = 1; $full_why{"$f (could not diff the statements)"} = 1; next }
+        for my $h (@$dl) {
+            my ($type, $of, $ot, $nf, $nt) = @$h;
+            $attribute->($os->[$_ - 1]) for ($type ne 'a' ? ($of .. $ot) : ());
+            $attribute->($ns->[$_ - 1]) for ($type ne 'd' ? ($nf .. $nt) : ());
         }
+        # The same diff with every suite's statement made one placeholder: what is left is the
+        # position of suite statements among shared ones. A statement deleted in one place and
+        # added in another is a move across shared statements (options apply to later targets).
+        my $ph = sub { $suite_of->($_[0]) ? "<S>" : $key->($_[0]) };
+        my $pl = diff_lines([ map { $ph->($_) } @$os ], [ map { $ph->($_) } @$ns ]);
+        if (!$pl) { $full = 1; $full_why{"$f (could not diff the statements)"} = 1; next }
+        my (%del, %add);
+        for my $h (@$pl) {
+            my ($type, $of, $ot, $nf, $nt) = @$h;
+            $del{ $key->($os->[$_ - 1]) }++ for ($type ne 'a' ? ($of .. $ot) : ());
+            $add{ $key->($ns->[$_ - 1]) }++ for ($type ne 'd' ? ($nf .. $nt) : ());
+        }
+        my @moved = grep { $add{$_} } keys %del;
+        if (@moved) { $full = 1; $full_why{"$f (a statement moved past shared statements)"} = 1 }
     }
     elsif ($act eq 'fixture') {
         my ($ss, $rr) = grep_refs($f);
