@@ -126,6 +126,11 @@ public:
     /// Returns true if an image is mounted.
     bool mounted() const { return file_.is_open(); }
 
+    /// True when the guest cannot write the mounted card: `--sdcard-readonly`, or a read-write
+    /// open that fell back to read-only. False when nothing is mounted. The SD card file manager
+    /// (GH #558) shows such a card read-only.
+    bool write_protected() const { return mounted() && read_only_; }
+
     /// The mounted image's path ("" when nothing is mounted).
     const std::string& image_path() const { return path_; }
 

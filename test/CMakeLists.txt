@@ -574,6 +574,14 @@ if(NOT WIN32 AND NOT EMSCRIPTEN)
     target_include_directories(sdcard_file_extract_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME sdcard_file_extract_posix_tests COMMAND sdcard_file_extract_posix_test)
 endif()
+# GH #558: the SD card file manager's card operations (probe, list, rename, make directory, remove). os native
+# (the Windows share-mode question of SDOPS-24 runs under wine). Fixtures are built at run time with FatFs.
+if(NOT EMSCRIPTEN)
+    add_executable(sdcard_card_ops_test sdcard_card_ops/sdcard_card_ops_test.cpp)
+    target_link_libraries(sdcard_card_ops_test PRIVATE jnext_core)
+    target_include_directories(sdcard_card_ops_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_card_ops_tests COMMAND sdcard_card_ops_test)
+endif()
 # GH #555 S5: the upgrade flow (provision_sd_card carrying the user's files over; 600 MB sparse fixtures).
 # GH #555 S6: the backup an upgrade leaves, go back, delete, the menu state.
 if(NOT EMSCRIPTEN)
