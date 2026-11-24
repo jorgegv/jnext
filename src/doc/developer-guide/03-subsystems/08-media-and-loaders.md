@@ -2118,6 +2118,20 @@ and only if every component is a directory that exists on the card now (matched 
 nearest parent; the host directory, which is not machine state, falls back to its nearest existing parent, then the Load
 directory, then home, and ignores a value that is relative, holds a NUL or (Windows) names a UNC or device path.
 
+**The manager's window.** `SdManagerDialog` (`src/gui/sdcard_manager_dialog.*`) and `SdCardModel`
+(`src/gui/sdcard_card_model.*`) are a view over the logic above and decide nothing. The card pane is a `QListView` on
+`SdCardModel`: one directory as `cardops::list_dir` gives it, shown through `display_name`, every path it hands out built from
+an entry's `open_name` (an entry without one is shown and never acted on), and a drag payload whose lines are `%XX`-escaped
+so any name survives. The host pane is a `QListView` on a read-only `QFileSystemModel`. Every operation first re-reads
+`card_slots()` and `held_host_files()`: the card in the slot may have changed under the window, a recording may have started.
+A change while the window is open (polled by a timer, and checked before each operation) resets the card pane to the new
+card's ROOT, because the emulator wins over any remembered or shown state. The three remembered values are
+`sdcard_manager.card`, `sdcard_manager.card_dir` (stored `%XX`-escaped) and `sdcard_manager.host_dir`, plain `AppConfig`
+fields, settable with `--set` like `paths.last_load_dir`; they are read back only through `resolve_remembered()`, which checks
+them. The message boxes, the text prompts and the trash go through hooks the tests replace (`set_box_hook_for_test`,
+`set_text_hook_for_test`, `set_trash_hook_for_test`); a headless session has no trash. Rows: `SDMW-01..18`
+(`sdcard_manager_window_test`, offscreen), `AC-104..106` (`app_config_test`).
+
 **The glue caches sectors.** FatFs keeps one sector window per volume, so every path lookup
 re-reads its directory, and an uncached `disk_read` costs an `lseek` plus an 8 KiB stream-buffer
 refill. `fatfs_glue::attach()` therefore gives the drive a direct-mapped, write-through cache
