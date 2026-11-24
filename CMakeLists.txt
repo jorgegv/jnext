@@ -702,13 +702,11 @@ if(EMSCRIPTEN)
         "SHELL:--extern-post-js ${CMAKE_SOURCE_DIR}/web/jnext-touch-keyboard.js"
         "SHELL:--extern-post-js ${CMAKE_BINARY_DIR}/web/jnext_api.js")
     # The attribution link mount() adds under every player (GH #563) shows the application icon,
-    # inlined from the packaging SVG as a data: URI so there is one source and no extra file.
+    # inlined from the packaging SVG as a string the API turns into SVG DOM, so there is one source and no extra file.
     file(READ "${CMAKE_SOURCE_DIR}/packaging/assets/io.github.zxjogv.jnext.svg" JNEXT_ICON_SVG)
     string(REPLACE "\n" "" JNEXT_ICON_SVG "${JNEXT_ICON_SVG}")
+    string(REPLACE " style=\"paint-order:stroke\"" " paint-order=\"stroke\"" JNEXT_ICON_SVG "${JNEXT_ICON_SVG}")
     string(REPLACE "\"" "'" JNEXT_ICON_SVG "${JNEXT_ICON_SVG}")
-    string(REPLACE "#" "%23" JNEXT_ICON_SVG "${JNEXT_ICON_SVG}")
-    string(REPLACE "<" "%3C" JNEXT_ICON_SVG "${JNEXT_ICON_SVG}")
-    string(REPLACE ">" "%3E" JNEXT_ICON_SVG "${JNEXT_ICON_SVG}")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
         "${CMAKE_SOURCE_DIR}/packaging/assets/io.github.zxjogv.jnext.svg")
     configure_file(web/jnext_api.js.in "${CMAKE_BINARY_DIR}/web/jnext_api.js" @ONLY)

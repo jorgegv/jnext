@@ -1,4 +1,4 @@
-// Browser rows WIDGET-01..19: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
+// Browser rows WIDGET-01..23: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
 // (make wasm-browser-test, spec widget.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // Server A is the page host (http://localhost:<port>, a secure context): it serves the files of the
@@ -25,11 +25,12 @@ const ONLY = (E.WIDGET_ROWS || '').split(' ').filter(Boolean);   // development 
 const h = new Harness({});
 const MIMES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm' };
 const pages = {};   // virtual pages: name -> html
+const pageHeaders = {};   // virtual page name -> extra response headers
 const NOCORE = '/nocore/jnext-widget.js';   // the widget script alone, in a directory with no jnext-<ver>.js beside it
 const A = http.createServer((req, res) => {
   const name = decodeURIComponent(new URL(req.url, 'http://x').pathname.slice(1));
   if ('/' + name === NOCORE) { res.writeHead(200, { 'Content-Type': 'text/javascript' }); res.end(fs.readFileSync(path.join(BUILD, 'jnext-widget.js'))); return; }
-  if (pages[name] !== undefined) { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(pages[name]); return; }
+  if (pages[name] !== undefined) { res.writeHead(200, { 'Content-Type': 'text/html', ...(pageHeaders[name] || {}) }); res.end(pages[name]); return; }
   const f = path.join(BUILD, name);
   if (!/^[^/]+$/.test(name) || !fs.existsSync(f) || !fs.statSync(f).isFile()) { res.writeHead(404); res.end(); return; }
   res.writeHead(200, { 'Content-Type': MIMES[path.extname(name)] || 'application/octet-stream' });
@@ -489,6 +490,8 @@ const creditOf = (page, sel) => page.evaluate((sel) => {
   return { href: a.href, target: a.target, rel: a.rel, text: a.textContent, icon: img.complete && img.naturalWidth > 0,
            overlap: !(r.top >= cv.bottom - 0.5 || r.bottom <= cv.top + 0.5 || r.left >= cv.right || r.right <= cv.left),
            below: r.top >= cv.bottom - 0.5, visible: r.width > 0 && r.height > 0 && getComputedStyle(c).display !== 'none',
+           vis: getComputedStyle(a).visibility + '/' + getComputedStyle(c).visibility, opacity: parseFloat(getComputedStyle(c).opacity),
+           hit: (() => { const e = document.elementFromPoint(a.getBoundingClientRect().left + a.getBoundingClientRect().width / 2, a.getBoundingClientRect().top + a.getBoundingClientRect().height / 2); return !!e && (e === a || a.contains(e)); })(),
            credRight: r.right, boxRight: box.right, iconW: ir.width, iconH: ir.height, vw: window.innerWidth,
            color: getComputedStyle(a).color, bg: getComputedStyle(document.querySelector('.jw-frame') || document.body).backgroundColor };
 }, sel);
@@ -496,6 +499,7 @@ const mustCredit = (r) => {
   must(r.href === 'https://www.jnext.es/' && r.target === '_blank' && /noopener/.test(r.rel), 'link ' + JSON.stringify(r));
   must(r.text === 'JNext' && r.icon, 'text/icon ' + JSON.stringify(r));
   must(r.visible && r.below && !r.overlap, 'placement ' + JSON.stringify(r));
+  must(r.vis === 'visible/visible' && r.opacity >= 0.5 && r.hit, 'not really visible or covered: ' + JSON.stringify(r));
   must(Math.abs(r.credRight - r.boxRight) <= 2, 'credit right edge ' + r.credRight + ' vs player panel ' + r.boxRight + ' (viewport ' + r.vw + ')');
   must(Math.abs(r.iconW - 18) <= 0.5 && Math.abs(r.iconH - 18) <= 0.5, 'icon size ' + r.iconW + 'x' + r.iconH);
 };
@@ -530,6 +534,109 @@ row('WIDGET-19', 'plain.html (the basic template page) shows the same attributio
   if (SHOTS) await ph.screenshot({ path: path.join(SHOTS, 'credit-plain-narrow.png') });
   await ph.context().close();
   mustCredit(n);
+});
+
+// The credit in any parent layout, the shipped itch.io page, a strict CSP, and its lifecycle (GH #563 review 1).
+const ctxPage = async (url, ctxOpts = {}, extra = {}) => {
+  const ctx = await h.browser.newContext({ viewport: { width: 1000, height: 900 }, deviceScaleFactor: 1, ...ctxOpts });
+  await ctx.addInitScript((d) => { window['jnextDev'] = d; }, CARD_SEAM);
+  const page = await ctx.newPage();
+  page.msgs = [];
+  page.on('pageerror', (e) => page.msgs.push('PAGEERROR ' + e.message));
+  page.on('console', (m) => { if (m.type() === 'error') page.msgs.push('CONSOLE ' + m.text()); });
+  await page.goto(url);
+  return page;
+};
+const layoutPage = (name, host) => {
+  pages[name] = `<!doctype html><body>${host}<script src="jnext-${VERSION}.js"></script><script>
+window.pl = null; jnext.mount(document.getElementById('p'), { width: 640, height: 512, file: ${JSON.stringify(BURL + '/red.nex')} }).then((p) => { window.pl = p; });
+</script></body>`;
+};
+
+row('WIDGET-20', 'a flex-row and a grid host page: the credit never overlaps the player, hit-tests as a link beside the click target, its right edge is the player panel edge, and a click on the player starts it', async () => {
+  layoutPage('flex.html', '<div style="display:flex"><div id="p"></div><aside style="width:200px">sidebar</aside></div>');
+  layoutPage('grid.html', '<div style="display:grid;grid-template-columns:auto 200px"><div id="p"></div><aside>sidebar</aside></div>');
+  const probe = (page) => page.evaluate(() => {
+    const box = document.querySelector('.jnext-player').getBoundingClientRect(), c = document.querySelector('.jnext-credit'), r = c.getBoundingClientRect(),
+          a = c.querySelector('a').getBoundingClientRect();
+    const mid = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    const link = document.elementFromPoint(a.left + a.width / 2, a.top + a.height / 2);
+    return { overlap: !(r.top >= box.bottom - 0.5 || r.bottom <= box.top + 0.5 || r.left >= box.right - 0.5 || r.right <= box.left + 0.5),
+             midInPlayer: !!mid && !!mid.closest('.jnext-player'), linkHit: !!link && !!link.closest('.jnext-credit'),
+             right: r.right, boxRight: box.right, boxW: box.width, boxH: box.height, vis: getComputedStyle(c).visibility };
+  });
+  const out = [];
+  for (const name of ['flex.html', 'grid.html']) {
+    const page = await ctxPage(`${AURL}/${name}`);
+    await waitFor(page, () => window.pl && document.querySelector('.jnext-credit'), null, 120000);
+    const r = await probe(page);
+    if (name === 'flex.html') {
+      await page.locator('.jnext-overlay').click({ timeout: 600000, noWaitAfter: true });
+      await waitFor(page, () => window.pl.state === 'running', null, 600000);
+      r.started = true;
+    }
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'credit-' + name.replace('.html', '') + '.png') });
+    await page.context().close();
+    out.push([name, r, page.msgs]);
+  }
+  for (const [name, r, msgs] of out) {
+    must(!r.overlap && r.midInPlayer && r.linkHit && r.vis === 'visible', name + ': ' + JSON.stringify(r));
+    must(Math.abs(r.right - r.boxRight) <= 2 && r.boxW === 640 && r.boxH === 512, name + ' alignment: ' + JSON.stringify(r));
+    must(msgs.length === 0, name + ': ' + msgs.join('; '));
+  }
+  must(out[0][1].started, 'the click did not start the player');
+});
+
+row('WIDGET-21', 'itch-game.html (the shipped itch.io page) at the 640x512 frame: the credit is inside the viewport, below the canvas, not covered, right edge on the player edge', async () => {
+  const page = await ctxPage(`${AURL}/itch-game.html?` + QUERY, { viewport: { width: 640, height: 512 } });
+  await waitFor(page, () => window.player && document.querySelector('.jnext-credit'), null, 120000);
+  const r = await page.evaluate(() => {
+    const c = document.querySelector('.jnext-credit'), a = c.querySelector('a'), rr = c.getBoundingClientRect(),
+          cv = document.querySelector('canvas').getBoundingClientRect(), box = document.querySelector('.jnext-player').getBoundingClientRect(),
+          ar = a.getBoundingClientRect(), hit = document.elementFromPoint(ar.left + ar.width / 2, ar.top + ar.height / 2);
+    return { top: rr.top, bottom: rr.bottom, vh: innerHeight, canvasBottom: cv.bottom, right: rr.right, boxRight: box.right,
+             hit: !!hit && !!hit.closest('.jnext-credit'), canvasH: cv.height };
+  });
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'credit-itch.png') });
+  await page.context().close();
+  must(r.bottom <= r.vh + 0.5 && r.top >= r.canvasBottom - 1 && r.hit, 'credit placement ' + JSON.stringify(r));
+  must(Math.abs(r.right - r.boxRight) <= 2 && r.canvasH > 400, 'alignment/canvas ' + JSON.stringify(r));
+  must(page.msgs.length === 0, page.msgs.join('; '));
+});
+
+row('WIDGET-22', 'under a page CSP with img-src self the credit still has its icon (inline SVG, 18 px) and no CSP violation is logged', async () => {
+  pages['csp.html'] = `<!doctype html><body><div id="p"></div><script src="jnext-${VERSION}.js"></script><script>window.pl = null; jnext.mount(document.getElementById('p'), { width: 640, height: 512 }).then((p) => { window.pl = p; });</script></body>`;
+  pageHeaders['csp.html'] = { 'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; connect-src *; img-src 'self'" };
+  const page = await ctxPage(`${AURL}/csp.html`);
+  await waitFor(page, () => window.pl && document.querySelector('.jnext-credit'), null, 120000);
+  const r = await page.evaluate(() => {
+    const c = document.querySelector('.jnext-credit'), svg = c.querySelector('a svg'), b = svg && svg.getBoundingClientRect();
+    return { svg: !!svg, w: b && b.width, h: b && b.height, shapes: svg ? svg.querySelectorAll('path,polygon,rect').length : 0, img: c.querySelectorAll('img').length };
+  });
+  await page.context().close();
+  must(r.svg && Math.abs(r.w - 18) < 0.5 && Math.abs(r.h - 18) < 0.5 && r.shapes > 3 && r.img === 0, 'icon ' + JSON.stringify(r));
+  must(page.msgs.length === 0, 'console/page errors: ' + page.msgs.join('; '));
+});
+
+row('WIDGET-23', 'lifecycle: destroy() removes the credit, a failed mount leaves none, and two players have one credit each', async () => {
+  pages['life.html'] = `<!doctype html><body><div id="a"></div><div id="b"></div><div id="c"></div><script src="jnext-${VERSION}.js"></script></body>`;
+  const page = await ctxPage(`${AURL}/life.html`);
+  await waitFor(page, () => typeof jnext !== 'undefined', null, 60000);
+  const r = await page.evaluate(async () => {
+    const n = () => document.querySelectorAll('.jnext-credit').length;
+    const pa = await jnext.mount(document.getElementById('a'), { width: 640, height: 512 });
+    const pb = await jnext.mount(document.getElementById('b'), { width: 640, height: 512 });
+    const two = n();
+    await pa.destroy();
+    const afterDestroy = n();
+    let rejected = false;
+    try { await jnext.mount(document.getElementById('c'), { width: 640, height: 512, debug: { protocol: 'dzrp', transport: 'ws' } }); } catch (e) { rejected = true; }
+    const afterFail = n();
+    await pb.destroy();
+    return { two, afterDestroy, rejected, afterFail, end: n() };
+  });
+  await page.context().close();
+  must(r.two === 2 && r.afterDestroy === 1 && r.rejected && r.afterFail === 1 && r.end === 0, 'credit counts ' + JSON.stringify(r));
 });
 
 let pass = 0, fail = 0;

@@ -185,45 +185,87 @@
     if (poster) box.appendChild(poster);
     box.appendChild(overlay);
     container.appendChild(box);
-    // The attribution (GH #563): a small icon + "JNext" link to the project page, a sibling right
-    // after the container so it never covers the picture. The only place it is made: the widget
-    // and every page that calls mount() get it from here.
+    // The attribution (GH #563): a small icon + "JNext" link to the project site. The only place it is
+    // made: the widget and every page that calls mount() get it from here. Normally it is a sibling
+    // right after the container, as wide as the container and at its left edge, so its right edge is
+    // the player panel's. When the parent's layout does not put a sibling below the container (a flex
+    // row, a grid, an absolutely positioned player) it goes INSIDE the container instead, absolutely
+    // positioned just under it at its right edge, with room reserved by the container's bottom margin:
+    // in no layout does it lie over the picture. The icon is built as SVG DOM (no data: URI, so a
+    // page's img-src policy does not touch it).
     var credit = document.createElement('div');
     credit.className = 'jnext-credit';
-    credit.style.cssText = 'display:block;box-sizing:border-box;padding:2px 0;text-align:right;' +
-      'font:13px/22px system-ui,sans-serif;color:inherit;background:none;opacity:0.8';
+    var CREDIT_BASE = 'display:block;box-sizing:border-box;padding:2px 0;text-align:right;white-space:nowrap;' +
+      'font:13px/22px system-ui,sans-serif;color:inherit;background:none;opacity:0.8;';
     var creditLink = document.createElement('a');
     creditLink.href = 'https://www.jnext.es';
     creditLink.target = '_blank';
     creditLink.rel = 'noopener';
     creditLink.title = 'JNext, a ZX Spectrum Next emulator';
     creditLink.style.cssText = 'color:inherit;text-decoration:none;cursor:pointer';
-    var creditIcon = document.createElement('img');
-    creditIcon.alt = '';
-    creditIcon.width = 18;
-    creditIcon.height = 18;
-    creditIcon.src = "data:image/svg+xml,@JNEXT_ICON_SVG@";
+    var creditIcon = new DOMParser().parseFromString("@JNEXT_ICON_SVG@", 'image/svg+xml').documentElement;
+    creditIcon = document.importNode(creditIcon, true);
+    // The asset's clip id is renamed per mount, so it cannot collide with an id of the host page.
+    var clipEl = creditIcon.querySelector('clipPath');
+    if (clipEl) {
+      var clipId = 'jnext-credit-clip-' + n;
+      clipEl.setAttribute('id', clipId);
+      Array.prototype.forEach.call(creditIcon.querySelectorAll('[clip-path]'), function (e) {
+        e.setAttribute('clip-path', 'url(#' + clipId + ')');
+      });
+    }
+    creditIcon.setAttribute('width', '18');
+    creditIcon.setAttribute('height', '18');
+    creditIcon.setAttribute('aria-hidden', 'true');
     creditIcon.style.cssText = 'display:inline;width:18px;height:18px;vertical-align:-4px;margin:0 5px 0 0;' +
       'border:0;padding:0';
     creditLink.appendChild(creditIcon);
     creditLink.appendChild(document.createTextNode('JNext'));
     credit.appendChild(creditLink);
-    if (container.parentNode) container.parentNode.insertBefore(credit, container.nextSibling);
-    // Right-aligned to the player's panel (the container), not to the page: same width and left edge.
+    var creditAlive = !!container.parentNode, creditInside = false;
+    var containerMargin = container.style.marginBottom, containerPos = container.style.position;
+    if (creditAlive) container.parentNode.insertBefore(credit, container.nextSibling);
+    function creditOutside() {
+      if (creditInside) {
+        container.style.marginBottom = containerMargin;
+        container.style.position = containerPos;
+        creditInside = false;
+      }
+      if (credit.parentNode !== container.parentNode || credit.previousSibling !== container) {
+        container.parentNode.insertBefore(credit, container.nextSibling);
+      }
+      credit.style.cssText = CREDIT_BASE;
+    }
     function placeCredit() {
-      if (!credit.parentNode) return;
-      credit.style.marginLeft = '0';
+      if (!creditAlive || !container.parentNode) return;
+      creditOutside();
       var c = container.getBoundingClientRect(), r = credit.getBoundingClientRect();
-      credit.style.width = c.width + 'px';
-      credit.style.marginLeft = (c.left - r.left) + 'px';
+      if (r.top >= c.bottom - 1 && r.left <= c.left + 1 + c.width) {
+        credit.style.width = c.width + 'px';
+        credit.style.marginLeft = (c.left - r.left) + 'px';
+        return;
+      }
+      // Not laid out below the container: hang it under the container's right edge.
+      var cs = getComputedStyle(container);
+      if (cs.position === 'static') container.style.position = 'relative';
+      container.style.marginBottom = ((parseFloat(cs.marginBottom) || 0) + 26) + 'px';
+      container.appendChild(credit);
+      credit.style.cssText = CREDIT_BASE + 'position:absolute;top:100%;right:0;margin:0;width:auto';
+      creditInside = true;
     }
     var creditObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(placeCredit) : null;
     if (creditObserver) creditObserver.observe(container);
     window.addEventListener('resize', placeCredit);
     placeCredit();
     function dropCredit() {
+      creditAlive = false;
       if (creditObserver) creditObserver.disconnect();
       window.removeEventListener('resize', placeCredit);
+      if (creditInside) {
+        container.style.marginBottom = containerMargin;
+        container.style.position = containerPos;
+        creditInside = false;
+      }
       if (credit.parentNode) credit.parentNode.removeChild(credit);
     }
     var kb = JnextTouchKeyboard.create(box, canvas);   // builds nothing until the keyboard is shown
