@@ -3683,7 +3683,8 @@ the recording was made on is not the one it now boots from.</p>
   include the two code blocks of the user guide's section 8.5, extracted from its
   source and run verbatim, so the guide's snippets cannot drift from what is tested.
   <code>jnext.mount()</code> itself adds the small "JNext" attribution link (the application icon, inlined from
-  <code>packaging/assets</code> by CMake) as a sibling after the container, so the widget and every page share it.</li>
+  <code>packaging/assets</code> by CMake) as a sibling after the container, sized and offset to the container's box (a <code>ResizeObserver</code> and the window <code>resize</code>
+  keep it aligned to the panel's right edge), so the widget and every page share it. It links to www.jnext.es.</li>
 <li><code>crt_shader_policy_test</code> (CRT-POL-15 to 18: the start-up rule and the GL viewport) and <code>config_keys_test</code> (SETK-CRT-01: the <code>WEB</code> bit) cover the CRT effect's rules natively.</li>
 <li>Native suites test the browser's policy without a browser: <code>web_api_test</code> (the option
   table, the argv and the man page's browser section; <code>make cli-check</code> runs it),
