@@ -45,20 +45,6 @@ std::string fr_text(FRESULT r) {
 
 std::string shown(const std::string& s) { return carry::escape_name(s, false); }
 
-// Can FatFs open an entry by this name? Not when it ends in a dot or a space (FatFs drops those, so the
-// path would name another entry), holds a control byte or one of "*:<>?|, '/', '\' or DEL, or is longer
-// than a long name can be.
-bool fatfs_can_open_by(const std::string& n) {
-    if (n.empty() || n.size() > 255) return false;
-    if (n.back() == '.' || n.back() == ' ') return false;
-    for (char ch : n) {
-        const unsigned char c = static_cast<unsigned char>(ch);
-        if (c < 0x20 || c == 0x7F) return false;
-        if (std::strchr("\"*:<>?|/\\", c)) return false;
-    }
-    return true;
-}
-
 std::string fold(const std::string& s) {
     std::string k = s;
     for (char& c : k)
@@ -194,8 +180,9 @@ CardEntry to_entry(const FILINFO& f) {
     return e;
 }
 
-// Give each entry its open_name: the first of its long name and its 8.3 alias that FatFs can open AND that
-// FatFs resolves to THIS entry. FatFs takes the first entry, in directory order, whose long name or 8.3
+// Give each entry its open_name: the first of its long name and its 8.3 alias that FatFs resolves to THIS
+// entry. (A name FatFs refuses, strips a trailing dot or space from, or reads a backslash of as a separator
+// returns no entry or another one, so the same test refuses it.) FatFs takes the first entry, in directory order, whose long name or 8.3
 // name matches the typed one, comparing in Unicode (ff_wtoupper over ff_oem2uni); a long name with a
 // character outside the code page even lists under its alias while still matching as the long name. So the
 // answer is asked of FatFs itself: f_stat(candidate) must return this entry's size, attributes, date and
@@ -213,7 +200,7 @@ void resolve_open_names(const std::string& fat_dir, std::vector<CardEntry>& ents
         for (int k = 0; k < 2; ++k) {
             const bool by_name = k == 0;
             const std::string& cand = by_name ? e.name : e.altname;
-            if (!fatfs_can_open_by(cand)) continue;
+            if (cand.empty()) continue;      // f_stat refuses what no name can open (control bytes, *:<>?|", a separator)
             FILINFO f{};
             if (f_stat((base + cand).c_str(), &f) != FR_OK) continue;
             if (f.fsize != e.size || static_cast<uint8_t>(f.fattrib & (AM_RDO | AM_HID | AM_SYS)) != e.attr ||

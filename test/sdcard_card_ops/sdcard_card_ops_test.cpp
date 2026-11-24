@@ -1084,23 +1084,56 @@ int main() {
     {
         const std::string DP = tmp_name("dup") + ".img";
         make_card(DP, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& fsv, Pokes& pokes) {
-            if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/DUP") != FR_OK || !fat_write("0:/DATA/D1.BIN", kD1) ||
+            if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/DUP") != FR_OK || f_mkdir("0:/DUP2") != FR_OK || !fat_write("0:/DATA/D1.BIN", kD1) ||
                 !fat_write("0:/DATA/D2.BIN", Bytes(kD1.size(), 0x66)))
                 return false;
             const uint32_t n = static_cast<uint32_t>(kD1.size());
             hand_dir(fsv, dir_cluster("0:/DUP"), 2,
                      {{u"Dup", "DUP~1      ", 0x20, file_cluster("0:/DATA/D1.BIN"), n}, {u"Dup", "DUP~1      ", 0x20, file_cluster("0:/DATA/D2.BIN"), n}}, pokes);
+            // the same two names, sizes that differ: the fields tell them apart, but FatFs still resolves both names to the first
+            hand_dir(fsv, dir_cluster("0:/DUP2"), 2,
+                     {{u"Dup", "DUP~1      ", 0x20, file_cluster("0:/DATA/D1.BIN"), n}, {u"Dup", "DUP~1      ", 0x20, file_cluster("0:/DATA/D2.BIN"), n + 1}}, pokes);
             return true;
         });
-        const Ls l = ls(DP, "/DUP");
+        const Ls l = ls(DP, "/DUP"), l2 = ls(DP, "/DUP2");
         std::string err;
         const std::string before = sha_file(DP);
         const St st = ops::remove(DP, "/DUP", err);
-        check("SDOPS-49", "two entries that FatFs cannot tell apart (same long name, 8.3 name, size, attributes, date and time): the first is opened by its name, the second has no open_name (ambiguous), so removing the directory is refused with the image byte-identical",
-              l.st == St::Ok && l.e.size() == 2 && l.e[0].open_name == "Dup" && l.e[1].open_name.empty() && st == St::DestInvalid && sha_file(DP) == before,
-              info(l) + " " + stn(st) + " " + err);
+        check("SDOPS-49", "two entries that FatFs cannot tell apart (same long name, 8.3 name, size, attributes, date and time), or that share both names and differ only in size: the first is opened by its name, the second has no open_name, so removing the directory is refused with the image byte-identical",
+              l.st == St::Ok && l.e.size() == 2 && l.e[0].open_name == "Dup" && l.e[1].open_name.empty() &&
+                  st == St::DestInvalid && sha_file(DP) == before && l2.st == St::Ok && l2.e.size() == 2 && l2.e[0].open_name == "Dup" &&
+                  l2.e[1].open_name.empty(),
+              info(l) + " " + info(l2) + " " + stn(st) + " " + err);
         std::error_code ec;
         fs::remove(DP, ec);
+    }
+
+    // SDOPS-50: Sigma / sigma with EVERY field equal (size, attributes, date, time): only the stored names tell the entries apart
+    {
+        const std::string GE = tmp_name("greq") + ".img";
+        make_card(GE, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& fsv, Pokes& pokes) {
+            if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/GR") != FR_OK || !fat_write("0:/DATA/D1.BIN", kD1) ||
+                !fat_write("0:/DATA/D2.BIN", Bytes(kD1.size(), 0x66)))
+                return false;
+            const uint32_t n = static_cast<uint32_t>(kD1.size());
+            hand_dir(fsv, dir_cluster("0:/GR"), 2,
+                     {{u"ΣX", "Y~1        ", 0x20, file_cluster("0:/DATA/D1.BIN"), n}, {u"σX", "X~1        ", 0x20, file_cluster("0:/DATA/D2.BIN"), n}}, pokes);
+            return true;
+        });
+        const Ls l = ls(GE, "/GR");
+        std::string err;
+        Img c(GE);
+        // X is the entry after Y in directory order: its content is the 0x66 fill
+        const ops::CardEntry* x = l.e.size() == 2 && l.e[0].name == "\xE4X" ? &l.e[1] : (l.e.size() == 2 ? &l.e[0] : nullptr);
+        const St r = x && !x->open_name.empty() ? ops::remove(c.p, "/GR/" + x->open_name, err) : St::ImageUnusable;
+        const Ls a = ls(c.p, "/GR");
+        const Tree y = a.e.size() == 1 ? extracted(c.p, "/GR/" + a.e[0].altname) : Tree{};     // by alias: extract takes printable ASCII only
+        check("SDOPS-50", "Sigma / sigma long names with the same size, attributes, date and time: the later entry is not opened by its long name (FatFs returns the earlier one), so remove by open_name takes the later one and the earlier one's bytes stay",
+              l.st == St::Ok && x && !x->open_name.empty() && r == St::Ok && a.e.size() == 1 && a.e[0].name == "\xE4X" && y.size() == 1 &&
+                  y.begin()->second == kD1,
+              info(l) + " open=[" + (x ? x->open_name : "-") + "] " + stn(r) + " " + err + " after=" + info(a) + " ysz=" + std::to_string(y.size()));
+        std::error_code ec;
+        fs::remove(GE, ec);
     }
 
     sd_write_journal::forget_all_for_test();
