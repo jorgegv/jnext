@@ -404,10 +404,15 @@ int main(int argc, char** argv)
         rig.emu.sd_card2().mount(c.p, false);
         d.check_card_change();   // the machine has a second card now
         const bool enabled_now = im && im->item(1)->isEnabled();   // the selector follows the machine, not only the shown slot
+        rig.emu.sd_card2().unmount();   // and it goes away again: the selector follows
+        d.check_card_change();
+        const bool disabled_again = im && !im->item(1)->isEnabled();
+        rig.emu.sd_card2().mount(c.p, false);
+        d.check_card_change();
         combo->setCurrentIndex(1);
         const bool second = d.slot() == 1 && d.card_dir() == "/" && has(card_names(d), "GAMES") && card_names(d).size() == 1;
-        check("SDMW-03", "the selector lists the two slots only (an empty one disabled); choosing the second slot lists the second card at its root",
-              two && empty_disabled && enabled_now && second, "slot=" + std::to_string(d.slot()));
+        check("SDMW-03", "the selector lists the two slots only (an empty one disabled, and the selector follows a card that appears or goes away); choosing the second slot lists the second card at its root",
+              two && empty_disabled && enabled_now && disabled_again && second, "slot=" + std::to_string(d.slot()));
         rig.session.close(rig.emu);
     }
     // SDMW-04
