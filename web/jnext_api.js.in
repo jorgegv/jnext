@@ -202,7 +202,7 @@
     creditIcon.alt = '';
     creditIcon.width = 14;
     creditIcon.height = 14;
-    creditIcon.src = 'data:image/svg+xml,@JNEXT_ICON_SVG@';
+    creditIcon.src = "data:image/svg+xml,@JNEXT_ICON_SVG@";
     creditIcon.style.cssText = 'display:inline;width:14px;height:14px;vertical-align:-3px;margin:0 4px 0 0;' +
       'border:0;padding:0';
     creditLink.appendChild(creditIcon);
