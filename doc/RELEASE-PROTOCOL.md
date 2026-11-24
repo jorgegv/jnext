@@ -466,7 +466,7 @@ release", "write the forum post").
   forums* is older than the previous public release, extend the span back to
   that announced version so nothing goes unannounced. Ask the user which
   version was last announced whenever it isn't obvious; the answer is the
-  vA.B.C of the "New features since release vA.B.C:" line.
+  vA.B.C of the "New features since last release (vA.B.C):" line.
 
 ### 8.2 Both formats, always
 
@@ -519,7 +519,7 @@ Check them against `README.md` before posting — they have moved before:
 JNEXT is a ZX Spectrum Next emulator written against the official FPGA VHDL
 sources. With versions for Linux, Windows and MacOS (Apple Silicon and Intel).
 
-New features since release vA.B.C:
+New features since last release (vA.B.C):
 
 **For users**
 
@@ -542,7 +542,7 @@ Plus the regular list of rendering, timing and compatibility fixes — see the C
 
 JNEXT is a ZX Spectrum Next emulator written against the official FPGA VHDL sources. With versions for Linux, Windows and MacOS (Apple Silicon and Intel).
 
-New features since release vA.B.C:
+New features since last release (vA.B.C):
 
 [b]For users[/b]
 [list]
