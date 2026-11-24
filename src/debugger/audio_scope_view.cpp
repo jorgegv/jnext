@@ -7,6 +7,7 @@
 #include <QHBoxLayout>
 #include <QPainter>
 #include <QPalette>
+#include <QVariant>
 #include <QVBoxLayout>
 
 #include <algorithm>

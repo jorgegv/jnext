@@ -3,6 +3,7 @@
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QStringList>
+#include <QVariant>
 #include <QVBoxLayout>
 
 #include <algorithm>

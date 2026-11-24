@@ -251,7 +251,7 @@ real start and finish of the file:
 
 | option | begin | end |
 |---|---|---|
-| `--wav-record`, `--dac-trace` | `AudioRecorder::start`, `DacTraceRecorder::start` | their `stop()` |
+| `--wav-record`, `--wav-record-stems`, `--dac-trace` | `AudioRecorder::start`, `DacTraceRecorder::start` | their `stop()` |
 | `--tape-save` | `Emulator::start_tape_save` (TAP and TZX/WAV arms) | `stop_tape_save`, `finish_outputs` |
 | `--compositor-trace` | the `fopen` in `Renderer::render_frame` | `Renderer::finish_compositor_trace` (after its frame, or at the end) |
 | `--profile-output` | none | `finish_outputs`, after `write_to_file` |

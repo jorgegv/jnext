@@ -16,6 +16,7 @@
 #include <QPalette>
 #include <QColor>
 #include <QStringList>
+#include <QVariant>
 
 // AY register names for row headers
 static const char* const kRegNames[16] = {

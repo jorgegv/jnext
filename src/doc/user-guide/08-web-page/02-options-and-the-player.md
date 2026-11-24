@@ -152,7 +152,7 @@ player `machine: '48k'`, `'128k'`, `'plus3'` or `'pentagon'`.
 
 ### Files JNEXT writes
 
-Some options make JNEXT write a file: a recording (`--wav-record`, `--dac-trace`, `--tape-save`), a
+Some options make JNEXT write a file: a recording (`--wav-record`, `--wav-record-stems`, `--dac-trace`, `--tape-save`), a
 screenshot (`--delayed-screenshot`), a trace or profile (`--compositor-trace`, `--profile` with
 `--profile-output`), an export (`--export-skoolkit`, `--export-ghidra`), a bug report
 (`--bug-report`), the audio write log (`--audio-log`), a `.psg` recording (`--psg-record`) or the log (`--log-file`). A page gives them in `args`. The files live in the

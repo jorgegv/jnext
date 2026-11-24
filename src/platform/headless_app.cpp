@@ -464,7 +464,9 @@ void HeadlessApp::run() {
     // through `persistent_`. C − U is that attach's hot-path cost.
     //
     //   JNEXT_BENCH_WATCH=s       the `c` attach, and the mixer SOURCE TAP on (GH #536:
-    //                             `set_audio_scope_enabled`); S − C is the tap's cost with it on The handler returns `Continue`, so
+    //                             `set_audio_scope_enabled`); S − C is the tap's cost with it on.
+    //
+    // The handler returns `Continue`, so
     // nothing pauses — §6.2 records a run where the watch paused the machine and
     // the benchmark "measured" 13x by emulating nothing.
     //
