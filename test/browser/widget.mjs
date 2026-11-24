@@ -485,21 +485,25 @@ row('WIDGET-17', 'data-keep-writes gives a widget player whose command line carr
 const creditOf = (page, sel) => page.evaluate((sel) => {
   const c = document.querySelector('.jnext-credit'), a = c && c.querySelector('a'), img = a && a.querySelector('img');
   const cv = document.querySelector(sel + ' canvas').getBoundingClientRect(), r = c.getBoundingClientRect();
+  const ir = img.getBoundingClientRect(), box = document.querySelector(sel + ' .jnext-player').getBoundingClientRect();
   return { href: a.href, target: a.target, rel: a.rel, text: a.textContent, icon: img.complete && img.naturalWidth > 0,
            overlap: !(r.top >= cv.bottom - 0.5 || r.bottom <= cv.top + 0.5 || r.left >= cv.right || r.right <= cv.left),
            below: r.top >= cv.bottom - 0.5, visible: r.width > 0 && r.height > 0 && getComputedStyle(c).display !== 'none',
+           credRight: r.right, boxRight: box.right, iconW: ir.width, iconH: ir.height, vw: window.innerWidth,
            color: getComputedStyle(a).color, bg: getComputedStyle(document.querySelector('.jw-frame') || document.body).backgroundColor };
 }, sel);
 const mustCredit = (r) => {
-  must(r.href === 'https://github.com/jorgegv/jnext' && r.target === '_blank' && /noopener/.test(r.rel), 'link ' + JSON.stringify(r));
+  must(r.href === 'https://www.jnext.es/' && r.target === '_blank' && /noopener/.test(r.rel), 'link ' + JSON.stringify(r));
   must(r.text === 'JNext' && r.icon, 'text/icon ' + JSON.stringify(r));
   must(r.visible && r.below && !r.overlap, 'placement ' + JSON.stringify(r));
+  must(Math.abs(r.credRight - r.boxRight) <= 2, 'credit right edge ' + r.credRight + ' vs player panel ' + r.boxRight + ' (viewport ' + r.vw + ')');
+  must(Math.abs(r.iconW - 18) <= 0.5 && Math.abs(r.iconH - 18) <= 0.5, 'icon size ' + r.iconW + 'x' + r.iconH);
 };
 
-row('WIDGET-18', 'the widget shows the JNext attribution link under the screen (icon + text, new tab, no overlap with the canvas), in light and dark', async () => {
+row('WIDGET-18', 'the widget shows the JNext attribution link (www.jnext.es, icon 18 px + text, new tab) under the screen, right edge on the player panel's, no overlap with the canvas, in light and dark at a 1600 px viewport', async () => {
   const out = [];
   for (const scheme of ['light', 'dark']) {
-    const page = await open(`${AURL}/widget.html?` + QUERY, { colorScheme: scheme });
+    const page = await open(`${AURL}/widget.html?` + QUERY, { colorScheme: scheme, viewport: { width: 1600, height: 900 } });
     await waitClickable(page);
     const r = await creditOf(page, '.jnext-widget');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'credit-widget-' + scheme + '.png') });
@@ -511,14 +515,21 @@ row('WIDGET-18', 'the widget shows the JNext attribution link under the screen (
   must(out[0].color !== out[0].bg && out[1].color !== out[1].bg, 'link colour equals the background: ' + JSON.stringify(out));
 });
 
-row('WIDGET-19', 'plain.html (the basic template page) shows the same attribution link under its player', async () => {
-  const page = await open(`${AURL}/plain.html?` + QUERY);
+row('WIDGET-19', 'plain.html (the basic template page) shows the same attribution link under its player, right-aligned to the player panel at 1600 px and at a 390 px phone width', async () => {
+  const page = await open(`${AURL}/plain.html?` + QUERY, { viewport: { width: 1600, height: 900 } });
   await waitFor(page, () => document.querySelector('.jnext-credit') && document.querySelector('#status').textContent === 'click the player to start', null, 300000);
   const r = await creditOf(page, '#player');
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'credit-plain.png') });
   await page.context().close();
   mustCredit(r);
   must(page.msgs.length === 0, page.msgs.join('; '));
+  // a phone width: the page shrinks the player; the credit follows its right edge
+  const ph = await open(`${AURL}/plain.html?` + QUERY, { viewport: { width: 390, height: 800 } });
+  await waitFor(ph, () => document.querySelector('.jnext-credit') && document.querySelector('#status').textContent === 'click the player to start', null, 300000);
+  const n = await creditOf(ph, '#player');
+  if (SHOTS) await ph.screenshot({ path: path.join(SHOTS, 'credit-plain-narrow.png') });
+  await ph.context().close();
+  mustCredit(n);
 });
 
 let pass = 0, fail = 0;
