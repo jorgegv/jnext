@@ -254,11 +254,24 @@ elif [[ "$tip" != "$RR_SHA" ]]; then
     refuse "$RR_BRANCH is at $tip on the remote repository, not at the expected $RR_SHA: the push did not land or the branch moved"
 fi
 say "source: $RR_BRANCH @ $RR_SHA"
-# The run tree gets origin/main so a tool inside the run (test/test-affected.pl --explain-miss, GH #547)
-# can take a merge base. Best effort: no main on the remote, or a failed fetch, is not a failure of the run.
+# The run tree gets an origin/main so a tool inside the run (test/test-affected.pl, which plans against the
+# merge base of HEAD with main or origin/main, and --explain-miss, GH #547) can take a merge base. GH #562: when
+# the driver sent RR_BASE (the merge base of the commit with the LOCAL main) and it is an ancestor of RR_SHA, that
+# commit is the base, so a remote plan equals a local one while local main is ahead of origin/main. Otherwise
+# origin/main is fetched (best effort: no main on the remote, or a failed fetch, is not a failure of the run).
 base_main=""
-if timeout --kill-after=5s "$FETCH_T" git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/main:refs/rr/main" </dev/null >/dev/null 2>&1; then
-    base_main=$(git -C "$MIRROR" rev-parse "refs/rr/main" 2>/dev/null || true)
+if [[ -z "${RR_BASE:-}" ]]; then
+    say "test-affected base: no RR_BASE given, using origin/main"
+elif [[ "$RR_BASE" =~ ^[0-9a-f]{40}$ ]] && git -C "$MIRROR" merge-base --is-ancestor "$RR_BASE" "$RR_SHA" 2>/dev/null; then
+    base_main=$RR_BASE
+    say "test-affected base: $RR_BASE (merge base with the local main of the driver)"
+else
+    say "test-affected base: RR_BASE '$RR_BASE' is not an ancestor of $RR_SHA, ignored; using origin/main"
+fi
+if [[ -z "$base_main" ]]; then
+    if timeout --kill-after=5s "$FETCH_T" git -C "$MIRROR" fetch --no-tags -q origin "+refs/heads/main:refs/rr/main" </dev/null >/dev/null 2>&1; then
+        base_main=$(git -C "$MIRROR" rev-parse "refs/rr/main" 2>/dev/null || true)
+    fi
 fi
 
 # ---- image ------------------------------------------------------------------

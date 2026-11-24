@@ -43,6 +43,11 @@ options:
   --timeout SECS         bound for the whole run (default from project.conf)
   --keep-going           run the remaining targets after a failure
   --stream               also print the log live (default: only the summary)
+  --base-repo DIR        the repository whose LOCAL `main` gives test-affected its base on the remote:
+                         the run tree's origin/main is set to `git merge-base <sha> main` there, so the
+                         remote plan equals the local one while local main is ahead of origin (GH #562).
+                         Default: $REMOTE_RUN_BASE_REPO, else the --fallback-local DIR, else the current directory; no usable base
+                         means the remote keeps origin/main (the log says so)
   --fallback-local DIR   on exit 75, run the targets in DIR on this host (the log says so);
                          REMOTE_RUN_LOCAL_WRAP, if set, is the wrapper command put in front
                          (REMOTE_RUN_FALLBACK=1 is set in the wrapper's environment, so a wrapper that
@@ -126,7 +131,7 @@ verdict_of_log() {
 build_payload() {
     local mode=$1 targets=$2 f=$3
     {
-        printf 'RR_MODE=%q\nRR_ID=%q\nRR_PROJECT=%q\nRR_BRANCH=%q\nRR_SHA=%q\n' "$mode" "$ID" "$PROJECT" "$BRANCH" "$SHA"
+        printf 'RR_MODE=%q\nRR_ID=%q\nRR_PROJECT=%q\nRR_BRANCH=%q\nRR_SHA=%q\nRR_BASE=%q\n' "$mode" "$ID" "$PROJECT" "$BRANCH" "$SHA" "${BASE:-}"
         printf 'RR_REPO_URL=%q\nRR_DIR=%q\nRR_BASE_IMAGE=%q\nRR_DEPS_SCRIPT=%q\nRR_DEPS_ARGS=%q\n' \
             "$REPO_URL" "$DIR" "$BASE_IMAGE" "$DEPS_SCRIPT" "$DEPS_ARGS"
         printf 'RR_BOOTSTRAP=%q\nRR_TARGETS=%q\nRR_KEEP_GOING=%q\nRR_TIMEOUT=%q\nRR_LANE_WAIT=%q\nRR_LANES=%q\nRR_LANE_CACHES=%q\n' \
@@ -202,7 +207,8 @@ remote_cleanup() {
 # ---- main -------------------------------------------------------------------
 main() {
     local warm=0 gate=0 probe=0 stream=0 warm_ref="" fallback_dir="" targets="" logdir="$HOME/tmp/remote-run"
-    TIMEOUT="" DEPS_REF="" KEEP_GOING=0 LOCAL_SHELL=0 ID="" BRANCH="" SHA=""
+    TIMEOUT="" DEPS_REF="" KEEP_GOING=0 LOCAL_SHELL=0 ID="" BRANCH="" SHA="" BASE=""
+    local base_repo=""
     local -a pos=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -218,6 +224,7 @@ main() {
             --timeout)  [[ $# -ge 2 ]] || { usage >&2; exit 2; }; TIMEOUT=$2; shift ;;
             --id)       [[ $# -ge 2 ]] || { usage >&2; exit 2; }; ID=$2; shift ;;
             --log-dir)  [[ $# -ge 2 ]] || { usage >&2; exit 2; }; logdir=$2; shift ;;
+            --base-repo) [[ $# -ge 2 ]] || { usage >&2; exit 2; }; base_repo=$2; shift ;;
             --fallback-local) [[ $# -ge 2 ]] || { usage >&2; exit 2; }; fallback_dir=$2; shift ;;
             --conf)     [[ $# -ge 2 ]] || { usage >&2; exit 2; }; CONF=$2; shift ;;
             --) shift; pos+=("$@"); break ;;
@@ -265,6 +272,23 @@ main() {
         [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || die "the sha must be 40 lowercase hex digits (git rev-parse <branch>): '$SHA'"
     fi
     [[ "$BRANCH" =~ ^[A-Za-z0-9._][A-Za-z0-9._/-]*$ ]] || die "bad branch name '$BRANCH'"
+    # test-affected's base (GH #562): the merge base of the commit with LOCAL main, which the remote run tree
+    # takes as its origin/main. Empty when there is no local main or no such commit: the remote falls back.
+    # Not for --gate: a batch gate's TEST-AFFECTED MISS check compares against what was last pushed (origin/main);
+    # against local main the gated commit would be its own base and every failing suite would read as a MISS.
+    BASE_NOTE=""
+    if [[ $gate -eq 1 ]]; then
+        BASE_NOTE="test-affected base: none sent (--gate compares against origin/main)"
+    elif [[ -n "$SHA" ]]; then
+        local brepo=${base_repo:-${REMOTE_RUN_BASE_REPO:-${fallback_dir:-.}}}
+        BASE=$(git -C "$brepo" merge-base "$SHA" main 2>/dev/null) || BASE=""
+        if [[ "$BASE" =~ ^[0-9a-f]{40}$ ]]; then
+            BASE_NOTE="test-affected base: $BASE (git -C $brepo merge-base ${SHA:0:12} main)"
+        else
+            BASE=""
+            BASE_NOTE="test-affected base: none computed (no local main in $brepo, or ${SHA:0:12} is not in it); the remote uses origin/main"
+        fi
+    fi
     TIMEOUT=${TIMEOUT:-$TIMEOUT_DEFAULT}
     [[ "$TIMEOUT" =~ ^[0-9]+$ && "$TIMEOUT" -gt 0 ]] || die "--timeout needs a positive number of seconds"
     [[ -n "$ID" ]] || ID="$(date +%Y%m%d-%H%M%S)-$$"
@@ -279,6 +303,7 @@ main() {
     LOG="$logdir/$ID.log"
     : > "$LOG"
     log_info "run $ID: $BRANCH ${SHA:+@ ${SHA:0:12}}; log $LOG"
+    [[ -z "$BASE_NOTE" ]] || log_info "$BASE_NOTE"
 
     if [[ $warm -eq 0 && $gate -eq 0 ]]; then
         local t
