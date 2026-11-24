@@ -7,6 +7,7 @@
 
 extern "C" {
 #include "third_party/fatfs/ff.h"
+#include "third_party/fatfs/diskio.h"
 }
 
 #include <algorithm>
@@ -58,6 +59,29 @@ bool fatfs_can_open_by(const std::string& n) {
     return true;
 }
 
+// The case folding FatFs matches names with, for the bytes of code page 437 (FF_CODE_PAGE 437): ASCII, and
+// the CP437 letters that have an upper case form (c-cedilla, u/e/a/a-ring/ae/o-diaeresis, n-tilde).
+std::string fold_cp437(const std::string& s) {
+    std::string k = s;
+    for (char& ch : k) {
+        unsigned char c = static_cast<unsigned char>(ch);
+        if (c >= 'a' && c <= 'z') c = static_cast<unsigned char>(c - 'a' + 'A');
+        else switch (c) {
+            case 0x87: c = 0x80; break;
+            case 0x81: c = 0x9A; break;
+            case 0x82: c = 0x90; break;
+            case 0x84: c = 0x8E; break;
+            case 0x86: c = 0x8F; break;
+            case 0x91: c = 0x92; break;
+            case 0x94: c = 0x99; break;
+            case 0xA4: c = 0xA5; break;
+            default: break;
+        }
+        ch = static_cast<char>(c);
+    }
+    return k;
+}
+
 std::string fold(const std::string& s) {
     std::string k = s;
     for (char& c : k)
@@ -66,19 +90,20 @@ std::string fold(const std::string& s) {
 }
 
 // The image on FatFs drive 0, mounted, for as long as the object lives. Unmount, then detach, on every
-// return path. `dirty` is set before the first call that may MODIFY the volume; only then is it
-// flushed at unmount (a flush is not a no-op: f_getfree() alone can leave FSInfo pending, GH #292), and
-// the flush comes BEFORE the unmount, because a failed FatFs call can leave a change in its memory that
-// f_mount(nullptr) would discard, leaving a lost cluster on the card.
+// return path. A mounted volume is flushed (f_syncvol) BEFORE the unmount, because a failed FatFs call can
+// leave a change in its memory that f_mount(nullptr) would discard: f_mkdir() that fails in dir_register()
+// frees the cluster it took in the FAT window and the FSInfo count only, with no sync_fs() (ff.c), and
+// dropping that leaves a lost cluster on the card. The flush writes nothing on a volume nobody changed:
+// sync_fs() writes the FSInfo sector only when an allocation changed it, and a read mount is write
+// protected (STA_PROTECT), where f_syncvol is refused.
 struct Card {
     FATFS fs{};
     bool  attached = false;
     bool  mounted  = false;
-    bool  dirty    = false;
     std::shared_ptr<sd_write_journal::Journal> journal;
     ~Card() {
         if (mounted) {
-            if (dirty) f_syncvol("0:");
+            f_syncvol("0:");
             f_mount(nullptr, "0:", 0);
         }
         if (attached) fatfs_glue::detach(0);
@@ -189,17 +214,33 @@ CardEntry to_entry(const FILINFO& f) {
     e.attr = static_cast<uint8_t>(f.fattrib & (AM_RDO | AM_HID | AM_SYS));
     e.fdate = f.fdate;
     e.ftime = f.ftime;
-    if (fatfs_can_open_by(e.name)) e.open_name = e.name;
-    else if (fatfs_can_open_by(e.altname)) e.open_name = e.altname;
     return e;
+}
+
+// Give each entry its open_name: the first of its long name and its 8.3 alias that FatFs can open AND that
+// resolves to THIS entry. FatFs takes the first entry, in directory order, whose long name (case folded)
+// or 8.3 name equals the typed one (dir_find), so a name an earlier entry also matches would act on that
+// entry. FatFs itself never writes such a directory; a guest or a damaged card can. No candidate: empty.
+void resolve_open_names(std::vector<CardEntry>& ents) {
+    for (size_t i = 0; i < ents.size(); ++i) {
+        for (const std::string* cand : {&ents[i].name, &ents[i].altname}) {
+            if (!fatfs_can_open_by(*cand)) continue;
+            const std::string key = fold_cp437(*cand);
+            bool taken = false;
+            for (size_t j = 0; j < i && !taken; ++j)
+                taken = fold_cp437(ents[j].name) == key || (!ents[j].altname.empty() && fold_cp437(ents[j].altname) == key);
+            if (!taken) { ents[i].open_name = *cand; break; }
+        }
+    }
 }
 
 // Read directory `fat` into `out` (unsorted). `shown_dir` names it in messages.
 FileAddStatus read_dir(const std::string& fat, const std::string& shown_dir, std::vector<CardEntry>& out,
-                       std::set<DWORD>* visited, std::string& err) {
+                       std::set<DWORD>* visited, std::string& err, DWORD* sclust = nullptr) {
     DIR dj{};
     FRESULT fr = f_opendir(&dj, fat.c_str());
     if (fr != FR_OK) return status_of_open(fr, shown_dir, err);
+    if (sclust) *sclust = dj.obj.sclust;
     if (visited && !visited->insert(dj.obj.sclust).second) {
         f_closedir(&dj);
         err = "directory '" + shown(shown_dir) + "' on the card is reached twice (a damaged directory structure)";
@@ -217,7 +258,23 @@ FileAddStatus read_dir(const std::string& fat, const std::string& shown_dir, std
         out.push_back(to_entry(fno));
     }
     f_closedir(&dj);
+    resolve_open_names(out);
     return FileAddStatus::Ok;
+}
+
+// Does the subdirectory starting at `clst` say, in its ".." entry, that `parent_clst` is its parent? A
+// subdirectory that two directories point at (a cross-link) fails this for one of them, which is how
+// remove() avoids unlinking the contents of a directory outside the tree it was asked to remove. The root
+// is 0 in a ".." entry, and its cluster number is also accepted. Two FILES sharing clusters are not
+// detected (out of scope: nothing here reads a file's chain).
+bool dotdot_names_parent(const FATFS& fs, DWORD clst, DWORD parent_clst) {
+    BYTE sec[512];
+    if (disk_read(0, sec, fs.database + static_cast<LBA_t>(clst - 2) * fs.csize, 1) != RES_OK) return false;
+    if (sec[32] != '.' || sec[33] != '.') return false;
+    const DWORD up = static_cast<DWORD>(sec[32 + 26] | (sec[32 + 27] << 8)) |
+                     (static_cast<DWORD>(sec[32 + 20] | (sec[32 + 21] << 8)) << 16);
+    if (parent_clst == 0) return up == 0 || up == fs.dirbase;
+    return up == parent_clst;
 }
 
 }  // namespace
@@ -298,7 +355,6 @@ FileAddStatus rename(const std::string& image, const std::string& path, const st
     if (sr != FR_OK) return status_of_open(sr, path, err);
     std::vector<std::string> np(comps.begin(), comps.end() - 1);
     np.push_back(new_name);
-    c.dirty = true;
     const FRESULT fr = f_rename(fat_path(comps, comps.size()).c_str(), fat_path(np, np.size()).c_str());
     switch (fr) {
     case FR_OK: return FileAddStatus::Ok;
@@ -338,14 +394,6 @@ FileAddStatus make_dir(const std::string& image, const std::string& dir, const s
     std::vector<std::string> np = comps;
     np.push_back(name);
     const std::string target = fat_path(np, np.size());
-    // An existing name is refused before anything is written (FatFs's own FR_EXIST arm below stays as
-    // the backstop), so a refusal leaves the card byte-identical.
-    FILINFO ef{};
-    if (f_stat(target.c_str(), &ef) == FR_OK) {
-        err = "'" + shown(name) + "' already exists in that directory; nothing was created";
-        return FileAddStatus::DestExists;
-    }
-    c.dirty = true;
     const FRESULT fr = f_mkdir(target.c_str());
     switch (fr) {
     case FR_OK: return FileAddStatus::Ok;
@@ -388,18 +436,33 @@ FileAddStatus remove(const std::string& image, const std::string& path, std::str
     }
     std::set<DWORD> visited;
     // Depth-first with an explicit stack so a deep tree cannot overflow the call stack.
-    struct Frame { std::string fat, shown; };
+    struct Frame { std::string fat, shown; DWORD parent; };
     struct Item { std::string fat, shown; bool dir; };
     std::vector<Frame> stack;
     std::vector<Item> pre;      // pre-order; reversed gives children before their directory
     pre.push_back({top_fat, path, top_dir});
-    if (top_dir) stack.push_back({top_fat, path});
+    if (top_dir) {
+        DIR pd{};
+        const FRESULT por = f_opendir(&pd, fat_path(comps, comps.size() - 1).c_str());
+        if (por != FR_OK) return status_of_open(por, path, err);
+        const DWORD pc = pd.obj.sclust;
+        f_closedir(&pd);
+        stack.push_back({top_fat, path, pc});
+    }
     while (!stack.empty()) {
         const Frame f = stack.back();
         stack.pop_back();
         std::vector<CardEntry> ents;
-        st = read_dir(f.fat, f.shown, ents, &visited, err);
+        DWORD mine = 0;
+        st = read_dir(f.fat, f.shown, ents, &visited, err, &mine);
         if (st != FileAddStatus::Ok) return st;
+        // Start cluster 0 is the root (FAT32): there is no ".." to read, and the visited set refuses it as
+        // soon as the walk meets a directory it has already read.
+        if (mine != 0 && !dotdot_names_parent(c.fs, mine, f.parent)) {
+            err = "directory '" + shown(f.shown) + "' on the card is not owned by its parent (a cross-linked or "
+                  "damaged directory structure); nothing was removed";
+            return FileAddStatus::ImageUnusable;
+        }
         for (const CardEntry& e : ents) {
             const std::string sh = f.shown + "/" + shown(e.name);
             if (e.open_name.empty()) {
@@ -413,12 +476,11 @@ FileAddStatus remove(const std::string& image, const std::string& path, std::str
             }
             const std::string fp = f.fat + "/" + e.open_name;
             pre.push_back({fp, sh, e.dir});
-            if (e.dir) stack.push_back({fp, sh});
+            if (e.dir) stack.push_back({fp, sh, mine});
         }
     }
     // A directory's children were all pushed after it in `pre`, so the reverse order removes them first.
     RemoveSummary sum;
-    c.dirty = true;
     for (auto it = pre.rbegin(); it != pre.rend(); ++it) {
         const FRESULT fr = f_unlink(it->fat.c_str());
         if (fr != FR_OK) {

@@ -731,6 +731,241 @@ int main() {
               a == St::Ok && again == St::DestExists && e && dr && same && jexists, stn(a) + stn(again) + " " + err);
     }
 
+    // ---- round 2: guards a hostile or damaged card exercises, and the FAT-level oracle of the flush ----
+
+    // A card whose /P holds one full 512-byte cluster (".", "..", 14 empty files), with `free_left` free clusters.
+    auto make_full = [&](const std::string& path, uint32_t free_left) {
+        make_card(path, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS&, Pokes&) {
+            if (f_mkdir("0:/P") != FR_OK) return false;
+            for (int i = 0; i < 14; ++i) {
+                char d[32];
+                std::snprintf(d, sizeof d, "0:/P/F%02d.BIN", i);
+                if (!fat_write(d, {})) return false;
+            }
+            DWORD n = 0;
+            FATFS* fp = nullptr;
+            if (f_getfree("0:", &n, &fp) != FR_OK || n < free_left) return false;
+            return n == free_left || fat_write("0:/FILLER.BIN", Bytes(static_cast<size_t>(n - free_left) * 512, 0x33));
+        });
+    };
+    // The FAT copies of a card, read raw from the boot sector's own fields (fatgen103): FSInfo is not consulted,
+    // because f_getfree() trusts it.
+    auto fat_region = [&](const std::string& p) {
+        Bytes bpb(512);
+        {
+            std::ifstream f(p, std::ios::binary);
+            f.seekg(static_cast<std::streamoff>(kLba) * 512);
+            f.read(reinterpret_cast<char*>(bpb.data()), 512);
+        }
+        auto u16 = [&](size_t o) { return static_cast<uint32_t>(bpb[o] | (bpb[o + 1] << 8)); };
+        auto u32 = [&](size_t o) { return u16(o) | (u16(o + 2) << 16); };
+        const uint64_t off = (static_cast<uint64_t>(kLba) + u16(14)) * 512, len = static_cast<uint64_t>(bpb[16]) * u32(36) * 512;
+        Bytes b(len);
+        std::ifstream f(p, std::ios::binary);
+        f.seekg(static_cast<std::streamoff>(off));
+        f.read(reinterpret_cast<char*>(b.data()), static_cast<std::streamsize>(len));
+        return b;
+    };
+
+    // SDOPS-31
+    {
+        const std::string FP1 = tmp_name("full1") + ".img";
+        make_full(FP1, 1);
+        const Bytes fat0 = fat_region(FP1);
+        std::string err;
+        const St st = ops::make_dir(FP1, "/P", "D1", err);
+        const Bytes fat1 = fat_region(FP1);
+        check("SDOPS-31", "make_dir in a full directory with one free cluster (f_mkdir takes it, then dir_register fails): ImageFull, the FAT copies byte-identical (the flush before the unmount frees the cluster on disk), no directory made",
+              st == St::ImageFull && fat0 == fat1 && !exists(FP1, "/P/D1") && !fat0.empty(),
+              stn(st) + " " + err + " fat_same=" + (fat0 == fat1 ? "1" : "0"));
+        std::error_code ec;
+        fs::remove(FP1, ec);
+    }
+    // SDOPS-32
+    {
+        const std::string FP0 = tmp_name("full0") + ".img";
+        make_full(FP0, 0);
+        const std::string before = sha_file(FP0);
+        std::string err;
+        const St st = ops::rename(FP0, "/P/F00.BIN", "RENAMED.BIN", err);
+        check("SDOPS-32", "rename in a full directory with no free cluster: ImageFull, the image byte-identical",
+              st == St::ImageFull && sha_file(FP0) == before, stn(st) + " " + err);
+        std::error_code ec;
+        fs::remove(FP0, ec);
+    }
+    // SDOPS-33 / SDOPS-34: names another entry matches first (dir_find takes the first match in directory order)
+    const std::string CL = tmp_name("coll") + ".img";
+    make_card(CL, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& fsv, Pokes& pokes) {
+        if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/COL") != FR_OK || f_mkdir("0:/COL2") != FR_OK ||
+            f_mkdir("0:/COL3") != FR_OK || !fat_write("0:/DATA/D1.BIN", kD1) || !fat_write("0:/DATA/D2.BIN", kD2))
+            return false;
+        const uint32_t c1 = file_cluster("0:/DATA/D1.BIN"), c2 = file_cluster("0:/DATA/D2.BIN");
+        const uint32_t n1 = static_cast<uint32_t>(kD1.size()), n2 = static_cast<uint32_t>(kD2.size());
+        // zzz owns the short name BAR, so the long name "bar" of the entry after it would open zzz
+        hand_dir(fsv, dir_cluster("0:/COL"), 2, {{u"zzz", "BAR        ", 0x20, c1, n1}, {u"bar", "BAR~1      ", 0x20, c2, n2}}, pokes);
+        // two long names equal under case folding
+        hand_dir(fsv, dir_cluster("0:/COL2"), 2, {{u"Foo", "FOO~1      ", 0x20, c1, n1}, {u"FOO", "FOO~2      ", 0x20, c2, n2}}, pokes);
+        // equal under the code page's case folding (e-acute / E-acute)
+        hand_dir(fsv, dir_cluster("0:/COL3"), 2, {{u"café", "CAF~1      ", 0x20, c1, n1}, {u"CAFÉ", "CAF~2      ", 0x20, c2, n2}}, pokes);
+        return c1 != 0 && c2 != 0;
+    });
+    {
+        const Ls l = ls(CL, "/COL");
+        const ops::CardEntry* bar = find(l, "bar");
+        const ops::CardEntry* zzz = find(l, "zzz");
+        std::string err;
+        Img c1(CL), c2(CL);
+        const St r = bar ? ops::rename(c1.p, "/COL/" + bar->open_name, "NEW.BIN", err) : St::ImageUnusable;
+        const bool renamed = r == St::Ok && names_of(c1.p, "/COL") == "NEW.BIN,zzz" &&
+                             extracted(c1.p, "/COL/NEW.BIN") == Tree{{"NEW.BIN", kD2}} && extracted(c1.p, "/COL/zzz") == Tree{{"zzz", kD1}};
+        const St x = bar ? ops::remove(c2.p, "/COL/" + bar->open_name, err) : St::ImageUnusable;
+        const bool removed = x == St::Ok && names_of(c2.p, "/COL") == "zzz" && extracted(c2.p, "/COL/zzz") == Tree{{"zzz", kD1}};
+        check("SDOPS-33", "a long name equal to ANOTHER entry's earlier 8.3 name: it lists with its own alias as open_name, and rename and remove by open_name act on that entry, not on the sibling (A19)",
+              l.st == St::Ok && bar && zzz && bar->open_name == "BAR~1" && zzz->open_name == "zzz" && renamed && removed, info(l));
+    }
+    {
+        const Ls l = ls(CL, "/COL2"), l3 = ls(CL, "/COL3");
+        const ops::CardEntry* foo = find(l, "Foo");
+        const ops::CardEntry* foo2 = find(l, "FOO");
+        const ops::CardEntry* e1 = find(l3, "caf\x82");
+        const ops::CardEntry* e2 = find(l3, "CAF\x90");
+        std::string err;
+        Img c(CL);
+        const St x = foo2 ? ops::remove(c.p, "/COL2/" + foo2->open_name, err) : St::ImageUnusable;
+        check("SDOPS-34", "two long names that differ only in case (ASCII, and code page 437 letters): the later one is opened by its alias, and removing it by open_name leaves the earlier one",
+              l.st == St::Ok && foo && foo2 && foo->open_name == "Foo" && foo2->open_name == "FOO~2" && x == St::Ok &&
+                  names_of(c.p, "/COL2") == "Foo" && extracted(c.p, "/COL2/Foo") == Tree{{"Foo", kD1}} && l3.st == St::Ok && e1 && e2 &&
+                  e1->open_name == e1->name && e2->open_name == "CAF~2",
+              info(l) + " | " + info(l3));
+    }
+    // SDOPS-35 / SDOPS-36: damaged directory structures
+    const std::string ZP = tmp_name("zero") + ".img";
+    make_card(ZP, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& fsv, Pokes& pokes) {
+        if (f_mkdir("0:/TOPD") != FR_OK || f_mkdir("0:/XL") != FR_OK || f_mkdir("0:/KEEP") != FR_OK ||
+            !fat_write("0:/KEEP/K.BIN", kD1) || !fat_write("0:/TOPD/T.BIN", kD2))
+            return false;
+        hand_dir(fsv, dir_cluster("0:/TOPD"), 3, {{u"", "EVIL       ", 0x10, 0, 0}}, pokes);                 // start cluster 0 = the root
+        hand_dir(fsv, dir_cluster("0:/XL"), 2, {{u"", "LINK       ", 0x10, dir_cluster("0:/KEEP"), 0}}, pokes);  // cross-link to /KEEP
+        return true;
+    });
+    {
+        Img c(ZP);
+        std::string err;
+        const std::string before = sha_file(c.p);
+        const St st = ops::remove(c.p, "/TOPD", err);
+        check("SDOPS-35", "remove of a tree holding a subdirectory whose start cluster is 0 (the FAT32 root, so the walk would cycle): ImageUnusable naming the directory reached twice, nothing removed, image byte-identical",
+              st == St::ImageUnusable && err.find("twice") != std::string::npos && sha_file(c.p) == before, stn(st) + " " + err);
+    }
+    {
+        Img c(ZP), g(G);
+        std::string err, err2;
+        const std::string before = sha_file(c.p);
+        const St st = ops::remove(c.p, "/XL", err);
+        const bool refused = st == St::ImageUnusable && err.find("not owned") != std::string::npos && sha_file(c.p) == before &&
+                             names_of(c.p, "/KEEP") == "K.BIN";
+        const St ok = ops::remove(g.p, "/GAMES", err2);     // control: a 3-level tree with honest ".." entries goes
+        check("SDOPS-36", "remove refuses a subdirectory cross-linked to a directory OUTSIDE the tree (its \"..\" does not name its parent): ImageUnusable, image byte-identical, /KEEP keeps its file; a tree with honest \"..\" entries is removed",
+              refused && ok == St::Ok && !exists(g.p, "/GAMES"), stn(st) + " " + err + " | " + stn(ok) + " " + err2);
+    }
+    // SDOPS-37: long names FatFs would open as another entry, or refuses
+    {
+        const std::string HN = tmp_name("host") + ".img";
+        make_card(HN, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& fsv, Pokes& pokes) {
+            if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/HOST") != FR_OK || f_mkdir("0:/HOST/DATA") != FR_OK ||
+                !fat_write("0:/DATA/D1.BIN", kD1) || !fat_write("0:/DATA/D2.BIN", kD2) || !fat_write("0:/HOST/DATA/D1.BIN", kD1))
+                return false;
+            const uint32_t c1 = file_cluster("0:/DATA/D1.BIN"), c2 = file_cluster("0:/DATA/D2.BIN");
+            const uint32_t n1 = static_cast<uint32_t>(kD1.size()), n2 = static_cast<uint32_t>(kD2.size());
+            hand_dir(fsv, dir_cluster("0:/HOST"), 3,
+                     {{u"", "SP         ", 0x20, c1, n1},
+                      {u"SP ", "SP~1       ", 0x20, c2, n2},                       // trailing space: FatFs strips it, "SP " would open SP
+                      {u"DATA\\D1.BIN", "DATA_D~1BIN", 0x20, c1, n1},              // backslash: a path separator to FatFs
+                      {u"a*b", "A_B~1      ", 0x20, c1, n1},
+                      {u"q?z", "Q_Z~1      ", 0x20, c1, n1},
+                      {u"a|b", "A_B~2      ", 0x20, c1, n1}},
+                     pokes);
+            return c1 != 0 && c2 != 0;
+        });
+        const Ls l = ls(HN, "/HOST");
+        auto open_of = [&](const std::string& n) { const ops::CardEntry* e = find(l, n); return e ? e->open_name : std::string("<missing>"); };
+        std::string err;
+        Img c(HN);
+        const St r = ops::rename(c.p, "/HOST/SP~1", "SPX", err);
+        check("SDOPS-37", "a long name with a trailing space, a backslash or one of * ? | opens by its 8.3 alias, never by itself; renaming through that alias leaves the sibling SP alone",
+              l.st == St::Ok && open_of("SP ") == "SP~1" && open_of("SP") == "SP" && open_of("DATA\\D1.BIN") == "DATA_D~1.BIN" &&
+                  open_of("a*b") == "A_B~1" && open_of("q?z") == "Q_Z~1" && open_of("a|b") == "A_B~2" && r == St::Ok &&
+                  names_of(c.p, "/HOST").find("SPX") != std::string::npos && extracted(c.p, "/HOST/SP") == Tree{{"SP", kD1}} &&
+                  extracted(c.p, "/HOST/SPX") == Tree{{"SPX", kD2}},
+              info(l));
+        std::error_code ec;
+        fs::remove(HN, ec);
+    }
+    // SDOPS-38: an entry no name opens
+    {
+        const std::string BN = tmp_name("badname") + ".img";
+        make_card(BN, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& fsv, Pokes& pokes) {
+            if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/BADNAME") != FR_OK || !fat_write("0:/DATA/D1.BIN", kD1) ||
+                !fat_write("0:/DATA/D2.BIN", kD2))
+                return false;
+            // the unopenable entry first, a good file after it: removal runs in reverse, so only the refusal keeps the card whole
+            hand_dir(fsv, dir_cluster("0:/BADNAME"), 2,
+                     {{u"x.", "A*B        ", 0x20, file_cluster("0:/DATA/D1.BIN"), static_cast<uint32_t>(kD1.size())},
+                      {u"", "GOOD    BIN", 0x20, file_cluster("0:/DATA/D2.BIN"), static_cast<uint32_t>(kD2.size())}},
+                     pokes);
+            return true;
+        });
+        const Ls l = ls(BN, "/BADNAME");
+        const ops::CardEntry* bad = find(l, "x.");
+        std::string err;
+        const std::string before = sha_file(BN);
+        const St st = ops::remove(BN, "/BADNAME", err);
+        check("SDOPS-38", "an entry addressable by neither its long nor its 8.3 name lists with an empty open_name, and removing the tree that holds it is refused up front: DestInvalid, the image byte-identical",
+              l.st == St::Ok && bad && bad->open_name.empty() && st == St::DestInvalid && sha_file(BN) == before, info(l) + " " + stn(st) + " " + err);
+        std::error_code ec;
+        fs::remove(BN, ec);
+    }
+    // SDOPS-39: a read-only DIRECTORY inside the tree
+    {
+        const std::string RT = tmp_name("rodir") + ".img";
+        make_card(RT, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS&, Pokes&) {
+            return f_mkdir("0:/RT") == FR_OK && fat_write("0:/RT/A.BIN", kA) && f_mkdir("0:/RT/RD") == FR_OK &&
+                   fat_write("0:/RT/RD/X.BIN", kX) && f_chmod("0:/RT/RD", AM_RDO, AM_RDO) == FR_OK;
+        });
+        std::string err;
+        const std::string before = sha_file(RT);
+        const St st = ops::remove(RT, "/RT", err);
+        check("SDOPS-39", "remove refuses a tree holding a read-only directory (every read-only entry, not only files), naming it: DestInvalid, the image byte-identical",
+              st == St::DestInvalid && err.find("RD") != std::string::npos && err.find("read-only") != std::string::npos && sha_file(RT) == before,
+              stn(st) + " " + err);
+        std::error_code ec;
+        fs::remove(RT, ec);
+    }
+    // SDOPS-40: a path that is not on the card
+    {
+        Img c(G);
+        std::string err;
+        const std::string before = sha_file(c.p);
+        const St a = ops::rename(c.p, "/NOPE", "X", err), b = ops::remove(c.p, "/NOPE", err), d = ops::remove(c.p, "/GAMES/NOPE", err),
+                 e = ops::rename(c.p, "/NOPE/Y", "Z", err), f = ops::remove(c.p, "/FILE.BIN/X", err);
+        check("SDOPS-40", "rename and remove of a path that is not on the card (missing, below a missing directory, through a file): SourceUnreadable, the image byte-identical",
+              a == St::SourceUnreadable && b == St::SourceUnreadable && d == St::SourceUnreadable && e == St::SourceUnreadable &&
+                  f == St::SourceUnreadable && sha_file(c.p) == before,
+              stn(a) + stn(b) + stn(d) + stn(e) + stn(f));
+    }
+    // SDOPS-41: the order is case folded
+    {
+        const std::string SO = tmp_name("sort") + ".img";
+        make_card(SO, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS&, Pokes&) {
+            return fat_write("0:/Banana.txt", kA) && fat_write("0:/apple.txt", kB) && fat_write("0:/Cherry.txt", kC) &&
+                   f_mkdir("0:/zdir") == FR_OK && f_mkdir("0:/Adir") == FR_OK;
+        });
+        const Ls l = ls(SO, "/");
+        check("SDOPS-41", "directories first, then names ordered with ASCII case folded (apple before Banana before Cherry)",
+              l.st == St::Ok && names(l) == "Adir/,zdir/,apple.txt,Banana.txt,Cherry.txt", info(l));
+        std::error_code ec;
+        fs::remove(SO, ec);
+    }
+
     sd_write_journal::forget_all_for_test();
     std::error_code ec;
     fs::permissions(g_dir, fs::perms::owner_all, fs::perm_options::add, ec);

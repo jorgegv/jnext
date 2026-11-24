@@ -31,7 +31,9 @@
 /// the card, DestInvalid for a name or a request that is refused (including every write on a card that
 /// is not writable), DestExists for a name already taken, ImageUnusable for a card that cannot be
 /// mounted or read, ImageFull for no free space or directory slots. Every refusal that is decided
-/// before a write leaves the card byte-identical.
+/// before a write leaves the card byte-identical. A subdirectory that is not owned by its parent (its ".."
+/// entry names another directory: a cross-link) or that is reached twice makes remove() refuse with
+/// ImageUnusable before it removes anything.
 ///
 /// PATHS are '/'-separated names from the root ("/" or "" is the root). Each component is the
 /// `open_name` of a CardEntry, i.e. the spelling FatFs can open the entry by, matched
@@ -42,10 +44,12 @@ namespace sdcard::cardops {
 struct CardEntry {
     std::string name;       ///< the stored long name, CP437 bytes
     std::string altname;    ///< the 8.3 alias ("" when the name is its own alias)
-    /// The spelling FatFs opens the entry by: `name` when FatFs can address it, else `altname`. EMPTY
-    /// when neither can be opened (rename and remove then refuse). A name ending in a dot or a space,
-    /// holding a control byte or one of `"*:<>?|/\`, is not addressable by its long name: FatFs would
-    /// drop the dot or open another entry.
+    /// The spelling FatFs opens THIS entry by: `name` or else `altname`, whichever FatFs can address and
+    /// resolves to this entry. FatFs refuses a name holding a control byte or one of `*:<>?|"`. It strips a
+    /// trailing dot or space (so the name would open a sibling), reads a backslash as a path separator, and
+    /// takes the FIRST entry in directory order whose long name (case folded) or 8.3 name matches, so a name
+    /// another entry matches earlier would act on that entry; FatFs never writes such a directory, a guest
+    /// or a damaged card can. EMPTY when neither spelling is safe (rename and remove then refuse).
     std::string open_name;
     bool        dir   = false;
     uint32_t    size  = 0;
