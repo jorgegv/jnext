@@ -542,6 +542,85 @@ struct AudioState {
 };
 
 // ---------------------------------------------------------------------------
+// INS-24 -- the mixer source tap (GH #536)
+// ---------------------------------------------------------------------------
+
+/// The sixteen tapped sources, in the order of every `AudioScopeBlock`.
+/// AY chip c channel k is `Ay0A + 3c + k`; the DAC channels are the Soundrive's A-D.
+enum class AudioSource : uint8_t {
+    Ay0A = 0, Ay0B, Ay0C, Ay1A, Ay1B, Ay1C, Ay2A, Ay2B, Ay2C,
+    DacA, DacB, DacC, DacD, Beeper, MixLeft, MixRight, Count
+};
+constexpr size_t AUDIO_SOURCE_COUNT = size_t(AudioSource::Count);
+
+/// INS-24 -- `Debugger::audio_scope_samples()`. Each sample is the mixer's own
+/// `rounded_average_x4` (round to nearest) of the source's native level over one
+/// 44.1 kHz output-sample period, taken BEFORE every debugger mute and every host
+/// gain. The levels are the hardware terms of `audio_mixer.vhd:80-100`:
+///   AY     the ym2149 channel output, 0-255 (`ym2149.vhd:526-536`), before
+///          TurboSound routing and pan, so a chip outside the mix still shows;
+///   DAC    the Soundrive channel byte, 0x80 at rest (`soundrive.vhd:74-77`);
+///   Beeper EAR 512 (`ear_i` = port 0xFE bit 4) + MIC 128 (`mic_i` = `beep_mic_final`, which carries the
+///          playing tape and the Pi's audio routed to EAR: `zxnext.vhd:7113,7126`), all 0 while the
+///          speaker-exclusive gate holds;
+///   Mix    the 13-bit sum of `audio_mixer.vhd:99-100`: the beeper, the AY sum,
+///          the DAC pair << 2 and the I2S term (`MixLeft`/`MixRight`).
+/// So at 0 dB with no mute the mix traces equal the mixer's output plus
+/// `audio_source_scale(Mix*).rest`. The samples fit `int16_t` (the mix maxes at 8191 x 4).
+struct AudioScopeBlock {
+    uint32_t sample_rate = 0;                 ///< 44100
+    uint64_t first_sample = 0;                ///< index of samples[*][0] since the tap started
+    std::array<std::vector<int16_t>, AUDIO_SOURCE_COUNT> samples;  ///< equal lengths, oldest first
+};
+
+/// A source's range in sample units: its lowest and highest level and its resting level.
+struct AudioSourceScale { int16_t lo; int16_t rest; int16_t hi; };
+
+/// The one source of a scope view's axes and meters. AY: 0-255 x 4 (`ym2149.vhd:157-162`);
+/// DAC: 0x80 x 4 at rest (`soundrive.vhd:74-77`); Beeper: (512 + 128) x 4
+/// (`audio_mixer.vhd:80-81`); Mix: the resting 1536 x 4 (`Mixer::MIX_REST_LEVEL`) and 8191 x 4
+/// (`audio_mixer.vhd:99-100`).
+constexpr AudioSourceScale audio_source_scale(AudioSource s) {
+    if (s <= AudioSource::Ay2C) return {0, 0, 1020};
+    if (s <= AudioSource::DacD) return {0, 512, 1020};
+    if (s == AudioSource::Beeper) return {0, 0, 2560};
+    return {0, 6144, 32764};
+}
+// INS-25 -- ctc_state() and dma_state(): the pacing engines (GH #537)
+// ---------------------------------------------------------------------------
+
+/// INS-25 -- the CTC's channels (zxnext.vhd:4581 NUM_CTC => 4).
+constexpr size_t CTC_CHANNEL_COUNT = 4;
+
+/// INS-25 -- one CTC channel as `Debugger::ctc_state()` reports it.
+struct CtcChannelState {
+    bool     counter_mode = false;   ///< control bit 6: counts the previous channel's ZC/TO (channel 0: channel 3)
+    uint16_t prescaler = 16;         ///< 16 or 256, control bit 5 (timer mode only)
+    uint16_t time_constant = 256;    ///< 1-256 (a written 0 counts 256)
+    uint8_t  count = 0;              ///< the down-counter, as a port read returns it
+    bool     running = false;        ///< S_RUN / S_RUN_TC: counting, ZC/TO can fire
+    bool     int_enabled = false;    ///< control bit 7, also written by NR 0xC5
+    /// ZC/TO rate in milli-hertz, rounded to nearest: 28 MHz / (prescaler x TC) for a running timer; the
+    /// source's rate / TC for a running counter. 0 = no ZC/TO (stopped, or a counter whose chain reaches a
+    /// stopped channel or loops back on itself), or slower than 0.5 mHz.
+    uint32_t zc_rate_millihz = 0;
+};
+
+/// INS-25 -- `Debugger::dma_state()`.
+struct DmaState {
+    bool     active = false;         ///< a transfer is in progress (dma_seq_s /= IDLE)
+    uint8_t  mode = 1;               ///< R4 bits 6:5 raw: 00 byte, 01 continuous (reset), 10 burst
+    uint8_t  prescaler = 0;          ///< R2 port B prescaler; 0 = no pacing
+    /// The NOMINAL pacing rate in milli-hertz, 28 MHz / (32 x prescaler) = 875 kHz / prescaler at every CPU
+    /// speed; 0 when prescaler is 0. A real stream is slower by the transfer's own cycles.
+    uint32_t rate_millihz = 0;
+    uint16_t src = 0, dst = 0;       ///< the current source and destination addresses
+    uint16_t length = 0;             ///< R0 block length
+    uint16_t counter = 0;            ///< bytes transferred (dma_counter_s)
+    bool     src_io = false, dst_io = false;   ///< the source / destination is an I/O port
+};
+
+// ---------------------------------------------------------------------------
 // INS-14 / INS-15 — layers, palettes
 // ---------------------------------------------------------------------------
 

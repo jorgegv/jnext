@@ -124,8 +124,26 @@ public:
     /// mono and pan stay exact; like the chip mute it gates only the AUDIBLE sum,
     /// never the hardware one, and is not touched by reset() / save_state() /
     /// load_state() (audio/audio_mute.h).
-    void set_channel_mute_mask(uint16_t m) { channel_mute_mask_ = m & AudioChannelMute::AY_ALL; mix_dirty_ = true; }
-    uint16_t channel_mute_mask() const { return channel_mute_mask_; }
+    void set_channel_mute_mask(uint16_t m) {
+        channel_mute_mask_ = static_cast<uint16_t>((m & AudioChannelMute::AY_ALL) | (channel_mute_mask_ & LATCH_BIT));
+        mix_dirty_ = true;
+    }
+    uint16_t channel_mute_mask() const { return channel_mute_mask_ & AudioChannelMute::AY_ALL; }
+
+    /// Debugger stems (GH #539): while on, every mix recompute also latches each chip's HARDWARE
+    /// post-pan value (the psgN_L/R_pan registers, turbosound.vhd:323-330), on the cold path. Not
+    /// machine state: not serialised, not reset by reset() / reset_ay_only() (which only re-validate).
+    void set_hw_chip_latch(bool on) {
+        hw_chip_latch_ = on;
+        hw_chip_valid_ = false;
+        channel_mute_mask_ = static_cast<uint16_t>(on ? (channel_mute_mask_ | LATCH_BIT) : (channel_mute_mask_ & ~LATCH_BIT));
+    }
+    bool hw_chip_latch() const { return hw_chip_latch_; }
+    /// One chip's hardware post-pan contribution to hw_pcm_left()/hw_pcm_right(): the latched value,
+    /// or, before the first latched recompute (just after set_hw_chip_latch(true) or a state load),
+    /// the value compute_chip_stereo() gives for the current inputs (exact unless an input change is
+    /// pending, i.e. for at most one PSG tick).
+    void hw_chip_pcm(int idx, uint16_t& left, uint16_t& right) const;
 
     /// Get the audible mixed stereo output (12-bit per channel): the hardware sum
     /// less the chips the debugger muted.
@@ -137,6 +155,11 @@ public:
     /// This is a host-mixer observation only and does not alter guest state.
     void chip_pcm(int idx, uint16_t& left, uint16_t& right) const;
     bool chip_pcm_valid() const { return chip_pcm_valid_; }
+
+    /// The HARDWARE stereo sum of the three chips (before any debugger chip mute), as the
+    /// serialised pair: what the source tap reads (GH #536). Changes only on a PSG tick.
+    uint16_t hw_pcm_left() const { return hw_pcm_L_; }
+    uint16_t hw_pcm_right() const { return hw_pcm_R_; }
 
     /// Access individual AY chip (for debugging).
     const AyChip& ay(int idx) const { return ay_[idx]; }
@@ -195,6 +218,16 @@ private:
     // one AND instead of a bit extraction and a select. Kept in step by set_chip_mute_mask() only.
     uint16_t chip_gate_[3] = {0xFFFF, 0xFFFF, 0xFFFF};
     uint16_t channel_mute_mask_ = AudioChannelMute::NONE;
+
+    // GH #539: the per-chip hardware latch for the stems, filled by the cold recompute only.
+    std::array<uint16_t, 3> hw_chip_L_{};
+    std::array<uint16_t, 3> hw_chip_R_{};
+    bool hw_chip_valid_ = true;
+    bool hw_chip_latch_ = false;
+    // The cold recompute is wanted when a channel mute is set OR the latch is on. The latch is bit 15 of
+    // channel_mute_mask_ (the mute bits are 0-8), so the hot test in compute_stereo_mix() stays the single
+    // `channel_mute_mask_ != 0` it always was: a separate byte tested there measured +0.1 to +0.3 % instructions.
+    static constexpr uint16_t LATCH_BIT = 0x8000;
 
     int active_ay_index() const;
     // always_inline: the hardware call passes silenced == 0, which folds away, so the hot path is the

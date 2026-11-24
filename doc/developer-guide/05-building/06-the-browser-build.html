@@ -3412,7 +3412,7 @@ real start and finish of the file:</p>
 </thead>
 <tbody>
 <tr>
-<td><code>--wav-record</code>, <code>--dac-trace</code></td>
+<td><code>--wav-record</code>, <code>--wav-record-stems</code>, <code>--dac-trace</code></td>
 <td><code>AudioRecorder::start</code>, <code>DacTraceRecorder::start</code></td>
 <td>their <code>stop()</code></td>
 </tr>
@@ -3450,6 +3450,11 @@ real start and finish of the file:</p>
 <td><code>--audio-log</code></td>
 <td><code>AudioLogStream::open</code>, after the <code>fopen</code></td>
 <td><code>AudioLogStream::finish</code>, after the flush and close (also when it reports an error: what is on disk is final)</td>
+</tr>
+<tr>
+<td><code>--psg-record</code></td>
+<td><code>PsgRecorder::start</code> (FILE) and the first block of a chip (<code>-ay1</code>, <code>-ay2</code>)</td>
+<td><code>PsgRecorder::stop</code>, after the close of each file (also on a write error)</td>
 </tr>
 <tr>
 <td><code>--log-file</code></td>

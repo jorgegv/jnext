@@ -461,7 +461,12 @@ void HeadlessApp::run() {
     // what a PROCESS-LIFETIME attach of the Qt adapter would leave the GUI in
     // with its window closed: a client attached and nothing subscribed, so
     // `armed()` and `attached()` are on through `clients_attached_` rather than
-    // through `persistent_`. C − U is that attach's hot-path cost. The handler returns `Continue`, so
+    // through `persistent_`. C − U is that attach's hot-path cost.
+    //
+    //   JNEXT_BENCH_WATCH=s       the `c` attach, and the mixer SOURCE TAP on (GH #536:
+    //                             `set_audio_scope_enabled`); S − C is the tap's cost with it on.
+    //
+    // The handler returns `Continue`, so
     // nothing pauses — §6.2 records a run where the watch paused the machine and
     // the benchmark "measured" 13x by emulating nothing.
     //
@@ -480,16 +485,17 @@ void HeadlessApp::run() {
     if (const char* bw = std::getenv("JNEXT_BENCH_WATCH")) {
         static unsigned long long hits = 0;
         bench_watch_hits = &hits;
-        if (bw[0] == 'c') {
+        if (bw[0] == 'c' || bw[0] == 's') {
             const auto cid = debugger_->attach(
                 jnext::dbg::ClientInfo{"bench", jnext::dbg::ClientKind::Test});
+            if (bw[0] == 's') debugger_->set_audio_scope_enabled(cid.value, true);
             Log::platform()->info("JNEXT_BENCH_WATCH: attached client {}, nothing "
                                   "subscribed (armed={})",
                                   cid.value, debugger_->armed() ? 1 : 0);
         } else {
             emulator_.debug_state().set_persistent_breakpoints(true);
         }
-        if (bw[0] != 'p' && bw[0] != 'c') {
+        if (bw[0] != 'p' && bw[0] != 'c' && bw[0] != 's') {
             unsigned lo = 0, hi = 0;
             if (std::sscanf(bw, "%x-%x", &lo, &hi) == 2) {
                 jnext::dbg::Subscription bs;
@@ -508,7 +514,7 @@ void HeadlessApp::run() {
                     "JNEXT_BENCH_WATCH: armed Mem[{:#06x},{:#06x}] Write", lo, hi);
             } else {
                 Log::platform()->warn(
-                    "JNEXT_BENCH_WATCH: expected 'lo-hi' in hex, 'p' or 'c'; got '{}'",
+                    "JNEXT_BENCH_WATCH: expected 'lo-hi' in hex, 'p', 'c' or 's'; got '{}'",
                     bw);
             }
         }

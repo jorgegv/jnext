@@ -5453,6 +5453,22 @@ the recording cannot even be started (no <strong>ffmpeg</strong> on the PATH),
 <dt><strong>--wav-record</strong> <em>FILE</em></dt>
 <dd>Record the mixed stereo output to a 44.1 kHz, 16-bit PCM WAV. Works
 headless and requires neither an audio device nor ffmpeg.</dd>
+<dt><strong>--wav-record-stems</strong> <em>DIR</em></dt>
+<dd>Record the mix as seven 44.1 kHz, 16-bit stereo WAV files in <em>DIR</em>,
+one per source: <code>ay0.wav</code>, <code>ay1.wav</code>, <code>ay2.wav</code> (each AY chip after
+its mode and pan, silent while the chip is not in the mix),
+<code>dac.wav</code> (left is A+B, right is C+D), <code>beeper.wav</code> (EAR and MIC; a
+playing tape and Pi audio sent to EAR are inside it, as the Next
+mixes them as one term), <code>pi.wav</code> (the Pi I2S audio) and <code>mix.wav</code>.
+The stems are taken before the host gains and the debugger mutes, so
+<code>mix.wav</code> equals <strong>--wav-record</strong> at 0 dB, and the six source files
+add up to <code>mix.wav</code> exactly while every source is steady within an
+output sample and otherwise within 3 counts per sample (the rounding
+of the seven files). <em>DIR</em> is created if missing and files of those
+names in it are overwritten. If <em>DIR</em> or a file cannot be created,
+<strong>jnext</strong> exits non-zero without running the emulation; a write
+error that shows later exits non-zero too. Cannot be combined with
+<strong>--silent</strong>.</dd>
 <dt><strong>--dac-trace</strong> <em>FILE</em></dt>
 <dd>Record <code>segment,tstate,channel,value</code> rows for physical DAC writes.
 A cold boot starts a new segment.</dd>
@@ -5481,6 +5497,21 @@ headless, with <strong>--silent</strong> and in a browser page. An unwritable
 <em>FILE</em> is refused before the machine starts. A write error, or
 writes lost because more than 65536 arrived between two services of
 the loop, makes the run exit non-zero.</dd>
+<dt><strong>--psg-record</strong> <em>FILE</em></dt>
+<dd>Record each AY chip’s register stream as <code>.psg</code>, in the layout Fuse
+writes for its AY log: a 16-byte header, then for every frame in
+which a register from R0 to R13 was written the register/value pairs
+in register order, with frame separators between the frames. <em>FILE</em>
+takes AY#0; AY#1 and AY#2 go to <em>FILE</em> with <code>-ay1</code> or <code>-ay2</code> before
+the extension (<code>tune.psg</code> gives <code>tune-ay1.psg</code>), created at that
+chip’s first write and aligned to the start of the recording. When a
+register is written more than once in a frame the last value is
+kept. R14 and R15 are not recorded. A reset or a state load keeps
+the elapsed time, and a rewind keeps what was written and carries on
+after it. It works in every frontend, headless, with <strong>--silent</strong>
+and in a browser page. An unwritable <em>FILE</em> is refused before the
+machine starts. A write error makes the run exit non-zero. The same
+recording starts from the Chips tab of the debugger’s Audio panel.</dd>
 <dt><strong>--audio-gain-db</strong> <em>DB</em></dt>
 <dd>Set master host audio gain from -24 dB to +24 dB (default 0 dB). The
 gain is applied after the emulated hardware mix; overflow saturates

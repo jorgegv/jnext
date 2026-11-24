@@ -29,7 +29,9 @@
 #include "debug/debugger.h"
 #include "debug/event_table.h"
 #include "debug/mem_coverage.h"
+#include "debug/psg_recorder.h"
 #include "debug/resume_guard.h"
+#include "debug/stem_recorder.h"
 #include "debug/symbol_table.h"
 #include "debug/user_annotations.h"
 
@@ -388,9 +390,11 @@ struct Debugger::Impl {
     void gates_changed();
 
     /// GH #532 -- the audio tap is on while the log is requested OR a live
-    /// `AudioWrite` subscription exists. Computed here, never per write.
+    /// `AudioWrite` subscription exists; GH #538 adds a running .psg recording.
+    /// Computed here, never per write.
     void publish_audio_tap() {
-        emu.set_audio_tap(&audio_sink, audio_log_derived || events.has_kind(EventKind::AudioWrite));
+        emu.set_audio_tap(&audio_sink, audio_log_derived || events.has_kind(EventKind::AudioWrite) ||
+                                           psg != nullptr);
     }
     /// Latch one decoded audio write for the live `AudioWrite` subscriptions.
     void latch_audio_write(const AudioLogEntry& e);
@@ -480,6 +484,7 @@ struct Debugger::Impl {
         Listener*  listener    = nullptr;
         bool       live_raster = false;
         bool       call_stack  = false;   ///< GH #434 F-B: this client asked for call-stack tracking
+        bool       audio_scope = false;   ///< GH #536: this client asked for the mixer source tap
         bool       audio_log   = false;   ///< GH #531: this client asked for the audio write log
         bool       detached    = false;   ///< tombstone
         /// CAP-03 — this client's bookmarks, in save order (a re-save of a name
@@ -529,6 +534,18 @@ struct Debugger::Impl {
     void sync_call_stack(bool force = false);
     bool call_stack_derived = false;
 
+    /// THE ONE WRITER of the mixer source tap's install (GH #536, the `sync_call_stack` shape): on while
+    /// some live client (observers included) asked for it and the machine is not `--silent`. Off to on
+    /// makes a fresh tap (`written` restarts at 0), on to off frees it; it always ends by installing the
+    /// result on the Emulator, which `force` repeats for a machine a reconstruct has just rebuilt (the
+    /// new machine holds no tap, and its first partial sample is dropped by the tap's sync rule).
+    /// Called from `clients_changed()`, `set_audio_scope_enabled()`, the reconstruct and the destructor.
+    void sync_audio_scope(bool force = false);
+    std::unique_ptr<AudioSourceTap> scope_tap;
+    bool audio_scope_derived = false;   ///< a scope is asked (NOT "a tap is installed": the stems install it too)
+    /// GH #539 -- the per-source WAV stems: a recording, not a view request, so no client row holds it.
+    /// While it runs the tap is installed with `scope_tap->stems` pointing at its AudioStemTap.
+    std::unique_ptr<StemRecorder> stems;
     // -----------------------------------------------------------------------
     // GH #531 -- INS-23, the audio write log.
     //
@@ -551,6 +568,9 @@ struct Debugger::Impl {
     size_t   audio_capacity = AUDIO_LOG_DEFAULT_ENTRIES;   ///< for the next allocation
     uint64_t audio_next_seq = 1;
     bool     audio_log_derived = false;
+    /// GH #538 -- the running .psg recording (INS-24), the tap's third consumer; null when
+    /// none. Fed by `audio_sink` BEFORE the ring test, so it needs no log.
+    std::unique_ptr<PsgRecorder> psg;
     AudioLogEntry&       audio_at(size_t i);     ///< the i-th oldest
     const AudioLogEntry& audio_at(size_t i) const;
     void audio_push(const AudioLogEntry& e);

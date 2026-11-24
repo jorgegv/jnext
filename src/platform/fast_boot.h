@@ -51,7 +51,7 @@ struct Launch {
     bool next_machine = false;  ///< the resolved machine type is the Next
     bool program = false;       ///< --load (any format), --inject, --rzx-play: a program runs at start
     bool scheduled = false;     ///< --delayed-* and --script: work scheduled on the emulated timeline
-    bool recording = false;     ///< --record, --wav-record, --rzx-record, --dac-trace, --record-script
+    bool recording = false;     ///< --record, --wav-record, --wav-record-stems, --rzx-record, --dac-trace, --record-script
 };
 
 /// Only the Next boots a firmware worth skipping (the other machines are

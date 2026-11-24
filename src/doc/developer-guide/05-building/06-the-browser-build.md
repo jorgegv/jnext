@@ -251,7 +251,7 @@ real start and finish of the file:
 
 | option | begin | end |
 |---|---|---|
-| `--wav-record`, `--dac-trace` | `AudioRecorder::start`, `DacTraceRecorder::start` | their `stop()` |
+| `--wav-record`, `--wav-record-stems`, `--dac-trace` | `AudioRecorder::start`, `DacTraceRecorder::start` | their `stop()` |
 | `--tape-save` | `Emulator::start_tape_save` (TAP and TZX/WAV arms) | `stop_tape_save`, `finish_outputs` |
 | `--compositor-trace` | the `fopen` in `Renderer::render_frame` | `Renderer::finish_compositor_trace` (after its frame, or at the end) |
 | `--profile-output` | none | `finish_outputs`, after `write_to_file` |
@@ -259,6 +259,7 @@ real start and finish of the file:
 | `--export-skoolkit`, `--export-ghidra` | none | `run_export`, once for each path in `ReReport::paths` |
 | `--bug-report` | none | `write_bug_report_at_exit`, after the write |
 | `--audio-log` | `AudioLogStream::open`, after the `fopen` | `AudioLogStream::finish`, after the flush and close (also when it reports an error: what is on disk is final) |
+| `--psg-record` | `PsgRecorder::start` (FILE) and the first block of a chip (`-ay1`, `-ay2`) | `PsgRecorder::stop`, after the close of each file (also on a write error) |
 | `--log-file` | `main()`, where the sink is built | the page's finish, after flushing every logger |
 
 Not listed, by design: the SD-writes journal, the warm-start recording, quick snapshots, the API's own

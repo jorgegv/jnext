@@ -103,6 +103,14 @@ public:
         return n;
     }
 
+    /// GH #536 - calls of AudioPanel::refresh_scopes() made by refresh_panels() since the last take:
+    /// the Scopes sub-tab's per-frame refresh, counted apart from the Chips one above.
+    uint64_t take_audio_scope_refresh_count() {
+        const uint64_t n = audio_scope_refresh_count_;
+        audio_scope_refresh_count_ = 0;
+        return n;
+    }
+
     /// Once per frame tick, after the loop owner's pump: read the backend's
     /// pause state and bring the window to it. A pause the window has not shown
     /// yet — a breakpoint, a watchpoint, a magic breakpoint, a finished step,
@@ -295,6 +303,7 @@ private:
     uint64_t input_epoch_ = 0;
     uint64_t panel_refresh_count_ = 0;
     uint64_t audio_live_refresh_count_ = 0;
+    uint64_t audio_scope_refresh_count_ = 0;
 
     /// The five source steps share one body: the corruption gate, the verb,
     /// and the refusal / pause bookkeeping `on_step_back()` does.
@@ -320,8 +329,9 @@ private:
     /// source step.
     void apply_data_needs();
     bool call_stack_requested_ = false;
+    bool audio_scope_requested_ = false;
     bool raster_requested_ = false;
-    bool audio_log_requested_ = false;   ///< GH #531: the Audio panel's Log tab is on show
+    bool audio_log_requested_ = false;   ///< GH #531, #534: the Audio panel's Log or Tracker tab is on show
     bool source_step_in_flight_ = false;
 
     /// The four paused-only panels (CPU, Disassembly, Stack, Call Stack).

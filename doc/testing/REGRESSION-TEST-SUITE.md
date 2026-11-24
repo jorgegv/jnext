@@ -587,6 +587,17 @@ Hz timer) or floods (128K/Next: 49.36 Hz) the device queue. See
 `src/platform/audio_pacing.h`. On the pre-fix binary this test reports 25
 underruns; the fix reports none.
 
+## Functional test: psg-record-func
+
+The `.psg` export (GH #538). `--psg-record FILE` on a headless 128K machine running
+`test/audio/fixtures/psg_fixture.bin` (its `.asm` lists the design) must give a register stream equal, from the
+program's sentinel on, to `psg_fixture.fuse.psg`, the same program recorded by Fuse 1.6.0
+(`tools/fuse-psg-reference.sh`, a maintainer tool CI never runs). Both files go through `tools/psg-normalise.py`,
+and the Fuse body is pinned at 4728 bytes, the number `audio_debug_test` PSF-03 pins for the C++ normaliser. Arms: the
+equality (and no `-ay1`/`-ay2` file for a program that writes AY#0 only), the same run with `--silent` giving the same
+file, an unwritable FILE refused with the option and the path in the message, and (Linux) `/dev/full` exiting 1 with
+`write error`.
+
 ## Functional test: audio-envelope-func
 
 The suite's only audio-**content** row, and the newest (GH #201, 2026-09-23).

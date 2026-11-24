@@ -2234,6 +2234,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Chips">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#recording-a-psg" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recording a .psg
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2259,6 +2276,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#tracker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tracker
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tracker">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#player-timing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Player timing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#mute-and-solo" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2266,6 +2311,34 @@
       
     </span>
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scopes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scopes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Scopes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#recording-stems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recording stems
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -4601,7 +4674,7 @@ which one is making a noise does not change the program's behaviour.</p>
 <p>Each channel also has its own <strong>M</strong> (mute) and <strong>S</strong> (solo) buttons, described
 under <a href="#mute-and-solo">Mute and solo</a> below.</p>
 <p>Below it are five tabs: <strong>Chips</strong>, <strong>DAC &amp; Beeper</strong>, <strong>Log</strong>, <strong>Tracker</strong> and
-<strong>Scopes</strong>. Tracker and Scopes are not available yet.</p>
+<strong>Scopes</strong>.</p>
 <h2 id="chips">Chips<a class="headerlink" href="#chips" title="Permanent link">&para;</a></h2>
 <p>The header reports whether TurboSound is enabled, whether the chips are in AY
 or YM mode, whether the stereo layout is ABC or ACB, the PSG mode set in
@@ -4631,6 +4704,57 @@ with the square wave. Every write to register 13 restarts the envelope, so the
 step shown right after one is the start of the new shape.</p>
 <p>The <strong>Hex</strong> box swaps the decoded view for the raw table: all 16 registers of
 the three chips side by side, named.</p>
+<h3 id="recording-a-psg">Recording a .psg<a class="headerlink" href="#recording-a-psg" title="Permanent link">&para;</a></h3>
+<p>The row at the top of the Chips tab records what the program writes to the AY chips
+as <code>.psg</code> files. <strong>Record PSG...</strong> asks for a file name and starts; the label beside
+the buttons reads <strong>Recording PSG</strong> (with the file name as its tooltip) until <strong>Stop</strong>
+ends it. From the command line the same recording is <code>--psg-record FILE</code>, and the
+two give the same bytes. A recording that is running when JNEXT exits is finished
+like any other capture.</p>
+<ul>
+<li>The file holds the layout Fuse writes for its AY log: a header, then for each
+  frame in which the program wrote any of the registers R0 to R13 the register and
+  value pairs in register order, with a separator for every frame in between. R14
+  and R15 (the I/O ports) are not recorded.</li>
+<li><strong>One file per chip.</strong> The first chip's file is the name you gave. The second
+  and third chips go to the same name with <code>-ay1</code> or <code>-ay2</code> before the extension
+  (<code>tune.psg</code> gives <code>tune-ay1.psg</code>), and a file is created only if that chip is
+  written. The files are aligned to the start of the recording, so they stay in
+  step if you play them together.</li>
+<li><strong>Last write wins.</strong> When a program writes the same register more than once in a
+  frame, the file keeps the last value, the one the chip ended the frame with. Fuse
+  keeps the first. That is one difference in what the two emulators record for the same
+  writes; where the files start, and the frame a write falls in, can differ too.</li>
+<li><strong>Resets, rewinds and state loads</strong> never take the file back in time. A reset or a load
+  keeps the time that passed: the silent frames before it stay in the file, and a soft
+  or hard reset splits the frame it happens in. A rewind keeps what was already written
+  and carries on after it (the frames a rewind replays are not recorded again).</li>
+<li>The recording does not depend on the Log tab: it works with the log off, and
+  stopping the log does not stop it. Like the mute buttons it is invisible to the
+  program being debugged and is not part of a saved state.</li>
+</ul>
+<p><strong>What is inside.</strong> The file is the 16-byte header (<code>PSG</code>, <code>0x1A</code>, twelve zero bytes) and
+then a stream of bytes. A byte from <code>0x00</code> to <code>0x0D</code> is a register number and the next
+byte its value. <code>0xFF</code> ends one frame (a player waits one frame) and <code>0xFE n</code> ends <code>4 * n</code> frames. Every
+frame that holds a write is the register and value pairs in register order, after the
+separators for the frames that passed since the previous one: two frames in a row that
+both write are one <code>0xFF</code> apart, and <code>k</code> silent frames between them show as <code>k + 1</code>
+frames of separators. When the recording stops, the frames up to that moment are added
+as separators, so a file that ends in silence plays the silence.</p>
+<p><strong>Playing it.</strong> Open the file in an AY player that reads the PSG format and play it as you would any tune. A few things follow from
+what the file is:</p>
+<ul>
+<li>It holds register values and frame counts, not a time base or a chip clock. A frame is
+  one video frame of the emulated machine, and a player plays frames at its own rate,
+  normally 50 Hz: a recording of a machine running at 60 Hz timing plays slower than it
+  ran.</li>
+<li>It sounds at the player's chip clock. A player set to the 128K Spectrum's 1.7734 MHz is
+  about 23 cents higher than JNEXT's 1.75 MHz (the same difference described under Chips).</li>
+<li>A player plays one chip. With TurboSound, open each chip's file in turn; they start at
+  the same frame, so a player that can mix files plays them in step.</li>
+<li>It records the program's writes to the registers, not the output, so it carries nothing
+  of the DAC, the beeper, muting or the stereo layout.</li>
+</ul>
 <p>The Chips tab is refreshed every frame while the Audio panel is visible and
 Chips is the current tab; with another tab current, or the panel hidden behind
 another one, the panel is refreshed at about 4 Hz with the rest of the window.</p>
@@ -4679,11 +4803,36 @@ not decoded at all. Counts survive a reset, a state load and a hard reset, and a
 cleared only by <strong>Clear</strong>. Writes made from the debugger or a script count as
 Debugger, and stepping back or rewinding does not count the replayed writes again.
 Double-click a row written by the CPU to show the instruction in the Disassembly.</p>
+<p><strong>Pacing (CTC, DMA).</strong> What sets the pace of a sample player: one row per CTC channel and one
+for the DMA. <em>Mode</em> is <code>timer</code> or, for a channel that counts another's pulses, <code>counter &lt;- CTC n</code>
+(channel 0 counts channel 3). <em>Prescaler</em> is 16 or 256 (a timer only), <em>TC</em> the time constant
+(1 to 256, a written 0 counting 256), <em>Count</em> the down-counter now, <em>State</em> <code>running</code> or
+<code>stopped</code>, <em>Int</em> whether the channel may interrupt. <em>Rate</em> is how often the channel fires:
+28 MHz / (prescaler x TC) for a timer, the rate of the channel that clocks it divided by TC for
+a counter, <code>-</code> when it does not fire. The DMA row shows its mode (<code>byte</code>, <code>continuous</code>,
+<code>burst</code>), the prescaler (<code>-</code> for none), the bytes moved over the block length, the source and
+destination (<code>port 0x00DF</code> for an I/O port) and <code>active</code> or <code>idle</code>. Its rate is the prescaler's
+nominal rate, 28 MHz / (32 x prescaler); a real transfer is a little slower, because the DMA's
+own cycles come on top of the prescaler's wait.</p>
+<p><strong>Sample stream.</strong> What the program really does to the DAC, measured over the last second:
+one row per writer. A CPU writer is one instruction, so a player that writes the DAC from
+several places shows several rows; DMA, Copper and debugger writes are one row each. A write to
+port 0xDF or NextREG 0x2D is one sample for two channels (<em>Channels</em> <code>A D</code>). <em>Rate</em> is the
+samples per second, <em>Min</em>, <em>Avg</em> and <em>Max</em> the time between samples and <em>Jitter</em> its spread
+(standard deviation), all in microseconds. <em>Gaps</em> counts the intervals longer than 1.5 times the
+median interval: a sample the player skipped. <em>Pacing</em> names the engine whose computed rate is
+nearest the measured one and how far off it is, for example <code>CTC 0: 16055.046 Hz (+0.000%)</code>; a
+player paced by a CTC channel matches that channel's rate to within the interrupt acceptance
+jitter. Double-click a CPU row to show the instruction in the Disassembly. The window label
+shows how much of the second holds samples: the time from the oldest writer's first
+sample to now, up to one second.</p>
+<p>While DAC &amp; Beeper is on show the debugger records the audio writes, the same recording as the
+Log tab, so the rows start when you open the tab.</p>
 <p>The DAC &amp; Beeper tab is refreshed at about 4 Hz with the rest of the window.</p>
 <h2 id="log">Log<a class="headerlink" href="#log" title="Permanent link">&para;</a></h2>
 <p>A table of the audio writes the program made, one row per write, newest last. The
-machine records them only while this tab is the one on show in an open debugger window
-(or while something else asks for the log, such as <code>--audio-log</code>); the rows you see
+machine records them only while this tab, Tracker or DAC &amp; Beeper is the one on show in an open
+debugger window (or while something else asks for the log, such as <code>--audio-log</code>); the rows you see
 start when you open the tab, and the log holds the newest 65536 writes. The tab is
 refreshed with the rest of the window: at about 4 Hz while the machine runs, and when it is paused or stepped.</p>
 <p>The columns are the <strong>Frame</strong>, <strong>Line</strong>, <strong>HC</strong> and <strong>T-state</strong> the write happened at,
@@ -4712,6 +4861,59 @@ and the Source; <strong>Envelope restarts only</strong>; and <strong>Dropped onl
 written by the CPU to show the instruction in the Disassembly. <strong>Export CSV...</strong> writes
 the whole log in the same format as the <code>--audio-log</code> option, described in the manual
 page.</p>
+<h2 id="tracker">Tracker<a class="headerlink" href="#tracker" title="Permanent link">&para;</a></h2>
+<p>The AY tune one frame per row, newest last, the three chips side by side. Each chip has
+the columns <strong>Env</strong> (the envelope period, hex), <strong>Sh</strong> (the envelope shape) and, for
+channels A, B and C, <strong>Note</strong>, <strong>V</strong> (volume) and <strong>N</strong> (noise), in the order of a
+tracker such as Vortex Tracker. The <strong>Frame</strong> column is the frame the writes were made in,
+and <strong>Mark</strong> says <code>double</code> when a register was written twice in that frame.</p>
+<p>A cell is filled only when its register was written in that frame: the note when the tone
+period changed (<code>A-4</code>, <code>A#4</code>; <code>^^^</code> above the named range; <code>???</code> or <code>??</code> when the log has
+not yet seen one of the registers), the volume when its register was written (<code>E</code> for
+envelope volume), the noise period for a channel whose noise is on (<code>--</code> when it is off),
+the envelope period (Env) when R11 or R12 was written and the shape (Sh) when R13 was written. An empty cell
+shows <code>---</code> (Note), <code>.</code> (Sh, V) or dots (Env, N). A cell whose
+value changed is highlighted. A run of frames with no AY write is a single row, <code>empty</code>
+or <code>empty xN</code>; a break in the log (reset, state load, rewind) is a row of its own, as in
+the Log tab.</p>
+<p>The Tracker reads the same log as the Log tab: it is recorded only while Log, Tracker or DAC &amp; Beeper is on
+show, and the log holds the newest 65536 writes. The rows follow the machine at about
+4 Hz while it runs and the tab keeps at most 65536 rows.</p>
+<p>Double-click a row while the machine is paused to rewind to the start of that frame (this
+needs the rewind buffer; the tooltip of a row that cannot be reached says why: running,
+an RZX in progress, an empty buffer, a frame outside the buffer, or one from before a
+reset or a state load). After the jump the rows from that frame on are removed and a
+<code>rewind</code> row is added; they come back as the machine runs again.</p>
+<h3 id="player-timing">Player timing<a class="headerlink" href="#player-timing" title="Permanent link">&para;</a></h3>
+<p>Under the table, the strip shows where in the frame the AY player writes, which is what a
+music routine's cost looks like from outside: a player that runs from the frame interrupt
+writes at about the same place every frame, and a frame that writes later than the others is
+a frame the routine ran late. The numbers are over the last <strong>Window</strong> frames (1 to 1000,
+50 at first; the box is a view control and is not saved):</p>
+<ul>
+<li>the span line says which frames the window covers, how many of them have AY writes and how
+  many have none (a frame the player missed);</li>
+<li><strong>First write</strong> and <strong>Last write</strong> give the line and the T-state, counted from the start of
+  the frame, of the first and last AY write of each frame, as min / avg / max;</li>
+<li><strong>Writes per frame</strong> gives the number of AY register writes as min / avg / max, and the range
+  of addresses the CPU wrote from (writes by DMA or by the debugger have no address).</li>
+</ul>
+<p>Lines count from the start of the frame, so the frame interrupt itself is on line 1 with the
+Next's default timing at 50 Hz (line 0 at 60 Hz, line 0 with 48K timing, the last line with Pentagon timing): a player
+that starts at the interrupt writes on line 1 or just after it. A steady player that waits for
+the interrupt with <code>HALT</code> can still vary by up to 3 T-states, because the CPU accepts the
+interrupt at the end of the <code>HALT</code> instruction.</p>
+<p>The line below the numbers describes the selected table row (the last row when none is
+selected): the same first and last write, the count and the PC range of that one frame, or
+<code>no AY write</code> for a run of empty frames.</p>
+<p>The plot has one dot per frame, at the line of the frame's first AY write, scaled to the
+window's own lines (the earliest at the top, a range of at least 9 lines; its two ends are
+printed under the plot). A gap is a frame with no AY write. Level dots are a steady player; a
+dot that drops is a late frame.</p>
+<p>Only AY register writes are timed, and the frame the machine is still in is not counted. A
+reset or a state load starts the window afresh; a rewind does not. The strip shows when a
+routine runs, not what it costs: for the exact cost of a routine read the T-states counter of
+the <a href="01-cpu-registers.html">CPU panel</a> between two stops, or run with <code>--profile</code>.</p>
 <h2 id="mute-and-solo">Mute and solo<a class="headerlink" href="#mute-and-solo" title="Permanent link">&para;</a></h2>
 <p>Every one of the 13 channels (the 9 AY channels, 3 per chip, in the Chips tab,
 and the 4 DAC channels in the DAC &amp; Beeper tab) has an <strong>M</strong> and an <strong>S</strong>
@@ -4737,6 +4939,94 @@ follow the live mutes, so a mute set by a script shows on them.</p>
 <p>A script reads and sets the channel mutes with <code>AUDIO_CHANNEL_MUTE</code>: bit 0 to 8
 are the AY channels (bit <code>3 * chip + channel</code>, channel A = 0), bit 9 to 12 are
 DAC A to D, and a set bit is a muted channel.</p>
+<h2 id="scopes">Scopes<a class="headerlink" href="#scopes" title="Permanent link">&para;</a></h2>
+<p>One oscilloscope trace and one level meter for each of sixteen sources, in this
+order: the three channels of each AY chip (AY0 A to AY2 C), the four DAC channels
+(DAC A to D), the Beeper, and the stereo mix (Left and Right). A trace shows the
+last 20 ms.</p>
+<p>What a trace shows is what the source produces, before everything the debugger
+and the host do to it:</p>
+<ul>
+<li>an AY channel is the chip's own channel output, before the TurboSound routing
+  and the pan, so a chip that is not in the mix still shows what it is
+  generating (the Chips tab says whether it reaches the mix);</li>
+<li>a DAC channel is the byte last written, drawn around its midpoint (<code>0x80</code> is
+  silence);</li>
+<li>the Beeper is EAR and MIC, and is flat while the beeper is excluded from the mix;
+  a tape that is playing (and the Pi's audio when it is routed to EAR) reaches the mix
+  only through the MIC term, as on the hardware, so it shows here as the MIC step;</li>
+<li>Left and Right are the hardware mix, the same sum as the sound output.</li>
+</ul>
+<p>Muting a source in the Sources strip or changing a gain does not change a trace:
+the scopes show the machine, not what you hear.</p>
+<p>The trace is edge-triggered: it starts at the latest rising crossing of the middle
+of the signal's range that leaves a whole window after it, so a steady tone stands
+still. The lamp beside the title reads <code>trig</code> while an edge was found and <code>free</code>
+when there was none (a silent or constant source, or a signal that does not rise
+through its middle), and the trace then simply shows the newest samples.</p>
+<p>The bar is the largest swing of the drawn window from the source's resting level,
+as a percentage of the most it can swing; beside it, <code>pk</code> is that swing and <code>rms</code>
+the root mean square, in the source's own units (0 to 255 for an AY or DAC channel).</p>
+<p>Samples are collected only while this tab is on show, and the scopes redraw on
+every frame while the machine runs. While it is collecting, programs that sit in HALT or poll the raster run without the emulator's idle shortcuts. At 28 MHz such programs can need five to eight times the host CPU while Scopes is on show (about twice at 3.5 MHz), so a slow host may not keep real time; it ends when you leave the tab. With <code>--silent</code> the emulator does not
+synthesise audio, and the tab says so instead of drawing traces.</p>
+<h3 id="recording-stems">Recording stems<a class="headerlink" href="#recording-stems" title="Permanent link">&para;</a></h3>
+<p>The row above the traces records the mix as seven WAV files, one per source, so
+that you can bring one part of the sound into an editor or a tracker without the
+rest. <strong>Record stems...</strong> asks for a directory (created if it does not exist) and
+<strong>Stop</strong> ends the recording; the label reads <code>Recording stems</code> while it runs, and
+<code>Cannot write &lt;directory&gt;</code> or <code>Write error in &lt;directory&gt;</code> when something went
+wrong. Files of those names already in the chosen directory are overwritten without asking. The files are 44.1 kHz 16-bit stereo:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ay0.wav</code>, <code>ay1.wav</code>, <code>ay2.wav</code></td>
+<td>one AY chip after its stereo mode, mono flag and pan; silent while the chip is not in the mix (TurboSound off)</td>
+</tr>
+<tr>
+<td><code>dac.wav</code></td>
+<td>the four DAC channels: left is A and B, right is C and D</td>
+</tr>
+<tr>
+<td><code>beeper.wav</code></td>
+<td>EAR and MIC; a tape that is playing, and the Pi's audio when it is routed to EAR, are in this file because the Next mixes them as one term</td>
+</tr>
+<tr>
+<td><code>pi.wav</code></td>
+<td>the Pi's audio through I2S</td>
+</tr>
+<tr>
+<td><code>mix.wav</code></td>
+<td>the hardware mix, what <code>--wav-record</code> writes at 0 dB</td>
+</tr>
+</tbody>
+</table>
+<p>Every file is taken before the host gains, the Sources strip and the mute and solo
+buttons, so muting something while you record does not change the files. The six
+source files add up to <code>mix.wav</code>: exactly while every source is steady within an
+output sample, and otherwise within 3 counts per sample (each of the seven files is
+rounded to a whole number on its own, and those roundings are all that can differ).
+The same recording from the command line is <code>--wav-record-stems DIR</code>.</p>
+<p><strong>Why they add up.</strong> The Next's mixer adds its sources into one number, the beeper, the
+AY chips, the DAC and the Pi, and only then does anything else happen to it. JNEXT cuts
+that number into its terms at that point, over the same stretch of time that makes one
+output sample, so the mix is the sum of the parts by construction. A part that rests
+away from zero (the DAC and the Pi sit mid-scale when silent) has that resting level
+taken out of its file and the six resting levels add to the mix's own, which is why the
+files add to the mix instead of to the mix plus an offset. The small difference that can
+remain is rounding: each file is the exact average of its source rounded to a whole
+number on its own, and so is the mix.</p>
+<p>The recording belongs to the emulator, not to the tab: switching to another tab or
+closing the debugger window leaves it running, and a recording started from the
+command line shows here with <strong>Stop</strong> enabled. While it runs, programs that sit in
+HALT or poll the raster run without the emulator's idle shortcuts, as with the
+traces above. With <code>--silent</code> there is nothing to record and the row is hidden.</p>
 <h2 id="stopping-on-an-audio-write">Stopping on an audio write<a class="headerlink" href="#stopping-on-an-audio-write" title="Permanent link">&para;</a></h2>
 <p>To stop the machine on a write to an AY register, a chip select, the DAC or the beeper, add an
 <strong>Audio Write</strong> breakpoint in the <a href="08-breakpoints.html#audio-write-breakpoints">Breakpoints panel</a>,

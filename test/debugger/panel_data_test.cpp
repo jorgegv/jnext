@@ -24,6 +24,8 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/audio_panel.h"
+#include "debugger/audio_scope_view.h"
+#include "debugger/audio_tracker_view.h"
 #include "debugger/breakpoint_panel.h"
 #include "debugger/cpu_panel.h"
 #include "debugger/disasm_panel.h"
@@ -44,6 +46,7 @@
 #include <QLabel>
 #include <QMainWindow>
 #include <QTabWidget>
+#include <QTableView>
 #include <QTableWidget>
 #include <QTemporaryDir>
 
@@ -138,6 +141,61 @@ struct Fixture {
     bool raster() const { return backend->live_raster(); }
 };
 
+// GH #534 -- a Next with an IM2 tune player: every frame's interrupt writes AY R8 once, with a counter
+// that goes up by one (the value the frame leaves in the register), after the frame's own interrupt (D8).
+//   I = 0x90, a 257-byte table at 0x9000 of 0x92 (so any bus byte vectors to 0x9292), the ISR at 0x9292
+//   PUSH AF; PUSH BC; LD BC,FFFD; LD A,8; OUT (C),A; LD A,(9400); INC A; LD (9400),A; LD B,BF; OUT (C),A;
+//   POP BC; POP AF; EI; RETI  (opcodes: UM0080), the main loop DI; LD A,90; LD I,A; IM 2; EI; HALT; JR -3.
+// The real manager, the window NOT opened, the machine running, the rewind ring 50 frames.
+struct AudioFixture {
+    Emulator emu;
+    std::unique_ptr<jnext::dbg::Debugger> backend;
+    QMainWindow win;
+    DebuggerManager* mgr = nullptr;
+    bool ok = false;
+
+    AudioFixture() {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 50;
+        if (!emu.init(cfg)) return;
+        for (int i = 0; i < 257; ++i) emu.mmu().write(uint16_t(0x9000 + i), 0x92);
+        poke(emu, 0x9292, {0xF5, 0xC5, 0x01, 0xFD, 0xFF, 0x3E, 0x08, 0xED, 0x79, 0x3A, 0x00, 0x94, 0x3C,
+                           0x32, 0x00, 0x94, 0x06, 0xBF, 0xED, 0x79, 0xC1, 0xF1, 0xFB, 0xED, 0x4D});
+        poke(emu, 0x9400, {0x00});
+        poke(emu, kMain, {0xF3, 0x3E, 0x90, 0xED, 0x47, 0xED, 0x5E, 0xFB, 0x76, 0x18, 0xFD});
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = kMain;
+        r.SP = kSp;
+        r.IFF1 = r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        mgr = new DebuggerManager(&win, *backend, &win);
+        ok = backend->rewind_enabled();
+    }
+    ~AudioFixture() {
+        if (!mgr) return;
+        DebuggerWindow* w = mgr->debugger_window_ptr();
+        mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+        delete w;
+    }
+    void enable() {
+        mgr->set_enabled(true);
+        QApplication::processEvents();
+    }
+    DebuggerWindow* dbg() const { return mgr->debugger_window_ptr(); }
+    void show(QWidget* panel) {
+        put_on_show(dbg(), panel);
+        QApplication::processEvents();
+    }
+    bool paused() { return emu.debug_state().paused(); }
+    void tick() {
+        if (!paused()) emu.run_frame();
+        mgr->check_breakpoint_hit();
+        mgr->refresh_panels();
+    }
+};
+
 QString cell(QWidget* panel, int row, int col) {
     auto* t = panel ? panel->findChild<QTableWidget*>() : nullptr;
     QTableWidgetItem* it = t ? t->item(row, col) : nullptr;
@@ -177,7 +235,7 @@ std::string write_source_files(Fixture& fx, const std::string& dir) {
 
 // The machine for the A/B row: LD HL,$9000 / loop: INC (HL) / JR loop. State moves every frame.
 // `audio_live`: the Audio panel on show, and every frame is a full QtApp tick (so the live refresh runs).
-std::vector<batch_ab::FrameHash> busy_run(bool window_open, bool audio_live = false) {
+std::vector<batch_ab::FrameHash> busy_run(bool window_open, bool audio_live = false, bool scopes = false) {
     std::vector<batch_ab::FrameHash> out;
     Fixture fx;
     if (!fx.ok) return out;
@@ -187,6 +245,11 @@ std::vector<batch_ab::FrameHash> busy_run(bool window_open, bool audio_live = fa
     fx.emu.cpu().set_registers(r);
     if (window_open) fx.enable();
     if (audio_live) fx.show(fx.dbg()->audio_panel());
+    if (scopes) {
+        // GH #536: the Scopes sub-tab current, so the tap is requested and refreshed every frame.
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        if (tabs) tabs->setCurrentIndex(4);
+    }
     batch_ab::Scratch scratch;
     for (int f = 0; f < 50; ++f) {
         if (audio_live) fx.tick(); else fx.emu.run_frame();
@@ -546,6 +609,56 @@ int main(int argc, char** argv) {
               "chips=" + b2s(chips) + " log=" + b2s(log) + " once=" + b2s(once) + " chips_again=" + b2s(chips_again) +
                   " away=" + b2s(away) + " back=" + b2s(back) + " closed=" + b2s(closed) + " reopened=" + b2s(reopened));
     }
+    // QLAZY-25 / 26 - the DAC & Beeper sub-tab also needs the write log (GH #537): its Sample stream is
+    // computed from it. Same request bit as Log, so the ring survives a switch between the two.
+    {
+        Fixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        const bool chips = !fx.backend->audio_log_enabled();   // Chips is the current sub-tab
+        if (tabs) tabs->setCurrentIndex(1);                    // DAC & Beeper
+        QApplication::processEvents();
+        const bool dac = fx.backend->audio_log_enabled();
+        const uint64_t rev = fx.backend->state_revision();
+        for (int i = 0; i < 4; ++i) fx.tick();
+        const bool once = fx.backend->state_revision() == rev && fx.backend->audio_log_enabled();
+        if (tabs) tabs->setCurrentIndex(0);                    // Chips again
+        QApplication::processEvents();
+        const bool chips_again = !fx.backend->audio_log_enabled();
+        if (tabs) tabs->setCurrentIndex(1);
+        fx.show(fx.dbg()->nextreg_panel());                    // the Audio dock tabbed away behind it
+        const bool away = !fx.backend->audio_log_enabled();
+        fx.show(fx.dbg()->audio_panel());
+        const bool back = fx.backend->audio_log_enabled();
+        fx.mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+        QApplication::processEvents();
+        const bool closed = !fx.backend->audio_log_enabled();
+        check("QLAZY-25",
+              "window open, Audio dock shown: the log is on with DAC & Beeper current and off with Chips current, off with the dock tabbed away, on when shown again, off with the window closed; ticks change nothing",
+              fx.ok && tabs && chips && dac && once && chips_again && away && back && closed,
+              "chips=" + b2s(chips) + " dac=" + b2s(dac) + " once=" + b2s(once) + " chips_again=" + b2s(chips_again) +
+                  " away=" + b2s(away) + " back=" + b2s(back) + " closed=" + b2s(closed));
+    }
+    {
+        Fixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        if (tabs) tabs->setCurrentIndex(2);                    // Log
+        QApplication::processEvents();
+        fx.emu.port().out(0x1F, 0x55);                         // a DAC write: an entry (dropped or applied)
+        fx.emu.port().out(0xFE, 0x10);                         // and a beeper one
+        const auto first = fx.backend->audio_log_entries(0);
+        const size_t before = first ? first.value.size() : 0;
+        if (tabs) tabs->setCurrentIndex(1);                    // DAC & Beeper: the same request bit
+        QApplication::processEvents();
+        const auto after = fx.backend->audio_log_entries(0);
+        check("QLAZY-26",
+              "Log current, entries recorded, then DAC & Beeper current: the log stays on and the entries recorded before the switch are still in audio_log_entries(0) (one request bit, the ring is not freed)",
+              fx.ok && tabs && before >= 2 && fx.backend->audio_log_enabled() && bool(after) && after.value.size() >= before,
+              "before=" + std::to_string(before) + " after=" + std::to_string(after ? after.value.size() : 0));
+    }
     {
         Fixture fx;
         const auto other = fx.backend->attach(jnext::dbg::ClientInfo{"other", jnext::dbg::ClientKind::Test}).value;
@@ -565,6 +678,253 @@ int main(int argc, char** argv) {
               fx.ok && tabs && kept && off, "kept=" + b2s(kept) + " off=" + b2s(off));
     }
 
+    // QLAZY-19..21 - the Audio panel's Scopes sub-tab (GH #536): the source tap is requested only while the
+    // window is open, the Audio dock is on show and Scopes is the current sub-tab; the live refresh follows.
+    {
+        Fixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        const bool chips_off = !fx.backend->audio_scope_enabled();
+        if (tabs) tabs->setCurrentIndex(4);   // Scopes
+        QApplication::processEvents();
+        const bool scopes_on = fx.backend->audio_scope_enabled();
+        if (tabs) tabs->setCurrentIndex(0);   // Chips again, through sub_tab_changed
+        QApplication::processEvents();
+        const bool chips_again_off = !fx.backend->audio_scope_enabled();
+        if (tabs) tabs->setCurrentIndex(4);
+        QApplication::processEvents();
+        const bool back_on = fx.backend->audio_scope_enabled();
+        fx.show(fx.dbg()->nextreg_panel());   // the dock is tabbed away
+        const bool away_off = !fx.backend->audio_scope_enabled();
+        fx.show(fx.dbg()->audio_panel());
+        const bool shown_on = fx.backend->audio_scope_enabled();
+        fx.mgr->set_enabled(false);
+        const bool closed_off = !fx.backend->audio_scope_enabled();
+        // Reopen the window: the Audio dock and its Scopes sub-tab are still current, so the request is made again.
+        fx.mgr->set_enabled(true);
+        QApplication::processEvents();
+        auto* tabs2 = fx.dbg() ? fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs") : nullptr;
+        const bool still_scopes = tabs2 && tabs2->currentIndex() == 4 && fx.dbg()->audio_panel()->scopes_on_show();
+        const bool reopened_on = still_scopes && fx.backend->audio_scope_enabled();
+        check("QLAZY-19",
+              "Audio on show: the tap is off with Chips current, on with Scopes current, off again with Chips, off with the dock tabbed away, on when it is shown again, off with the window closed, and on again when the window is reopened with Scopes still current",
+              fx.ok && tabs && chips_off && scopes_on && chips_again_off && back_on && away_off && shown_on && closed_off && reopened_on,
+              b2s(chips_off) + b2s(scopes_on) + b2s(chips_again_off) + b2s(back_on) + b2s(away_off) + b2s(shown_on) + b2s(closed_off) + b2s(still_scopes) + b2s(reopened_on));
+    }
+    // QLAZY-27 - a stem recording (GH #539) is not a view request: it belongs to the backend.
+    {
+        Fixture fx;
+        QTemporaryDir td;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        if (tabs) tabs->setCurrentIndex(4);   // Scopes
+        QApplication::processEvents();
+        auto* view = fx.dbg()->audio_panel()->findChild<AudioScopeView*>("audio_scope_view");
+        const bool started = td.isValid() && view && view->start_stems_recording(td.path());
+        if (tabs) tabs->setCurrentIndex(0);   // Chips: the scope request goes, the recording stays
+        QApplication::processEvents();
+        const bool after_switch = !fx.backend->audio_scope_enabled() && fx.backend->stems_recording() &&
+                                  fx.emu.audio_scope_tap() != nullptr;
+        const uint64_t w0 = fx.emu.audio_scope_tap() ? fx.emu.audio_scope_tap()->stems->written : 0;
+        for (int i = 0; i < 3; ++i) fx.tick();
+        const uint64_t w1 = fx.emu.audio_scope_tap() ? fx.emu.audio_scope_tap()->stems->written : 0;
+        fx.mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+        QApplication::processEvents();
+        const bool closed = fx.backend->stems_recording() && fx.emu.audio_scope_tap() != nullptr;
+        for (int i = 0; i < 3; ++i) fx.emu.run_frame();
+        const uint64_t w2 = fx.emu.audio_scope_tap() ? fx.emu.audio_scope_tap()->stems->written : 0;
+        const bool stopped = fx.backend->stems_record_stop(jnext::dbg::CLIENT_NONE) == jnext::dbg::Result::Ok &&
+                             fx.emu.audio_scope_tap() == nullptr;
+        check("QLAZY-27",
+              "stems started from the Scopes tab, then Chips current, then the window closed: the scope request goes (audio_scope_enabled false) but the recording and the tap stay and the frames keep growing; after the stop the tap is null",
+              fx.ok && started && after_switch && w1 > w0 && closed && w2 > w1 && stopped,
+              "w0=" + std::to_string(w0) + " w1=" + std::to_string(w1) + " w2=" + std::to_string(w2));
+    }
+    {
+        uint64_t scope_n = 0, chips_in_scope = 0, panels_scope = 0, panels_away = 0, scope_in_chips = 0, scope_in_siblings = 0;
+        {
+            Fixture fx;
+            fx.enable();
+            fx.show(fx.dbg()->audio_panel());
+            auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+            if (tabs) tabs->setCurrentIndex(4);
+            QApplication::processEvents();
+            fx.mgr->take_audio_scope_refresh_count();
+            fx.mgr->take_audio_live_refresh_count();
+            fx.mgr->take_panel_refresh_count();
+            for (int i = 0; i < 8; ++i) fx.tick();
+            scope_n = fx.mgr->take_audio_scope_refresh_count();
+            chips_in_scope = fx.mgr->take_audio_live_refresh_count();
+            panels_scope = fx.mgr->take_panel_refresh_count();
+        }
+        {
+            Fixture fx;
+            fx.enable();
+            fx.show(fx.dbg()->nextreg_panel());
+            fx.mgr->take_panel_refresh_count();
+            for (int i = 0; i < 8; ++i) fx.tick();
+            panels_away = fx.mgr->take_panel_refresh_count();
+        }
+        {
+            Fixture fx;
+            fx.enable();
+            fx.show(fx.dbg()->audio_panel());
+            fx.mgr->take_audio_scope_refresh_count();
+            for (int i = 0; i < 8; ++i) fx.tick();
+            scope_in_chips = fx.mgr->take_audio_scope_refresh_count();
+        }
+        {
+            // The sibling sub-tabs (DAC & Beeper, Log, Tracker) refresh no scopes either.
+            Fixture fx;
+            fx.enable();
+            fx.show(fx.dbg()->audio_panel());
+            auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+            for (int idx : {1, 2, 3}) {
+                if (tabs) tabs->setCurrentIndex(idx);
+                QApplication::processEvents();
+                fx.mgr->take_audio_scope_refresh_count();
+                for (int i = 0; i < 4; ++i) fx.tick();
+                scope_in_siblings += fx.mgr->take_audio_scope_refresh_count();
+            }
+        }
+        check("QLAZY-20",
+              "running with the Audio dock shown and Scopes current: 8 scope refreshes in 8 ticks, no Chips live refresh, and the other panels' refresh count equals the tabbed-away run; with Chips, DAC & Beeper, Log or Tracker current: no scope refresh",
+              scope_n == 8 && chips_in_scope == 0 && panels_scope == panels_away && scope_in_chips == 0 && scope_in_siblings == 0,
+              "scope=" + std::to_string(scope_n) + " chips=" + std::to_string(chips_in_scope) + " panels=" +
+                  std::to_string(panels_scope) + "/" + std::to_string(panels_away) + " scope_in_chips=" +
+                  std::to_string(scope_in_chips) + " siblings=" + std::to_string(scope_in_siblings));
+    }
+    {
+        const auto closed = busy_run(false, false);
+        const auto scopes = busy_run(true, true, true);
+        bool same = closed.size() == 50 && scopes.size() == 50;
+        std::string detail;
+        for (size_t f = 0; same && f < closed.size(); ++f) {
+            if (closed[f].state != scopes[f].state || closed[f].video != scopes[f].video ||
+                closed[f].audio != scopes[f].audio) {
+                same = false;
+                detail = "frame " + std::to_string(f);
+            }
+        }
+        check("QLAZY-21",
+              "a busy program, 50 frames with the window closed and 50 with the Scopes sub-tab on show and refreshing every frame (the tap on): identical state, video and audio hashes every frame",
+              same, detail);
+    }
+
+    {
+        // GH #534: the log is asked for while the Audio dock is on show with Log OR Tracker current.
+        Fixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        const bool chips = tabs && !fx.backend->audio_log_enabled();
+        if (tabs) tabs->setCurrentIndex(3);                    // Tracker
+        QApplication::processEvents();
+        const bool tracker = fx.backend->audio_log_enabled();
+        if (tabs) tabs->setCurrentIndex(2);                    // Log
+        QApplication::processEvents();
+        const uint64_t rev = fx.backend->state_revision();
+        if (tabs) tabs->setCurrentIndex(3);                    // Tracker again: not a request change
+        QApplication::processEvents();
+        const bool switched = fx.backend->audio_log_enabled() && fx.backend->state_revision() == rev;
+        if (tabs) tabs->setCurrentIndex(4);                    // Scopes: no log
+        QApplication::processEvents();
+        const bool scopes = !fx.backend->audio_log_enabled();
+        if (tabs) tabs->setCurrentIndex(3);
+        fx.show(fx.dbg()->nextreg_panel());                    // the Audio dock tabbed away behind it
+        const bool away = !fx.backend->audio_log_enabled();
+        fx.show(fx.dbg()->audio_panel());
+        const bool back = fx.backend->audio_log_enabled();
+        fx.mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+        QApplication::processEvents();
+        const bool closed = !fx.backend->audio_log_enabled();
+        check("QLAZY-22",
+              "window open, Audio dock shown: the log is off with Chips current and on with Tracker current; Log then Tracker leaves it on and does not move state_revision (no request change); off with Scopes current, off with the dock tabbed away, on when shown again, off with the window closed",
+              fx.ok && tabs && chips && tracker && switched && scopes && away && back && closed,
+              "chips=" + b2s(chips) + " tracker=" + b2s(tracker) + " switched=" + b2s(switched) + " scopes=" + b2s(scopes) +
+                  " away=" + b2s(away) + " back=" + b2s(back) + " closed=" + b2s(closed));
+    }
+    {
+        // GH #534: a double-click on a Tracker row lands the machine on the START of that frame, paused.
+        AudioFixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        if (tabs) tabs->setCurrentIndex(3);
+        QApplication::processEvents();
+        for (int i = 0; i < 10; ++i) fx.tick();
+        fx.emu.debug_state().pause();
+        fx.tick();                                             // the paused refresh
+        auto* view = fx.dbg()->audio_panel()->findChild<AudioTrackerView*>();
+        auto* table = fx.dbg()->audio_panel()->findChild<QTableView*>("audio_tracker_table");
+        AudioTrackerModel* model = view ? view->model() : nullptr;
+        int newest_row = -1;
+        for (int r = model ? model->rowCount() - 1 : -1; r >= 0 && newest_row < 0; --r)
+            if (model->frame_at(r)) newest_row = r;
+        const uint32_t newest = newest_row >= 0 ? model->frame_at(newest_row)->frame : 0;
+        const uint32_t target = newest - 3;
+        int row = -1;
+        for (int r = 0; model && r < model->rowCount(); ++r)
+            if (model->frame_at(r) && model->frame_at(r)->frame == target) row = r;
+        const int16_t start_r8 = row >= 0 ? model->frame_at(row)->before[0][8] : int16_t(-2);
+        const bool found = row >= 0 && newest_row >= 0 && start_r8 >= 0;
+        if (found) emit table->doubleClicked(model->index(row, 0));
+        QApplication::processEvents();
+        const uint32_t landed = fx.backend->time().frame;
+        const bool at_frame = found && landed == target;
+        const bool paused = fx.paused();
+        const bool r8 = found && fx.backend->audio_state().chips[0].regs[8] == uint8_t(start_r8);
+        fx.tick();
+        bool no_later = model && model->rowCount() > 0;
+        for (int r = 0; model && r < model->rowCount(); ++r)
+            if (model->frame_at(r) && model->frame_at(r)->frame >= target) no_later = false;
+        const bool rewind_last = model && model->rowCount() > 0 &&
+                                 model->index(model->rowCount() - 1, 1).data().toString() == "rewind";
+        // The rows before the `rewind` row are the same timeline: an in-range one stays rewindable.
+        bool earlier_ok = false;
+        for (int r = 0; model && r + 1 < model->rowCount() && !earlier_ok; ++r) {
+            const jnext::dbg::AudioFrame* f = model->frame_at(r);
+            if (!f) continue;
+            const QModelIndex ix = model->index(r, 0);
+            earlier_ok = ix.data(AudioTrackerModel::RewindableRole).toBool() &&
+                         ix.data(Qt::ToolTipRole).toString() ==
+                             QString("Double-click to rewind to the start of frame %1").arg(f->frame);
+        }
+        check("QLAZY-23",
+              "Tracker current, 10 frames of an IM2 player (one R8 write per frame), paused: a double-click on the frame row three before the newest lands the machine on that frame (time().frame), paused, with R8 equal to the row's start value (what the frame before wrote); after the next refresh the last row is 'rewind' and no frame row is at or after the target; a frame row before the 'rewind' row is still rewindable (same timeline), with the Double-click tooltip",
+              fx.ok && found && at_frame && paused && r8 && no_later && rewind_last && earlier_ok,
+              "found=" + b2s(found) + " newest=" + std::to_string(newest) + " landed=" + std::to_string(landed) + " paused=" + b2s(paused) +
+                  " r8=" + b2s(r8) + " no_later=" + b2s(no_later) + " rewind_last=" + b2s(rewind_last) + " earlier_ok=" + b2s(earlier_ok));
+    }
+    {
+        // GH #534: while the machine is RUNNING a double-click does nothing.
+        AudioFixture fx;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        if (tabs) tabs->setCurrentIndex(3);
+        QApplication::processEvents();
+        for (int i = 0; i < 30; ++i) fx.tick();            // a running window redraws every 12th tick
+        auto* view = fx.dbg()->audio_panel()->findChild<AudioTrackerView*>();
+        auto* table = fx.dbg()->audio_panel()->findChild<QTableView*>("audio_tracker_table");
+        AudioTrackerModel* model = view ? view->model() : nullptr;
+        const int rows = model ? model->rowCount() : 0;
+        const uint32_t before = fx.backend->time().frame;
+        if (model && rows > 3) emit table->doubleClicked(model->index(rows / 2, 0));
+        QApplication::processEvents();
+        const bool unmoved = fx.backend->time().frame == before && !fx.paused();
+        fx.tick();
+        fx.tick();
+        bool no_rewind = fx.backend->time().frame > before && !fx.paused();
+        for (int r = 0; model && r < model->rowCount(); ++r)
+            if (model->index(r, 1).data().toString() == "rewind") no_rewind = false;
+        check("QLAZY-24",
+              "Tracker current with rows (30 running ticks), the machine RUNNING: a double-click on a row changes nothing (time().frame does not move, the machine stays running), the machine keeps running afterwards and no 'rewind' row appears",
+              fx.ok && rows > 3 && unmoved && no_rewind,
+              "rows=" + std::to_string(rows) + " unmoved=" + b2s(unmoved) + " no_rewind=" + b2s(no_rewind));
+    }
     {
         // The Audio tab's dropped-write table names the OUT it discarded: the window connects the
         // panel's signal to the Disassembly (GH #530).

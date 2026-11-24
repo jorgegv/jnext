@@ -4664,6 +4664,20 @@ non-zero without emulating anything, rather than running a session you would
 find out afterwards had never been recorded.</p>
 <p>To capture only the audio, <code>--wav-record FILE</code> writes a standard WAV. It needs
 neither ffmpeg nor a sound card, so it works in automated runs.</p>
+<p>To capture each sound source on its own, <code>--wav-record-stems DIR</code> writes seven WAV
+files into the directory (created if needed): <code>ay0.wav</code>, <code>ay1.wav</code> and <code>ay2.wav</code>
+for the three AY chips, <code>dac.wav</code>, <code>beeper.wav</code>, <code>pi.wav</code> and <code>mix.wav</code>. They are
+taken before the host's volume settings and before any mute, and the six source
+files add up to <code>mix.wav</code> (exactly while every source holds steady within an output
+sample, otherwise within 3 counts per sample). It works headless, continues through
+cold boots like <code>--wav-record</code>, and cannot be combined with <code>--silent</code>. The
+debugger's Audio panel records the same files from its Scopes tab.</p>
+<p>To capture what the program writes to the AY chips rather than what it sounds
+like, <code>--psg-record FILE</code> writes a <code>.psg</code> register stream in the layout Fuse uses
+for its AY log: <code>FILE</code> for the first chip, and <code>FILE-ay1</code> and <code>FILE-ay2</code> (before
+the extension) for the second and third if the program writes to them. It works
+headless, with <code>--silent</code>, and from <strong>Record PSG...</strong> in the debugger's Audio
+panel.</p>
 <p>Leaving JNEXT with a recording still running finishes the file rather than
 abandoning it — <strong>File &gt; Quit</strong>, Alt+Q and closing the window all stop and
 finalise it.</p>

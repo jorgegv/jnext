@@ -414,7 +414,7 @@ address, so it is **not** counted (D6).
 - **Proof of zero cost** (A1.7, A2.4): `make bench` A/B on `build/gui-release-non-pgo` with the
   taps off against the epic's base. Compare retired instructions and set the layout floor with
   a control build (verification-discipline: "Check the unit is invariant"). The cost with the
-  taps on is measured and recorded, not assumed **(unmeasured today)**.
+  taps on is measured and recorded, not assumed (recorded in section 14).
 
 ### 4.2 Invisible to the Z80
 
@@ -1561,3 +1561,71 @@ No owner question is open. The owner answered both of the first draft's question
   - `.psg` export per AY chip and per-source WAV stems, from the GUI and the command line.
 - Bug Fixes: debugger AY mutes no longer change saved snapshots and rewind slots.
 - Contributors: none known (the issue is the owner's).
+
+---
+
+## 14. Bench record (A3.5, 2026-11-24)
+
+Unit: retired user-space instructions (`perf stat -e instructions:u`), non-PGO Release builds
+(`build/gui-release-non-pgo`), the eight `bench.sh` workloads, 3 interleaved reps, medians, a private
+primed config directory per variant (`test/bench/perf-attach.sh`). Instruction counts do not move with host
+load. "Off" is a tree with the taps built in and nobody asking; the gate is |off - base| <= 0.1 %.
+
+### 14.1 Taps off, the whole of Phases 2 and 3 against the epic's Phase 1 base (new measurement)
+
+B = `e8c1e43ff` (Phase 1 close-out, the tree on `main`), U = `54103c61e` (epic tip: tracker, timing strip,
+scopes, CTC/DMA and sample stream, `.psg`, stems). Load 4.2 at start, 2.7 at the end.
+
+| workload | B | U | U - B |
+|---|---|---|---|
+| boot-48k | 12965199561 | 12960885660 | -0.033 % |
+| boot-nextzxos | 26778088649 | 26760238068 | -0.067 % |
+| beast | 12999147811 | 12997233388 | -0.015 % |
+| copper-demo | 9989310741 | 9989060614 | -0.003 % |
+| bifrost | 13123402850 | 13119140262 | -0.032 % |
+| halt-idle-35 | 7458546532 | 7458702152 | +0.002 % |
+| halt-idle-28 | 8863383205 | 8863544543 | +0.002 % |
+| ctc-dac-28 | 11941864393 | 11940088582 | -0.015 % |
+
+Worst case +0.002 %; six are cheaper than B. The per-sub-issue gates of Phases 2 and 3 (reports of #534, #535,
+#536, #537, #538, #539, each against its own base) all stayed inside 0.1 % too; Phase 1's A1.7 (#531) is in 14.2. The floor of a control build was not
+needed: nothing was above it.
+
+### 14.2 Per-task records
+
+- **A1.7 (write tap and log)**, report of #531, base `47d3181f1`: taps off, boot-48k -0.035 %, boot-nextzxos
+  -0.092 %, beast -0.013 %, copper-demo +0.001 %, ctc_dac_28 +0.005 %. Taps ON (the log): beast +0.004 % (2 rows in 400
+  frames), ctc_dac_28 +15.6 % (13911280406 against 12034512878 instructions) with 260204 rows in 400 frames
+  (650 writes per frame), about 7200 instructions per logged row (entry fill, virtual call, ring store, and the
+  CSV formatting and `fwrite` of `--audio-log`).
+- **A2.4 (source tap), A2.5 (scopes)**, report of #536, section "Phase 1 merge + #550 adaptation", Bench,
+  B = `e8c1e43ff`, U = branch tip. Off (U against B): boot-48k -0.035 %, boot-nextzxos -0.067 %, beast -0.015 %,
+  copper-demo -0.004 %, bifrost -0.034 %, halt-idle-35 +0.001 %, halt-idle-28 +0.001 %, ctc-dac-28 -0.016 %.
+  The first design (a test in the HALT batch's replay loop) cost +0.13 % on the NEX demos and was replaced by
+  refusing the batches while a tap is installed (bisect: one extra instruction per replayed segment); the
+  table above is the deciding one.
+- **Taps ON, source tap (A2.4)**, S against C, re-measured on the epic tip (14.1's run): boot-48k +7.7 %,
+  boot-nextzxos +12.9 %, beast +374 % (4.7x), copper-demo +602 % (7.0x), bifrost +7.6 %, halt-idle-35 +115 %
+  (2.2x), halt-idle-28 +689 % (7.9x), ctc-dac-28 +499 % (6.0x). The cost is the unbatched path the machine is held
+  equivalent to: HALT and raster-poll batching is off while the Scopes tab is on show.
+- **Taps ON, stems (A3.4)**, report of #539, `--benchmark` with and without `--wav-record-stems`: boot-48k
+  12960884353 -> 15744735922 (+21.5 %), ctc-dac-28 11940079893 -> 74612209818 (+525 %). Stems off against base:
+  0.00 % on all eight (its first design, a separate `mix_divert_` byte, measured +0.10 to +0.32 % and was
+  replaced by bit 15 of the existing mute mask).
+- **`.psg` (A3.1, A3.3)**, report of #538: unused-feature cost within 0.1 % on all eight workloads (a constant
+  of about +110000 instructions, start-up code, not per frame). The cost with a recording running was not measured
+  separately: the recorder is a consumer of the same write tap (14.2, A1.7).
+- **A2.5, the Scopes view itself (host work per frame with the window open)**, measured on 2026-11-24 on the
+  tree of `54103c61e` (the branch tip's code), `build/` RelWithDebInfo, counter `perf stat -e instructions:u`
+  (user mode only), with a scratch driver that was not committed; its text is the record. In `main()` of
+  `test/debugger/audio_panel_test.cpp`, before the rows, when `JNEXT_SCOPE_BENCH=<mode>` and `JNEXT_SCOPE_FRAMES=<n>`
+  are set (QPA offscreen, widgets never shown, so painting is not included): `build_next_emulator(emu)`;
+  `scope_machine(emu)` (NR 0x08 = 0x0A, AY1 selected, tone A period 100 and volume 12 on R0/R1/R7/R8, CPU parked by
+  `park_cpu`, 3.5 MHz); a `Debugger` with one attached Test client; mode >= 1: `set_audio_scope_enabled(client, true)`;
+  an `AudioPanel` with its tab widget set to index 4 (Scopes); then n times `emu.run_frame()`, and in mode 2 also
+  `panel.refresh_scopes()` after each. Per variant the program is run with n = 300 and n = 1300 and the figure is
+  (I(1300) - I(300)) / 1000, which removes the start-up cost. Modes 0 (no tap), 1 (tap on, no view), 2 (tap on and view).
+  Results, two independent sessions that agreed within 0.01 %: mode 0 26 963 345 instructions per frame; mode 1
+  28 254 256 (+4.8 %, the unbatched path); mode 2 28 757 244. The view's own refresh (trigger search, meters, window
+  copy) is therefore 502 988 instructions per frame (+1.9 % of a frame), about 25 million per second at 50 Hz. An
+  indication, not a Release figure.

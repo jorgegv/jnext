@@ -1861,6 +1861,9 @@ target_link_libraries(audio_debug_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(audio_debug_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# GH #538 - psg_fixture.bin and the Fuse recording of it (PSF-01..03): read in place, like program_archive_test.
+target_compile_definitions(audio_debug_test PRIVATE
+    JNEXT_AUDIO_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/audio/fixtures")
 add_test(NAME audio_debug_tests COMMAND audio_debug_test)
 
 # GH #219 — --persistent-breakpoints: the armed()/active() split in DebugState

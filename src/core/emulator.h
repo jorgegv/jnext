@@ -1455,7 +1455,22 @@ public:
 
     /// True if replay_mode is active (suppresses audio/video during fast-forward).
     bool replay_mode() const { return replay_mode_; }
-    void set_replay_mode(bool v) { replay_mode_ = v; refresh_tape_capture_live(); refresh_mic_final_(); }
+    void set_replay_mode(bool v) { replay_mode_ = v; refresh_audio_divert_(); refresh_tape_capture_live(); refresh_mic_final_(); }
+
+    /// GH #536 - the debugger's mixer source tap: not owned (the Debugger's), NOT machine state, never
+    /// saved or reset (like the mute masks). Installing one routes the audio path through a cold
+    /// out-of-line span (`audio_divert_`, below); nullptr restores the untapped path.
+    void set_audio_scope_tap(AudioSourceTap* t) {
+        const bool changed = t != audio_scope_tap_;
+        audio_scope_tap_ = t;
+        refresh_audio_divert_();
+        // GH #539: the stems read the per-chip hardware values the cold mix recompute latches. A NEW tap
+        // starts its sample afresh, aligned with the mixer's (see Emulator::init()); re-installing the SAME
+        // one (the backend does, after an in-place load) must keep its partial sample or one frame is lost.
+        turbosound_.set_hw_chip_latch(t && t->stems);
+        if (t && changed) t->clear_partial();
+    }
+    const AudioSourceTap* audio_scope_tap() const { return audio_scope_tap_; }
 
     /// Task 27 C6 — frontend render hint. When the frontend knows nobody will
     /// consume the framebuffer produced by the NEXT run_frame() (the Qt GUI
@@ -2306,6 +2321,15 @@ private:
 
     /// When true, suppresses audio/video output during fast-forward replay.
     bool replay_mode_ = false;
+
+    /// GH #536 - what the audio path tests where it used to test `replay_mode_`: bit 0 is
+    /// `replay_mode_`, bit 1 a source tap being installed. Zero (the normal run) takes the same
+    /// load-and-branch as before; non-zero goes to the cold audio_divert_span_(), which mixes into the
+    /// tap or, in a replay, not at all. Kept by refresh_audio_divert_() at EVERY writer of either input.
+    AudioSourceTap* audio_scope_tap_ = nullptr;
+    uint8_t audio_divert_ = 0;
+    void refresh_audio_divert_() { audio_divert_ = static_cast<uint8_t>((replay_mode_ ? 1 : 0) | (audio_scope_tap_ ? 2 : 0)); }
+    [[gnu::noinline, gnu::cold]] void audio_divert_span_(uint64_t master_cycles);
 
     /// Task 70 — set by request_hard_reset() (NR 0x02 bit 1 / F1); consumed by
     /// the host frontend after run_frame() to perform a cold boot.

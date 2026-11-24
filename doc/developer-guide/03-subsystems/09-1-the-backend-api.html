@@ -3476,41 +3476,17 @@ and follow the contract of <a href="09-2-event-delivery-and-mutation.html">3.9.2
 </tr>
 <tr>
 <td>audio</td>
-<td><code>ay_registers(chip)</code>, <code>turbosound_enabled()</code>, <code>ay_mode()</code>, <code>stereo_mode()</code>, <code>audio_mute_mask()</code>, <code>audio_channel_mute_mask()</code>, <code>audio_state()</code>, <code>audio_log_enabled()</code>, <code>audio_log_entries(since_seq)</code>, <code>audio_log_export(path)</code></td>
-<td><code>set_audio_mute_mask(by, m)</code>, <code>set_audio_channel_mute_mask(by, m)</code> (host-side, never in a snapshot or an RZX), <code>clear_audio_drops(by)</code> (zeroes the dropped-write counters in <code>audio_state().drops</code>; host-side too), <code>set_audio_log_enabled(by, on)</code> (a client's request; the log is on while any live client asks), <code>audio_log_clear(by)</code>, <code>audio_log_resize(n)</code></td>
-</tr>
-<tr>
-<td>video</td>
-<td><code>framebuffer()</code>, <code>render_layer(layer, vc, dst, stride)</code>, <code>palette(id)</code>, <code>palette_priority(id)</code>, <code>active_ula_palette_bank()</code>, <code>ula_screen_regs()</code>, <code>clip_window(layer)</code></td>
-<td><code>set_palette(...)</code>, <code>set_border(by, colour)</code></td>
-</tr>
-<tr>
-<td>disassembly</td>
-<td><code>disassemble(addr, n, symbols)</code>, <code>instruction_length(addr)</code>, <code>is_call_like(addr)</code></td>
-<td>—</td>
-</tr>
-<tr>
-<td>call stack and trace</td>
-<td><code>call_stack()</code>, <code>trace_entries()</code>, <code>trace_export(path)</code></td>
-<td><code>set_call_stack_enabled(by, on)</code> (a per-client request, <a href="../07-source-level-debugging/10-c-frames-and-values.html">7.10</a>); C variables: <code>c_frames()</code>, <code>c_locals(frame)</code>, <code>c_globals()</code>, <code>read_c_value(frame, path)</code>, <code>c_variables_status()</code> (all <code>const</code>, none bumps the revision), <code>set_trace_enabled</code>, <code>trace_clear</code>, <code>trace_resize</code></td>
-</tr>
-<tr>
-<td>coverage</td>
-<td><code>coverage()</code>, <code>coverage_enabled()</code>; INS-21: <code>mem_coverage_enabled()</code>, <code>mem_coverage(space, addr, n, out)</code>, <code>mem_coverage_fetch(addr)</code>, <code>mem_coverage_spaces()</code>, <code>executed_source_lines(file)</code></td>
-<td><code>coverage_enable</code>, <code>coverage_clear</code>; INS-21: <code>mem_coverage_enable</code>, <code>mem_coverage_clear</code></td>
-</tr>
-<tr>
-<td>input</td>
-<td><code>input_state()</code></td>
-<td>see input injection below</td>
-</tr>
-<tr>
-<td>the event model</td>
-<td><code>subscriptions(include_transient)</code>, <code>events_fired_since(seq)</code></td>
-<td>see <a href="09-2-event-delivery-and-mutation.html">3.9.2</a></td>
+<td><code>ay_registers(chip)</code>, <code>turbosound_enabled()</code>, <code>ay_mode()</code>, <code>stereo_mode()</code>, <code>audio_mute_mask()</code>, <code>audio_channel_mute_mask()</code>, <code>audio_state()</code>, <code>ctc_state()</code> (the four CTC channels with their computed ZC/TO rates), <code>dma_state()</code> (the DMA's prescaler, nominal rate, addresses and counter), <code>audio_log_enabled()</code>, <code>audio_log_entries(since_seq)</code>, <code>audio_log_export(path)</code>; INS-24: <code>audio_scope_enabled()</code>, <code>audio_scope_samples(count)</code>, <code>stems_recording()</code>, <code>psg_recording()</code></td>
+<td><code>set_audio_mute_mask(by, m)</code>, <code>set_audio_channel_mute_mask(by, m)</code> (host-side, never in a snapshot or an RZX), <code>clear_audio_drops(by)</code> (zeroes the dropped-write counters in <code>audio_state().drops</code>; host-side too), <code>set_audio_log_enabled(by, on)</code> (a client's request; the log is on while any live client asks), <code>audio_log_clear(by)</code>, <code>audio_log_resize(n)</code>; INS-24: <code>set_audio_scope_enabled(by, on)</code>, a per-client request like call tracking: the mixer source tap is on while any live client (an observer too) asks and the machine is not <code>--silent</code> (refused then), a tap taken off and on again starts afresh, and <code>audio_scope_samples()</code> returns the newest <code>min(count, 8192, collected)</code> samples of each of the sixteen sources (<code>AudioScopeBlock</code>), refused while off. The samples are the hardware levels before any mute or gain (the source tap, in the audio chapter); <code>psg_record_start(by, path)</code> and <code>psg_record_stop(by)</code> write and finish the <code>.psg</code> files (one per chip, see 3.4; a recording like the stems, refused while one runs or when <code>path</code> cannot be created); <code>stems_record_start(by, dir)</code> writes seven per-source WAV stems (<code>ay0 ay1 ay2 dac beeper pi mix</code>) into <code>dir</code>, created if missing, and <code>stems_record_stop(by)</code> finalises them: a recording, not a client request, so it survives the client that started it (<code>by</code> is attribution only) and installs the same tap a scope request does. Start is refused under <code>--silent</code>, while one runs, and when <code>dir</code> or a file cannot be created (nothing is left behind); stop is refused when nothing records or on a write error (the files are closed either way)</td>
 </tr>
 </tbody>
 </table>
+<p>| video | <code>framebuffer()</code>, <code>render_layer(layer, vc, dst, stride)</code>, <code>palette(id)</code>, <code>palette_priority(id)</code>, <code>active_ula_palette_bank()</code>, <code>ula_screen_regs()</code>, <code>clip_window(layer)</code> | <code>set_palette(...)</code>, <code>set_border(by, colour)</code> |
+| disassembly | <code>disassemble(addr, n, symbols)</code>, <code>instruction_length(addr)</code>, <code>is_call_like(addr)</code> | — |
+| call stack and trace | <code>call_stack()</code>, <code>trace_entries()</code>, <code>trace_export(path)</code> | <code>set_call_stack_enabled(by, on)</code> (a per-client request, <a href="../07-source-level-debugging/10-c-frames-and-values.html">7.10</a>); C variables: <code>c_frames()</code>, <code>c_locals(frame)</code>, <code>c_globals()</code>, <code>read_c_value(frame, path)</code>, <code>c_variables_status()</code> (all <code>const</code>, none bumps the revision), <code>set_trace_enabled</code>, <code>trace_clear</code>, <code>trace_resize</code> |
+| coverage | <code>coverage()</code>, <code>coverage_enabled()</code>; INS-21: <code>mem_coverage_enabled()</code>, <code>mem_coverage(space, addr, n, out)</code>, <code>mem_coverage_fetch(addr)</code>, <code>mem_coverage_spaces()</code>, <code>executed_source_lines(file)</code> | <code>coverage_enable</code>, <code>coverage_clear</code>; INS-21: <code>mem_coverage_enable</code>, <code>mem_coverage_clear</code> |
+| input | <code>input_state()</code> | see input injection below |
+| the event model | <code>subscriptions(include_transient)</code>, <code>events_fired_since(seq)</code> | see <a href="09-2-event-delivery-and-mutation.html">3.9.2</a> |</p>
 <p>Four of these are worth understanding before using them.</p>
 <p><strong><code>peek(MemSpace::cpu())</code> is <code>Mmu::peek()</code>.</strong> <code>Mmu::read()</code> is the guest's
 read: it captures the byte into the +3 floating-bus latch on a contended access
@@ -3548,7 +3524,7 @@ fetches <code>audio_log_entries(since_seq)</code> can tell what it missed. Entri
 (3.4); reset, state-load and rewind enter as marker rows, and a rewind landing removes the rows from
 its own cycle on. <code>audio_log_export()</code>, the Qt Log tab's Export and the <code>--audio-log</code> stream
 (<code>AudioLogStream</code>, an observer and a <code>Service</code> whose <code>pump()</code> hook drains the ring into the file) all
-write through <code>src/debug/audio_log_csv.h</code>, so the three formats cannot differ. A frontend must call
+write through <code>src/debug/audio_log_csv.h</code>, so the three formats cannot differ. <code>psg_record_start()</code> / <code>psg_record_stop()</code> / <code>psg_recording()</code> (INS-24) are a second, independent consumer of the same tap: the <code>.psg</code> recorder is fed straight from the sink, not from the ring, so it works with the log off (see 3.4). A frontend must call
 <code>set_audio_log_enabled(false)</code> when it stops looking: the tap costs the machine nothing while no one asks,
 and nothing else turns it off. Log, counters and both mute masks are host state: never in a snapshot or
 an RZX, and invisible to the Z80 (<code>audio_debug_test</code>, AIZ rows).</p>
