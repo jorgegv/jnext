@@ -230,7 +230,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check ci-gate-check ccache-stats fuse-pgo unit-test test-affected test-affected-check test-affected-selftest lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card lint-user-docs-card-selftest docs-tree-same-selftest harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
+       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check ci-gate-check ccache-stats fuse-pgo unit-test test-affected test-affected-check test-affected-selftest lint-test-scripts lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card lint-user-docs-card-selftest docs-tree-same-selftest harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
@@ -1345,6 +1345,15 @@ test-affected: $(UNIT_TEST_LINTS) unit-test-build sdcard-image
 # Every tracked file is in a depfile of the build tree or classified in test/test-affected.conf (GH #547)
 test-affected-check: $(UNIT_TEST_BUILD_DEP)
 	@perl test/test-affected.pl --check
+
+# Run the regression preflight's test-script lints (traps, timeouts, pipe-grep, bare sed -i) on their own
+lint-test-scripts:
+	@# The same four scripts scripts/00-preflight-lint.sh runs, without `make regression`: a branch runs
+	@# no full regression, so a test script that breaks one (GH #564: bare `sed -i`, which BSD sed on
+	@# macOS misreads) was only found by the batch gate. `make test-affected` plans this target whenever
+	@# a test script changes. All four run; the target fails if any did.
+	@rc=0; for l in test/00regression/lint-traps.sh test/lint-timeouts.sh test/lint-pipe-grepq.sh test/lint-sed-inplace.sh; do \
+	   bash $$l || rc=1; done; exit $$rc
 
 # Self-test of test/test-affected.pl on fixture build trees (TAF rows, GH #547)
 test-affected-selftest:

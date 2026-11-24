@@ -33,6 +33,8 @@
 #           or directive, a pin plus another suite's source, and a line of no known shape (FULL);
 #           test/CMakeLists.txt statements (a new block, a changed link, an if() context, a statement
 #           naming no suite = FULL); the matrix and its generator plan the traceability check
+#   TAF-75..76 GH #564: a changed test shell script plans make lint-test-scripts (the preflight lints
+#           a branch never runs); that target runs the four test-script lints
 #   TAF-13  a fixture file is selected by the suite whose sources name its directory, and is FULL
 #           when nothing names it
 # (The MISS line of run-unit-tests.sh is TAF-11's subject; its rows are HS-194d/e in
@@ -581,7 +583,26 @@ OUT=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf" --co
 row TAF-46 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not read which suites changed"* ]] && echo 1 || echo 0) \
     "with no git diff to read (--files) a manifest change stays FULL (got $(plan_get mode))"
 
+r75=1
+for tf in test/zz-helper.sh test/00regression/lint-zz.sh test/packaging/zz.sh test/test-affected-selftest.sh test/00regression/scripts/foo-func.sh; do
+    run "$tf"
+    [[ "$(plan_get makes)" == *lint-test-scripts* ]] || { r75=0; echo "  (TAF-75: $tf plans makes=[$(plan_get makes)])"; }
+done
+run test/zz-helper.sh
+[[ "$(plan_get mode)" == full ]] || r75=0
+run test/00regression/scripts/foo-func.sh
+[[ "$(plan_get rows)" == foo-func ]] || r75=0
+row TAF-75 $r75 "a changed test shell script (generic, harness dir, packaging, the selftest, a row script) plans make lint-test-scripts, the preflight lints a branch otherwise never runs (GH #564)"
+
+lts=$(awk '/^lint-test-scripts:/{f=1} f&&/^$/{exit} f' "$HERE/../Makefile")
+r76=1
+for l in test/00regression/lint-traps.sh test/lint-timeouts.sh test/lint-pipe-grepq.sh test/lint-sed-inplace.sh; do
+    [[ "$lts" == *"$l"* ]] || { r76=0; echo "  (TAF-76: lint-test-scripts does not run $l)"; }
+    [[ -f "$HERE/../$l" ]] || r76=0
+done
+row TAF-76 $r76 "the lint-test-scripts recipe runs all four test-script lints (traps, timeouts, quiet pipe grep, bare sed -i), each an existing script"
+
 echo ""
 echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
-[[ "$total" -eq 73 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 73"; exit 1; }
+[[ "$total" -eq 75 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 75"; exit 1; }
 [[ "$failed" -eq 0 ]]
