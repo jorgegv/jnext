@@ -125,6 +125,7 @@ run() {  # run <files...>: the plan file in $W/plan, the report in $OUT
 }
 plan_suites() { sed -n 's/^suites=//p' "$W/plan"; }
 plan_get()    { sed -n "s/^$1=//p" "$W/plan"; }
+sedi()        { sed "$1" "$2" >"$2.new" && mv "$2.new" "$2"; }   # sedi <script> <file>: edit in place without sed -i (BSD sed)
 
 run src/a/x.h
 row TAF-01 $([[ $RC -eq 0 && "$(plan_suites)" == "s1_test,s3_test,smoke_test" ]] && echo 1 || echo 0) \
@@ -320,32 +321,32 @@ trun() { OUT=$(perl "$TOOL" "${TOK[@]}" --base HEAD 2>&1); RC=$?; }   # the plan
 reset_fx() { G checkout -q -- test/unit-tests.conf test/CMakeLists.txt; }
 both_makes() { [[ "$(plan_get makes)" == *traceability-check-subset* && "$(plan_get makes)" == *traceability-selftest* ]] && echo 1 || echo 0; }
 
-sed -i 's/^s2_test 1 /s2_test 2 /' "$R/test/unit-tests.conf"
+sedi 's/^s2_test 1 /s2_test 2 /' "$R/test/unit-tests.conf"
 trun
 row TAF-33 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s2_test,smoke_test" && $(both_makes) == 1 ]] && echo 1 || echo 0) \
     "a changed row-count pin in unit-tests.conf plans that suite, the smoke set and the traceability checks, not FULL (got $(plan_get mode) $(plan_suites) / $(plan_get makes))"
 reset_fx
 
-sed -i 's/^# expect: 5$/# expect: 6/; s/^s9_test 1$/s9_test 1\ns10_test 1/' "$R/test/unit-tests.conf"
+sedi 's/^# expect: 5$/# expect: 6/; s/^s9_test 1$/s9_test 1\ns10_test 1/' "$R/test/unit-tests.conf"
 trun
 row TAF-34 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s10_test,smoke_test" && "$OUT" == *"# expect: total changed"* ]] && echo 1 || echo 0) \
     "a new suite line (and the bumped # expect: total) plans the new suite only and says the total is proven by the manifest checks (got $(plan_get mode) $(plan_suites))"
 reset_fx
 
-sed -i '/^s9_test 1$/d' "$R/test/unit-tests.conf"
+sedi '/^s9_test 1$/d' "$R/test/unit-tests.conf"
 trun
 row TAF-35 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == smoke_test ]] && echo 1 || echo 0) \
     "a removed suite line is not FULL (the manifest checks prove the registry both ways) (got $(plan_get mode) $(plan_suites))"
 reset_fx
 
-sed -i 's/^s3_test 1$/?s3_test 1/' "$R/test/unit-tests.conf"
-sed -i '1a # gate: qt\n# os: native' "$R/test/unit-tests.conf"
+sedi 's/^s3_test 1$/?s3_test 1/' "$R/test/unit-tests.conf"
+sedi '1a # gate: qt\n# os: native' "$R/test/unit-tests.conf"
 trun
 row TAF-36 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s3_test,smoke_test" && "$OUT" == *"directive"* && "$OUT" == *"unit-test-wasm NEEDED"* ]] && echo 1 || echo 0) \
     "a changed ? marker plans its suite, a changed # gate:/# os: directive adds no suite, says so, and still names the platform runs (got $(plan_get mode) $(plan_suites))"
 reset_fx
 
-sed -i 's/^s2_test 1 /s2_test 2 /' "$R/test/unit-tests.conf"
+sedi 's/^s2_test 1 /s2_test 2 /' "$R/test/unit-tests.conf"
 echo '// s1 changed' >>"$R/test/s1_test.cpp"
 trun
 row TAF-37 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,s2_test,smoke_test" ]] && echo 1 || echo 0) \
@@ -370,7 +371,7 @@ row TAF-39 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" ==
     "a new add_executable/add_test block (and its manifest line) plans the new suite, not FULL (got $(plan_get mode) $(plan_suites))"
 reset_fx
 
-sed -i 's/target_link_libraries(s1_test PRIVATE liba)/target_link_libraries(s1_test PRIVATE liba libb)/' "$R/test/CMakeLists.txt"
+sedi 's/target_link_libraries(s1_test PRIVATE liba)/target_link_libraries(s1_test PRIVATE liba libb)/' "$R/test/CMakeLists.txt"
 trun
 row TAF-40 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,smoke_test" && $(both_makes) == 1 ]] && echo 1 || echo 0) \
     "a changed target_link_libraries of one suite plans that suite only, and the traceability checks (the matrix reads CMake) (got $(plan_get mode) $(plan_suites))"
@@ -381,25 +382,25 @@ trun
 row TAF-41 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"names no declared suite: include_directories(/x)"* ]] && echo 1 || echo 0) \
     "a changed CMake statement that names no suite is FULL and is quoted (got $(plan_get mode))"
 reset_fx
-sed -i 's/^set(SHARED "a;b")$/set(SHARED "a;b;c")/' "$R/test/CMakeLists.txt"
+sedi 's/^set(SHARED "a;b")$/set(SHARED "a;b;c")/' "$R/test/CMakeLists.txt"
 trun
 row TAF-42 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"names no declared suite: set(SHARED"* ]] && echo 1 || echo 0) \
     "a changed shared variable is FULL (got $(plan_get mode))"
 reset_fx
 
-sed -i 's/^if(NOT EMSCRIPTEN)$/if(NOT WIN32)/' "$R/test/CMakeLists.txt"
+sedi 's/^if(NOT EMSCRIPTEN)$/if(NOT WIN32)/' "$R/test/CMakeLists.txt"
 trun
 row TAF-43 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,smoke_test" ]] && echo 1 || echo 0) \
     "a changed if() condition plans the suites inside that block (their context changed), not FULL (got $(plan_get mode) $(plan_suites))"
 reset_fx
 
-sed -i 's/^add_executable(s2_test s2_test.cpp)$/if(WIN32)\nadd_executable(s2_test s2_test.cpp)\nendif()/' "$R/test/CMakeLists.txt"
+sedi 's/^add_executable(s2_test s2_test.cpp)$/if(WIN32)\nadd_executable(s2_test s2_test.cpp)\nendif()/' "$R/test/CMakeLists.txt"
 trun
 row TAF-44 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s2_test,smoke_test" ]] && echo 1 || echo 0) \
     "wrapping an existing suite in a new if() plans that suite (context is part of the statement's identity) (got $(plan_get mode) $(plan_suites))"
 reset_fx
 
-sed -i 's/^add_executable(s2_test s2_test.cpp)$/add_executable(s2_test s2_test.cpp)\nadd_executable(s2_test s2_test.cpp)/' "$R/test/CMakeLists.txt"
+sedi 's/^add_executable(s2_test s2_test.cpp)$/add_executable(s2_test s2_test.cpp)\nadd_executable(s2_test s2_test.cpp)/' "$R/test/CMakeLists.txt"
 trun
 row TAF-47 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s2_test,smoke_test" ]] && echo 1 || echo 0) \
     "a statement repeated in the same context (its count changed) plans the suite it names (got $(plan_get mode) $(plan_suites))"
@@ -412,20 +413,20 @@ variant() {  # variant: commit the CMakeLists.txt currently in the tree as the n
 }
 unvariant() { G reset -q --hard HEAD~1; }
 
-sed -i '/^set(SHARED "a;b")$/d' "$cmk"; sed -i '1a set(SHARED "a;b")' "$cmk"
+sedi '/^set(SHARED "a;b")$/d' "$cmk"; sedi '1a set(SHARED "a;b")' "$cmk"
 trun
 row TAF-48 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"names no declared suite: set(SHARED"* ]] && echo 1 || echo 0) \
     "a shared statement moved to another place in test/CMakeLists.txt is FULL (CMake is order-dependent) (got $(plan_get mode))"
 reset_fx
 
-sed -i '/^add_executable(s2_test s2_test.cpp)$/d' "$cmk"; sed -i 's/^add_test(NAME s3_tests COMMAND s3_test)$/add_test(NAME s3_tests COMMAND s3_test)\nadd_executable(s2_test s2_test.cpp)/' "$cmk"
+sedi '/^add_executable(s2_test s2_test.cpp)$/d' "$cmk"; sedi 's/^add_test(NAME s3_tests COMMAND s3_test)$/add_test(NAME s3_tests COMMAND s3_test)\nadd_executable(s2_test s2_test.cpp)/' "$cmk"
 trun
 row TAF-49 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == *s2_test* ]] && echo 1 || echo 0) \
     "a suite's statement moved past other suites' statements plans that suite, not FULL (got $(plan_get mode) $(plan_suites))"
 reset_fx
 
-sed -i '/^add_executable(s3_test s3_test.cpp)/d; /^add_test(NAME s3_tests COMMAND s3_test)$/d' "$cmk"
-sed -i 's/^set(SHARED "a;b")$/set(SHARED "a;b")\nadd_executable(s3_test s3_test.cpp)\nadd_test(NAME s3_tests COMMAND s3_test)/' "$cmk"
+sedi '/^add_executable(s3_test s3_test.cpp)/d; /^add_test(NAME s3_tests COMMAND s3_test)$/d' "$cmk"
+sedi 's/^set(SHARED "a;b")$/set(SHARED "a;b")\nadd_executable(s3_test s3_test.cpp)\nadd_test(NAME s3_tests COMMAND s3_test)/' "$cmk"
 trun
 row TAF-50 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"moved past shared statements"* ]] && echo 1 || echo 0) \
     "a suite's statements moved past a shared statement are FULL (directory options reach later targets only) (got $(plan_get mode))"
@@ -445,27 +446,27 @@ set(SHARED2 "a)" b)
 set(SHARED3 s1_test)
 EOF
 variant
-sed -i 's/Y=1)/Y=2)/' "$cmk"
+sedi 's/Y=1)/Y=2)/' "$cmk"
 trun
 row TAF-51 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,smoke_test" ]] && echo 1 || echo 0) \
     "a change after a quoted # in an argument is seen, and selects the suite (got $(plan_get mode) $(plan_suites))"
 reset_fx
-sed -i 's/# note one/# note two/' "$cmk"
+sedi 's/# note one/# note two/' "$cmk"
 trun
 row TAF-52 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == smoke_test ]] && echo 1 || echo 0) \
     "a comment-only change inside a multi-line statement selects no suite and is not FULL (got $(plan_get mode) $(plan_suites))"
 reset_fx
-sed -i '/^if(WIN32)$/,/^endif()$/c if(WIN32)\n    target_link_libraries(s1_test PRIVATE liba)\n    target_link_libraries(s2_test PRIVATE libb)\nendif()' "$cmk"
+sedi '/^if(WIN32)$/,/^endif()$/c if(WIN32)\n    target_link_libraries(s1_test PRIVATE liba)\n    target_link_libraries(s2_test PRIVATE libb)\nendif()' "$cmk"
 trun
 row TAF-53 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == *s2_test* ]] && echo 1 || echo 0) \
     "a statement moved from the else() arm into the if() arm plans its suite (the arm is part of the context) (got $(plan_get mode) $(plan_suites))"
 reset_fx
-sed -i 's/^set(SHARED2 "a)" b)$/set(SHARED2 "a)" c)/' "$cmk"
+sedi 's/^set(SHARED2 "a)" b)$/set(SHARED2 "a)" c)/' "$cmk"
 trun
 row TAF-54 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"set(SHARED2"* ]] && echo 1 || echo 0) \
     "a changed shared statement holding a quoted ) is FULL (quotes are respected when the statement ends) (got $(plan_get mode))"
 reset_fx
-sed -i 's/^set(SHARED3 s1_test)$/set(SHARED3 s1_test s2_test)/' "$cmk"
+sedi 's/^set(SHARED3 s1_test)$/set(SHARED3 s1_test s2_test)/' "$cmk"
 trun
 row TAF-55 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"set(SHARED3"* ]] && echo 1 || echo 0) \
     "a changed non-target command that merely holds a suite name is FULL, not that suite (got $(plan_get mode))"
@@ -477,7 +478,7 @@ target_compile_definitions(s1_test PRIVATE Q=\"x\")
 find_package(Foo QUIET)
 EOF
 variant
-sed -i 's/^find_package(Foo QUIET)$/find_package(Foo REQUIRED)/' "$cmk"
+sedi 's/^find_package(Foo QUIET)$/find_package(Foo REQUIRED)/' "$cmk"
 trun
 row TAF-56 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"find_package(Foo"* ]] && echo 1 || echo 0) \
     "an escaped quote outside quotes does not swallow later statements: a shared change after it is FULL (got $(plan_get mode))"
@@ -505,8 +506,8 @@ row TAF-58 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"cannot re
     "a statement left unterminated at the end of the file is a parse anomaly: FULL (got $(plan_get mode))"
 reset_fx
 
-sed -i '/^add_executable(s3_test s3_test.cpp)/d; /^add_test(NAME s3_tests COMMAND s3_test)$/d' "$cmk"
-sed -i '/^s3_test 1$/d' "$R/test/unit-tests.conf"
+sedi '/^add_executable(s3_test s3_test.cpp)/d; /^add_test(NAME s3_tests COMMAND s3_test)$/d' "$cmk"
+sedi '/^s3_test 1$/d' "$R/test/unit-tests.conf"
 trun
 row TAF-59 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == smoke_test ]] && echo 1 || echo 0) \
     "removing a suite from the manifest and from CMake together is not FULL (the base manifest names it) (got $(plan_get mode) $(plan_suites))"
@@ -515,7 +516,7 @@ reset_fx
 # ---- GH #564 round 3: a failing child the planner reads is FULL; every parse-anomaly arm has its row
 STUB="$W/stub"; mkdir -p "$STUB"
 printf '#!/bin/sh\nexit 2\n' >"$STUB/diff"; chmod +x "$STUB/diff"
-sed -i 's/^set(SHARED "a;b")$/set(SHARED "a;b;c")/' "$cmk"
+sedi 's/^set(SHARED "a;b")$/set(SHARED "a;b;c")/' "$cmk"
 OUT=$(PATH="$STUB:$PATH" perl "$TOOL" "${TOK[@]}" --base HEAD 2>&1); RC=$?
 row TAF-62 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not diff"* ]] && echo 1 || echo 0) \
     "a diff that exits 2 makes a CMake change FULL, never an empty change list (got $(plan_get mode))"
@@ -525,13 +526,13 @@ row TAF-63 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not
     "with no diff on PATH a CMake change is FULL (got $(plan_get mode))"
 reset_fx
 printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = diff ] && exit 128; done\nexec %s "$@"\n' "$(command -v git)" >"$STUB/git"; chmod +x "$STUB/git"; rm -f "$STUB/diff"
-sed -i 's/^set(SHARED "a;b")$/set(SHARED "a;b;c")/' "$cmk"
+sedi 's/^set(SHARED "a;b")$/set(SHARED "a;b;c")/' "$cmk"
 OUT=$(PATH="$STUB:$PATH" perl "$TOOL" "${TOK[@]}" --base HEAD 2>&1); RC=$?
 row TAF-64 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"git command that reads the change failed"* ]] && echo 1 || echo 0) \
     "a failing git diff makes the plan FULL, not an empty change set (got $(plan_get mode))"
 reset_fx; rm -f "$STUB/git"
 
-sed -i '/^set(SHARED "a;b")$/d' "$cmk"
+sedi '/^set(SHARED "a;b")$/d' "$cmk"
 trun
 row TAF-65 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"names no declared suite: set(SHARED"* ]] && echo 1 || echo 0) \
     "deleting a shared statement is FULL (the old side is attributed too) (got $(plan_get mode))"
@@ -552,7 +553,7 @@ anomaly TAF-70 'target_link_libraries(s2_test PRIVATE liba #[[ note ]]\n    libb
 anomaly TAF-72 'else()\n' "an else() with nothing open is a parse anomaly: FULL"
 anomaly TAF-73 'elseif(WIN32)\n' "an elseif() with nothing open is a parse anomaly: FULL"
 printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = -s ] && exit 128; done\nexec %s "$@"\n' "$(command -v git)" >"$STUB/git"; chmod +x "$STUB/git"
-sed -i 's/^s2_test 1 /s2_test 2 /' "$R/test/unit-tests.conf"
+sedi 's/^s2_test 1 /s2_test 2 /' "$R/test/unit-tests.conf"
 OUT=$(PATH="$STUB:$PATH" perl "$TOOL" "${TOK[@]}" --base HEAD 2>&1); RC=$?
 row TAF-74 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"git command that reads the change failed"* ]] && echo 1 || echo 0) \
     "a failing git ls-files -s (the submodule pointer probe) makes the plan FULL, not a skipped probe (got $(plan_get mode))"
@@ -560,7 +561,7 @@ reset_fx; rm -f "$STUB/git"
 
 echo 'target_compile_definitions(s1_test PRIVATE X="a\")" Y=1)' >>"$cmk"
 variant
-sed -i 's/Y=1)/Y=2)/' "$cmk"
+sedi 's/Y=1)/Y=2)/' "$cmk"
 trun
 row TAF-71 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,smoke_test" ]] && echo 1 || echo 0) \
     "an escaped quote inside a quoted argument does not end it: a change after \")\" selects only the suite (got $(plan_get mode) $(plan_suites))"
