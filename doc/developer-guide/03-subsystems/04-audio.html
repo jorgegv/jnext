@@ -3486,8 +3486,9 @@ computes the pair from the current inputs, which is exact unless an input change
 only be for one PSG tick. The latch is not machine state: not serialised, and <code>reset()</code> only re-validates it.</p>
 <p><em>Alignment.</em> A frame is pushed for every sample the mixer emits, from the first sample that starts after the
 recording starts. <code>Emulator::init()</code> discards the mixer's partial sample, so it also calls
-<code>AudioSourceTap::clear_partial()</code>, and so does every <code>set_audio_scope_tap()</code> (which also switches the latch
-to match <code>stems</code>): otherwise the next sample would not be whole for one of the two and one stem frame would be
+<code>AudioSourceTap::clear_partial()</code>, and so does <code>set_audio_scope_tap()</code> when it installs a tap that is not the
+one already installed (it also switches the latch to match <code>stems</code>, and a re-install of the same tap, which the
+backend does after an in-place load, keeps the partial sample): otherwise the next sample would not be whole for one of the two and one stem frame would be
 lost per reset. A cold boot builds a new <code>Emulator</code> whose tap is installed by the backend's
 reconstruct re-application, before its first frame. Stem recording installs the tap, so it refuses the HALT and
 raster-poll batches like a scope does.</p>
