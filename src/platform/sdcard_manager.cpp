@@ -307,16 +307,11 @@ std::vector<std::string> held_host_files(Emulator& emu) {
     auto add = [&](const std::string& p) {
         if (!p.empty()) v.push_back(p);
     };
-    auto add_card = [&](const std::string& image) {
-        add(image);
-        if (const auto j = sd_write_journal::for_image(image)) add(j->file());
-    };
-    for (int s = 0; s < 2; ++s) {
-        const SdCardDevice& dev = s == 0 ? emu.sd_card() : emu.sd_card2();
-        if (dev.mounted()) add_card(dev.image_path());
-    }
-    add_card(emu.config().sd_card_image);    // card 0 keeps its path across an eject
-    add_card(emu.config().sd_card2_image);
+    // Mounted images and bound SD-writes files are in the registry (SdCardDevice and Journal hold them). What
+    // only the CONFIGURATION knows is a slot that is ejected right now: card 0 keeps its path (the ROMs come
+    // from it, a hard reset mounts it again), and a card inserted later is the configured one.
+    add(emu.config().sd_card_image);
+    add(emu.config().sd_card2_image);
     if (emu.sd_card().has_read_overlay()) add(emu.config().load_file);   // the NEX the overlay serves
     add(emu.tape().path());
     add(emu.tzx_tape().path());
