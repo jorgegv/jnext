@@ -132,6 +132,7 @@ Launch classify(int argc, const char* const argv[])
         case cli::OptId::Help:
         case cli::OptId::Version:
         case cli::OptId::SdcardFileAdd:
+        case cli::OptId::SdcardFileExtract:
         case cli::OptId::SdcardWritesFlatten:
         case cli::OptId::SdcardExportChanges:
         case cli::OptId::SdcardImportChanges:

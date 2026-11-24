@@ -743,3 +743,54 @@ bool read_sd_image_identity(const std::string& sd_image_path,
     }
     return true;
 }
+
+// ---------------------------------------------------------------------------
+// The FAT volume as the firmware finds it, for a FatFs mount (GH #557)
+// ---------------------------------------------------------------------------
+
+bool find_sd_fat_volume(const std::string& sd_image_path, uint32_t& lba, uint32_t& sectors,
+                        std::string& why) {
+    lba = 0;
+    sectors = 0;
+    why.clear();
+    std::ifstream f(sd_image_path, std::ios::binary);
+    if (!f) {
+        why = "cannot open SD image '" + sd_image_path + "'";
+        return false;
+    }
+    f.seekg(0, std::ios::end);
+    const std::streamoff end = f.tellg();
+    const uint64_t file_bytes = end > 0 ? static_cast<uint64_t>(end) : 0;
+    f.clear();
+    uint32_t vol_lba = 0;
+    if (!find_fat_volume(f, vol_lba, &why)) {
+        why = "'" + sd_image_path + "': " + why;
+        return false;
+    }
+    Fat32Geom g{};
+    std::array<uint8_t, 512> bpb{};
+    if (!parse_bpb(f, vol_lba, g, &bpb, &why)) {
+        why = "'" + sd_image_path + "': " + why;
+        return false;
+    }
+    if (g.bytes_per_sector != 512) {
+        why = "'" + sd_image_path + "' uses " + std::to_string(g.bytes_per_sector) +
+              "-byte sectors; jnext supports 512-byte sectors only";
+        return false;
+    }
+    uint32_t total = rd_u16(bpb.data() + 19);
+    if (total == 0) total = rd_u32(bpb.data() + 32);
+    if (total == 0) {
+        why = "'" + sd_image_path + "' declares a zero-sector FAT volume";
+        return false;
+    }
+    const uint64_t need = (static_cast<uint64_t>(vol_lba) + total) * 512;
+    if (need > file_bytes) {
+        why = "'" + sd_image_path + "' is truncated: its FAT volume needs " + std::to_string(need) +
+              " bytes but the file is " + std::to_string(file_bytes);
+        return false;
+    }
+    lba = vol_lba;
+    sectors = total;
+    return true;
+}

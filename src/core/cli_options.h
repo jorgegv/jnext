@@ -63,6 +63,7 @@ enum class OptId {
     SdcardDeleteBackup,
     SdcardFileDest,
     SdcardFileForce,
+    SdcardFileExtract,
     WarmStartRegenerate,
     SdcardSha256,
     SdcardWrites,
@@ -335,6 +336,14 @@ inline constexpr Option OPTIONS[] = {
       "",
       "Let --sdcard-file-add replace existing files. Without\n"
       "it an existing destination is refused, untouched." },
+    // GH #557 - the other direction: a terminal command like --sdcard-file-add, same exit statuses.
+    { "--sdcard-file-extract", 1, Doc::Documented, OptId::SdcardFileExtract,
+      "PATH",
+      "Copy the file or directory at PATH on the SD card (a card path\n"
+      "such as /GAMES/game.nex; long or 8.3 names, any case) into the\n"
+      "current directory under its own name, and exit without starting\n"
+      "emulation. A local file or directory of that name is refused,\n"
+      "untouched. Given once per run." },
     // GH #555 - rescue verbs: terminal commands like --sdcard-file-add. They share its exit statuses.
     { "--sdcard-writes-flatten", 1, Doc::Documented, OptId::SdcardWritesFlatten,
       "OUT",

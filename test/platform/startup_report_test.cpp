@@ -245,6 +245,14 @@ int main() {
               start != std::string::npos && scanned > 1000 && bare == marked && marked >= 5);
     }
 
+    {
+        // GH #557: --sdcard-file-extract copies a file off the card and exits: a terminal verb, no box.
+        auto x = argv_of({"--sdcard-file-extract", "/GAMES/WOTEF.NEX"});
+        const auto l = classify(static_cast<int>(x.size()), x.data());
+        check("STARTERR-11", "classify(): --sdcard-file-extract is a terminal command (not windowed, not unattended), like --sdcard-file-add",
+              !l.windowed && !l.unattended);
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;
 }
