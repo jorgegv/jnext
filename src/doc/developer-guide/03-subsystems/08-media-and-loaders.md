@@ -2056,7 +2056,7 @@ to a directory outside the tree); `rename()` and `make_dir()` take one component
 under `normalize_dest_path()`'s name rules and never overwrite (an existing name is `DestExists`).
 `FileAddStatus` is the status of all of them. No `ImageLock` is taken: the manager works on images a slot of
 this process has mounted, so the process already holds the lock, and a second `flock` on the same file from
-the same process would be refused. Rows: `SDOPS-01..22` and `SDOPS-24..54` (`sdcard_card_ops_test`),
+the same process would be refused. Rows: `SDOPS-01..22` and `SDOPS-24..56` (`sdcard_card_ops_test`),
 `SDWP-01` for `SdCardDevice::write_protected()` (`sdcard_test`).
 
 **The glue caches sectors.** FatFs keeps one sector window per volume, so every path lookup

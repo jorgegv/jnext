@@ -1220,6 +1220,70 @@ int main() {
         fs::remove(TS, ec);
     }
 
+    // SDOPS-55 / SDOPS-56: the slot's SECTOR half, on cards where sectors do not equal clusters. An earlier `foo` has its 8.3 slot at byte
+    // offset 96 of sector 0, a later 8.3-only `FOO` at offset 96 of sector 1 of the SAME directory cluster (2-sector clusters) or of the
+    // same fixed FAT16 root (no cluster at all): only the sector tells them apart.
+    {
+        const std::string AU = tmp_name("au1k") + ".img";
+        const int t = make_card(AU, kLba, 140000, FM_FAT32, 1024, 0, 0x0C, [&](FATFS& fsv, Pokes& pokes) {
+            if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/TS") != FR_OK || !fat_write("0:/DATA/D1.BIN", kD1) || !fat_write("0:/DATA/D2.BIN", kD2))
+                return false;
+            for (int i = 0; i < 18; ++i) {                    // slots 2..19 of the directory's first cluster (32 slots, 2 sectors)
+                char n[32];
+                std::snprintf(n, sizeof n, "0:/TS/F%02d.BIN", i);
+                if (!fat_write(n, {})) return false;
+            }
+            const uint32_t d = dir_cluster("0:/TS"), c1 = file_cluster("0:/DATA/D1.BIN"), c2 = file_cluster("0:/DATA/D2.BIN");
+            hand_dir(fsv, d, 2, {{u"foo", "R~1        ", 0x20, c1, 200}}, pokes);        // 8.3 slot 3: sector 0, offset 96
+            hand_dir(fsv, d, 19, {{u"", "FOO        ", 0x20, c2, 200}}, pokes);          // slot 19: sector 1, offset 96
+            return fsv.csize == 2;
+        });
+        const Ls l = ls(AU, "/TS");
+        const ops::CardEntry* x = nullptr;
+        const ops::CardEntry* y = nullptr;
+        for (const auto& e : l.e) { if (e.name == "FOO" && e.altname.empty()) x = &e; if (e.name == "foo") y = &e; }
+        std::string err;
+        Img c(AU);
+        const St ry = y && !y->open_name.empty() ? ops::remove(c.p, "/TS/" + y->open_name, err) : St::ImageUnusable;
+        const Ls a = ls(c.p, "/TS");
+        const ops::CardEntry* ax = nullptr;
+        for (const auto& e : a.e) if (e.name == "FOO") ax = &e;
+        const Tree tx = ax && !ax->open_name.empty() ? extracted(c.p, "/TS/" + ax->open_name) : Tree{};
+        check("SDOPS-55", "on a card with 2 sectors per cluster, an earlier foo (sector 0) and a later 8.3-only FOO (sector 1, same offset) of ONE directory cluster: FOO has no open_name, foo has, and removing foo by its open_name leaves FOO's data",
+              t == FS_FAT32 && l.st == St::Ok && x && y && x->open_name.empty() && y->open_name == "foo" && ry == St::Ok && ax && !ax->open_name.empty() &&
+                  tx.size() == 1 && tx.begin()->second == x_data,
+              "type=" + std::to_string(t) + " " + info(l) + " " + stn(ry) + " " + err);
+        std::error_code ec;
+        fs::remove(AU, ec);
+    }
+    {
+        const std::string R16 = tmp_name("f16root") + ".img";
+        const int t = make_card(R16, kLba, kFat16Sectors, FM_FAT, 512, 512, 0x06, [&](FATFS& fsv, Pokes& pokes) {
+            if (f_mkdir("0:/DATA") != FR_OK || !fat_write("0:/DATA/D1.BIN", kD1) || !fat_write("0:/DATA/D2.BIN", kD2)) return false;
+            for (int i = 0; i < 19; ++i) {                    // the fixed root: slots 1..19 (DATA is slot 0)
+                char n[32];
+                std::snprintf(n, sizeof n, "0:/F%02d.BIN", i);
+                if (!fat_write(n, {})) return false;
+            }
+            const uint32_t c1 = file_cluster("0:/DATA/D1.BIN"), c2 = file_cluster("0:/DATA/D2.BIN");
+            // hand_dir addresses a directory by cluster; the fixed root is a run of sectors from dirbase, so present it as "cluster 2 of 1-sector clusters"
+            FATFS root = fsv;
+            root.database = root.dirbase;
+            root.csize = 1;
+            hand_dir(root, 2, 2, {{u"foo", "R~1        ", 0x20, c1, 200}}, pokes);       // 8.3 slot 3: root sector 0, offset 96
+            hand_dir(root, 2, 19, {{u"", "FOO        ", 0x20, c2, 200}}, pokes);         // slot 19: root sector 1, offset 96
+            return true;
+        });
+        const Ls l = ls(R16, "/");
+        const ops::CardEntry* x = nullptr;
+        const ops::CardEntry* y = nullptr;
+        for (const auto& e : l.e) { if (e.name == "FOO" && e.altname.empty()) x = &e; if (e.name == "foo") y = &e; }
+        check("SDOPS-56", "in a FAT16 fixed root (no cluster: the directory is a run of sectors), an earlier foo (sector 0) and a later 8.3-only FOO (sector 1, same offset): FOO has no open_name, foo has",
+              t == FS_FAT16 && l.st == St::Ok && x && y && x->open_name.empty() && y->open_name == "foo", "type=" + std::to_string(t) + " " + info(l));
+        std::error_code ec;
+        fs::remove(R16, ec);
+    }
+
     sd_write_journal::forget_all_for_test();
     std::error_code ec;
     fs::permissions(g_dir, fs::perms::owner_all, fs::perm_options::add, ec);
