@@ -5293,6 +5293,29 @@ which is refused, so the walk terminates) and a
 per-directory set of host names folded to upper case (two entries a case-insensitive host could not tell
 apart). <code>main()</code> counts the verb with the others (one per run, <code>headless</code>, a terminal command for
 <code>startup_report::classify()</code>), and the card lock returns 5 for it like the other verbs.</p>
+<p><strong>Working on the files of a card: the card operations.</strong> The SD card file manager needs what the two
+engines above do not do: look at one directory, rename, make a directory, remove a tree.
+<code>src/core/sdcard_card_ops.cpp</code> (namespace <code>sdcard::cardops</code>) holds <code>probe()</code>, <code>list_dir()</code>, <code>stat()</code>,
+<code>rename()</code>, <code>make_dir()</code> and <code>remove()</code>. They follow the engines' pattern: every call attaches the image
+to FatFs drive 0, works, flushes when it modified something (<code>f_syncvol()</code> before the unmount, only then),
+then unmounts and detaches. FatFs keeps global state per drive and is not reentrant, so no call may hold
+the drive while another engine runs; a listing is one mount per directory, which is why the manager does
+not use <code>carry::Volume</code> (it walks the whole tree each time it opens). Reads mount read-only with the
+card's writes file laid over the image, as extract does. A write needs a card jnext can write: the
+volume <code>find_sd_fat_volume()</code> finds must be the same (start sector and size) as the first FAT32-LBA
+partition <code>read_partition_geometry()</code> finds, which is the volume <code>add_to_image()</code> writes. Any other card
+(FAT12/16, no partition table, a second partition) is listed and shown read-only, and every write on it
+is refused with <code>DestInvalid</code> before the card is opened for writing. With a writes file bound a change
+goes into it and the image stays byte-identical, as for file-add. A path is '/'-separated <code>open_name</code>s: the
+spelling FatFs can open the entry by, which is the 8.3 alias for a name ending in a dot or a space or
+holding a control byte (a long name FatFs would open as another entry), and empty, so refused, when
+neither works. <code>remove()</code> walks the tree first and refuses, naming the entry and removing nothing, when it
+holds a read-only entry (the attribute is never cleared); <code>rename()</code> and <code>make_dir()</code> take one component
+under <code>normalize_dest_path()</code>'s name rules and never overwrite (an existing name is <code>DestExists</code>).
+<code>FileAddStatus</code> is the status of all of them. No <code>ImageLock</code> is taken: the manager works on images a slot of
+this process has mounted, so the process already holds the lock, and a second <code>flock</code> on the same file from
+the same process would be refused. Rows: <code>SDOPS-01..22</code> and <code>SDOPS-24..30</code> (<code>sdcard_card_ops_test</code>),
+<code>SDWP-01</code> for <code>SdCardDevice::write_protected()</code> (<code>sdcard_test</code>).</p>
 <p><strong>The glue caches sectors.</strong> FatFs keeps one sector window per volume, so every path lookup
 re-reads its directory, and an uncached <code>disk_read</code> costs an <code>lseek</code> plus an 8 KiB stream-buffer
 refill. <code>fatfs_glue::attach()</code> therefore gives the drive a direct-mapped, write-through cache

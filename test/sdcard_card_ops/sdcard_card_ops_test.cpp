@@ -96,8 +96,9 @@ bool populate_general(FATFS&, Pokes&) {
          fat_write("0:/S.BIN", kAttr);
     ok = ok && f_chmod("0:/R.BIN", AM_RDO, AM_RDO) == FR_OK && f_chmod("0:/H.BIN", AM_HID, AM_HID) == FR_OK &&
          f_chmod("0:/S.BIN", AM_SYS, AM_SYS) == FR_OK;
-    ok = ok && f_mkdir("0:/RO") == FR_OK && fat_write("0:/RO/OK.BIN", kOk) && f_mkdir("0:/RO/SUB") == FR_OK &&
-         fat_write("0:/RO/SUB/Q.BIN", kQ) && f_chmod("0:/RO/SUB/Q.BIN", AM_RDO, AM_RDO) == FR_OK;
+    ok = ok && f_mkdir("0:/RO") == FR_OK && fat_write("0:/RO/A_RO.BIN", kQ) &&
+         f_chmod("0:/RO/A_RO.BIN", AM_RDO, AM_RDO) == FR_OK && fat_write("0:/RO/OK.BIN", kOk) &&
+         f_mkdir("0:/RO/SUB") == FR_OK && fat_write("0:/RO/SUB/Q.BIN", kQ);
     return ok;
 }
 
@@ -518,8 +519,9 @@ int main() {
         const St a = ops::remove(c.p, "/RO", e1);
         const St b = ops::remove(c.p, "/R.BIN", e2);
         check("SDOPS-18", "remove refuses a tree holding a read-only file, and a read-only file itself, naming it; the image byte-identical",
-              a == St::DestInvalid && b == St::DestInvalid && e1.find("Q.BIN") != std::string::npos &&
-                  e2.find("R.BIN") != std::string::npos && sha_file(c.p) == before,
+              a == St::DestInvalid && b == St::DestInvalid && e1.find("A_RO.BIN") != std::string::npos &&
+                  e1.find("read-only") != std::string::npos && e2.find("R.BIN") != std::string::npos &&
+                  e2.find("read-only") != std::string::npos && sha_file(c.p) == before,
               e1 + " | " + e2);
     }
     // SDOPS-19
