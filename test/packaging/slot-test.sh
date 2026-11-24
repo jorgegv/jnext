@@ -11,14 +11,14 @@
 # remote lane, long or short, and runs here only when every lane is busy) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-65. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-66. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=65
+EXPECTED_ROWS=66
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -101,7 +101,7 @@ if [[ "${1:-}" == --probe ]]; then
     [[ " ${STUB_BUSY_HOSTS:-} " != *" ${JNEXT_REMOTE_RUN_HOST:-} "* ]] || exit 75
     exit 0
 fi
-{ echo "ARGS $*"; echo "HOST=${JNEXT_REMOTE_RUN_HOST:-unset}"; echo "NO_OVERFLOW=${JNEXT_SLOT_NO_OVERFLOW:-unset}"; echo "WRAP=${REMOTE_RUN_LOCAL_WRAP:-unset}"; } >> "$STATE/rr-calls"
+{ echo "ARGS $*"; echo "HOST=${JNEXT_REMOTE_RUN_HOST:-unset}"; echo "NO_OVERFLOW=${JNEXT_SLOT_NO_OVERFLOW:-unset}"; echo "WRAP=${REMOTE_RUN_LOCAL_WRAP:-unset}"; echo "BASE_REPO=${REMOTE_RUN_BASE_REPO:-unset}"; } >> "$STATE/rr-calls"
 echo "MF=[${MAKEFLAGS-}] U=${JNEXT_UNIT_TEST_JOBS-unset} T=${JNEXT_TEST_JOBS-unset}" >> "$STATE/rr-env"
 echo "stub driver ran"
 [[ -z "${STUB_PAUSE:-}" ]] || : > "$STUB_PAUSE"
@@ -629,6 +629,13 @@ out=$(STUB_BUSY_HOSTS=fakehost slot make -C "$WT" test-affected 2>&1); rc=$?
 row SLOT-65 "$([[ $rc -eq 0 && "$out" == *"[slot.sh] remote host fakehost: no free lane (or unusable)"* && -z "$(rr_calls)" \
     && "$(cat "$STATE/make-calls")" == "make -C $WT test-affected" ]] && echo 1 || echo 0)" \
     "an eligible short run with every host busy prints the 'no free lane' line for the host, then runs here (rc=$rc)"
+
+# SLOT-66 (GH #562): the driver is told whose LOCAL main supplies test-affected's base: this branch's worktree, on every
+# host tried (REMOTE_RUN_BASE_REPO), not only the last one that also gets --fallback-local
+fresh
+out=$(slot env LANG=C make -C "$WT" test-affected 2>&1); rc=$?
+row SLOT-66 "$([[ $rc -eq 0 && "$(rr_calls)" == *"BASE_REPO=$WT"* && "$(rr_calls)" != *"BASE_REPO=unset"* ]] && echo 1 || echo 0)" \
+    "a remote run is given REMOTE_RUN_BASE_REPO=<the branch's worktree> (rc=$rc)"
 
 # ---- thread caps (owner, 2026-11-23): a locally admitted run gets nproc/NSLOTS threads ------------------------
 # Oracle: the measurement in slot.sh's apply_thread_caps comment (6 threads each beat 12 each for two concurrent
