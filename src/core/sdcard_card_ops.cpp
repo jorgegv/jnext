@@ -180,44 +180,31 @@ CardEntry to_entry(const FILINFO& f) {
     return e;
 }
 
-// Give each entry its open_name: the first of its long name and its 8.3 alias that FatFs resolves to THIS
-// entry. (A name FatFs refuses, strips a trailing dot or space from, or reads a backslash of as a separator
-// returns no entry or another one, so the same test refuses it.) FatFs takes the first entry, in directory order, whose long name or 8.3
-// name matches the typed one, comparing in Unicode (ff_wtoupper over ff_oem2uni); a long name with a
-// character outside the code page even lists under its alias while still matching as the long name. So the
-// answer is asked of FatFs itself: f_stat(candidate) must return this entry's size, attributes, date and
-// time, and its names: the stored name and alias for the long name, the alias for the alias. An EARLIER entry
-// indistinguishable by those fields (same names and fields for the long name; same 8.3 name and fields for
-// the alias) makes the candidate ambiguous, so it is refused. FatFs never writes such a directory; a guest or a damaged card can. No candidate: empty.
-void resolve_open_names(const std::string& fat_dir, std::vector<CardEntry>& ents) {
+// Where an entry lives in its directory: the sector and the byte offset of its 8.3 slot, as FatFs reports them
+// in FILINFO (a local addition to the vendored ff.c, set by f_readdir() and f_stat() alike).
+struct Slot {
+    LBA_t sect = 0;
+    WORD  ofs  = 0;
+};
+
+// Give each entry its open_name: the first of its long name and its 8.3 alias that FatFs RESOLVES TO THIS
+// ENTRY, decided by the slot. FatFs takes the first entry, in directory order, whose long name or 8.3 name
+// matches the typed one, comparing in Unicode, and it hands back the TYPED spelling for a match by long name
+// and the same alias for a duplicated 8.3 name, so no name or field of the answer identifies the entry (a
+// long name with a character outside the code page even lists under its alias while still matching as the
+// long name). The slot does: f_stat(candidate) must return the slot the listing gave this entry. A name
+// FatFs refuses (control bytes, "*:<>?|, too long), strips a trailing dot or space from, or reads a backslash
+// of as a separator returns no entry or another one, so the same test refuses it. FatFs never writes a
+// directory where this matters; a guest or a damaged card can. No candidate resolves here: empty.
+void resolve_open_names(const std::string& fat_dir, std::vector<CardEntry>& ents, const std::vector<Slot>& slots) {
     const std::string base = fat_dir.back() == '/' ? fat_dir : fat_dir + "/";
-    auto same_fields = [](const CardEntry& a, const CardEntry& b) {
-        return a.size == b.size && a.attr == b.attr && a.dir == b.dir && a.fdate == b.fdate && a.ftime == b.ftime;
-    };
-    auto sfn_of = [](const CardEntry& x) { return x.altname.empty() ? x.name : x.altname; };
     for (size_t i = 0; i < ents.size(); ++i) {
-        const CardEntry& e = ents[i];
-        for (int k = 0; k < 2; ++k) {
-            const bool by_name = k == 0;
-            const std::string& cand = by_name ? e.name : e.altname;
-            if (cand.empty()) continue;      // f_stat refuses what no name can open (control bytes, *:<>?|", a separator)
+        for (const std::string* cand : {&ents[i].name, &ents[i].altname}) {
+            if (cand->empty()) continue;
             FILINFO f{};
-            if (f_stat((base + cand).c_str(), &f) != FR_OK) continue;
-            if (f.fsize != e.size || static_cast<uint8_t>(f.fattrib & (AM_RDO | AM_HID | AM_SYS)) != e.attr ||
-                ((f.fattrib & AM_DIR) != 0) != e.dir || f.fdate != e.fdate || f.ftime != e.ftime)
-                continue;
-            // f_stat returns the typed spelling as fname, and the entry's 8.3 name as altname, for a match by alias
-            if (by_name ? (e.name != f.fname || (!e.altname.empty() && e.altname != f.altname))
-                        : (cand != f.fname || cand != f.altname))
-                continue;
-            bool ambiguous = false;
-            for (size_t j = 0; j < i && !ambiguous; ++j) {
-                const CardEntry& o = ents[j];
-                ambiguous = same_fields(o, e) &&
-                            (by_name ? (o.name == e.name && o.altname == e.altname) : sfn_of(o) == sfn_of(e));
-            }
-            if (ambiguous) continue;
-            ents[i].open_name = cand;
+            if (f_stat((base + *cand).c_str(), &f) != FR_OK) continue;
+            if (f.dir_sect != slots[i].sect || f.dir_ofs != slots[i].ofs) continue;
+            ents[i].open_name = *cand;
             break;
         }
     }
@@ -227,6 +214,7 @@ void resolve_open_names(const std::string& fat_dir, std::vector<CardEntry>& ents
 FileAddStatus read_dir(const std::string& fat, const std::string& shown_dir, std::vector<CardEntry>& out,
                        std::set<DWORD>* visited, std::string& err, DWORD* sclust = nullptr) {
     DIR dj{};
+    std::vector<Slot> slots;
     FRESULT fr = f_opendir(&dj, fat.c_str());
     if (fr != FR_OK) return status_of_open(fr, shown_dir, err);
     if (sclust) *sclust = dj.obj.sclust;
@@ -245,9 +233,10 @@ FileAddStatus read_dir(const std::string& fat, const std::string& shown_dir, std
         }
         if (fno.fname[0] == 0) break;
         out.push_back(to_entry(fno));
+        slots.push_back({fno.dir_sect, fno.dir_ofs});
     }
     f_closedir(&dj);
-    resolve_open_names(fat, out);
+    resolve_open_names(fat, out, slots);
     return FileAddStatus::Ok;
 }
 

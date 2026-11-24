@@ -29,6 +29,7 @@
 
 extern "C" {
 #include "third_party/fatfs/ff.h"
+#include "third_party/fatfs/diskio.h"
 }
 
 #include <algorithm>
@@ -1134,6 +1135,89 @@ int main() {
               info(l) + " open=[" + (x ? x->open_name : "-") + "] " + stn(r) + " " + err + " after=" + info(a) + " ysz=" + std::to_string(y.size()));
         std::error_code ec;
         fs::remove(GE, ec);
+    }
+
+    // ---- round 4: the slot decides which entry a name resolves to ----
+
+    // SDOPS-51 .. SDOPS-53: FatFs resolves X's name to the EARLIER entry Y (it matches by long name, or by a duplicated
+    // 8.3 name), and hands back the typed spelling, so no name or field tells them apart. All fields equal: size, attributes, date, time.
+    const std::string HP = tmp_name("hole") + ".img";
+    make_card(HP, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& fsv, Pokes& pokes) {
+        if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/H7") != FR_OK || f_mkdir("0:/H8") != FR_OK || f_mkdir("0:/H9") != FR_OK ||
+            !fat_write("0:/DATA/D1.BIN", kD1) || !fat_write("0:/DATA/D2.BIN", kD2))
+            return false;
+        const uint32_t c1 = file_cluster("0:/DATA/D1.BIN"), c2 = file_cluster("0:/DATA/D2.BIN");
+        // Y {long "foo", 8.3 R~1} then X {8.3 only, FOO}: "FOO" opens Y by its long name
+        hand_dir(fsv, dir_cluster("0:/H7"), 2, {{u"foo", "R~1        ", 0x20, c1, 200}, {u"", "FOO        ", 0x20, c2, 200}}, pokes);
+        // Y {Foo, FOO~1} then X {FOO, FOO~1}: a duplicated 8.3 name
+        hand_dir(fsv, dir_cluster("0:/H8"), 2, {{u"Foo", "FOO~1      ", 0x20, c1, 200}, {u"FOO", "FOO~1      ", 0x20, c2, 200}}, pokes);
+        // Y {FOO, R~1} then X {8.3 FOO}: the same case
+        hand_dir(fsv, dir_cluster("0:/H9"), 2, {{u"FOO", "R~1        ", 0x20, c1, 200}, {u"", "FOO        ", 0x20, c2, 200}}, pokes);
+        return true;
+    });
+    const Bytes y_data(kD1.begin(), kD1.begin() + 200), x_data(kD2.begin(), kD2.begin() + 200);
+    for (const char* d : {"/H7", "/H8", "/H9"}) {
+        const Ls l = ls(HP, d);
+        const ops::CardEntry* x = nullptr;
+        const ops::CardEntry* y = nullptr;
+        for (const auto& e : l.e) {
+            const bool is_x = e.name == "FOO" && (std::string(d) == "/H8" ? true : e.altname.empty());
+            if (std::string(d) == "/H8") { if (e.name == "FOO") x = &e; else y = &e; }
+            else if (is_x) x = &e; else y = &e;
+        }
+        std::string err;
+        Img c1(HP), c2(HP);
+        const std::string before = sha_file(c2.p);
+        const St whole = ops::remove(c2.p, d, err);           // X has no open_name, so the tree is refused
+        // removing Y by ITS open_name leaves X, whose data is intact and which now resolves
+        const St ry = y && !y->open_name.empty() ? ops::remove(c1.p, std::string(d) + "/" + y->open_name, err) : St::ImageUnusable;
+        const Ls a = ls(c1.p, d);
+        const Tree t = a.e.size() == 1 && !a.e[0].open_name.empty() ? extracted(c1.p, std::string(d) + "/" + a.e[0].open_name) : Tree{};
+        const bool ok = l.st == St::Ok && l.e.size() == 2 && x && y && x->open_name.empty() && !y->open_name.empty() && whole == St::DestInvalid &&
+                        sha_file(c2.p) == before && ry == St::Ok && a.e.size() == 1 && !a.e[0].open_name.empty() && t.size() == 1 &&
+                        t.begin()->second == x_data;
+        if (std::string(d) == "/H7")
+            check("SDOPS-51", "an 8.3-only FOO after an earlier entry with the long name foo (all fields equal): FatFs opens FOO as the earlier entry, so FOO has no open_name; the tree holding it is refused with the image byte-identical, and removing the earlier entry by ITS open_name leaves FOO's data",
+                  ok, info(l) + " " + stn(whole) + stn(ry));
+        else if (std::string(d) == "/H8")
+            check("SDOPS-52", "two entries with the long names Foo and FOO and the same 8.3 name, all fields equal: the later one has no open_name (both spellings resolve to the earlier), the tree is refused with the image byte-identical, and removing the earlier one by its open_name leaves the later one's data",
+                  ok, info(l) + " " + stn(whole) + stn(ry));
+        else
+            check("SDOPS-53", "an 8.3-only FOO after an earlier entry with the long name FOO (all fields equal): FOO has no open_name, the tree is refused with the image byte-identical, and removing the earlier entry by its open_name leaves FOO's data",
+                  ok, info(l) + " " + stn(whole) + stn(ry));
+    }
+    // SDOPS-54: the same slot OFFSET in two different sectors of one directory
+    {
+        const std::string TS = tmp_name("twosec") + ".img";
+        make_card(TS, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& fsv, Pokes& pokes) {
+            if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/TS") != FR_OK || !fat_write("0:/DATA/D1.BIN", kD1) || !fat_write("0:/DATA/D2.BIN", kD2))
+                return false;
+            for (int i = 0; i < 20; ++i) {                    // 2 + 20 entries: the directory takes a second 512-byte cluster
+                char n[32];
+                std::snprintf(n, sizeof n, "0:/TS/F%02d.BIN", i);
+                if (!fat_write(n, {})) return false;
+            }
+            f_syncvol("0:");
+            const uint32_t first = dir_cluster("0:/TS");
+            BYTE sec[512];
+            if (disk_read(0, sec, fsv.fatbase + (static_cast<LBA_t>(first) * 4) / 512, 1) != RES_OK) return false;
+            const size_t o = (static_cast<size_t>(first) * 4) % 512;
+            const uint32_t next = (sec[o] | (sec[o + 1] << 8) | (sec[o + 2] << 16) | (static_cast<uint32_t>(sec[o + 3]) << 24)) & 0x0FFFFFFF;
+            if (next < 2 || next >= 0x0FFFFFF8) return false;
+            const uint32_t c1 = file_cluster("0:/DATA/D1.BIN"), c2 = file_cluster("0:/DATA/D2.BIN");
+            // Y {long "foo", 8.3 R~1} puts its 8.3 slot at byte offset 96 of the first sector; X {8.3 FOO} at offset 96 of the second
+            hand_dir(fsv, first, 2, {{u"foo", "R~1        ", 0x20, c1, 200}}, pokes);
+            hand_dir(fsv, next, 3, {{u"", "FOO        ", 0x20, c2, 200}}, pokes);
+            return true;
+        });
+        const Ls l = ls(TS, "/TS");
+        const ops::CardEntry* x = nullptr;
+        const ops::CardEntry* y = nullptr;
+        for (const auto& e : l.e) { if (e.name == "FOO" && e.altname.empty()) x = &e; if (e.name == "foo") y = &e; }
+        check("SDOPS-54", "the same slot offset in two sectors of one directory (an earlier foo, a later 8.3-only FOO): FOO has no open_name, foo has",
+              l.st == St::Ok && x && y && x->open_name.empty() && y->open_name == "foo", info(l));
+        std::error_code ec;
+        fs::remove(TS, ec);
     }
 
     sd_write_journal::forget_all_for_test();

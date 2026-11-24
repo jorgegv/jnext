@@ -49,15 +49,14 @@ namespace sdcard::cardops {
 struct CardEntry {
     std::string name;       ///< the stored long name, CP437 bytes
     std::string altname;    ///< the 8.3 alias ("" when the name is its own alias)
-    /// The spelling FatFs opens THIS entry by: `name` or else `altname`, whichever FatFs can address and
-    /// resolves to this entry (checked with f_stat: same size, attributes, date and time, and for the long
-    /// name the same stored names; an earlier entry indistinguishable by those fields makes it ambiguous).
-    /// FatFs refuses a name holding a control byte or one of `*:<>?|"`. It strips a trailing dot or space
-    /// (so the name would open a sibling), reads a backslash as a path separator, and takes the FIRST entry
-    /// in directory order whose long name or 8.3 name matches, comparing in Unicode: a long name with a
-    /// character outside the code page lists under its alias yet still matches as the long name. FatFs never
-    /// writes such a directory; a guest or a damaged card can. EMPTY when neither spelling is safe (rename
-    /// and remove then refuse).
+    /// The spelling FatFs opens THIS entry by: `name` or else `altname`, whichever FatFs RESOLVES TO THIS ENTRY,
+    /// decided by the entry's directory slot (f_stat of the candidate must return the slot the listing gave).
+    /// A name does not identify an entry: FatFs takes the FIRST entry in directory order whose long name or
+    /// 8.3 name matches, comparing in Unicode, and it returns the TYPED spelling for a match by long name. A
+    /// long name with a character outside the code page lists under its alias yet still matches as the long
+    /// name; a trailing dot or space is stripped (so the name opens a sibling) and a backslash is a path
+    /// separator. FatFs never writes a directory where this matters; a guest or a damaged card can. EMPTY
+    /// when neither spelling resolves here (rename and remove then refuse).
     std::string open_name;
     bool        dir   = false;
     uint32_t    size  = 0;

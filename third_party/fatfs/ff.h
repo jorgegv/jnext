@@ -248,6 +248,8 @@ typedef struct {
 	WORD	crtime;			/* Created time */
 #endif
 	BYTE	fattrib;		/* File attribute */
+	LBA_t	dir_sect;		/* jnext local change (GH #558): sector holding the directory entry (0 when not filled in) */
+	WORD	dir_ofs;		/* jnext local change (GH #558): byte offset of the entry in that sector */
 #if FF_USE_LFN
 	TCHAR	altname[FF_SFN_BUF + 1];/* Alternative file name */
 	TCHAR	fname[FF_LFN_BUF + 1];	/* Primary file name */

@@ -2774,6 +2774,12 @@ static void get_fileinfo (
 	fno->crtime = ld_16(dp->dir + DIR_CrtTime + 0);	/* Created time */
 	fno->crdate = ld_16(dp->dir + DIR_CrtTime + 2);	/* Created date */
 #endif
+	/* jnext local change (GH #558): where the entry lives, so a caller can tell WHICH entry a name resolved to.
+	   f_readdir() and f_stat() both come through here with dp->dir on the entry's 8.3 slot; names and fields
+	   cannot tell two entries apart (a long name returns the TYPED spelling, a duplicate 8.3 name returns the
+	   same alias), the slot can. */
+	fno->dir_sect = dp->sect;
+	fno->dir_ofs = (WORD)(dp->dir - dp->obj.fs->win);
 }
 
 #endif /* FF_FS_MINIMIZE <= 1 || FF_FS_RPATH >= 2 */
