@@ -966,6 +966,143 @@ int main() {
         fs::remove(SO, ec);
     }
 
+    // ---- round 3: FatFs's own name resolution, and the ".." check on honest and damaged cards ----
+
+    // SDOPS-42 / SDOPS-43: long names FatFs matches in Unicode. Y (size 200) comes first, X (size 210) after it.
+    const std::string UC = tmp_name("unicode") + ".img";
+    make_card(UC, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& fsv, Pokes& pokes) {
+        if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/GR") != FR_OK || f_mkdir("0:/UN") != FR_OK ||
+            !fat_write("0:/DATA/D1.BIN", kD1) || !fat_write("0:/DATA/D2.BIN", kD2))
+            return false;
+        const uint32_t c1 = file_cluster("0:/DATA/D1.BIN"), c2 = file_cluster("0:/DATA/D2.BIN");
+        const uint32_t n1 = static_cast<uint32_t>(kD1.size()), n2 = static_cast<uint32_t>(kD2.size());
+        // Sigma / sigma: a pair in code page 437 that has no upper-case mapping in a hand-written table
+        hand_dir(fsv, dir_cluster("0:/GR"), 2, {{u"ΣX", "Y~1        ", 0x20, c1, n1}, {u"σX", "X~1        ", 0x20, c2, n2}}, pokes);
+        // A-circumflex is not in code page 437: that long name lists under its alias, FatFs still matches it
+        hand_dir(fsv, dir_cluster("0:/UN"), 2, {{u"Â" u"bc", "Y~1        ", 0x20, c1, n1}, {u"â" u"bc", "X~1        ", 0x20, c2, n2}}, pokes);
+        return true;
+    });
+    for (const char* d : {"/GR", "/UN"}) {
+        const Ls l = ls(UC, d);
+        const ops::CardEntry* x = nullptr;
+        const ops::CardEntry* y = nullptr;
+        for (const auto& e : l.e) { if (e.size == kD2.size()) x = &e; if (e.size == kD1.size()) y = &e; }
+        std::string err, err2;
+        Img c1(UC), c2(UC);
+        const St rm = x && !x->open_name.empty() ? ops::remove(c1.p, std::string(d) + "/" + x->open_name, err) : St::ImageUnusable;
+        const Ls a = ls(c1.p, d);
+        const St rn = x && !x->open_name.empty() ? ops::rename(c2.p, std::string(d) + "/" + x->open_name, "NEW.BIN", err2) : St::ImageUnusable;
+        const Ls b = ls(c2.p, d);
+        const bool removed = rm == St::Ok && a.e.size() == 1 && a.e[0].size == kD1.size();     // X gone, Y (size 200) intact
+        const bool renamed = rn == St::Ok && b.e.size() == 2 && find(b, "NEW.BIN") && find(b, "NEW.BIN")->size == kD2.size() &&
+                             extracted(c2.p, std::string(d) + "/NEW.BIN") == Tree{{"NEW.BIN", kD2}};
+        const bool pick = l.st == St::Ok && l.e.size() == 2 && x && y && !x->open_name.empty() && !y->open_name.empty();
+        if (std::string(d) == "/GR")
+            check("SDOPS-42", "two long names equal in Unicode but not in a hand-written table (sigma, Sigma): the later one is not opened by its long name, and remove and rename by open_name act on it, not on the earlier entry, whose bytes stay",
+                  pick && removed && renamed, info(l) + " " + err + err2);
+        else
+            check("SDOPS-43", "a long name with a character outside code page 437 lists under its alias yet FatFs matches it as the long name: the entry after it is never opened by a name that resolves to the earlier one; remove and rename by open_name act on the right entry",
+                  pick && removed && renamed, info(l) + " " + err + err2);
+    }
+    // SDOPS-44: a nested honest tree is removed (the everyday case: the manager deletes inside a directory)
+    {
+        Img c(G);
+        std::string err, err2;
+        const St a = ops::remove(c.p, "/GAMES/SUB", err);
+        const bool first = a == St::Ok && !exists(c.p, "/GAMES/SUB") && exists(c.p, "/GAMES/WOTEF.NEX");
+        const St b = ops::remove(c.p, "/MYDIR/SUB", err2);
+        check("SDOPS-44", "remove of a directory below the root, at two depths (/GAMES/SUB with a subdirectory, /MYDIR/SUB): Ok, the siblings stay, so the parent of the top directory is the directory it was found in",
+              first && b == St::Ok && !exists(c.p, "/MYDIR/SUB") && exists(c.p, "/MYDIR/A.BIN") && names_of(c.p, "/GAMES") == "WOTEF.NEX",
+              err + " | " + err2);
+    }
+    // SDOPS-45: directories above cluster 65535 (the high word of a ".." entry)
+    {
+        const std::string BG = tmp_name("big") + ".img";
+        uint32_t big_cluster = 0;
+        make_card(BG, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS&, Pokes&) {
+            if (!fat_write("0:/FILLER.BIN", Bytes(static_cast<size_t>(65600) * 512, 0x44))) return false;
+            if (f_mkdir("0:/BIG") != FR_OK || f_mkdir("0:/BIG/SUB") != FR_OK || !fat_write("0:/BIG/SUB/F.BIN", kA)) return false;
+            big_cluster = dir_cluster("0:/BIG");
+            return big_cluster > 65535 && dir_cluster("0:/BIG/SUB") > 65535;
+        });
+        std::string err;
+        const St a = ops::remove(BG, "/BIG", err);
+        check("SDOPS-45", "remove of a tree whose directories sit above cluster 65535 (a \"..\" entry's high word is non-zero): Ok, gone",
+              big_cluster > 65535 && a == St::Ok && !exists(BG, "/BIG") && exists(BG, "/FILLER.BIN"),
+              "cluster=" + std::to_string(big_cluster) + " " + stn(a) + " " + err);
+        std::error_code ec;
+        fs::remove(BG, ec);
+    }
+    // SDOPS-46 .. SDOPS-48: ".." entries of directories directly under the root, and of a cluster that is no directory
+    const std::string DD = tmp_name("dotdot") + ".img";
+    make_card(DD, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& fsv, Pokes& pokes) {
+        if (f_mkdir("0:/RD") != FR_OK || !fat_write("0:/RD/R.BIN", kA) || f_mkdir("0:/A") != FR_OK || f_mkdir("0:/A/B") != FR_OK ||
+            !fat_write("0:/A/B/B.BIN", kB) || f_mkdir("0:/X") != FR_OK)
+            return false;
+        // RD's ".." names the root by its cluster number instead of 0 (accepted: both name the root)
+        const uint64_t rd_sector = static_cast<uint64_t>(fsv.database) + static_cast<uint64_t>(dir_cluster("0:/RD") - 2) * fsv.csize;
+        const uint32_t root = static_cast<uint32_t>(fsv.dirbase);
+        pokes.push_back({rd_sector * 512 + 32 + 20, {static_cast<uint8_t>(root >> 16), static_cast<uint8_t>(root >> 24)}});
+        pokes.push_back({rd_sector * 512 + 32 + 26, {static_cast<uint8_t>(root), static_cast<uint8_t>(root >> 8)}});
+        // /LINK, directly under the root, shares /A/B's cluster, whose ".." names A
+        hand_dir(fsv, fsv.dirbase, 4, {{u"", "LINK       ", 0x10, dir_cluster("0:/A/B"), 0}}, pokes);
+        // /X/FAKE points at a file's data cluster; the bytes there carry /X's cluster where a ".." entry's would be, but not the ".." name
+        Bytes data(512, 'A');
+        const uint32_t x = dir_cluster("0:/X");
+        data[32 + 20] = static_cast<uint8_t>(x >> 16); data[32 + 21] = static_cast<uint8_t>(x >> 24);
+        data[32 + 26] = static_cast<uint8_t>(x);       data[32 + 27] = static_cast<uint8_t>(x >> 8);
+        if (!fat_write("0:/DATA.BIN", data)) return false;
+        hand_dir(fsv, dir_cluster("0:/X"), 2, {{u"", "FAKE       ", 0x10, file_cluster("0:/DATA.BIN"), 0}}, pokes);
+        return true;
+    });
+    {
+        Img c(DD);
+        std::string err;
+        const St a = ops::remove(c.p, "/RD", err);
+        check("SDOPS-46", "a root-level directory whose \"..\" names the root by its cluster number (not 0) is removed: both name the root",
+              a == St::Ok && !exists(c.p, "/RD"), stn(a) + " " + err);
+    }
+    {
+        Img c(DD);
+        std::string err;
+        const std::string before = sha_file(c.p);
+        const St a = ops::remove(c.p, "/LINK", err);
+        check("SDOPS-47", "a directory directly under the root that shares another directory's cluster (its \"..\" names that directory, not the root): ImageUnusable, nothing removed, the image byte-identical, /A/B keeps its file",
+              a == St::ImageUnusable && err.find("not owned") != std::string::npos && sha_file(c.p) == before && names_of(c.p, "/A/B") == "B.BIN",
+              stn(a) + " " + err);
+    }
+    {
+        Img c(DD);
+        std::string err;
+        const std::string before = sha_file(c.p);
+        const St a = ops::remove(c.p, "/X", err);
+        check("SDOPS-48", "a directory entry pointing at a cluster that is no directory (no \"..\" entry in its first slots): ImageUnusable, nothing removed, the image byte-identical",
+              a == St::ImageUnusable && err.find("not owned") != std::string::npos && sha_file(c.p) == before, stn(a) + " " + err);
+    }
+
+    // SDOPS-49: two entries indistinguishable by every field FatFs shows (same names, size, attributes, date, time)
+    {
+        const std::string DP = tmp_name("dup") + ".img";
+        make_card(DP, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& fsv, Pokes& pokes) {
+            if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/DUP") != FR_OK || !fat_write("0:/DATA/D1.BIN", kD1) ||
+                !fat_write("0:/DATA/D2.BIN", Bytes(kD1.size(), 0x66)))
+                return false;
+            const uint32_t n = static_cast<uint32_t>(kD1.size());
+            hand_dir(fsv, dir_cluster("0:/DUP"), 2,
+                     {{u"Dup", "DUP~1      ", 0x20, file_cluster("0:/DATA/D1.BIN"), n}, {u"Dup", "DUP~1      ", 0x20, file_cluster("0:/DATA/D2.BIN"), n}}, pokes);
+            return true;
+        });
+        const Ls l = ls(DP, "/DUP");
+        std::string err;
+        const std::string before = sha_file(DP);
+        const St st = ops::remove(DP, "/DUP", err);
+        check("SDOPS-49", "two entries that FatFs cannot tell apart (same long name, 8.3 name, size, attributes, date and time): the first is opened by its name, the second has no open_name (ambiguous), so removing the directory is refused with the image byte-identical",
+              l.st == St::Ok && l.e.size() == 2 && l.e[0].open_name == "Dup" && l.e[1].open_name.empty() && st == St::DestInvalid && sha_file(DP) == before,
+              info(l) + " " + stn(st) + " " + err);
+        std::error_code ec;
+        fs::remove(DP, ec);
+    }
+
     sd_write_journal::forget_all_for_test();
     std::error_code ec;
     fs::permissions(g_dir, fs::perms::owner_all, fs::perm_options::add, ec);

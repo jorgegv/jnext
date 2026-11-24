@@ -2041,9 +2041,13 @@ is refused with `DestInvalid` before the card is opened for writing. With a writ
 goes into it and the image stays byte-identical, as for file-add. A path is '/'-separated `open_name`s: the
 spelling FatFs can open THAT entry by: the long name, or the 8.3 alias when the long name is unsafe. FatFs
 refuses a name holding a control byte or one of `*:<>?|"`, strips a trailing dot or space, reads a backslash
-as a separator, and takes the first entry in directory order whose long name (case folded) or 8.3 name
-matches, so a name that would open another entry is not used (a guest or a damaged card can write such a
-directory; FatFs never does). `open_name` is empty, so the entry is refused, when neither spelling is safe.
+as a separator, and takes the first entry in directory order whose long name or 8.3 name matches, comparing in
+Unicode, and a long name with a character outside the code page lists under its alias while still matching as
+the long name. So `read_dir()` asks FatFs itself: `f_stat` of the candidate must return this entry's size,
+attributes, date and time (and, for the long name, the same stored names), and an earlier entry that is
+indistinguishable by those fields makes the candidate ambiguous. `open_name` is empty, so the entry is
+refused, when neither spelling passes (a guest or a damaged card can write such a directory; FatFs never does).
+Every caller builds paths from `open_name`, never from the displayed or typed long name.
 `remove()` walks the tree first and refuses, naming the entry and removing nothing, when it
 holds a read-only entry (the attribute is never cleared), when a subdirectory is reached twice or is not
 owned by its parent (its `..` entry must name the directory it was found in, which catches a cross-link
@@ -2051,7 +2055,7 @@ to a directory outside the tree); `rename()` and `make_dir()` take one component
 under `normalize_dest_path()`'s name rules and never overwrite (an existing name is `DestExists`).
 `FileAddStatus` is the status of all of them. No `ImageLock` is taken: the manager works on images a slot of
 this process has mounted, so the process already holds the lock, and a second `flock` on the same file from
-the same process would be refused. Rows: `SDOPS-01..22` and `SDOPS-24..41` (`sdcard_card_ops_test`),
+the same process would be refused. Rows: `SDOPS-01..22` and `SDOPS-24..49` (`sdcard_card_ops_test`),
 `SDWP-01` for `SdCardDevice::write_protected()` (`sdcard_test`).
 
 **The glue caches sectors.** FatFs keeps one sector window per volume, so every path lookup

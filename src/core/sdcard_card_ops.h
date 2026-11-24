@@ -38,6 +38,11 @@
 /// PATHS are '/'-separated names from the root ("/" or "" is the root). Each component is the
 /// `open_name` of a CardEntry, i.e. the spelling FatFs can open the entry by, matched
 /// case-insensitively. It is not necessarily the displayed name: see CardEntry.
+///
+/// CONTRACT FOR EVERY CALLER (the manager's logic and its window): build a path from the `open_name` of
+/// the entries listed, NEVER from the typed or displayed long name. A long name can address ANOTHER entry
+/// on a card a guest wrote (trailing dot or space, backslash, a name an earlier entry matches first), and
+/// rename and remove are permanent. An entry with an empty `open_name` is shown but is not acted on.
 namespace sdcard::cardops {
 
 /// One directory entry as stored on the card.
@@ -45,11 +50,14 @@ struct CardEntry {
     std::string name;       ///< the stored long name, CP437 bytes
     std::string altname;    ///< the 8.3 alias ("" when the name is its own alias)
     /// The spelling FatFs opens THIS entry by: `name` or else `altname`, whichever FatFs can address and
-    /// resolves to this entry. FatFs refuses a name holding a control byte or one of `*:<>?|"`. It strips a
-    /// trailing dot or space (so the name would open a sibling), reads a backslash as a path separator, and
-    /// takes the FIRST entry in directory order whose long name (case folded) or 8.3 name matches, so a name
-    /// another entry matches earlier would act on that entry; FatFs never writes such a directory, a guest
-    /// or a damaged card can. EMPTY when neither spelling is safe (rename and remove then refuse).
+    /// resolves to this entry (checked with f_stat: same size, attributes, date and time, and for the long
+    /// name the same stored names; an earlier entry indistinguishable by those fields makes it ambiguous).
+    /// FatFs refuses a name holding a control byte or one of `*:<>?|"`. It strips a trailing dot or space
+    /// (so the name would open a sibling), reads a backslash as a path separator, and takes the FIRST entry
+    /// in directory order whose long name or 8.3 name matches, comparing in Unicode: a long name with a
+    /// character outside the code page lists under its alias yet still matches as the long name. FatFs never
+    /// writes such a directory; a guest or a damaged card can. EMPTY when neither spelling is safe (rename
+    /// and remove then refuse).
     std::string open_name;
     bool        dir   = false;
     uint32_t    size  = 0;

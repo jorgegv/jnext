@@ -59,29 +59,6 @@ bool fatfs_can_open_by(const std::string& n) {
     return true;
 }
 
-// The case folding FatFs matches names with, for the bytes of code page 437 (FF_CODE_PAGE 437): ASCII, and
-// the CP437 letters that have an upper case form (c-cedilla, u/e/a/a-ring/ae/o-diaeresis, n-tilde).
-std::string fold_cp437(const std::string& s) {
-    std::string k = s;
-    for (char& ch : k) {
-        unsigned char c = static_cast<unsigned char>(ch);
-        if (c >= 'a' && c <= 'z') c = static_cast<unsigned char>(c - 'a' + 'A');
-        else switch (c) {
-            case 0x87: c = 0x80; break;
-            case 0x81: c = 0x9A; break;
-            case 0x82: c = 0x90; break;
-            case 0x84: c = 0x8E; break;
-            case 0x86: c = 0x8F; break;
-            case 0x91: c = 0x92; break;
-            case 0x94: c = 0x99; break;
-            case 0xA4: c = 0xA5; break;
-            default: break;
-        }
-        ch = static_cast<char>(c);
-    }
-    return k;
-}
-
 std::string fold(const std::string& s) {
     std::string k = s;
     for (char& c : k)
@@ -218,18 +195,43 @@ CardEntry to_entry(const FILINFO& f) {
 }
 
 // Give each entry its open_name: the first of its long name and its 8.3 alias that FatFs can open AND that
-// resolves to THIS entry. FatFs takes the first entry, in directory order, whose long name (case folded)
-// or 8.3 name equals the typed one (dir_find), so a name an earlier entry also matches would act on that
-// entry. FatFs itself never writes such a directory; a guest or a damaged card can. No candidate: empty.
-void resolve_open_names(std::vector<CardEntry>& ents) {
+// FatFs resolves to THIS entry. FatFs takes the first entry, in directory order, whose long name or 8.3
+// name matches the typed one, comparing in Unicode (ff_wtoupper over ff_oem2uni); a long name with a
+// character outside the code page even lists under its alias while still matching as the long name. So the
+// answer is asked of FatFs itself: f_stat(candidate) must return this entry's size, attributes, date and
+// time, and its names: the stored name and alias for the long name, the alias for the alias. An EARLIER entry
+// indistinguishable by those fields (same names and fields for the long name; same 8.3 name and fields for
+// the alias) makes the candidate ambiguous, so it is refused. FatFs never writes such a directory; a guest or a damaged card can. No candidate: empty.
+void resolve_open_names(const std::string& fat_dir, std::vector<CardEntry>& ents) {
+    const std::string base = fat_dir.back() == '/' ? fat_dir : fat_dir + "/";
+    auto same_fields = [](const CardEntry& a, const CardEntry& b) {
+        return a.size == b.size && a.attr == b.attr && a.dir == b.dir && a.fdate == b.fdate && a.ftime == b.ftime;
+    };
+    auto sfn_of = [](const CardEntry& x) { return x.altname.empty() ? x.name : x.altname; };
     for (size_t i = 0; i < ents.size(); ++i) {
-        for (const std::string* cand : {&ents[i].name, &ents[i].altname}) {
-            if (!fatfs_can_open_by(*cand)) continue;
-            const std::string key = fold_cp437(*cand);
-            bool taken = false;
-            for (size_t j = 0; j < i && !taken; ++j)
-                taken = fold_cp437(ents[j].name) == key || (!ents[j].altname.empty() && fold_cp437(ents[j].altname) == key);
-            if (!taken) { ents[i].open_name = *cand; break; }
+        const CardEntry& e = ents[i];
+        for (int k = 0; k < 2; ++k) {
+            const bool by_name = k == 0;
+            const std::string& cand = by_name ? e.name : e.altname;
+            if (!fatfs_can_open_by(cand)) continue;
+            FILINFO f{};
+            if (f_stat((base + cand).c_str(), &f) != FR_OK) continue;
+            if (f.fsize != e.size || static_cast<uint8_t>(f.fattrib & (AM_RDO | AM_HID | AM_SYS)) != e.attr ||
+                ((f.fattrib & AM_DIR) != 0) != e.dir || f.fdate != e.fdate || f.ftime != e.ftime)
+                continue;
+            // f_stat returns the typed spelling as fname, and the entry's 8.3 name as altname, for a match by alias
+            if (by_name ? (e.name != f.fname || (!e.altname.empty() && e.altname != f.altname))
+                        : (cand != f.fname || cand != f.altname))
+                continue;
+            bool ambiguous = false;
+            for (size_t j = 0; j < i && !ambiguous; ++j) {
+                const CardEntry& o = ents[j];
+                ambiguous = same_fields(o, e) &&
+                            (by_name ? (o.name == e.name && o.altname == e.altname) : sfn_of(o) == sfn_of(e));
+            }
+            if (ambiguous) continue;
+            ents[i].open_name = cand;
+            break;
         }
     }
 }
@@ -258,7 +260,7 @@ FileAddStatus read_dir(const std::string& fat, const std::string& shown_dir, std
         out.push_back(to_entry(fno));
     }
     f_closedir(&dj);
-    resolve_open_names(out);
+    resolve_open_names(fat, out);
     return FileAddStatus::Ok;
 }
 
