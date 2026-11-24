@@ -570,6 +570,8 @@ row('WIDGET-20', 'a flex-row and a grid host page: the credit never overlaps the
     const page = await ctxPage(`${AURL}/${name}`);
     await waitFor(page, () => window.pl && document.querySelector('.jnext-credit'), null, 120000);
     const r = await probe(page);
+    must(!r.overlap && r.midInPlayer && r.linkHit && r.vis === 'visible', name + ': ' + JSON.stringify(r));
+    must(Math.abs(r.right - r.boxRight) <= 2 && r.boxW === 640 && r.boxH === 512, name + ' alignment: ' + JSON.stringify(r));
     if (name === 'flex.html') {
       await page.locator('.jnext-overlay').click({ timeout: 600000, noWaitAfter: true });
       await waitFor(page, () => window.pl.state === 'running', null, 600000);
