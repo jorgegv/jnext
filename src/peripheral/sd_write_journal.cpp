@@ -322,6 +322,38 @@ bool bind(const std::string& image_path, const std::string& file,
     return true;
 }
 
+bool binding_matches(const Binding& journal, const Binding& image) { return same_image(journal, image); }
+
+FileInfo peek_file(const std::string& file) {
+    FileInfo out;
+    std::ifstream in(file, std::ios::binary);
+    if (!in.is_open()) return out;
+    std::vector<uint8_t> raw((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (raw.size() < kHeaderBytes || std::memcmp(raw.data(), kMagic, 8) != 0 ||
+        get_le(raw.data() + 8, 4) != kFormatVersion || get_le(raw.data() + 12, 4) != kSectorBytes)
+        return out;
+    out.is_journal = true;
+    out.binding.bytes = get_le(raw.data() + 16, 8);
+    out.binding.mtime = static_cast<int64_t>(get_le(raw.data() + 24, 8));
+    std::memcpy(out.binding.sha256.data(), raw.data() + 32, 32);
+    size_t pos = kHeaderBytes;
+    while (pos < raw.size()) {
+        if (raw.size() - pos < 4) break;
+        const uint32_t first = static_cast<uint32_t>(get_le(raw.data() + pos, 4));
+        if (first != kFileMarker) {
+            if (raw.size() - pos < kRecordBytes) break;
+            out.sectors.push_back(first);
+            pos += kRecordBytes;
+        } else {
+            if (raw.size() - pos < 8) break;
+            const uint64_t len = get_le(raw.data() + pos + 4, 4);
+            if (len > raw.size() - pos - 8) break;
+            pos += 8 + len;
+        }
+    }
+    return out;
+}
+
 std::shared_ptr<Journal> for_image(const std::string& image_path) {
     std::lock_guard<std::mutex> lk(g_mu);
     if (g_registry.empty()) return nullptr;
@@ -332,6 +364,11 @@ std::shared_ptr<Journal> for_image(const std::string& image_path) {
 void set_persist_hook(PersistHook hook) {
     std::lock_guard<std::mutex> lk(g_mu);
     g_hook = hook;
+}
+
+void forget_image(const std::string& image_path) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    g_registry.erase(key_of(image_path));
 }
 
 void forget_all_for_test() {

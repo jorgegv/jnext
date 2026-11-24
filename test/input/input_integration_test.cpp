@@ -71,6 +71,7 @@
 #include "core/log.h"
 #include "../row_id.h"
 #include "gpa_fixture.h"
+#include "../test_sd_image.h"
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -1717,9 +1718,7 @@ namespace gh386_rom {
 using KRouter = host_key_latch::Router<Keyboard, SDL_Scancode>;
 
 std::string sd_image() {
-    if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) return env;
-    const char* home = std::getenv("HOME");
-    return std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+    return test_sd_image_path();
 }
 
 bool boot_48k(Emulator& emu) {
@@ -1898,9 +1897,7 @@ struct Rig {
 };
 
 std::string sd_image() {
-    if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) return env;
-    const char* home = std::getenv("HOME");
-    return std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+    return test_sd_image_path();
 }
 
 void put(Emulator& emu, uint16_t at, const std::vector<uint8_t>& b) {

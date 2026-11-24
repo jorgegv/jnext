@@ -18,6 +18,11 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - DivMMC with 8KB SRAM, automap, and SD card image mounting
 - Live SD-card change without a reset: File > Insert SD Card Image / Eject SD Card, or `--delayed-sdcard-insert-frames N FILE` headless
 - Second SD card slot (D: in NextZXOS): `--sdcard2 FILE`, with `--sdcard2-readonly` and `--sdcard2-writes`
+- SD card upgrades keep your files: a newer NextZXOS is offered (File > Upgrade SD Card..., `--sdcard-upgrade yes|fresh|ask|no|never`), the files you added or changed and your `--sdcard-writes` files are carried over, the old card is kept as a backup you can go back to (File > Go Back..., `--sdcard-go-back`) or delete (`--sdcard-delete-backup`); an older jnext leaves a newer card alone
+- Rescue commands for the card: `--sdcard-writes-flatten OUT` (a plain image with your writes applied), `--sdcard-export-changes DIR` (your files as ordinary files plus `CHANGES.txt`) and `--sdcard-import-changes DIR` (into another card or a writes file)
+- One card, one jnext: a second jnext on the same SD image or writes file is refused (a lock that dies with its holder); the test suites use their own card and never touch yours
+- Start-up errors of a windowed jnext appear in a window as well as on stderr
+- Web page: `keepWrites` saves made on an older NextZXOS card are reset after a NextZXOS update, with an `onNotice('card-writes-reset', ...)` callback
 - Floating bus emulation (48K/128K modes)
 - Pentagon-512 / Pentagon-1024 paging modes via NextREG NR 0x8F
 
@@ -79,7 +84,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--nex-args "LINE"`: argument line for a NEX V1.3 program, delivered in its CLI buffer
 - esxDOS answers for a directly loaded NEX: default drive, `run NAME.nex` chain-loading, in-memory file I/O, errors for other calls
 - `--esxdos-stub` gives the same esxDOS answers to programs loaded any other way
-- Host directory for a directly loaded program: `--esxdos-stub-root DIR`, or with `--esxdos-stub` the NEX's own directory by default, serves real host files through the esxDOS file and directory calls
+- Host directory for a directly loaded program: `--esxdos-stub-root DIR`, or with `--esxdos-stub` the NEX's own directory by default, serves real host files through the esxDOS file and directory calls, including block streaming (`DISK_FILEMAP`/`DISK_STRMSTART`/`DISK_STRMEND`), so streaming games run
 - `--esxdos-stub-writable` allows guest writes to that host directory (read-only by default): create, write, truncate, delete (wildcards), rename, make and remove directories, set the read-only bit, answered as NextZXOS 2.10 does (a kept probe NEX and its recording are the oracle)
 - `--no-sdcard` runs a directly loaded NEX with no SD card at all (no NextZXOS, no ROMs, nothing downloaded): its files come from the esxDOS stand-in, and the first ROM code it runs is reported with the address and the likely cause (IM 1, `RST $10`)
 - `M_GETERR` gives the text of an esxDOS error code to a directly loaded NEX
@@ -234,6 +239,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--sdcard-readonly` (write-protected card; the host file is never modified)
 - `--sdcard-writes FILE`, `--sdcard-writes-reset` (the image is never written: the machine's writes, and the esxDOS stand-in's file of a directly loaded NEX, go to FILE and are laid over the image on every run; reset discards them)
 - `--sdcard-file-add FILE [--sdcard-file-dest PATH]` copies a host file or directory tree into the SD image (with `--sdcard-writes`, into that file; the image is untouched) and exits
+- `--sdcard-file-extract PATH` copies a file or directory off the SD card (any FAT12/16/32 card the Next mounts, long or 8.3 names in any case, through `--sdcard-writes` when given) into the current directory, never overwriting, and exits
 - `--sdcard-file-force` overwrites an existing destination file
 - `--warm-start-regenerate` (force a fresh warm-start recording)
 - `--nex-args "LINE"` (argument line for a NEX V1.3 program)

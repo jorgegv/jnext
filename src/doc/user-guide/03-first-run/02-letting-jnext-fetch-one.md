@@ -65,19 +65,36 @@ JNEXT remembers which distribution each image came from. When a version of JNEXT
 downloads a newer distribution than the one your image came from, it tells you so
 and, in the graphical version, asks what to do:
 
-- **Download and replace** downloads the new distribution and replaces your image
-  with it. **Everything you saved on the old image is lost**: your programs, your
-  files and NextZXOS's settings. Nothing is changed until the new image is
-  complete, so a download or a preparation that fails leaves your image exactly as
-  it was.
-- **Keep my card** (also what closing the question means) goes on with your image
-  and asks again the next time.
-- Ticking **Do not ask me again** with Keep stops the question for this
-  distribution. The question comes back once for the next one.
+- **Upgrade (keep my files)** downloads the new distribution and builds a new image
+  from it. The files you saved on the old image (your programs, your files and
+  NextZXOS's settings) are carried over to the new one; where NextZXOS itself
+  changed a file you also changed, the new version wins, and you get a list of
+  what was carried and what was replaced. Your old image is kept untouched as a
+  backup. Nothing is changed until the new image is complete, so a download or a
+  preparation that fails leaves your image exactly as it was. If your image can no
+  longer be compared with the one it came from (the original image is gone, or the
+  image was rebuilt), the files cannot be carried over: the new image starts
+  fresh, and your old one, with everything on it, is kept.
+- **Not now** (also what closing the question means) goes on with your image and
+  asks again the next time.
+- **Keep my card (don't ask again)** stops the question for this distribution. The
+  question comes back once for the next one.
+
+### The backup of your old image
+
+After an upgrade your old image is in the `previous` folder next to the new one, together with the old contents of
+your writes files and a report of what was carried over. The File menu has three entries for it: **Upgrade SD
+Card...** (enabled while the card in use is the default one and an older distribution), **Go Back to the
+Previous SD Card** (swaps the two: the card in use becomes the backup and the machine restarts on the old one;
+the distribution you left is not offered again) and **Delete the Previous SD Card Backup (size)...**, which gives
+the disk space back. The same can be done without a window with `--sdcard-go-back` and
+`--sdcard-delete-backup`. A file whose name ends in a space or a dot cannot be written by JNEXT: an upgrade lists
+it as not carried and leaves it on the old image.
 
 Without a window (`--headless`, or `--sdcard-file-add`) JNEXT never asks. It keeps
 your image and writes one line to the log saying how to upgrade. You can answer
-without the dialog with `--sdcard-upgrade`: `yes` replaces the image, `no` keeps
+without the dialog with `--sdcard-upgrade`: `yes` upgrades the image and carries your files over (refused when they cannot be
+carried over), `fresh` makes a new image and carries nothing over, `no` keeps
 it for this run, `never` keeps it and records "do not ask again", and `ask`
 forgets that record and asks.
 

@@ -75,6 +75,7 @@
 #include "platform/emulator_boot.h"
 #include <filesystem>
 #include <fstream>
+#include "../test_sd_image.h"
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -6947,9 +6948,7 @@ namespace fs = std::filesystem;
 
 static std::string sd_image()
 {
-    if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) return env;
-    const char* home = std::getenv("HOME");
-    return std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+    return test_sd_image_path();
 }
 
 static std::unique_ptr<Emulator> make(bool auto_play = true)

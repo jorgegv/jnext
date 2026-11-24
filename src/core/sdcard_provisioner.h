@@ -213,8 +213,11 @@ enum class UpgradeChoice {
 // user saved on it. Closing or cancelling the offer is Keep. May be empty (a terminal
 // or scripted run): jnext then never asks, keeps the card and logs one line saying
 // how to upgrade (--sdcard-upgrade yes).
+// `files_carry_over` says which offer it is: true = the files on the card will be carried over (the
+// affirmative button reads "Upgrade (keep my files)"), false = they cannot be (no original image to
+// compare with: the affirmative button reads "Fresh start (keep my card as a backup)").
 using UpgradeFn = std::function<UpgradeChoice(const std::string& from, const std::string& to,
-                                              const std::string& message)>;
+                                              const std::string& message, bool files_carry_over)>;
 // --sdcard-upgrade: what to do about a default card of an older distribution.
 //   Default  honour a "do not ask again" for this distribution; else ask (UpgradeFn),
 //            or, with no UpgradeFn, keep and log the one line
@@ -222,7 +225,9 @@ using UpgradeFn = std::function<UpgradeChoice(const std::string& from, const std
 //   Yes      replace the card without asking
 //   No       keep the card for this run, no question, nothing recorded
 //   Never    keep the card and record "do not ask again" for this distribution
-enum class UpgradeMode { Default, Ask, Yes, No, Never };
+//   Fresh    upgrade without carrying anything over: a new card, the old set kept in previous/
+//   (Yes carries the user's files over and is refused when the card has no pristine base.)
+enum class UpgradeMode { Default, Ask, Yes, No, Never, Fresh };
 
 // Busy-operation seam: run the slow post-download work (`work` — the raw→fixed
 // copy plus the multi-second FAT32 patch) while giving the user feedback under
@@ -503,6 +508,19 @@ bool patch_image_fat32(const std::string& image_path, std::string& err,
 // ("181e0161"). 0 when the hash is not 8 hex digits long at least.
 uint32_t volume_id_from_sha256(const std::string& raw_sha256_hex);
 
+/// Rebuild a card the way recipe `recipe` made it (GH #555: the upgrade compares the user's card
+/// with the card AS MADE, so it needs the old recipes too). `image_path` holds the raw image and
+/// is rewritten in place.
+///   recipe 1: re-cluster to 8 KB + config.ini (no zx81 doubling, serial left as f_mkfs wrote it)
+///   recipe 2: also doubles the known 16 KB zx81.rom
+///   recipe 3: also the volume serial from `raw_sha256_hex` (volume_id_from_sha256)
+/// Any other recipe (0, one newer than kFixedImageRecipe) is refused: false, `err` says so.
+/// `zx81_known_sha256` is patch_image_fat32's test seam. Recipe 3 with kFixedImageRecipe == 3
+/// is exactly what provision_sd_card does.
+bool patch_image_for_recipe(const std::string& image_path, int recipe,
+                            const std::string& raw_sha256_hex, std::string& err,
+                            const std::string& zx81_known_sha256 = kZx81Rom16kSha256);
+
 struct ProvisionOptions {
     std::string explicit_path;      // --sdcard value ("" if not given)
     bool        auto_confirm  = false; // --sdcard-download-confirm
@@ -527,6 +545,18 @@ struct ProvisionOptions {
     BusyFn      busy;               // optional; wraps the copy+patch step
     UpgradeFn   upgrade;            // the offer of a newer distribution; empty = never ask
     UpgradeMode upgrade_mode = UpgradeMode::Default;   // --sdcard-upgrade
+    // GH #555: the --sdcard-writes FILEs of this run (absolute). An upgrade rebuilds them over the
+    // new card, together with every file in <sdcard dir>/overlays.list that still binds to the card.
+    std::vector<std::string> overlays;
+    // Free bytes under a directory; defaults to std::filesystem::space. A test seam.
+    std::function<uint64_t(const std::string& dir)> free_space;
+    // GH #555 S7: told, once per card distribution, that the default card is NEWER than this jnext's
+    // distribution (or of a newer recipe, or of a name that cannot be placed): it is used as it is. The
+    // GUI frontends show it in a box; empty = the log line only.
+    std::function<void(const std::string& message)> notice;
+    // Called once with the upgrade report (the carried / replaced / not carried lists) after a
+    // successful upgrade that carried files over. The frontends show it in a box.
+    std::function<void(const std::string& report)> show_report;
 
     // GH #271 — diagnosability seam. Path whose EXISTENCE means "this process
     // runs inside a Flatpak sandbox"; /.flatpak-info is the conventional
@@ -553,6 +583,14 @@ struct ProvisionResult {
     // Not empty when status is Ok but something the user asked for did not happen: an
     // accepted upgrade that failed and left the old card in use. The frontends show it.
     std::string     warning;
+    // The report of a successful upgrade that carried files over (empty otherwise).
+    std::string     report;
+    // A refusal of what was asked (--sdcard-upgrade yes with files that cannot be carried over): the card
+    // is there and untouched, so the frontends print the reason and nothing about a missing card.
+    bool            refused = false;
+    // An accepted upgrade ran to its end: the new card is in place and the old set is the backup. False for
+    // every other Ok (a failed upgrade that kept the old card, an offer declined, a held file: nothing changed).
+    bool            upgraded = false;
 };
 
 // Resolve (and if needed download+patch) the SD image path per the policy

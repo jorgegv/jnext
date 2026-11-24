@@ -1,0 +1,3409 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="ZX Spectrum Next emulator — developer guide">
+      
+      
+      
+      
+        <link rel="prev" href="08-media-and-loaders.html">
+      
+      
+        <link rel="next" href="09-debug-and-the-debugger.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>3.8.1 The SD card set - JNEXT Developer Guide</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../css/theme.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#381-the-sd-card-set" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../index.html" title="JNEXT Developer Guide" class="md-header__button md-logo" aria-label="JNEXT Developer Guide" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            JNEXT Developer Guide
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              3.8.1 The SD card set
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.73</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
+  </div>
+</a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../index.html" title="JNEXT Developer Guide" class="md-nav__button md-logo" aria-label="JNEXT Developer Guide" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    JNEXT Developer Guide
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.73</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
+  </div>
+</a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../01-orientation/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Orientation
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    1. Orientation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/01-what-jnext-is.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.1 What JNEXT is, in one page
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/02-repository-layout.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.2 Repository layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/03-the-rules-that-shape-the-code.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.3 The rules that shape the code
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../02-architecture/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2. Architecture
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    2. Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/01-startup-and-the-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.1 Startup and the frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/02-the-emulator-core.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.2 The emulator core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/03-a-frame-end-to-end.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.3 A frame, end to end
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/04-the-video-pipeline.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.4 The video pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/05-save-state-and-rewind.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.5 Save state, rewind and determinism
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/06-adding-a-costly-optimisation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.6 Adding a costly optimisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3. Subsystems
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3. Subsystems
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="01-cpu.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.1 CPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="02-memory.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.2 Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="03-video.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.3 Video
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-audio.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.4 Audio
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="05-ports-and-nextreg.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.5 Ports and NextREG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-peripherals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.6 Peripherals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="07-input.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.7 Input
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="08-media-and-loaders.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.8 Media and loaders
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.8.1 The SD card set
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="08-1-the-sd-card-set.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.8.1 The SD card set
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#on-disk-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        On-disk layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#identifying-a-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Identifying a version
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The comparison
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-carry-over" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The carry-over
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-switch-atomicity-and-the-backup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The switch, atomicity and the backup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-rescue-commands-and-changestxt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The rescue commands and CHANGES.txt
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-image-lock" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The image lock
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-suites-own-card" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The suites' own card
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#start-up-errors-in-a-window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start-up errors in a window
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-browser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The browser
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#test-rows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test rows
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_11" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_11" id="__nav_4_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9 The debug subsystem
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3.9 The debug subsystem
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-debug-and-the-debugger.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9 Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-1-the-backend-api.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.1 The backend API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-2-event-delivery-and-mutation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.2 Event delivery and mutation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-3-sessions-the-pump-and-reconstruct.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.3 Sessions, the pump and the reconstruct contract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-4-execution-control-and-rewind.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9.4 Execution control and rewind
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_12" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_12" id="__nav_4_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10 The debugger frontends
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3.10 The debugger frontends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-0-the-debugger-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10 Overview and capability matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-1-the-socket-transport.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.1 The shared socket transport
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-2-the-qt-debugger.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.2 The Qt debugger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-the-dzrp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.3 The DZRP server (DeZog)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="11-the-gdb-rsp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.4 The GDB RSP server (z88dk-gdb)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="12-the-zrcp-server.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.5 The ZRCP server (ZEsarUX's protocol)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="13-the-debugger-scripting-language.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.6 The debugger scripting language
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="10-7-extending-the-debug-subsystem.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.10.7 Extending the debug subsystem
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="14-bug-reports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.11 Bug reports
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../04-testing/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4. Testing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    4. Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/01-the-test-triplet.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.1 The test triplet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/02-declared-suites-and-pinned-counts.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.2 Declared suites and pinned counts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/03-the-regression-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.3 The regression suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/04-traceability.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.4 Traceability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/05-documentation-and-cli-gates.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.5 The documentation and CLI gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/06-the-harness-selftest.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.6 The harness self-test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/07-writing-a-new-test.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.7 Writing a new test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../05-building/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5. Building and packaging
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    5. Building and packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/01-make-targets.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.1 Make targets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/02-build-configurations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.2 Build configurations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/03-packaging-and-release.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.3 Packaging and release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/04-continuous-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.4 Continuous integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/05-performance-and-optimisation.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.5 Performance and optimisation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/06-the-browser-build.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.6 The browser build
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../06-contributing/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6. Contributing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    6. Contributing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/01-issues-and-pull-requests.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.1 Issues and pull requests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/02-branches-worktrees-and-review.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.2 Branches, worktrees and review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/03-house-style.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.3 House style
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../07-source-level-debugging/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7. Source-level debugging
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_8" id="__nav_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    7. Source-level debugging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/01-which-memory.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.1 Which memory supplied the instruction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/02-the-source-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.2 The source map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/03-loaders.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.3 Loading
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_8_5" id="__nav_8_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4 File formats and records
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    7.4 File formats and records
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-formats.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4 Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-1-sld.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.1 sjasmplus SLD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-2-sjasmplus-equ.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.2 sjasmplus --sym and --exp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-3-z88dk-map.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.3 The z88dk map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-4-z88dk-listings.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.4 z88dk listings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-5-nextbuild-memory-txt.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.5 NextBuild Memory.txt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-6-user-annotations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.6 Annotations project file
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.4.7 skoolkit and Ghidra exports
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/05-breakpoints-steps-history.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.5 Breakpoints, steps, history and call frames
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/06-lifetime.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.6 Lifetime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/07-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.7 The frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/08-tests-and-new-producers.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.8 Tests, fixtures and adding a producer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/09-c-variables.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.9 C variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-source-level-debugging/10-c-frames-and-values.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    7.10 C frames and values
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="381-the-sd-card-set">3.8.1 The SD card set<a class="headerlink" href="#381-the-sd-card-set" title="Permanent link">&para;</a></h1>
+<p>The default SD card is not one file but a set kept beside it under <code>~/.jnext/sdcard/</code> (or
+<code>$JNEXT_CONFIG_DIR/sdcard/</code>). This page describes the set, how a card is compared with the card it
+was made from, how an upgrade carries the user's files over, the rescue commands, the image lock, the
+start-up error box and the browser's counterpart. The sources are <code>src/core/sdcard_provisioner.cpp</code>
+(policy, download), <code>sdcard_upgrade.cpp</code> (carry-over and switch), <code>sdcard_backup.cpp</code> (the backup),
+<code>sdcard_carry.cpp</code> (the comparison engine and the rescue verbs), <code>image_lock.cpp</code> and
+<code>src/platform/startup_report.cpp</code>.</p>
+<p><img alt="The states of the card set" src="../img/sd-card-set.svg" /></p>
+<h2 id="on-disk-layout">On-disk layout<a class="headerlink" href="#on-disk-layout" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Content</th>
+<th>Written by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cspect-next-1gb-fixed.img</code></td>
+<td>the user's card</td>
+<td>the provisioner, then the guest</td>
+</tr>
+<tr>
+<td><code>cspect-next-1gb.img</code></td>
+<td>the original distribution image the card was made from</td>
+<td>the provisioner</td>
+</tr>
+<tr>
+<td><code>&lt;card&gt;.distro</code>, <code>&lt;raw&gt;.distro</code></td>
+<td>the distribution (zip name) of each; none means 24.11</td>
+<td>the provisioner</td>
+</tr>
+<tr>
+<td><code>&lt;card&gt;.recipe</code></td>
+<td>the recipe number that made the card; none means 1</td>
+<td>the provisioner</td>
+</tr>
+<tr>
+<td><code>&lt;raw&gt;.sha256</code></td>
+<td>the original's SHA-256</td>
+<td>the provisioner</td>
+</tr>
+<tr>
+<td><code>&lt;card&gt;.distro-declined</code></td>
+<td>the release whose offer was turned down for good</td>
+<td>the offer, <code>--sdcard-upgrade never</code></td>
+</tr>
+<tr>
+<td><code>&lt;card&gt;.newer-seen</code></td>
+<td>the newer distribution a notice was shown for</td>
+<td>the provisioner</td>
+</tr>
+<tr>
+<td><code>overlays.list</code></td>
+<td>absolute paths of the <code>--sdcard-writes</code> files used with the default card</td>
+<td><code>bind_card_writes</code></td>
+</tr>
+<tr>
+<td><code>previous/</code></td>
+<td>the backup: the old card, raw, sidecars; <code>overlays/</code> with a <code>LIST</code> of tag and path; <code>upgrade-report.txt</code></td>
+<td>the upgrade, go back</td>
+</tr>
+<tr>
+<td><code>upgrade-work/</code></td>
+<td>scratch: the new raw and card, <code>old-as-made.img</code>, <code>new-as-made.img</code>, <code>report.txt</code>, <code>SWITCHING</code> and the <code>sN.done</code> marks</td>
+<td>the upgrade</td>
+</tr>
+<tr>
+<td><code>go-back-work/</code></td>
+<td>the swap's scratch, <code>SWAPPING</code> and the <code>gN.done</code> marks</td>
+<td>go back</td>
+</tr>
+<tr>
+<td><code>&lt;state dir&gt;/locks/&lt;hash&gt;.lock</code></td>
+<td>the image lock files</td>
+<td><code>image_lock.cpp</code></td>
+</tr>
+<tr>
+<td><code>test-suite/</code></td>
+<td>the harness's own card; owned by the test suites, never by a user</td>
+<td>the harness</td>
+</tr>
+</tbody>
+</table>
+<h2 id="identifying-a-version">Identifying a version<a class="headerlink" href="#identifying-a-version" title="Permanent link">&para;</a></h2>
+<p>A distribution is the file name of its zip. <code>distribution_of_url</code> takes it from the address,
+<code>backup::compare_distributions</code> orders two (the numbers of <code>sn-emulator-&lt;N&gt;(.&lt;N&gt;)*&lt;letter&gt;?.zip</code>
+component by component, then the letter; a name it cannot parse is unknown), and the recipe number
+orders cards made by different recipes. A card of a newer distribution, an unknown one or a newer
+recipe is used as it is: no offer, a warning in the log and one notice for each distribution
+(<code>&lt;card&gt;.newer-seen</code>). A card with no sidecars is a 24.11 card at recipe 1.</p>
+<h2 id="the-comparison">The comparison<a class="headerlink" href="#the-comparison" title="Permanent link">&para;</a></h2>
+<p><code>carry::pristine_base_ok</code> says whether a card can be compared with the card as it was made: the
+original exists and matches its <code>.sha256</code>, both <code>.distro</code> agree, the recipe is known and, for recipe 3,
+the volume serial is the one the original's hash gives. <code>rebuild_as_made</code> copies the original (sparse)
+and runs the recipe (<code>patch_image_for_recipe</code>) to rebuild the card as it was made, exactly, FatFs's own
+metadata included. Cards are read through ChaN FatFs on two volumes at once (<code>FF_VOLUMES</code> 2: drive 0
+and drive 1; a read-only attach never writes), or, for an under-clustered distribution image FatFs
+refuses, through the hand-rolled reader (<code>open_tree_lenient</code>, always on drive 1).</p>
+<p>"Changed" means a different type, size, content or R/H/S attribute; not the archive bit, a date, the 8.3
+name, a case-only rename or the volume label. There are two layers: the direct one (the card against the
+rebuilt original) and, for each writes file, the overlay one (the card seen through the file against the
+card). Two properties of FAT shape the walk: a name that ends in a space or a dot cannot be addressed
+through FatFs (<code>Entry::unaddressable</code>: listed, never compared, carried or exported), and an 8.3 name
+that a long name's generated short name would collide with must be written first (<code>write_order</code>).</p>
+<h2 id="the-carry-over">The carry-over<a class="headerlink" href="#the-carry-over" title="Permanent link">&para;</a></h2>
+<p><code>decide</code> takes the user's changes and what the distribution changed at the same paths (the new card as
+made against the rebuilt original) and decides per path: a deletion is never carried (it is listed when
+the new card has the path); a path the distribution also changed, or holds with the other type, or whose
+parent is a file there, is the distribution's (listed as replaced); the rest is carried. <code>apply_carry</code>
+is the low-level writer (not <code>add_to_image</code>: it keeps attributes and dates, and writes names exactly):
+space is checked before writing, parents are made as needed, a failure removes what it created.
+<code>verify_carry</code> then checks that the carried paths equal their sources and that nothing else differs
+from the new card as made (the parents the carry made count as carried).</p>
+<p>Overlays are rebuilt as <code>FILE.new</code>, bound to the new card's final size and modification time (the new
+card is not written after that), by writing the overlay layer through a journal over the new card; the
+esxDOS stand-in's kept-file record is copied. Writes files are read for the list (<code>overlays.list</code>,
+<code>usable_overlays</code>) from their headers only: binding a file registers it as the card's write target and
+compacts it, which a start that merely makes an offer must not do.</p>
+<h2 id="the-switch-atomicity-and-the-backup">The switch, atomicity and the backup<a class="headerlink" href="#the-switch-atomicity-and-the-backup" title="Permanent link">&para;</a></h2>
+<p>Everything is made inside <code>upgrade-work/</code>; the old card, raw and overlays are only read until the
+switch. <code>SWITCHING</code> (written under another name and renamed) holds the plan, and six idempotent steps
+follow, each marked by <code>sN.done</code>: the old set and a copy of the overlays into <code>previous.new/</code>; the new
+raw with its sidecars (a card is never in place without the raw it was made from); the new card with
+its sidecars; each <code>FILE.new</code> over its <code>FILE</code> (a fresh start removes the file instead); the old
+<code>previous/</code> removed and <code>previous.new/</code> renamed to it; the report copied and <code>upgrade-work/</code> removed.
+<code>upgrade::recover</code> runs at the start of every provisioning, under the lock: with <code>SWITCHING</code> it rolls
+forward, without it it deletes the scratch. Before the first step any failure removes the scratch and
+the run goes on with the old card. <code>backup::go_back</code> is the same shape (four steps in <code>go-back-work/</code>) and
+swaps the two sets; <code>delete_backup</code> removes <code>previous/</code> only. Before step 1 every writes file the backup
+holds is checked against the path it is to be restored to: a missing folder is made, and a path nothing can
+be written to refuses the go back with the set exactly as it was (exit 3 and the box are then true).
+After step 1 the swap must always be able to finish: a restore target that became unwritable only keeps
+the file's copy in the new <code>previous/overlays/</code> under an <code>unrestored-</code> name and logs where it is. The
+last upgrade's <code>upgrade-report.txt</code> stays with the set it describes. In the Qt window the actions eject
+slot 0 through the live card change, do their work outside the frame tick, re-bind the session's
+writes file over the new card, insert the card again and hard-reset the machine (requested in the tick that
+services the insert, so no frame runs on the new card first; the session's writes file is detached from the
+card while the work runs, and only the session's own file is bound again, and only when it belongs to the card
+that is mounted). A failed or no-op action puts the original card back with its writes file and says why. The machine is not
+paused: the change is serviced on the frame tick, and a paused session does not tick. The flow is
+driven by <code>sdcard_menu_test</code> (SDMENU-09 to 11).</p>
+<h2 id="the-rescue-commands-and-changestxt">The rescue commands and <code>CHANGES.txt</code><a class="headerlink" href="#the-rescue-commands-and-changestxt" title="Permanent link">&para;</a></h2>
+<p><code>--sdcard-writes-flatten OUT</code> lays the journal over a copy of the card sector by sector.
+<code>--sdcard-export-changes DIR</code> compares the card as the machine sees it with a base, in this order:
+the card as made (the default card with a pristine base), <code>--sdcard-export-base</code>, the card itself
+when there is a journal; with none it refuses. Files go to <code>DIR</code> under escaped host names
+(<code>%XX</code>: bytes outside printable ASCII, <code>%</code>, characters a host refuses, a trailing dot or space, a
+device name, and a root file named like the list itself). <code>--sdcard-import-changes DIR</code> goes through
+the file-add path with two extensions (restoring R/H/S, replacing a read-only file): everything is
+validated before the image is opened, and a failure rolls back. Import is user-wins, the upgrade is
+distribution-wins.</p>
+<p><code>--sdcard-file-extract PATH</code> is the read-only counterpart that is not limited to the first FAT32-LBA
+partition: it mounts the volume the firmware would (any FAT12/16/32 card, partitioned or not) read-only
+through FatFs, with the writes file laid over it, and copies one file or directory into the current
+directory (see "Taking files off the card" in <a href="08-media-and-loaders.html">3.8</a>). It shares <code>escape_name</code>
+with the export.</p>
+<p><code>CHANGES.txt</code> is <code>jnext-changes 1</code> on the first line, then <code># card:</code>, <code># writes:</code>, <code># base:</code> and
+<code># made: YYYY-MM-DD HH:MM:SS</code> comments (ignored on import), then one line per entry of five
+TAB-separated fields: the kind (<code>A</code> added file, <code>C</code> changed file, <code>D</code> added directory, <code>R</code> removed),
+the attributes (<code>-</code> or letters from <code>R</code>, <code>H</code>, <code>S</code> in that order), the size, the card path and the
+host path relative to <code>DIR</code> (<code>-</code> for <code>D</code> and <code>R</code>). Names are <code>%XX</code>-escaped, lines are sorted by
+card path, CR is accepted. <code>format_changes</code> and <code>parse_changes</code> are the one writer and reader; the
+parser refuses a wrong magic or version, a field count other than five, an unknown kind, a size that
+is not a number, a relative card path, and a host path with <code>..</code> or a leading <code>/</code>.</p>
+<h2 id="the-image-lock">The image lock<a class="headerlink" href="#the-image-lock" title="Permanent link">&para;</a></h2>
+<p>Two jnexts on one card or writes file would each cache what the other writes. <code>ImageLock</code> takes a
+lock on a file in <code>&lt;state dir&gt;/locks/</code> named by a hash of the canonical path (not an inode, so a
+replaced card keeps its lock): <code>flock</code> on POSIX, <code>LockFileEx</code> on Windows, a no-op in the browser.
+<code>sd_locks</code> keeps one holder per slot, disabled until <code>main</code> enables it (the unit suites build many
+emulators in one process). The default location's card and the command line's writes file are locked
+from the first moment of a start, before recovery, the offer and the upgrade, and the listed overlays
+an upgrade would move are locked too; a held set gets only the lock message. Live card changes take the
+new card's lock before unmounting the old one. Hard links count as separate cards (the harness uses
+one for each parallel row).</p>
+<h2 id="the-suites-own-card">The suites' own card<a class="headerlink" href="#the-suites-own-card" title="Permanent link">&para;</a></h2>
+<p>The suites never read or write <code>~/.jnext/sdcard</code>'s user files: <code>sd_test_state_dir</code> names the
+harness's own master under <code>test-suite/</code>, <code>test_sd_image.h</code> finds it for the unit suites, and
+<code>lint-user-card</code> fails any test or tool that names the user's card. Real SD images are never
+committed or posted.</p>
+<h2 id="start-up-errors-in-a-window">Start-up errors in a window<a class="headerlink" href="#start-up-errors-in-a-window" title="Permanent link">&para;</a></h2>
+<p><code>startup_report::report</code> writes the exact bytes <code>fprintf(stderr, ...)</code> would and keeps the text; a
+logger tap keeps warnings and errors. <code>main</code> wraps <code>run_main</code>: when a windowed, attended run (no
+<code>--headless</code>, no <code>--delayed-automatic-exit</code>, not a terminal command, not a browser) fails before its
+loop started, and no dialog of its own was shown, the text goes into a Qt or SDL box (on the offscreen
+and dummy platforms into one debug line). Test rows run with no <code>DISPLAY</code> or <code>WAYLAND_DISPLAY</code>. <code>startup_report_test</code> reads <code>src/main.cpp</code> and fails when <code>run_main</code> holds a bare <code>fprintf(stderr</code> or <code>std::cerr</code> that is not marked as a terminal verb, so a new fatal refusal cannot bypass <code>report()</code>.</p>
+<h2 id="the-browser">The browser<a class="headerlink" href="#the-browser" title="Permanent link">&para;</a></h2>
+<p><code>jnext-card-writes</code> is at version 2: <code>journals</code> holds the saves, <code>journal-meta</code> tags each record with
+<code>{page, cardSha256, distribution, defaultCard}</code>. On a mount with <code>keepWrites</code> on the default card,
+records of the same page whose tag says another card, <code>defaultCard: true</code> and another distribution are
+deleted from both stores before the machine starts, and <code>onNotice('card-writes-reset', message)</code> is
+called. Records without a tag, a page-supplied card's records and other pages' records stay.
+(<code>WBW-18</code> to <code>WBW-22</code>.)</p>
+<h2 id="test-rows">Test rows<a class="headerlink" href="#test-rows" title="Permanent link">&para;</a></h2>
+<p><code>sdcard_carry_test</code> (SDCMP, SDCARRY, SDFLAT, SDEXP, SDIMP), <code>sdcard_file_extract_test</code> and <code>sdcard_file_extract_posix_test</code> (SDFX), <code>sdcard_upgrade_test</code> (SDUPG), <code>sdcard_backup_test</code>
+(SDBAK, SDMENU-01..06), <code>sdcard_menu_test</code> (SDMENU-07..11), <code>sdcard_provisioner_test</code> (PROV-DIST, SDNEW),
+<code>image_lock_*_test</code> (SDLOCK), <code>startup_report_test</code> (STARTERR), the regression rows
+<code>sdcard-upgrade-carry-func</code>, <code>sdcard-upgrade-real-func</code>, <code>sdcard-backup-func</code>, <code>sdcard-rescue-func</code>,
+<code>sdcard-file-extract-func</code>, <code>sdcard-lock-func</code>, <code>sdcard-no-default-card-func</code> and <code>startup-error-dialog-func</code>, and the browser rows
+<code>WBW-18</code> to <code>WBW-22</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.indexes", "toc.integrate", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

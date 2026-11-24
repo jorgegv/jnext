@@ -86,15 +86,11 @@ bool normalize_dest_path(const std::string& dest_path,
 
 /// Do `a` and `b` name the same image file?
 ///
-/// This exists for one caller — the warning jnext prints when
-/// `--sdcard-file-add` is about to write the DEFAULT, shared SD image — and it
-/// is a real question rather than a string comparison because that warning is
-/// the only thing standing between a user and clobbering the image every other
-/// run and the whole test suite boot from. `--sdcard ./card.img`, a symlink to
-/// it, `--sdcard a/../card.img`, or a case-different spelling on a
-/// case-insensitive volume all name the default image while comparing unequal
-/// as strings, and the warning would be silently skipped in exactly the
-/// situation it is for.
+/// A real question rather than a string comparison: `--sdcard ./card.img`, a
+/// symlink to it, `--sdcard a/../card.img`, or a case-different spelling on a
+/// case-insensitive volume all name the same image while comparing unequal as
+/// strings. Used where two SD slots must hold two different images (startup and
+/// a live card change).
 ///
 /// Answered by filesystem identity (device + inode) when both paths exist,
 /// which settles symlinks, hard links, relative spellings and case-folding at
@@ -212,5 +208,46 @@ FileAddStatus add_to_image(const std::string& image_path,
                            bool overwrite,
                            std::string& err,
                            AddSummary* summary = nullptr);
+
+/// The partition geometry FatFs needs to present `image_path`'s volume: the first FAT32-LBA
+/// partition's start sector and its sector count. False, with a one-sentence `err`, for a
+/// missing or truncated image, no partition, or sectors that are not 512 bytes.
+bool read_partition_geometry(const std::string& image_path, uint32_t& lba,
+                             uint32_t& total_sectors, std::string& err);
+
+/// One thing `--sdcard-import-changes` puts on the card (GH #555): a host file or an (empty or not)
+/// directory, at a card path, with the R/H/S attribute bits to give it.
+struct ImportItem {
+    std::string card_path;       ///< absolute, '/'-separated, printable ASCII
+    std::string host_file;       ///< the host file (files only)
+    uint64_t    size   = 0;      ///< its size, as checked by the caller
+    bool        is_dir = false;
+    uint8_t     attrs  = 0;      ///< FAT attribute bits: 1 read-only, 2 hidden, 4 system
+};
+
+/// What import_items_to_image() did.
+struct ImportSummary {
+    std::vector<std::string> written;   ///< card paths of files that did not exist
+    std::vector<std::string> replaced;  ///< card paths of files that were replaced
+    unsigned    dirs_created = 0;       ///< directories that did not exist before
+    uint64_t    bytes        = 0;
+};
+
+/// Put `items` on the card: the write path of `--sdcard-import-changes`. It is the file-add path
+/// (the same mount, journal mode, free-space check and rollback), with the two things only an
+/// import does: an EXISTING file is replaced, a read-only one too (the user asked for these
+/// files, so they win, the opposite of the upgrade), and every item's R/H/S bits are restored.
+///
+/// Every item is checked before the image is opened (the card path passes normalize_dest_path;
+/// a host file is a readable regular file of the size given); a clash on the card (a file where a
+/// directory is needed, or the reverse) is found before the first byte is written. A failure
+/// during the write rolls back what this call created; files it already replaced stay replaced,
+/// and `err` says how many (as add_to_image does). Statuses are file-add's: SourceUnreadable 2
+/// for a bad source, DestInvalid 3 for a card path that cannot be written, ImageUnusable 5,
+/// ImageFull 6. DestExists is never returned.
+FileAddStatus import_items_to_image(const std::string& image_path,
+                                    const std::vector<ImportItem>& items,
+                                    std::string& err,
+                                    ImportSummary* summary = nullptr);
 
 }  // namespace sdcard

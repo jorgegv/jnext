@@ -33,6 +33,7 @@
 #include <string>
 #include <vector>
 #include "../row_id.h"
+#include "../test_sd_image.h"
 
 namespace {
 
@@ -58,9 +59,7 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
 using Bytes = std::vector<uint8_t>;
 
 std::string sd_image() {
-    if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) return env;
-    const char* home = std::getenv("HOME");
-    return std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+    return test_sd_image_path();
 }
 
 // ── Machine access ───────────────────────────────────────────────────

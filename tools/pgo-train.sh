@@ -49,7 +49,7 @@
 #
 # The SD image: training boots NextZXOS and every machine's ROMs come from
 # it. The master is provisioned the way the regression suite does it (jnext's
-# own download, into ~/.jnext/sdcard); each run then uses a private reflinked
+# own download, into ~/.jnext/sdcard/test-suite); each run then uses a private reflinked
 # clone, deleted afterwards. If there is no image and none can be provisioned
 # this FAILS, pointing at `make gui-release-non-pgo`, which needs none.
 #
@@ -60,7 +60,7 @@
 #                     (default: the gui-release case, `make gui-release-non-pgo`);
 #                     tools/pgo-build.sh sets it for the package trees.
 #   JNEXT_REGRESSION_SD_STATE_DIR  the SD master's state directory (its sdcard/ holds the
-#                     card), as for the regression suite; default ~/.jnext. Set it to train on a
+#                     card), as for the regression suite; default ~/.jnext/sdcard/test-suite. Set it to train on a
 #                     private card without touching the shared one.
 #   JNEXT_PGO_NO_GUI  =1 skips the Qt-offscreen GUI run; the build is then
 #                     byte-reproducible (see REPRODUCIBILITY below).
@@ -111,9 +111,13 @@ PROFILE_DIR=$(cd "$PROFILE_DIR" && pwd)
 
 # The same candidate-card override as the regression suite (test-functions.inc): with
 # JNEXT_REGRESSION_SD_STATE_DIR set, the master is that directory's sdcard/ and nothing under
-# ~/.jnext/sdcard is read or provisioned (GH #476: a tree that defaults to another distribution
+# ~/.jnext/sdcard/test-suite is read or provisioned (GH #476: a tree that defaults to another distribution
 # must not replace the card other trees train and test on).
-SD_STATE_DIR="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}"
+# One definition of the suites' state dir (sd_test_state_dir, GH #555), read from the library
+# without its side effects, as tools/sd-master-ensure.sh does.
+SD_STATE_DIR=$(JNEXT_REGRESSION_LIB_NO_INIT=1 PROJECT_DIR="$PROJECT_DIR" bash -c \
+    'source "$PROJECT_DIR/test/00regression/test-functions.inc" && sd_test_state_dir') \
+    || die "cannot read the SD test state dir from test/00regression/test-functions.inc"
 SD_MASTER_DIR="$SD_STATE_DIR/sdcard"
 SD_MASTER="$SD_MASTER_DIR/cspect-next-1gb-fixed.img"
 NEX=test/00regression/nex

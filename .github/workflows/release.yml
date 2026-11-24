@@ -174,7 +174,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-fedora45
+          key: sdcard-image-distro-26.11a-recipe3-ts-fedora45
       # The project's own target, byte-for-byte the command a developer runs
       # locally (CLAUDE.md: CI runs the EXACT same commands as a local run).
       # It configures + builds build/deb-release and runs cpack -G DEB there.
@@ -251,7 +251,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-fedora${{ matrix.fedora }}
+          key: sdcard-image-distro-26.11a-recipe3-ts-fedora${{ matrix.fedora }}
       # The project's own target, byte-for-byte the command a developer runs
       # locally (CLAUDE.md: CI runs the EXACT same commands as a local run).
       # It configures + builds build/rpm-release and runs cpack -G RPM there.
@@ -350,7 +350,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-fedora45
+          key: sdcard-image-distro-26.11a-recipe3-ts-fedora45
       - name: make package-win
         run: make package-win
       # Qt5 full-GUI Win7/8 legacy variant (GH #108 Phase A) — same container,
@@ -522,7 +522,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-macos
+          key: sdcard-image-distro-26.11a-recipe3-ts-macos
       # The project's own target, same as a local Mac build: configure, build,
       # package, then mount the .dmg and assert with otool that nothing inside
       # it references Homebrew (GH #46 — the v0.98.34 .dmg did, and aborted in
@@ -559,7 +559,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-macos
+          key: sdcard-image-distro-26.11a-recipe3-ts-macos
       # MACOS_DEPLOYMENT_TARGET=15.0: verify-bundle fails the package if any
       # Mach-O in the .dmg needs a newer macOS than Sequoia.
       - name: Package and verify (make package-macos)

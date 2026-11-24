@@ -94,6 +94,14 @@ jnext.mount(el, { file: 'game.nex', keepWrites: true });
 - Whatever the program writes to the card is there at the next visit, and so is the one
   file a NEX loaded with `file` saves through esxDOS ([8.3](03-itch-and-limits.md)).
 - `player.resetCard()` clears both ([8.2](02-options-and-the-player.md)).
+- The saves are tied to the card they were made on. When a release of JNEXT with a newer NextZXOS
+  runs the page, the saves a visit of this page made on the earlier release's card are reset
+  before the program starts (the program starts as on a first visit), and the page's
+  `onNotice('card-writes-reset', message)` is called once with this text: "The saves on this
+  page were made on an older NextZXOS card (NextZXOS X) and were reset: this version of the
+  page uses NextZXOS Y." JNEXT cannot carry the saves over in the browser. Saves made before
+  this release existed, saves made on a card the page supplied, and another page's saves are
+  left alone.
 - A save is stored a moment after the program makes it: a reload within moments of a save
   can lose it (the store on leaving the page is best effort).
 

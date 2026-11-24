@@ -1,4 +1,4 @@
-// Browser rows WBW-01..17: the guest's writes to the SD card kept across page loads (keepWrites,
+// Browser rows WBW-01..22: the guest's writes to the SD card kept across page loads (keepWrites,
 // resetCard()), in headless Chromium (make wasm-browser-test, spec writes.mjs). Run by
 // browser-smoke.sh on the SDK's node.
 //
@@ -91,9 +91,10 @@ async function newPage() {
   return page;
 }
 // Load the API fixture (at `where`, default /page/) with the players; wait until every mount() settled.
-async function open(page, players, { where = 'page', image = IMAGE } = {}) {
+async function open(page, players, { where = 'page', image = IMAGE, dev = null } = {}) {
   page.msgs.length = 0;
   const q = new URLSearchParams({ module: MODULE, image: JSON.stringify(image), players: JSON.stringify(players) });
+  if (dev) q.set('dev', JSON.stringify(dev));
   await page.goto(`${AURL}/${where}/api.html?` + q.toString());
   await waitFor(page, (n) => window.apiTest && window.apiTest.loaded && window.apiTest.players.length === n && window.apiTest.players.every((p) => p.settled),
                 players.length);
@@ -418,6 +419,114 @@ row('WBW-17', 'a changed NEX on the same page and image reads the old save: orig
   await want(E3, 'the changed NEX\'s ESX 3');
   await slowVisit([ESXGUEST()], 'ESX 4 OK');
   await want(E4, 'ESX 4');
+  await page.ctx.close();
+});
+
+// WBW-18..22 (GH #555): the saves tag and the stale-saves reset. `DEFAULT` makes the development card count as the
+// release's own default card (the seam's defaultCard: a page can never supply a card, so a card from the seam stands
+// in for the one the release builds from its pins); without it the card counts as page-supplied.
+const DEFAULT = { card: IMAGE, defaultCard: true };
+const OLD = 'sn-emulator-24.11.zip';
+// Seed the keepWrites database as an earlier visit would have: a journal record and, when given, its tag.
+async function seed(page, key, bytes, meta) {
+  await page.goto(`${AURL}/page/shell.js`).catch(() => {});
+  await page.evaluate(async ([key, b64, meta]) => {
+    const db = await new Promise((res, rej) => {
+      const r = indexedDB.open('jnext-card-writes', 2);
+      r.onupgradeneeded = () => {
+        if (!r.result.objectStoreNames.contains('journals')) r.result.createObjectStore('journals');
+        if (!r.result.objectStoreNames.contains('journal-meta')) r.result.createObjectStore('journal-meta');
+      };
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+    await new Promise((res, rej) => {
+      const tx = db.transaction(['journals', 'journal-meta'], 'readwrite');
+      tx.objectStore('journals').put(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)), key);
+      if (meta) tx.objectStore('journal-meta').put(meta, key);
+      tx.oncomplete = () => { db.close(); res(); }; tx.onerror = () => rej(tx.error);
+    });
+  }, [key, Buffer.from(bytes).toString('base64'), meta]);
+}
+async function storedMeta(page) {
+  return page.evaluate(async () => {
+    const db = await new Promise((res, rej) => { const q = indexedDB.open('jnext-card-writes'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+    if (!db.objectStoreNames.contains('journal-meta')) { db.close(); return null; }
+    const out = await new Promise((res, rej) => {
+      const tx = db.transaction('journal-meta', 'readonly'), st = tx.objectStore('journal-meta');
+      const k = st.getAllKeys(), v = st.getAll();
+      tx.oncomplete = () => res(Object.fromEntries(k.result.map((key, i) => [key, v.result[i]]))); tx.onerror = () => rej(tx.error);
+    });
+    db.close();
+    return out;
+  });
+}
+const notices = (page) => page.evaluate(() => window.apiTest.players[0].notices);
+const OTHERSHA = 'f'.repeat(64);
+
+row('WBW-18', 'a visit with keepWrites tags its record: the page hash, the card digest, the distribution and defaultCard', async () => {
+  const page = await newPage();
+  await open(page, [GUEST({ keepWrites: true })], { dev: DEFAULT });
+  must(!(await rec(page)).mountError, 'mount');
+  await click(page);
+  await waitMsg(page, 'SAVE 1 OK');
+  const meta = (await (async () => { const t0 = Date.now(); let m = null; while (Date.now() - t0 < 5000) { m = await storedMeta(page); if (m && m[K1]) return m; await sleep(100); } return m; })()) || {};
+  const t = meta[K1];
+  must(t && t.page === pageKey('/page/api.html') && t.cardSha256 === SHA && /^sn-emulator-.+\.zip$/.test(t.distribution) && t.defaultCard === true,
+       'meta ' + JSON.stringify(meta));
+  await page.ctx.close();
+});
+
+row('WBW-19', 'saves made on an older default card of the same page are reset before the start: the notice (once, with its code and the message) fires, both stores lose the record, and the machine starts (SAVE 1 OK)', async () => {
+  const page = await newPage();
+  const stale = OTHERSHA + '-' + pageKey('/page/api.html');
+  await seed(page, stale, W1, { page: pageKey('/page/api.html'), cardSha256: OTHERSHA, distribution: OLD, defaultCard: true });
+  await open(page, [GUEST({ keepWrites: true })], { dev: DEFAULT });
+  must(!(await rec(page)).mountError, 'mount');
+  await click(page);
+  await waitMsg(page, 'SAVE 1 OK');
+  const n = await notices(page);
+  must(n.length === 1 && n[0][0] === 'card-writes-reset' &&
+       /^The saves on this page were made on an older NextZXOS card \(NextZXOS 24\.11\) and were reset: this version of the page uses NextZXOS [0-9.]+[a-z]?\.$/.test(n[0][1]),
+       'notices ' + JSON.stringify(n));
+  const s = await storedWithin(page, 5000, (s) => !(stale in s));
+  const m = await storedMeta(page);
+  must(s && !(stale in s) && m && !(stale in m), 'the stale record is still there: ' + desc(s) + ' meta ' + JSON.stringify(m && Object.keys(m)));
+  await page.ctx.close();
+});
+
+row('WBW-20', 'a record made on a page-supplied image (defaultCard false) survives on the default-card path, with no notice', async () => {
+  const page = await newPage();
+  const keep = OTHERSHA + '-' + pageKey('/page/api.html');
+  await seed(page, keep, W1, { page: pageKey('/page/api.html'), cardSha256: OTHERSHA, distribution: OLD, defaultCard: false });
+  await open(page, [GUEST({ keepWrites: true })], { dev: DEFAULT });
+  await click(page);
+  await waitMsg(page, 'SAVE 1 OK');
+  const s = await stored(page);
+  must(s && sameBytes(s[keep], W1) && (await notices(page)).length === 0, 'records ' + desc(s) + ' notices ' + JSON.stringify(await notices(page)));
+  await page.ctx.close();
+});
+
+row('WBW-21', 'a record without a tag (made before this release: unknown provenance) survives, with no notice', async () => {
+  const page = await newPage();
+  const keep = OTHERSHA + '-' + pageKey('/page/api.html');
+  await seed(page, keep, W1, null);
+  await open(page, [GUEST({ keepWrites: true })], { dev: DEFAULT });
+  await click(page);
+  await waitMsg(page, 'SAVE 1 OK');
+  const s = await stored(page);
+  must(s && sameBytes(s[keep], W1) && (await notices(page)).length === 0, 'records ' + desc(s) + ' notices ' + JSON.stringify(await notices(page)));
+  await page.ctx.close();
+});
+
+row('WBW-22', 'another page\'s stale record is left alone: the reset is per page', async () => {
+  const page = await newPage();
+  const other = OTHERSHA + '-' + pageKey('/page2/api.html');
+  await seed(page, other, W1, { page: pageKey('/page2/api.html'), cardSha256: OTHERSHA, distribution: OLD, defaultCard: true });
+  await open(page, [GUEST({ keepWrites: true })], { dev: DEFAULT });
+  await click(page);
+  await waitMsg(page, 'SAVE 1 OK');
+  const s = await stored(page);
+  must(s && sameBytes(s[other], W1) && (await notices(page)).length === 0, 'records ' + desc(s) + ' notices ' + JSON.stringify(await notices(page)));
   await page.ctx.close();
 });
 

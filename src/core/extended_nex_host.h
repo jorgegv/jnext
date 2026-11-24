@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -32,7 +33,11 @@ public:
     // SD-card read overlay translate them back to host-file blocks.
     static constexpr uint32_t kSyntheticFirstBlock = 0x80000000U;
 
-    bool open(const std::string& path);
+    /// `first_block` is the synthetic card address of the file's block 0 and
+    /// `max_blocks` (0 = up to the end of the 32-bit address space) caps how
+    /// many blocks it may span. The defaults are the extended NEX's own range.
+    bool open(const std::string& path, uint32_t first_block = kSyntheticFirstBlock,
+              uint64_t max_blocks = 0);
     bool reopen();
     bool open_sibling(const std::string& path);
     void close();
@@ -58,6 +63,11 @@ public:
     /// call stopped. A host file is contiguous, but the 16-bit sector count
     /// limits each returned entry to 65535 blocks.
     bool file_map(std::size_t capacity, std::vector<FileMapEntry>& entries);
+    /// Same, with the continuation cursor (next block to map) owned by the
+    /// caller: esxDOS keeps it per open handle, not per file.
+    bool file_map(std::size_t capacity, std::vector<FileMapEntry>& entries,
+                  uint64_t& next_block);
+    uint32_t first_block() const { return first_block_; }
 
     /// Start the SD/MMC wire stream at a synthetic block address. Bit 7 of
     /// flags requests the NextZXOS 2.01 no-wait form, for which the first port
@@ -91,10 +101,43 @@ private:
     uint64_t sibling_size_ = 0;
     uint64_t sibling_position_ = 0;
     uint64_t filemap_next_block_ = 0;
+    uint32_t first_block_ = kSyntheticFirstBlock;
+    uint64_t max_blocks_ = 0;
 
     bool stream_active_ = false;
     bool initial_token_pending_ = false;
     uint64_t stream_offset_ = 0;
     uint16_t stream_block_pos_ = 0;
     StreamPhase stream_phase_ = StreamPhase::Data;
+};
+
+/// GH #556: block streaming (DISK_FILEMAP / DISK_STRMSTART / DISK_STRMEND and
+/// port $EB) for the files of the host directory a directly loaded program is
+/// served. Each mapped host file gets a region of synthetic card addresses
+/// (an ExtendedNexHost opened at the region's base), keyed by its host path.
+/// A region outlives F_CLOSE (card addresses outlive a handle on hardware) and
+/// is dropped only by clear(). One stream at a time, as on one real card.
+class HostFileStreams {
+public:
+    static constexpr uint32_t kFirstBlock = 0x90000000U;
+    static constexpr uint32_t kRegionBlocks = 0x00800000U;  // 4 GB, the FAT32 file limit
+    static constexpr std::size_t kRegions =
+        (0x100000000ULL - kFirstBlock) / kRegionBlocks;      // 224
+
+    /// Region of `host_path`, created on first use. False when the file cannot
+    /// be opened or all regions are taken (`full` tells which).
+    bool region_for(const std::string& host_path, ExtendedNexHost*& region,
+                    bool& full);
+    /// True and `region` set when `address` lies in a region already created.
+    bool find(uint32_t address, ExtendedNexHost*& region);
+    /// Start the stream at `address` (in a region), ending any other.
+    bool stream_start(uint32_t address, uint8_t flags);
+    /// End the active stream; false when none is active.
+    bool stream_end();
+    bool stream_active() const;
+    std::optional<uint8_t> read_stream_byte();
+    void clear();
+
+private:
+    std::vector<std::unique_ptr<ExtendedNexHost>> regions_;
 };

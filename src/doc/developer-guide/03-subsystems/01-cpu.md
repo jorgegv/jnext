@@ -258,6 +258,18 @@ The controller additionally holds the `im2_control.vhd` decoder that recognises
 RETI/RETN and IM-mode changes out of the M1 byte stream, the legacy pulse-mode
 /INT generator, and the NR 0xCC/CD/CE DMA-delay latch.
 
+The RETI/RETN decoder follows `im2_control.vhd` exactly in one respect that is easy
+to get wrong: `S_ED4D_T4`/`S_ED45_T4` → `S_SRL_T1` → `S_SRL_T2` → `S_0` are clock-driven,
+not fetch-driven (`im2_control.vhd:181-192`; only `S_0`, `S_ED_T4`, `S_CB_T4` and
+`S_DDFD_T4` wait for an opcode fetch). Those three clocks pass inside the RETI/RETN's own
+stack-pop cycles, so the decoder is back in `S_0` before the next opcode fetch and no fetch
+is ever dropped; `o_dma_delay` (`im2_control.vhd:238`) therefore ends with the RETI itself, and
+`tick()` drops the DMA-delay hold at the end of the RETI/RETN instruction. A model that
+steps the SRL states once per fetch ignores an `ED 4D` among the next three fetches, so a
+short interrupt routine entered right after a RETI (`EI : RETI`) never clears its device:
+the line device stays in `S_ISR`, the CTCs behind it stay in `S_REQ` for ever, and the
+sprite DMA held by them (`im2_device.vhd:151`) never runs.
+
 It is ticked once per instruction, at the *end* of the instruction's slot
 (`Emulator::finish_slot_interrupts()`), after the devices and the interrupt
 events have raised that instruction's requests, and it runs on the CLK_28

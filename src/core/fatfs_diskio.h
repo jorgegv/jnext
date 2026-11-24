@@ -27,9 +27,14 @@ namespace fatfs_glue {
 // the journal. The journal's sector numbers are absolute card sectors, so the
 // glue adds `part_lba` to every FatFs sector. Without one (the default, and
 // what the SD-card provisioner uses) the image is opened read/write.
+//
+// `read_only` opens the image read-only whatever else is given (GH #555: a comparison must not be
+// able to write): every write then fails with RES_WRPRT. Together with a journal it is the card
+// as the machine sees it, journal sectors laid over the image, nothing written anywhere.
 bool attach(uint8_t pdrv, const std::string& image_path, uint32_t part_lba,
             uint32_t sector_count, std::string& err,
-            std::shared_ptr<sd_write_journal::Journal> journal = nullptr);
+            std::shared_ptr<sd_write_journal::Journal> journal = nullptr,
+            bool read_only = false);
 
 // Flush and close the backing file for `pdrv`.
 void detach(uint8_t pdrv);

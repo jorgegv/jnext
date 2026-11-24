@@ -1,4 +1,6 @@
 #include "gui/sdcard_download_dialog.h"
+#include "platform/startup_report.h"
+#include "platform/sdcard_upgrade_box.h"
 #include "gui/desktop_color_scheme.h"
 #include "core/log.h"
 
@@ -58,34 +60,53 @@ bool SdcardGuiProvisioner::confirm(const std::string& message) {
 }
 
 SdcardGuiProvisioner::UpgradeBox SdcardGuiProvisioner::upgrade_box(const std::string& to,
-                                                                   const std::string& message) {
+                                                                   const std::string& message,
+                                                                   bool files_carry_over) {
     UpgradeBox u;
     u.box = std::make_unique<QMessageBox>();
     u.box->setWindowTitle(QString::fromStdString(sdcard::distribution_title(to) + " is available"));
-    u.box->setIcon(QMessageBox::Warning);
+    u.box->setIcon(QMessageBox::Question);
     u.box->setText(QStringLiteral("<b>%1</b>").arg(
         QString::fromStdString(sdcard::distribution_title(to) + " is available").toHtmlEscaped()));
     u.box->setInformativeText(QString::fromStdString(message));
-    u.replace = u.box->addButton(QObject::tr("Download and replace"), QMessageBox::DestructiveRole);
-    u.keep    = u.box->addButton(QObject::tr("Keep my card"), QMessageBox::RejectRole);
+    u.replace = u.box->addButton(QObject::tr(files_carry_over ? sdcard::kUpgradeLabelReplace : sdcard::kUpgradeLabelFresh), QMessageBox::AcceptRole);
+    u.never   = u.box->addButton(QObject::tr(sdcard::kUpgradeLabelNever), QMessageBox::ActionRole);
+    u.keep    = u.box->addButton(QObject::tr(sdcard::kUpgradeLabelKeep), QMessageBox::RejectRole);
     u.box->setDefaultButton(qobject_cast<QPushButton*>(u.keep));
     u.box->setEscapeButton(u.keep);
-    u.dont_ask = new QCheckBox(QObject::tr("Do not ask me again"));
-    u.box->setCheckBox(u.dont_ask);
     return u;
 }
 
 sdcard::UpgradeChoice SdcardGuiProvisioner::upgrade_answer(const UpgradeBox& b,
                                                            const QAbstractButton* pressed) {
-    if (pressed == b.replace) return sdcard::UpgradeChoice::Replace;
-    return b.dont_ask && b.dont_ask->isChecked() ? sdcard::UpgradeChoice::KeepDontAskAgain
-                                                 : sdcard::UpgradeChoice::Keep;
+    if (pressed && pressed == b.replace) return sdcard::UpgradeChoice::Replace;
+    if (pressed && pressed == b.never) return sdcard::UpgradeChoice::KeepDontAskAgain;
+    return sdcard::UpgradeChoice::Keep;
+}
+
+std::unique_ptr<QMessageBox> SdcardGuiProvisioner::report_box(const std::string& report) {
+    auto box = std::make_unique<QMessageBox>(QMessageBox::Information, QObject::tr("SD card upgraded"),
+                                             QObject::tr("Your SD card was upgraded. The list of what was carried over, "
+                                                         "what the new NextZXOS replaced and what was not carried is under "
+                                                         "Show Details; the old card is kept as a backup."),
+                                             QMessageBox::Ok);
+    box->setDetailedText(QString::fromStdString(report));
+    return box;
+}
+
+void SdcardGuiProvisioner::show_report(const std::string& report) {
+    ensure_app();
+    if (QGuiApplication::platformName() == QLatin1String("offscreen")) {
+        Log::platform()->debug("dialog not shown on the offscreen platform: SD card upgraded: {}", report);
+        return;
+    }
+    report_box(report)->exec();
 }
 
 sdcard::UpgradeChoice SdcardGuiProvisioner::offer_upgrade(const std::string&, const std::string& to,
-                                                          const std::string& message) {
+                                                          const std::string& message, bool files_carry_over) {
     ensure_app();
-    UpgradeBox u = upgrade_box(to, message);
+    UpgradeBox u = upgrade_box(to, message, files_carry_over);
     u.box->exec();
     return upgrade_answer(u, u.box->clickedButton());
 }
@@ -112,6 +133,7 @@ std::unique_ptr<QMessageBox> SdcardGuiProvisioner::warning_box(const std::string
 
 void SdcardGuiProvisioner::warn(const std::string& message) {
     ensure_app();
+    startup_report::note_dialog_shown();   // GH #555: the start-up error box must not stack on this one
     // On the offscreen platform nobody can see a dialog, let alone dismiss
     // one, and a modal warning would hold startup forever. The callers log
     // the same message before warning, so it is not lost; the debug line says

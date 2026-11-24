@@ -1141,7 +1141,7 @@ sdcard-image:
 	printf "sdcard-image: the SD master is missing or not this tree's -- provisioning it (jnext's own download)\n"; \
 	$(MAKE) --no-print-directory unit-test-sdl-build || exit 1; \
 	PATH="$(UNIT_TEST_PATH)" tools/sd-master-ensure.sh $(BUILD_DIR_SDL_UNIT_TEST)/jnext || { \
-		printf "$(BADGE_FAIL) ERROR $(RESET) the SD image could not be provisioned at %s (network?).\n" "$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"; \
+		printf "$(BADGE_FAIL) ERROR $(RESET) the SD image could not be provisioned at %s (network?).\n" "$$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"; \
 		exit 1; }
 
 # Configure + build the SDL-only test tree (prerequisite for unit-test-sdl)
@@ -1449,7 +1449,8 @@ unit-test-dashboard: unit-test
 # Check a worktree has the fixtures the test suites need
 worktree-bootstrap:
 	@# roms/ holds only the tracked nextboot.rom now, so there is nothing to link:
-	@# the SD image lives machine-wide at ~/.jnext/sdcard/ and jnext provisions it
+	@# the suites' SD master lives machine-wide at ~/.jnext/sdcard/test-suite/ (GH #555: never
+	@# the user's own card) and jnext provisions it
 	@# itself (GH #75/#77). This target verifies that master exists and says how to
 	@# get it if not.
 	@#
@@ -1477,7 +1478,7 @@ worktree-bootstrap:
 	@# there). Failing the target over a self-healing condition would be a false
 	@# alarm. And it REPORTS rather than initialising: this target has never mutated
 	@# a checkout, and `git submodule update --init` is a write to someone's tree.
-	@sd="$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img"; \
+	@sd="$$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"; \
 	pending=0; \
 	if [ ! -f roms/nextboot.rom ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) roms/nextboot.rom missing — this is a tracked file; the checkout is broken\n"; \
@@ -1504,7 +1505,7 @@ worktree-bootstrap:
 	else \
 		printf "  $(BOLD)missing$(RESET) SD master %s\n" "$$sd"; \
 		printf "$(BOLD)worktree-bootstrap: provision it with:$(RESET)\n"; \
-		printf "    ./build/jnext --headless --sdcard-download-confirm --delayed-automatic-exit 1\n"; \
+		printf "    JNEXT_CONFIG_DIR=$$HOME/.jnext/sdcard/test-suite ./build/jnext --headless --sdcard-download-confirm --delayed-automatic-exit 1\n"; \
 		printf "  (or run the regression suite, whose sdcard-provision row does it for you)\n"; \
 		pending=1; \
 	fi; \
@@ -1544,7 +1545,7 @@ docs-man:
 	@printf "        the guide page changed: run 'make docs-userguide' and commit that too\n"
 
 # Fail if the implemented CLI and the documented CLI disagree (issue #43)
-cli-check: unit-test-build
+cli-check: unit-test-build sdcard-image
 	@# docs-check proves the man page and USAGE.md regenerate from jnext.1.md.
 	@# It says nothing about whether jnext.1.md describes the CLI main.cpp
 	@# actually parses — a gap that shipped five undocumented flags once and a
@@ -1566,7 +1567,10 @@ cli-check: unit-test-build
 	@# jnext, among them CLI-BIN-04, the binary's --help against the table). The
 	@# second is split out because a WebAssembly module starts no processes; both
 	@# run here, so the split leaves this gate as strong as it was.
-	@./build/test/cli_options_test && ./build/test/cli_options_native_test
+	@# GH #555: the native suite's rows boot a card. Run bare, with no JNEXT_TEST_SD_IMAGE, they used the
+	@# DEFAULT card: the user's own, and absent on a clean host (the suites provision their own master
+	@# under ~/.jnext/sdcard/test-suite). The unit harness gives them its per-run clone of that master.
+	@bash test/run-unit-tests.sh --only cli_options_test,cli_options_native_test build
 	@# The browser build's JavaScript options are the same kind of seam: web_api_test
 	@# diffs the WEB_OPTIONS table and the refusal functions against the man page's
 	@# THE BROWSER BUILD section in both directions.
@@ -1730,10 +1734,10 @@ docs-screenshots: unit-test-build
 	@# crash. A clone can still be orphaned that way; it is a plain directory
 	@# under $$HOME/.jnext/runs and `rm -rf` is the whole recovery.
 	@set -e; \
-	 sd="$${JNEXT_TEST_SD_IMAGE:-$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img}"; \
+	 sd="$${JNEXT_TEST_SD_IMAGE:-$$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img}"; \
 	 if [ ! -f "$$sd" ]; then \
 	   printf "$(BADGE_FAIL) FAIL $(RESET) no NextZXOS SD image at $$sd\n"; \
-	   printf "        provision it with './build/jnext --headless --sdcard-download-confirm',\n"; \
+	   printf "        provision it with 'JNEXT_CONFIG_DIR=$$HOME/.jnext/sdcard/test-suite ./build/jnext --headless --sdcard-download-confirm',\n"; \
 	   printf "        or point JNEXT_TEST_SD_IMAGE at an existing one.\n"; exit 1; \
 	 fi; \
 	 run_dir="$$HOME/.jnext/runs/docshot-$$$$"; \

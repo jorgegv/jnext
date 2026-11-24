@@ -303,6 +303,10 @@ struct MountedCard {
         attached = true;
         const FRESULT fr = f_mount(&fs, "0:", 1 /* mount now */);
         if (fr != FR_OK) {
+            // FatFs keeps the pointer of the FATFS it was handed even when the mount fails, and
+            // this object dies with the call: unregister it, or the next mount on drive 0 writes
+            // into this dead stack frame (found by the GH #555 carry-over tests).
+            f_mount(nullptr, "0:", 0);
             err = "'" + image_path +
                   "' does not hold a FAT32 filesystem this build can mount (" +
                   fr_str(fr) +
@@ -416,7 +420,8 @@ FileAddStatus write_card_file(MountedCard& card,
                               const std::string& host_file,
                               std::ifstream& src, uint64_t src_size,
                               bool overwrite, bool& replaced,
-                              std::string& err) {
+                              std::string& err,
+                              bool replace_readonly = false) {
     // ---- what is already at the destination ---------------------------------
     // Only the two things f_open cannot answer are decided here — whether the
     // destination is a directory, and whether it is marked read-only. Whether
@@ -434,9 +439,20 @@ FileAddStatus write_card_file(MountedCard& card,
                 return FileAddStatus::DestInvalid;
             }
             if (overwrite && (fno.fattrib & AM_RDO)) {
-                err = "'" + dest_path +
-                      "' is marked read-only on the card and was not replaced";
-                return FileAddStatus::DestInvalid;
+                if (!replace_readonly) {
+                    err = "'" + dest_path +
+                          "' is marked read-only on the card and was not replaced";
+                    return FileAddStatus::DestInvalid;
+                }
+                // Import only (GH #555): the user asked for this file, so it replaces the
+                // read-only one; the R bit comes back from the import line afterwards.
+                card.dirty = true;
+                const FRESULT cr = f_chmod(fat_path.c_str(), 0, AM_RDO);
+                if (cr != FR_OK) {
+                    err = "cannot clear the read-only mark of '" + dest_path + "' on the card (" +
+                          fr_str(cr) + ")";
+                    return FileAddStatus::DestInvalid;
+                }
             }
             existing_size = static_cast<uint64_t>(fno.fsize);
             replaced = true;
@@ -851,6 +867,166 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
 }
 
 }  // namespace
+
+bool read_partition_geometry(const std::string& image_path, uint32_t& lba,
+                             uint32_t& total_sectors, std::string& err) {
+    PartitionInfo p;
+    if (!read_partition_info(image_path, p, err)) return false;
+    lba = p.lba;
+    total_sectors = p.total_sectors;
+    return true;
+}
+
+FileAddStatus import_items_to_image(const std::string& image_path,
+                                    const std::vector<ImportItem>& items,
+                                    std::string& err, ImportSummary* summary) {
+    namespace fs = std::filesystem;
+    err.clear();
+
+    // ---- 1. every item, before the image is opened ------------------------------
+    for (const ImportItem& it : items) {
+        std::string fat_unused;
+        if (!normalize_dest_path(it.card_path, fat_unused, err)) return FileAddStatus::DestInvalid;
+        if (it.is_dir) continue;
+        std::error_code ec;
+        const fs::file_status st = fs::status(fs::path(it.host_file), ec);
+        if (ec || !fs::is_regular_file(st)) {
+            err = "cannot open source file '" + it.host_file + "'";
+            return FileAddStatus::SourceUnreadable;
+        }
+        const uintmax_t sz = fs::file_size(fs::path(it.host_file), ec);
+        std::ifstream probe(it.host_file, std::ios::binary);
+        if (ec || !probe) {
+            err = "cannot open source file '" + it.host_file + "'";
+            return FileAddStatus::SourceUnreadable;
+        }
+        if (sz != it.size) {
+            err = "'" + it.host_file + "' is " + std::to_string(sz) + " bytes, its line says " +
+                  std::to_string(it.size);
+            return FileAddStatus::SourceUnreadable;
+        }
+        if (sz > kMaxFileSize) {
+            err = "'" + it.host_file + "' is " + std::to_string(sz) +
+                  " bytes; FAT32 cannot store a file of 4 GiB or more";
+            return FileAddStatus::SourceUnreadable;
+        }
+    }
+
+    // ---- 2. the image ---------------------------------------------------------------
+    MountedCard card;
+    FileAddStatus st = card.mount(image_path, err);
+    if (st != FileAddStatus::Ok) return st;
+
+    // ---- 3. clashes, free space (a refusal leaves the card untouched) ------------
+    // The parent directories of every item, once each, in pre-order.
+    std::vector<std::string> dirs;   // card paths, "/a", "/a/b"
+    auto want_dir = [&](const std::string& d) {
+        if (std::find(dirs.begin(), dirs.end(), d) == dirs.end()) dirs.push_back(d);
+    };
+    for (const ImportItem& it : items) {
+        const std::vector<std::string> parts = split_slash(it.card_path);
+        std::string prefix;
+        for (std::size_t i = 0; i + (it.is_dir ? 0 : 1) < parts.size(); ++i) {
+            prefix += "/" + parts[i];
+            want_dir(prefix);
+        }
+    }
+    uint64_t new_dirs = 0, data_clusters_bytes = 0;
+    uint64_t free_clusters = 0, cluster_bytes = 0;
+    st = card_free_space(image_path, free_clusters, cluster_bytes, err);
+    if (st != FileAddStatus::Ok) return st;
+    for (const std::string& d : dirs) {
+        FILINFO fno{};
+        const FRESULT fr = f_stat(("0:" + d).c_str(), &fno);
+        if (fr == FR_NO_FILE || fr == FR_NO_PATH) { ++new_dirs; continue; }
+        if (fr != FR_OK) {
+            err = "cannot inspect '" + d + "' on the card (" + fr_str(fr) + ")";
+            return FileAddStatus::DestInvalid;
+        }
+        if (!(fno.fattrib & AM_DIR)) {
+            err = "'" + d + "' already exists on the card as a file, so it cannot be a directory";
+            return FileAddStatus::DestInvalid;
+        }
+    }
+    uint64_t need = new_dirs;
+    for (const ImportItem& it : items) {
+        if (it.is_dir) continue;
+        FILINFO fno{};
+        const FRESULT fr = f_stat(("0:" + it.card_path).c_str(), &fno);
+        if (fr == FR_OK && (fno.fattrib & AM_DIR)) {
+            err = "'" + it.card_path + "' already exists on the card as a directory, so '" +
+                  it.host_file + "' cannot be imported there";
+            return FileAddStatus::DestInvalid;
+        }
+        need += (it.size + cluster_bytes - 1) / cluster_bytes;
+        data_clusters_bytes += it.size;
+    }
+    if (need > free_clusters) {
+        err = space_message(image_path, free_clusters, "the imported files", "need at least",
+                            need, cluster_bytes);
+        return FileAddStatus::ImageFull;
+    }
+
+    // ---- 4. write, rolling back on failure --------------------------------------------
+    ImportSummary sum;
+    std::vector<std::string> created;   // FatFs paths, in creation order
+    unsigned replaced_count = 0, dirs_created = 0;
+    auto rollback = [&](FileAddStatus s) {
+        std::size_t left = 0;
+        for (auto r = created.rbegin(); r != created.rend(); ++r)
+            if (f_unlink(r->c_str()) != FR_OK) ++left;
+        err += "; the import was rolled back, removing the " + std::to_string(created.size()) +
+               " entries it had created";
+        if (left > 0) err += " (" + std::to_string(left) + " could not be removed)";
+        if (replaced_count > 0)
+            err += ". " + std::to_string(replaced_count) +
+                   " existing file(s) had already been replaced and cannot be restored";
+        return s;
+    };
+    for (const std::string& d : dirs) {
+        bool made = false;
+        st = ensure_card_dir(card, "0:" + d, split_slash(d).back(), d, made, err);
+        if (st != FileAddStatus::Ok) return rollback(st);
+        if (made) { created.push_back("0:" + d); ++dirs_created; }
+    }
+    for (const ImportItem& it : items) {
+        const std::string fat_path = "0:" + it.card_path;
+        if (it.is_dir) {
+            // Its attributes are restored too (the directory exists by now).
+            card.dirty = true;
+            const FRESULT cr = f_chmod(fat_path.c_str(), it.attrs & 7, 7);
+            if (cr != FR_OK) {
+                err = "cannot set the attributes of '" + it.card_path + "' (" + fr_str(cr) + ")";
+                return rollback(FileAddStatus::DestInvalid);
+            }
+            continue;
+        }
+        std::ifstream src(it.host_file, std::ios::binary);
+        if (!src) {
+            err = "cannot open source file '" + it.host_file + "'";
+            return rollback(FileAddStatus::SourceUnreadable);
+        }
+        bool replaced = false;
+        st = write_card_file(card, image_path, fat_path, it.card_path, it.host_file, src, it.size,
+                             true, replaced, err, /*replace_readonly=*/true);
+        if (st != FileAddStatus::Ok) {
+            if (replaced) ++replaced_count;
+            return rollback(st);
+        }
+        if (replaced) { ++replaced_count; sum.replaced.push_back(it.card_path); }
+        else          { created.push_back(fat_path); sum.written.push_back(it.card_path); }
+        const FRESULT cr = f_chmod(fat_path.c_str(), it.attrs & 7, 7);
+        if (cr != FR_OK) {
+            err = "cannot set the attributes of '" + it.card_path + "' (" + fr_str(cr) + ")";
+            return rollback(FileAddStatus::DestInvalid);
+        }
+        sum.bytes += it.size;
+    }
+    (void)data_clusters_bytes;
+    sum.dirs_created = dirs_created;
+    if (summary) *summary = std::move(sum);
+    return FileAddStatus::Ok;
+}
 
 FileAddStatus add_file_to_image(const std::string& image_path,
                                 const std::string& host_file,

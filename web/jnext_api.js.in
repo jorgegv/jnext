@@ -23,9 +23,15 @@
   var counter = 0;
   var loadSeq = 0;
   var LOG_LINES = 60;
-  var CALLBACKS = ['onProgress', 'onReady', 'onError'];
+  var CALLBACKS = ['onProgress', 'onReady', 'onError', 'onNotice'];
   // The numbers of cli::DebugProtocol (src/core/cli_options.h): the exports take them.
   var DEBUG_PROTOCOLS = { dzrp: 0, zrcp: 1, gdb: 2 };
+
+  // "sn-emulator-26.11a.zip" -> "NextZXOS 26.11a" (the same rule as sdcard::distribution_title)
+  function niceDistribution(file) {
+    var m = /^sn-emulator-([0-9]+(?:\.[0-9]+)*[a-z]?)\.zip$/.exec(String(file));
+    return m ? 'NextZXOS ' + m[1] : String(file);
+  }
 
   function px(v) { return typeof v === 'number' ? v + 'px' : String(v); }
 
@@ -194,6 +200,7 @@
     var volume = null;
     var startedSeen = false;
     var writesKey = null;        // keepWrites: the IndexedDB key of this player's saves
+    var writesMeta = null;       // keepWrites: what the record is tagged with (page, card, distribution, default card)
     var persistChain = null;     // the persist in flight, if any
     var persistAgain = false;    // a write arrived while it ran
     var readyDone = false;
@@ -310,7 +317,7 @@
       var m = mod, key = writesKey;
       function run() {
         persistAgain = false;
-        return JnextImage.saveCardWrites(m, key).then(function () {
+        return JnextImage.saveCardWrites(m, key, writesMeta).then(function () {
           if (persistAgain) return run();
           persistChain = null;
         }, function (e) {
@@ -908,9 +915,21 @@
           var fp = !fs ? Promise.resolve('') : serve ? copyProgram(fs.card) : installFile(mod, fs);
           // keepWrites: this card on this page has one record; its file goes back into the
           // in-memory filesystem before the machine starts.
+          // GH #555: the card of this release's own distribution (not one the page or a development seam
+          // supplied) is the DEFAULT card; the record is tagged with that, and the earlier saves of this
+          // page made on a default card of another distribution are reset first, with a notice.
+          var isDefaultCard = !(seam && seam.card) || !!(seam && seam.defaultCard);
           var wp = options.keepWrites === true
-            ? JnextImage.cardWritesKey(card.sha256, location.pathname).then(function (key) {
-                return JnextImage.loadCardWrites(mod, key).then(function (p) { writesKey = key; return p; });
+            ? JnextImage.pageHashOf(location.pathname).then(function (ph) {
+                var key = card.sha256.toLowerCase() + '-' + ph;
+                writesMeta = { page: ph, cardSha256: card.sha256.toLowerCase(), distribution: pins.file, defaultCard: isDefaultCard };
+                var stale = isDefaultCard ? JnextImage.resetStaleWrites(ph, card.sha256, pins.file) : Promise.resolve(null);
+                return stale.then(function (was) {
+                  if (was) call('onNotice', 'card-writes-reset', 'The saves on this page were made on an older NextZXOS card (' +
+                                niceDistribution(was) + ') and were reset: this version of the page uses ' +
+                                niceDistribution(pins.file) + '.');
+                  return JnextImage.loadCardWrites(mod, key);
+                }).then(function (p) { writesKey = key; return p; });
               })
             : Promise.resolve('');
           return Promise.all([fp, wp]).then(function (paths) {

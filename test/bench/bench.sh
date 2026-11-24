@@ -41,7 +41,7 @@ CACHE="$PROJECT_DIR/build/$BENCH_BUILD/CMakeCache.txt"
 # The SD image jnext provisions and caches itself. `roms/` holds only the
 # embedded boot ROM now — no SD image lives there (GH #75/#77), so a fixture
 # path under the repo is no longer a thing to point at.
-SD_MASTER="${JNEXT_TEST_SD_IMAGE:-$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img}"
+SD_MASTER="${JNEXT_TEST_SD_IMAGE:-$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img}"
 REPEATS=5
 SPREAD_LIMIT_PCT=5.0
 

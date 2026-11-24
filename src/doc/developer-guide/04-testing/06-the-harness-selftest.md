@@ -161,7 +161,7 @@ long enough to rot into failing on 18 rows.
 
 ## The lint self-tests
 
-Seven of the lints verify themselves on **every invocation**, before their
+Eight of the lints verify themselves on **every invocation**, before their
 verdict on the real tree is trusted at all:
 
 - `test/lint-assertions.sh` writes a fixture containing one instance of each
@@ -232,6 +232,14 @@ verdict on the real tree is trusted at all:
   Cases for a `sed -i` hidden after `-i''`, `a#b`, `\'` or `\"` pin the quote
   scanner, each added because deleting that branch of it left the table green. `test/packaging/` and
   `harness-selftest.sh` are out of scope because only Linux runs them.
+- `test/lint-user-card.sh` (row 8 of the preflight) refuses the literal
+  `.jnext/sdcard/cspect-next-1gb` (the user's card, or the raw distribution beside
+  it) in the tracked tests, the SD-master tools, the Makefile and the workflows:
+  the suites boot their own card under `~/.jnext/sdcard/test-suite/`. Its case
+  table pins both ways (the user card, the raw image and a quoted C++ literal
+  are flagged; the test master's spelling and the cache directory alone are
+  not), and its declared exceptions (itself, the path lint's own case table, the fixture lines of the harness self-test and of `sdcard-user-card-func`, and the provisioner suite's fake-HOME lines) are named in its header, each narrowed to the lines rooted at its scratch fixtures. `HS-198a`/`b`
+  pin that the preflight reaches it and that its verdict turns the row red.
 
 The developer-guide cite check, `test/lint-devguide-cites.pl` (see
 [4.5](05-documentation-and-cli-gates.md#the-developer-guide-cite-rule)), is not self-checking

@@ -18,10 +18,20 @@
 //              crashing; error logged.
 //   SD-EXT-08  Leading-slash optional: "MACHINES/NEXT/enNxtmmc.rom"
 //              (no leading '/') resolves identically to SD-EXT-01.
+//   SD-EXT-10..21  (GH #556) FAT12/16/32 cards the firmware's FatFs mounts:
+//              any non-zero MBR type over a FAT boot record, a card with no
+//              partition table, FAT16/FAT12 chains and root directories, the
+//              cluster-count boundaries, and a 48K machine booting from one.
+//   SD-EXT-28  a hostile FAT32 BPB (TotSec32 0xFFFFFFFF): the chain walk is capped by the image file.
+//   SD-EXT-22..27  (review round 1) firmware scan before the 0x0C leniency, the
+//              jump-byte half of check_fs, FAT16 DIR_FstClusHI ignored, and a cyclic
+//              FAT16 directory bounded by the cluster count.
+//              Fixtures are built at run time (FatFs f_mkfs, the firmware's
+//              own library, or by hand); never an image in git.
 //
 // Fixture: the canonical 1 GB NextZXOS image (MBR + FAT32-LBA, 8 KB
 // clusters) that jnext provisions for itself at
-// ~/.jnext/sdcard/cspect-next-1gb-fixed.img; JNEXT_TEST_SD_IMAGE overrides
+// ~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img; JNEXT_TEST_SD_IMAGE overrides
 // it, and run-unit-tests.sh points it at a private per-run clone so a
 // concurrent writer cannot tear the read (GH #75/#77). The reference bytes
 // for SD-EXT-01/03/04/05 were captured offline via `mtools` so the test
@@ -32,9 +42,20 @@
 //   Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d
 // so the Makefile aggregator picks it up.
 
+#include "core/emulator.h"
+#include "core/emulator_config.h"
+#include "core/fatfs_diskio.h"
 #include "core/sd_rom_extractor.h"
+#include "../core/log_capture.h"
+
+extern "C" {
+#include "third_party/fatfs/ff.h"
+}
 
 #include <cstdint>
+#include <chrono>
+#include <functional>
+#include <memory>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -44,6 +65,7 @@
 
 #include <unistd.h>   // mkstemp / write / close (POSIX)
 #include "../row_id.h"
+#include "../test_sd_image.h"
 
 namespace {
 
@@ -80,11 +102,7 @@ void skip(const char* id, const char* reason) {
 // ensures exists) — not a roms/ fixture, which a fresh clone never has.
 // JNEXT_TEST_SD_IMAGE overrides it for out-of-tree runs.
 std::string canonical_image() {
-    if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) {
-        return env;
-    }
-    const char* home = std::getenv("HOME");
-    return std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+    return test_sd_image_path();
 }
 
 bool file_exists(const std::string& path) {
@@ -115,6 +133,251 @@ constexpr uint8_t kTbblueFwMagic[4] = { 0x00, 0x00, 0x40, 0x00 };
 bool first4_eq(const std::vector<uint8_t>& v, const uint8_t (&ref)[4]) {
     if (v.size() < 4) return false;
     return std::memcmp(v.data(), ref, 4) == 0;
+}
+
+
+// ---------------------------------------------------------------------------
+// GH #556 fixtures: FAT12/16/32 cards built at run time.
+// Oracle: tbblue.fw FatFs (ff.c find_volume :3041-3066, check_fs :2955-2972,
+// FAT sub-type :3140-3146, fixed FAT12/16 root :3163).
+// ---------------------------------------------------------------------------
+
+std::vector<std::string> g_scratch;
+
+std::string scratch_path(const char* name) {
+    const char* base = std::getenv("TMPDIR");
+    const std::string dir = (base && *base) ? base : "/tmp";
+    std::string p = dir + "/jnext_sdext_" + std::to_string(::getpid()) + "_" + name + ".img";
+    g_scratch.push_back(p);
+    return p;
+}
+
+void cleanup_scratch() {
+    for (const std::string& p : g_scratch) std::remove(p.c_str());
+}
+
+void put32(uint8_t* p, uint32_t v) {
+    for (int i = 0; i < 4; ++i) p[i] = static_cast<uint8_t>(v >> (8 * i));
+}
+void put16(uint8_t* p, uint16_t v) { p[0] = static_cast<uint8_t>(v); p[1] = static_cast<uint8_t>(v >> 8); }
+
+std::vector<uint8_t> pattern(size_t n, uint8_t seed) {
+    std::vector<uint8_t> v(n);
+    for (size_t i = 0; i < n; ++i) v[i] = static_cast<uint8_t>(i * 131 + (i >> 8) * 17 + seed);
+    return v;
+}
+
+struct MbrEntry { uint8_t type; uint32_t lba; };
+
+// Write a fresh MBR with the given entries (slots 0..n-1) into the image.
+bool write_mbr_entries(const std::string& path, const std::vector<MbrEntry>& es) {
+    std::fstream f(path, std::ios::in | std::ios::out | std::ios::binary);
+    if (!f) return false;
+    uint8_t mbr[512] = {0};
+    for (size_t i = 0; i < es.size() && i < 4; ++i) {
+        uint8_t* pe = mbr + 0x1BE + i * 16;
+        pe[4] = es[i].type;
+        put32(pe + 8, es[i].lba);
+        put32(pe + 12, 1000);
+    }
+    mbr[510] = 0x55; mbr[511] = 0xAA;
+    f.seekp(0);
+    f.write(reinterpret_cast<const char*>(mbr), 512);
+    return f.good();
+}
+
+bool poke_byte(const std::string& path, uint64_t off, uint8_t v) {
+    std::fstream f(path, std::ios::in | std::ios::out | std::ios::binary);
+    if (!f) return false;
+    f.seekp(static_cast<std::streamoff>(off));
+    f.write(reinterpret_cast<const char*>(&v), 1);
+    return f.good();
+}
+
+bool fs_write(const char* path, const std::vector<uint8_t>& data) {
+    FIL fp{};
+    if (f_open(&fp, path, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK) return false;
+    UINT bw = 0;
+    const bool ok = data.empty() ||
+        (f_write(&fp, data.data(), static_cast<UINT>(data.size()), &bw) == FR_OK && bw == data.size());
+    return f_close(&fp) == FR_OK && ok;
+}
+
+// Format a volume of `vol_sectors` at `vol_lba` (0 = partition-less card) with
+// the firmware's own FatFs library and populate it. `fmt` is FM_FAT (FatFs picks
+// FAT12 or FAT16 by cluster count) or FM_FAT32. Returns the FatFs fs_type
+// (FS_FAT12/16/32) or 0, so a row can assert the fixture is the format it claims.
+int make_fatfs_card(const std::string& path, uint32_t vol_lba, uint32_t vol_sectors,
+                    BYTE fmt, uint32_t au, uint32_t n_root,
+                    const std::function<bool()>& populate) {
+    {
+        std::ofstream c(path, std::ios::binary | std::ios::trunc);
+        if (!c) return 0;
+        c.seekp(static_cast<std::streamoff>(static_cast<uint64_t>(vol_lba + vol_sectors) * 512 - 1));
+        const char z = 0;
+        c.write(&z, 1);
+        if (!c.good()) return 0;
+    }
+    std::string err;
+    if (!fatfs_glue::attach(0, path, vol_lba, vol_sectors, err)) return 0;
+    struct Detacher { ~Detacher() { fatfs_glue::detach(0); } } detacher;
+    MKFS_PARM parm{};
+    parm.fmt = static_cast<BYTE>(fmt | FM_SFD);
+    parm.n_fat = 2;
+    parm.align = 0;
+    parm.n_root = n_root;
+    parm.au_size = au;
+    std::vector<uint8_t> work(64 * 1024);
+    if (f_mkfs("0:", &parm, work.data(), static_cast<UINT>(work.size())) != FR_OK) return 0;
+    FATFS fsobj{};
+    if (f_mount(&fsobj, "0:", 1) != FR_OK) return 0;
+    const bool ok = populate();
+    const int type = ok ? fsobj.fs_type : 0;
+    f_syncvol("0:");
+    f_mount(nullptr, "0:", 0);
+    return type;
+}
+
+bool populate_rom48(const std::vector<uint8_t>& rom) {
+    return f_mkdir("0:/MACHINES") == FR_OK && f_mkdir("0:/MACHINES/NEXT") == FR_OK &&
+           fs_write("0:/MACHINES/NEXT/48.rom", rom);
+}
+
+constexpr uint32_t kVolSectors = 8000;   // 4 MB: FAT16 at 512-byte clusters
+constexpr uint32_t kMbrLba     = 2048;
+
+// A FAT file of 40 clusters, its chain deliberately fragmented by writing a
+// decoy file alternately (FatFs hands out the next free cluster each time).
+bool populate_fragmented(const std::vector<uint8_t>& data, const char* dir, const char* file) {
+    if (f_mkdir("0:/A") != FR_OK || f_mkdir(dir) != FR_OK) return false;
+    const std::string path = std::string(dir) + "/" + file;
+    const std::string decoy = std::string(dir) + "/DECOY.BIN";
+    FIL fa{}, fb{};
+    if (f_open(&fa, path.c_str(), FA_CREATE_ALWAYS | FA_WRITE) != FR_OK) return false;
+    if (f_open(&fb, decoy.c_str(), FA_CREATE_ALWAYS | FA_WRITE) != FR_OK) return false;
+    bool ok = true;
+    for (size_t off = 0; off < data.size() && ok; off += 512) {
+        UINT bw = 0;
+        ok = f_write(&fa, data.data() + off, 512, &bw) == FR_OK && bw == 512;
+        const uint8_t junk[512] = {0xEE};
+        ok = ok && f_write(&fb, junk, 512, &bw) == FR_OK && bw == 512;
+    }
+    return f_close(&fa) == FR_OK && f_close(&fb) == FR_OK && ok;
+}
+
+// A hand-built partition-less FAT12/16 volume with exactly `nclst` clusters
+// (1 sector/cluster, 1 FAT, a one-sector root of 16 entries), holding
+// /TEST.BIN = cluster 2 -> 3 -> EOC (1024 bytes, 0xA1 then 0xB2), the FAT
+// entries encoded the way the firmware classifies the volume (ff.c:3145-3146).
+// `expect_bits` receives 12 or 16. Used for the cluster-count boundaries.
+// Options: `hi_junk` puts 0x7F7F in the entry's bytes 20-21 (DIR_FstClusHI, which
+// FAT12/16 do not use, ff.c ld_clust :1624-1636); `cycle_dir` makes /SUB a
+// directory whose chain is 2 -> 3 -> 2 with no terminator and no match;
+// `fatsz_override` makes BPB_FATSz16 that large (a FAT far bigger than the volume).
+// `tail_sectors` makes the FILE longer than the volume (junk past its end), so the
+// image-size cap does not equal the BPB's cluster count.
+struct HandOpts { bool hi_junk = false; bool cycle_dir = false; uint32_t fatsz_override = 0; uint32_t tail_sectors = 0; };
+
+bool make_hand_fat(const std::string& path, uint32_t nclst, int& expect_bits,
+                   std::vector<uint8_t>& expect_data, const HandOpts& o = {}) {
+    const int bits = nclst <= 0xFF5u ? 12 : 16;
+    expect_bits = bits;
+    const uint32_t entries = nclst + 2;
+    const uint32_t fat_bytes = bits == 12 ? (entries * 3 + 1) / 2 : entries * 2;
+    const uint32_t fatsz = o.fatsz_override ? o.fatsz_override : (fat_bytes + 511) / 512;
+    const uint32_t root_lba = 1 + fatsz;
+    const uint32_t data_lba = root_lba + 1;
+    const uint32_t tsect = data_lba + nclst;
+    std::vector<uint8_t> img(static_cast<size_t>(data_lba + 2) * 512, 0);
+    uint8_t* b = img.data();
+    b[0] = 0xEB; b[1] = 0x3C; b[2] = 0x90;
+    put16(b + 11, 512);
+    b[13] = 1;
+    put16(b + 14, 1);
+    b[16] = 1;
+    put16(b + 17, 16);
+    if (tsect < 0x10000) put16(b + 19, static_cast<uint16_t>(tsect)); else put32(b + 32, tsect);
+    put16(b + 22, static_cast<uint16_t>(fatsz));
+    std::memcpy(b + 0x36, bits == 12 ? "FAT12   " : "FAT16   ", 8);
+    b[510] = 0x55; b[511] = 0xAA;
+    uint8_t* fat = img.data() + 512;
+    auto set = [&](uint32_t n, uint32_t v) {
+        if (bits == 16) { put16(fat + n * 2, static_cast<uint16_t>(v)); return; }
+        uint8_t* q = fat + n + n / 2;
+        if (n & 1) { q[0] = static_cast<uint8_t>((q[0] & 0x0F) | ((v & 0x0F) << 4)); q[1] = static_cast<uint8_t>(v >> 4); }
+        else       { q[0] = static_cast<uint8_t>(v); q[1] = static_cast<uint8_t>((q[1] & 0xF0) | ((v >> 8) & 0x0F)); }
+    };
+    const uint32_t eoc = bits == 12 ? 0xFFF : 0xFFFF;
+    set(0, bits == 12 ? 0xFF8 : 0xFFF8);
+    set(1, eoc);
+    if (o.cycle_dir) { set(2, 3); set(3, 2); }
+    else             { set(2, 3); set(3, eoc); }
+    uint8_t* e = img.data() + static_cast<size_t>(root_lba) * 512;
+    std::memcpy(e, "TEST    BIN", 11);
+    e[11] = 0x20;
+    put16(e + 26, 2);
+    put32(e + 28, 1024);
+    if (o.hi_junk) put16(e + 20, 0x7F7F);
+    if (o.cycle_dir) {
+        std::memcpy(e, "SUB        ", 11);
+        e[11] = 0x10;
+        for (uint32_t c = 0; c < 2; ++c)
+            for (int slot = 0; slot < 16; ++slot) {
+                uint8_t* v = img.data() + static_cast<size_t>(data_lba + c) * 512 + slot * 32;
+                v[0] = 'V';
+                v[11] = 0x08;   // volume-label slot: skipped, no 0x00 terminator
+            }
+    } else {
+        std::memset(img.data() + static_cast<size_t>(data_lba) * 512, 0xA1, 512);
+        std::memset(img.data() + static_cast<size_t>(data_lba + 1) * 512, 0xB2, 512);
+    }
+    expect_data.assign(1024, 0xA1);
+    std::fill(expect_data.begin() + 512, expect_data.end(), 0xB2);
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(img.data()), static_cast<std::streamsize>(img.size()));
+    // The file is as long as the volume the BPB describes (sparse), so a chain walk's
+    // image-size cap equals the BPB's own cluster count.
+    f.seekp(static_cast<std::streamoff>(static_cast<uint64_t>(tsect + o.tail_sectors) * 512 - 1));
+    const char z = 0;
+    f.write(&z, 1);
+    return f.good();
+}
+
+// A hand-built partition-less FAT32 volume (1 sector/cluster, FATSz32 sectors of FAT,
+// root = cluster 2 -> 3 -> 2, no terminator, no match) whose BPB claims TotSec32 =
+// 0xFFFFFFFF while the FILE holds only the system area and 4 data clusters.
+bool make_hostile_fat32(const std::string& path, uint32_t fatsz) {
+    const uint32_t data_lba = 1 + fatsz;
+    std::vector<uint8_t> img(static_cast<size_t>(data_lba + 4) * 512, 0);
+    uint8_t* b = img.data();
+    b[0] = 0xEB; b[1] = 0x58; b[2] = 0x90;
+    put16(b + 11, 512);
+    b[13] = 1;
+    put16(b + 14, 1);
+    b[16] = 1;
+    put32(b + 32, 0xFFFFFFFFu);
+    put32(b + 36, fatsz);
+    put32(b + 44, 2);
+    std::memcpy(b + 0x52, "FAT32   ", 8);
+    b[510] = 0x55; b[511] = 0xAA;
+    uint8_t* fat = img.data() + 512;
+    put32(fat + 2 * 4, 3);
+    put32(fat + 3 * 4, 2);
+    for (uint32_t c = 0; c < 2; ++c)
+        for (int slot = 0; slot < 16; ++slot) {
+            uint8_t* v = img.data() + static_cast<size_t>(data_lba + c) * 512 + slot * 32;
+            v[0] = 'V'; v[11] = 0x08;   // volume-label slot: skipped, no terminator
+        }
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(img.data()), static_cast<std::streamsize>(img.size()));
+    return f.good();
+}
+
+bool extracts_eq(const std::string& img, const char* path, const std::vector<uint8_t>& want) {
+    std::vector<uint8_t> out;
+    return extract_sd_rom(img, path, out) && out == want;
 }
 
 } // namespace
@@ -407,6 +670,257 @@ int main() {
         }
     }
 
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SD-EXT-10..21 — FAT12/16/32 cards and partition-less cards (GH #556)
+    // ─────────────────────────────────────────────────────────────────────
+    const std::vector<uint8_t> rom48 = pattern(16384, 3);
+    const char* const kRom48 = "/MACHINES/NEXT/48.rom";
+    {
+        const std::string p = scratch_path("fat16-06");
+        const int t = make_fatfs_card(p, kMbrLba, kVolSectors, FM_FAT, 512, 512,
+                                      [&] { return populate_rom48(rom48); });
+        const bool mbr = write_mbr_entries(p, {{0x06, kMbrLba}});
+        check("SD-EXT-10",
+              "FAT16 card, MBR type 0x06: 48.rom extracts byte-exact (ff.c:3048-3063)",
+              t == FS_FAT16 && mbr && extracts_eq(p, kRom48, rom48), "fs_type=" + std::to_string(t));
+        const bool mbr2 = write_mbr_entries(p, {{0x0E, kMbrLba}});
+        check("SD-EXT-10b",
+              "FAT16 card, MBR type 0x0E: extracts (any non-zero type, ff.c:3050)",
+              mbr2 && extracts_eq(p, kRom48, rom48));
+    }
+    {
+        const std::string p = scratch_path("fat16-sfd");
+        const int t = make_fatfs_card(p, 0, kVolSectors, FM_FAT, 512, 512,
+                                      [&] { return populate_rom48(rom48); });
+        check("SD-EXT-11",
+              "FAT16 card with no partition table (boot record at sector 0) extracts (ff.c:3043)",
+              t == FS_FAT16 && extracts_eq(p, kRom48, rom48), "fs_type=" + std::to_string(t));
+    }
+    {
+        const std::string p = scratch_path("fat32-sfd");
+        const int t = make_fatfs_card(p, 0, 70000, FM_FAT32, 512, 0,
+                                      [&] { return populate_rom48(rom48); });
+        check("SD-EXT-12",
+              "FAT32 card with no partition table extracts (ff.c:3043)",
+              t == FS_FAT32 && extracts_eq(p, kRom48, rom48), "fs_type=" + std::to_string(t));
+    }
+    {
+        const std::string p = scratch_path("entry1");
+        const int t = make_fatfs_card(p, kMbrLba, kVolSectors, FM_FAT, 512, 512,
+                                      [&] { return populate_rom48(rom48); });
+        // Entry 0: type 0x83 over a zero sector (no boot record); entry 1: the FAT16 volume.
+        const bool mbr = write_mbr_entries(p, {{0x83, 1}, {0x06, kMbrLba}});
+        check("SD-EXT-13",
+              "entry 0 type 0x83 over a non-FAT sector, entry 1 the FAT16 volume: found in entry 1 (ff.c:3060-3063)",
+              t == FS_FAT16 && mbr && extracts_eq(p, kRom48, rom48));
+    }
+    {
+        const std::string p = scratch_path("type0");
+        const int t = make_fatfs_card(p, kMbrLba, kVolSectors, FM_FAT, 512, 512,
+                                      [&] { return populate_rom48(rom48); });
+        const bool mbr = write_mbr_entries(p, {{0x00, kMbrLba}});
+        std::vector<uint8_t> out;
+        const bool ok = extract_sd_rom(p, kRom48, out);
+        check("SD-EXT-14",
+              "an entry of type 0 is skipped even over a valid FAT16 boot record (ff.c:3050)",
+              t == FS_FAT16 && mbr && !ok && out.empty());
+    }
+    {
+        const std::string p = scratch_path("notfat");
+        const int t = make_fatfs_card(p, kMbrLba, kVolSectors, FM_FAT, 512, 512,
+                                      [&] { return populate_rom48(rom48); });
+        const bool mbr = write_mbr_entries(p, {{0x83, kMbrLba}});
+        // Destroy the "FAT" string at 0x36 so check_fs gives "valid BS, not FAT" (ff.c:2965-2972).
+        const bool poked = poke_byte(p, static_cast<uint64_t>(kMbrLba) * 512 + 0x36, 'X');
+        std::vector<uint8_t> out;
+        const bool ok = extract_sd_rom(p, kRom48, out);
+        check("SD-EXT-15",
+              "a non-zero type over a sector failing check_fs (no \"FAT\" string) is no volume (ff.c:2965-2972)",
+              t == FS_FAT16 && mbr && poked && !ok && out.empty());
+    }
+    {
+        const std::string p = scratch_path("frag16");
+        const std::vector<uint8_t> data = pattern(40 * 512, 9);
+        const int t = make_fatfs_card(p, kMbrLba, kVolSectors, FM_FAT, 512, 512,
+                                      [&] { return populate_fragmented(data, "0:/A/B", "FRAG.BIN"); });
+        const bool mbr = write_mbr_entries(p, {{0x06, kMbrLba}});
+        check("SD-EXT-16",
+              "FAT16: a 40-cluster fragmented file in a 2nd-level directory extracts byte-exact (16-bit FAT walk, fixed root, ff.c:3163)",
+              t == FS_FAT16 && mbr && extracts_eq(p, "/A/B/FRAG.BIN", data));
+    }
+    {
+        const std::string p = scratch_path("frag12");
+        const std::vector<uint8_t> data = pattern(40 * 512, 21);
+        const int t = make_fatfs_card(p, kMbrLba, 2000, FM_FAT, 512, 512,
+                                      [&] { return populate_fragmented(data, "0:/A/B", "FRAG.BIN"); });
+        const bool mbr = write_mbr_entries(p, {{0x01, kMbrLba}});
+        check("SD-EXT-17",
+              "FAT12: a fragmented 40-cluster file (odd and even FAT entries) extracts byte-exact (ff.c:3146, 12-bit packing)",
+              t == FS_FAT12 && mbr && extracts_eq(p, "/A/B/FRAG.BIN", data), "fs_type=" + std::to_string(t));
+    }
+    {
+        const std::string p = scratch_path("root16");
+        const std::vector<uint8_t> data = pattern(700, 5);
+        const int t = make_fatfs_card(p, 0, kVolSectors, FM_FAT, 512, 512, [&] {
+            for (int i = 0; i < 40; ++i) {
+                char name[32];
+                std::snprintf(name, sizeof(name), "0:/F%02d.BIN", i);
+                if (!fs_write(name, pattern(1, static_cast<uint8_t>(i)))) return false;
+            }
+            return fs_write("0:/TARGET.ROM", data);
+        });
+        check("SD-EXT-18",
+              "FAT16 root with more entries than fit one sector: a target in the third root sector is found (root bounded by RootEntCnt, not a cluster)",
+              t == FS_FAT16 && extracts_eq(p, "/TARGET.ROM", data));
+    }
+    {
+        // Hand-built volumes at the cluster-count boundaries (ff.c:3144-3156).
+        std::vector<uint8_t> want;
+        int bits = 0;
+        const std::string p1 = scratch_path("n4085"), p2 = scratch_path("n4086");
+        const bool m1 = make_hand_fat(p1, 0xFF5, bits, want);
+        const bool ok1 = m1 && bits == 12 && extracts_eq(p1, "/TEST.BIN", want);
+        const bool m2 = make_hand_fat(p2, 0xFF6, bits, want);
+        const bool ok2 = m2 && bits == 16 && extracts_eq(p2, "/TEST.BIN", want);
+        check("SD-EXT-17b",
+              "4085 clusters is FAT12 and 4086 is FAT16: both extract (ff.c:3145-3146 thresholds)",
+              ok1 && ok2, "ok1=" + std::to_string(ok1) + " ok2=" + std::to_string(ok2));
+    }
+    {
+        std::vector<uint8_t> want;
+        int bits = 0;
+        const std::string p = scratch_path("n70000");
+        const bool made = make_hand_fat(p, 70000, bits, want);
+        std::vector<uint8_t> out;
+        const bool ok = extract_sd_rom(p, "/TEST.BIN", out);
+        check("SD-EXT-19",
+              "a FAT16-layout BPB with 70000 clusters is refused: the firmware calls it FAT32 and rejects it (ff.c:3144-3156)",
+              made && !ok && out.empty());
+    }
+    {
+        std::vector<uint8_t> want;
+        int bits = 0;
+        const std::string p1 = scratch_path("nFFF5"), p2 = scratch_path("nFFF6");
+        const bool m1 = make_hand_fat(p1, 0xFFF5, bits, want);
+        const bool ok1 = m1 && bits == 16 && extracts_eq(p1, "/TEST.BIN", want);
+        const bool m2 = make_hand_fat(p2, 0xFFF6, bits, want);
+        std::vector<uint8_t> out;
+        const bool ok2 = m2 && !extract_sd_rom(p2, "/TEST.BIN", out);
+        check("SD-EXT-19b",
+              "0xFFF5 clusters is the largest FAT16 and extracts; 0xFFF6 is refused (ff.c:3144-3156)",
+              ok1 && ok2, "ok1=" + std::to_string(ok1) + " ok2=" + std::to_string(ok2));
+    }
+    {
+        // The legacy arm (D2): a type-0x0C entry over a boot sector that FAILS the
+        // firmware's check_fs (jump byte zeroed) is still taken, as it was before
+        // GH #556 (SD-EXT-09's fixtures carry no jump byte either).
+        const std::string p = scratch_path("legacy0c");
+        const int t = make_fatfs_card(p, kMbrLba, 70000, FM_FAT32, 512, 0,
+                                      [&] { return populate_rom48(rom48); });
+        // Slot 0 is a 0x0C entry at LBA 0 (no volume there): pass 2 must skip it (lba != 0).
+        const bool mbr = write_mbr_entries(p, {{0x0C, 0}, {0x0C, kMbrLba}});
+        const bool poked = poke_byte(p, static_cast<uint64_t>(kMbrLba) * 512, 0x00);
+        check("SD-EXT-20",
+              "a type-0x0C entry over a FAT32 boot sector without a jump byte still extracts (legacy 0x0B/0x0C arm kept)",
+              t == FS_FAT32 && mbr && poked && extracts_eq(p, kRom48, rom48));
+    }
+    {
+        // 48K machine initialised from a FAT16 card: the host extractor feeds the ROM.
+        const std::string p = scratch_path("m48k");
+        const int t = make_fatfs_card(p, kMbrLba, kVolSectors, FM_FAT, 512, 512,
+                                      [&] { return populate_rom48(rom48); });
+        const bool mbr = write_mbr_entries(p, {{0x06, kMbrLba}});
+        auto emu = std::make_unique<Emulator>();
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.rewind_buffer_frames = 0;
+        cfg.sd_card_image = p;
+        cfg.sd_card_readonly = true;
+        const bool init_ok = t == FS_FAT16 && mbr && emu->init(cfg);
+        size_t bad = 0;
+        if (init_ok)
+            for (uint32_t a = 0; a < 0x4000; ++a)
+                if (emu->mmu().peek(static_cast<uint16_t>(a)) != rom48[a]) ++bad;
+        check("SD-EXT-21",
+              "a 48K machine initialised with a FAT16 card runs the card's 48.rom (bytes 0x0000..0x3FFF equal)",
+              init_ok && bad == 0, "init=" + std::to_string(init_ok) + " bad=" + std::to_string(bad));
+    }
+    {
+        // Review round 1: the firmware's scan comes FIRST, the 0x0B/0x0C leniency
+        // only when it finds nothing. A stale 0x0C entry over non-FAT sectors in
+        // slot 0 must not hide the real volume in slot 1 (ff.c:3047-3063).
+        const std::string p = scratch_path("stale0c");
+        const int t = make_fatfs_card(p, kMbrLba, kVolSectors, FM_FAT, 512, 512,
+                                      [&] { return populate_rom48(rom48); });
+        const bool mbr = write_mbr_entries(p, {{0x0C, 1}, {0x06, kMbrLba}});
+        check("SD-EXT-22",
+              "entry 0 type 0x0C at LBA 1 over non-FAT sectors, entry 1 type 0x06 FAT16: the volume in entry 1 is found (firmware scan before the legacy arm)",
+              t == FS_FAT16 && mbr && extracts_eq(p, kRom48, rom48));
+    }
+    {
+        // check_fs jump-byte rule (ff.c:2965): 0xE9, or 0xEB with 0x90 at byte 2.
+        const std::string p = scratch_path("jump");
+        const int t = make_fatfs_card(p, kMbrLba, kVolSectors, FM_FAT, 512, 512,
+                                      [&] { return populate_rom48(rom48); });
+        const bool mbr = write_mbr_entries(p, {{0x06, kMbrLba}});
+        const uint64_t vbr = static_cast<uint64_t>(kMbrLba) * 512;
+        std::vector<uint8_t> out;
+        const bool p0 = poke_byte(p, vbr + 0, 0x00);
+        const bool no_jump = !extract_sd_rom(p, kRom48, out);
+        check("SD-EXT-23",
+              "a non-legacy type over a FAT16 record whose jump byte is 0x00 is no volume (ff.c:2965)",
+              t == FS_FAT16 && mbr && p0 && no_jump && out.empty());
+        const bool p1 = poke_byte(p, vbr + 0, 0xE9) && poke_byte(p, vbr + 2, 0x00);
+        check("SD-EXT-24",
+              "jump byte 0xE9 (bytes 1-2 arbitrary) is a FAT boot record: extracts (ff.c:2965)",
+              p1 && extracts_eq(p, kRom48, rom48));
+        const bool p2 = poke_byte(p, vbr + 0, 0xEB) && poke_byte(p, vbr + 2, 0x00);
+        const bool no_eb = !extract_sd_rom(p, kRom48, out);
+        check("SD-EXT-25",
+              "jump EB xx 00 (no 0x90 at byte 2) is no volume (ff.c:2965)",
+              p2 && no_eb && out.empty());
+    }
+    {
+        std::vector<uint8_t> want;
+        int bits = 0;
+        HandOpts o; o.hi_junk = true;
+        const std::string p = scratch_path("hijunk");
+        const bool made = make_hand_fat(p, 0xFF6, bits, want, o);
+        check("SD-EXT-26",
+              "a FAT16 directory entry with non-zero bytes 20-21 (DIR_FstClusHI) extracts byte-exact: the high word is FAT32-only (ff.c ld_clust :1624-1636)",
+              made && bits == 16 && extracts_eq(p, "/TEST.BIN", want));
+    }
+    {
+        std::vector<uint8_t> want;
+        int bits = 0;
+        HandOpts o; o.cycle_dir = true; o.fatsz_override = 65535; o.tail_sectors = 20000;
+        const std::string p = scratch_path("cycle16");
+        const bool made = make_hand_fat(p, 4100, bits, want, o);
+        std::vector<uint8_t> out;
+        bool ok = true;
+        const std::string log = capture_emulator_log([&] { ok = extract_sd_rom(p, "/SUB/X.BIN", out); });
+        const bool bounded = log.find("(4101 > 4100)") != std::string::npos;
+        check("SD-EXT-27",
+              "a FAT16 card with a cyclic subdirectory chain and a FAT far larger than the volume is refused, the walk stopping at the volume's cluster count: the refusal reads (4101 > 4100), not the FAT's capacity",
+              made && !ok && out.empty() && bounded, "bounded=" + std::to_string(bounded));
+    }
+
+    {
+        // A hostile FAT32 BPB (TotSec32 0xFFFFFFFF, a FAT of 3000 sectors) over a file that
+        // holds 4 data clusters: a cyclic root chain is cut at the clusters the FILE holds.
+        const std::string p = scratch_path("hostile32");
+        const bool made = make_hostile_fat32(p, 3000);
+        std::vector<uint8_t> out;
+        bool ok = true;
+        const std::string log = capture_emulator_log([&] { ok = extract_sd_rom(p, "/X.BIN", out); });
+        check("SD-EXT-28",
+              "a FAT32 cyclic root chain under an inflated TotSec32 (0xFFFFFFFF) is refused after as many steps as the image file has clusters (5 > 4), not after the BPB's claim",
+              made && !ok && out.empty() && log.find("(5 > 4)") != std::string::npos,
+              "ok=" + std::to_string(ok));
+    }
+
+    cleanup_scratch();
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total + g_skip, g_pass, g_fail, g_skip);

@@ -10,7 +10,7 @@
 # (rows WEBPKG-BR-01..07: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
 # boots the example page), `card.mjs:42` (rows BCARD-01..21, 26..43 and 45..47: the card flow of the page, the poster, card.dirs and card source none), `card-errors.mjs:5` (rows BCARD-22..25 and 44: how the pick path words a refusal, no browser), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
 # guide's two embedding snippets, run verbatim), `touch.mjs:17` (rows TKB-01..17: the on-screen keyboard
-# under touch-device emulation) and `writes.mjs:17` (rows WBW-01..17: the guest's writes
+# under touch-device emulation) and `writes.mjs:17` (rows WBW-01..22: the guest's writes
 # kept across page loads, against a native journal oracle), `snapshots.mjs:11` (rows BSN-01..11: .sna, .z80,
 # .szx and .jns loaded in the page and compared with native runs, and player.saveSnapshot()) and `../bench/web/bench-stats-test.mjs:12` (rows
 # WBENCH-01..12: the arithmetic of the browser bench, synthetic data, no browser) and `crt.mjs:13` (rows
@@ -50,7 +50,7 @@ export LC_ALL=C LANG=C
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
 # Longest first (the specs run in parallel, so the order is the schedule): wall times of the CI run 44897420688.
-SPECS=("crt.mjs:13" "api.mjs:34" "files.mjs:20" "smoke.mjs:35" "writes.mjs:17" "widget.mjs:17" "touch.mjs:17" "rzx.mjs:12" "card.mjs:42" "snapshots.mjs:11" "image.mjs:9" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "package.mjs:7" "../bench/web/bench-stats-test.mjs:12" "card-errors.mjs:5" "debug.mjs:30" "$@")
+SPECS=("crt.mjs:13" "api.mjs:34" "files.mjs:20" "smoke.mjs:35" "writes.mjs:22" "widget.mjs:17" "touch.mjs:17" "rzx.mjs:12" "card.mjs:42" "snapshots.mjs:11" "image.mjs:9" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "package.mjs:7" "../bench/web/bench-stats-test.mjs:12" "card-errors.mjs:5" "debug.mjs:30" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -65,7 +65,7 @@ NODE=$(ls -d "$EMSDK"/node/*/bin/node)
 PW=$(bash "$ROOT/test/provision-playwright.sh" --print-path) || die "no provisioned Playwright (make playwright)"
 NATIVE="$ROOT/build/sdl-release/jnext"
 [[ -x "$NATIVE" ]] || die "$NATIVE is not built (make sdl-release): it is the oracle"
-DIST="${JNEXT_BROWSER_DIST_IMAGE:-$HOME/.jnext/sdcard/cspect-next-1gb.img}"
+DIST="${JNEXT_BROWSER_DIST_IMAGE:-$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb.img}"
 [[ -f "$DIST" ]] || die "no distribution SD image at $DIST (make sdcard-image)"
 for t in python3 timeout mformat mcopy mmd sfdisk truncate; do command -v "$t" >/dev/null 2>&1 || die "required tool missing: $t"; done
 

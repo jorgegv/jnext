@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Make the shared SD master (~/.jnext/sdcard/cspect-next-1gb-fixed.img) the card THIS tree
+# Make the shared SD master (~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img, never the user's own card) the card THIS tree
 # defaults to, before something reads it (GH #476).
 #
 # usage: sd-master-ensure.sh --probe          exit 0 when the master needs nothing, 10 when

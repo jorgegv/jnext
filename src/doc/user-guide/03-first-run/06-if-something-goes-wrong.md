@@ -56,7 +56,17 @@ question it cannot answer will decline and exit rather than hang.
 is a NextZXOS SD-card image and not, say, a raw ROM file. If you built the
 image yourself, note that JNEXT enforces the FAT32 specification as strictly as
 the real firmware does, and will refuse a card the real machine would also
-refuse.
+refuse. A FAT16 card, or one with no partition table at all, works on every
+machine and for snapshots, as it does on the Next. JNEXT's 48K, 128K and +3
+machines can also read their ROMs from a FAT12 card, or from a partition other
+than the first, which the Next itself cannot start from. `--sdcard-file-add`
+still needs a FAT32 card.
+
+**JNEXT does not start from an icon, and nothing appears.** A start-up error (an unknown
+option, an SD card another JNEXT has open, a refused combination) is shown in a window, with
+the same text it prints on a terminal, every time JNEXT is started with a window. A run with
+`--headless`, with `--delayed-automatic-exit` or with an SD card command such as `--sdcard-file-add`
+never shows one: its error is on standard error.
 
 Anything else: [1.4, *Getting help and reporting bugs*](../01-introduction/04-getting-help-and-reporting-bugs.md),
 and <https://github.com/jorgegv/jnext/issues>.

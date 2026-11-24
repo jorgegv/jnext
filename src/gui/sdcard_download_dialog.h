@@ -41,23 +41,28 @@ public:
     bool confirm(const std::string& message);
 
     // UpgradeFn seam: the offer of a newer NextZXOS distribution. A modal box with the
-    // provisioner's text (it names both versions and says replacing the card DELETES
-    // what the user saved on it), the buttons "Download and replace" and "Keep my card"
-    // (the default, and what closing or Escape means) and a "Do not ask me again" check
-    // box. Keep with the box ticked is KeepDontAskAgain; the box means nothing for Replace.
+    // provisioner's text (it names both versions, says the user's files are carried over
+    // and the old card is kept as a backup) and three buttons: "Upgrade (keep my files)",
+    // "Keep my card (don't ask again)" and "Not now" (the default, and what closing or
+    // Escape means). Upgrade is Replace, "don't ask again" is KeepDontAskAgain, anything
+    // else Keep.
     sdcard::UpgradeChoice offer_upgrade(const std::string& from, const std::string& to,
-                                        const std::string& message);
-    // The box offer_upgrade() runs, not yet shown, with the check box handed back for the
-    // caller (the tests) to read. `replace` and `keep` are the two buttons.
+                                        const std::string& message, bool files_carry_over = true);
+    // The box offer_upgrade() runs, not yet shown, with its buttons handed back for the
+    // caller (the tests) to read.
     struct UpgradeBox {
         std::unique_ptr<QMessageBox> box;
-        class QCheckBox*             dont_ask = nullptr;
         class QAbstractButton*       replace  = nullptr;
+        class QAbstractButton*       never    = nullptr;
         class QAbstractButton*       keep     = nullptr;
     };
-    static UpgradeBox upgrade_box(const std::string& to, const std::string& message);
-    // The answer for the button the user pressed (nullptr = the box was closed) and the check box.
+    static UpgradeBox upgrade_box(const std::string& to, const std::string& message, bool files_carry_over = true);
+    // The answer for the button the user pressed (nullptr = the box was closed).
     static sdcard::UpgradeChoice upgrade_answer(const UpgradeBox& b, const class QAbstractButton* pressed);
+    // The report of a finished upgrade (what was carried over, what the new NextZXOS replaced):
+    // a box with a summary and the whole list as its detailed text.
+    void show_report(const std::string& report);
+    static std::unique_ptr<QMessageBox> report_box(const std::string& report);
 
     // ProgressFn seam: shows/updates a modal QProgressDialog with a bar.
     // Returns false when the user cancels (which aborts the download). The

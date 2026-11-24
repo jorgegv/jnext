@@ -30,7 +30,8 @@ name: CI
 # provisioner for exactly this — the same code path an end user hits via
 # `--sdcard-download-confirm` — so the "Provision NextZXOS SD image" step
 # below simply runs jnext itself to download + FAT32-patch that public
-# image into its default location ($HOME/.jnext/sdcard/), which both
+# image into the test suites' own location ($HOME/.jnext/sdcard/test-suite/, GH #555:
+# never the default card a user runs jnext on; the cache keys carry -ts for it), which both
 # `make unit-test` (which clones it per run for sd_rom_extractor_test)
 # and `make regression` (via its own self-provisioning step, which finds
 # the image already there and does nothing) then use. This is not a secret
@@ -237,7 +238,7 @@ jobs:
           # ubuntu runner carry /home/runner paths and are useless (and
           # misleading) here. Bump with the container image, not just with
           # kDistroUrl.
-          key: sdcard-image-distro-26.11a-recipe3-fedora45
+          key: sdcard-image-distro-26.11a-recipe3-ts-fedora45
 
       # Ghidra 12.2 (GH #389): 570 MB, provisioned by `make regression` itself
       # (test/provision-ghidra.sh) into this directory, pinned by its sha256, so a
@@ -455,7 +456,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-fedora45
+          key: sdcard-image-distro-26.11a-recipe3-ts-fedora45
 
       - name: Save Ghidra
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.cache2.outputs.cache-hit != 'true' && (matrix.leg == 'regression')
@@ -619,7 +620,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-fedora45
+          key: sdcard-image-distro-26.11a-recipe3-ts-fedora45
 
       - name: make package-test (build every package, assert its contents)
         run: LANG=C make package-test
@@ -717,7 +718,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-fedora45
+          key: sdcard-image-distro-26.11a-recipe3-ts-fedora45
 
   # macOS is the ONE platform the regular push path did not cover.
   #
@@ -772,7 +773,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-macos
+          key: sdcard-image-distro-26.11a-recipe3-ts-macos
 
       - name: make package-macos (build, package, verify self-containment)
         run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" MACOS_DEPLOYMENT_TARGET=15.0 make package-macos
@@ -794,7 +795,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-macos
+          key: sdcard-image-distro-26.11a-recipe3-ts-macos
 
   # GH #494. The Intel Mac package, and the SDL-only unit suites on x86_64, in ONE
   # job: GitHub caps a plan at 5 concurrent macOS jobs, shared by every run, so a
@@ -838,7 +839,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-macos
+          key: sdcard-image-distro-26.11a-recipe3-ts-macos
 
       # This job had no ccache: 34 to 52 min per run, all of it compiled cold (GH #547).
       # CMake picks ccache up from PATH (/opt/local/bin, added by install-macports.sh).
@@ -856,10 +857,11 @@ jobs:
       - name: make package-macos (build, package, verify self-containment and minimum macOS)
         run: MACPORTS_PREFIX=/opt/local OPENSSL_ROOT_DIR=/opt/local/libexec/openssl3 CMAKE_PREFIX_PATH=/opt/local/libexec/qt6:/opt/local MACOS_DEPLOYMENT_TARGET=15.0 make package-macos
 
-      # JNEXT_SUITE_TIMEOUT=600: this runner is ~4x slower than the dev host and
+      # JNEXT_SUITE_TIMEOUT=1200: this runner is ~4x slower than the dev host and
       # varies run to run (sdcard_provisioner_test: 134 s and 237 s on the same code).
+      # sdcard_upgrade_test hashes and copies 600 MB cards 37 times: 57 s here, past 600 s on this runner.
       - name: make unit-test-sdl (the SDL-only suites on Intel macOS)
-        run: MACPORTS_PREFIX=/opt/local OPENSSL_ROOT_DIR=/opt/local/libexec/openssl3 CMAKE_PREFIX_PATH=/opt/local JNEXT_SUITE_TIMEOUT=600 LANG=C make unit-test-sdl
+        run: MACPORTS_PREFIX=/opt/local OPENSSL_ROOT_DIR=/opt/local/libexec/openssl3 CMAKE_PREFIX_PATH=/opt/local JNEXT_SUITE_TIMEOUT=1200 LANG=C make unit-test-sdl
 
       - name: Upload the dmg
         uses: actions/upload-artifact@v6
@@ -896,7 +898,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-macos
+          key: sdcard-image-distro-26.11a-recipe3-ts-macos
 
   # GH #214. The SDL-only unit suites on macOS. The `macos` job above builds and
   # packages but runs no suite, so a POSIX divergence in a suite or in the code it
@@ -929,7 +931,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-macos
+          key: sdcard-image-distro-26.11a-recipe3-ts-macos
 
       - name: Cache ccache
         id: cache11
@@ -958,7 +960,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-macos
+          key: sdcard-image-distro-26.11a-recipe3-ts-macos
 
       - name: ccache statistics
         if: always()
@@ -1000,7 +1002,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-macos
+          key: sdcard-image-distro-26.11a-recipe3-ts-macos
 
       - name: Cache ccache
         id: cache13
@@ -1031,7 +1033,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-macos
+          key: sdcard-image-distro-26.11a-recipe3-ts-macos
 
       - name: ccache statistics
         if: always()

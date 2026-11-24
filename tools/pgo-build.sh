@@ -57,7 +57,7 @@ done
 if [[ "$BIN" == *.exe ]]; then
     export JNEXT_PGO_NO_SD_HINT="Build the Windows executable without PGO instead:  WIN_PGO=0 (e.g. make win-release-non-pgo)"
 else
-    export JNEXT_PGO_NO_SD_HINT="This package is always a PGO build and REQUIRES the SD image: provide ~/.jnext/sdcard/cspect-next-1gb-fixed.img (e.g. run jnext once with --sdcard-download-confirm) or fix the network, then retry."
+    export JNEXT_PGO_NO_SD_HINT="This package is always a PGO build and REQUIRES the SD image: provide ~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img (e.g. run JNEXT_CONFIG_DIR=~/.jnext/sdcard/test-suite jnext once with --sdcard-download-confirm) or fix the network, then retry."
 fi
 if [[ "$BIN" == *.exe ]]; then
     command -v wine >/dev/null 2>&1 ||

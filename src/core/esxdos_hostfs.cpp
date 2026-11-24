@@ -694,7 +694,18 @@ uint8_t EsxdosHostFs::open(const std::string& guest_path, uint8_t mode,
     f.writable = want_write;
     f.path = host.string();
     f.position = 0;
+    f.filemap_next_block = 0;
     handle = static_cast<uint8_t>(kFirstFileHandle + slot);
+    return kOk;
+}
+
+uint8_t EsxdosHostFs::filemap_cursor(uint8_t handle, std::string& host_path,
+                                     uint64_t*& next_block)
+{
+    FileHandle* f = file_slot(handle);
+    if (!f || !f->open) return kEbadf;
+    host_path = f->path;
+    next_block = &f->filemap_next_block;
     return kOk;
 }
 

@@ -155,13 +155,17 @@ with status 1.
 :   What to do when the default-location card is of an older NextZXOS
     distribution than the one jnext downloads now. *MODE* is **ask**
     (the default in the GUI: forget any “do not ask again” and ask),
-    **yes** (replace the card without asking: everything saved on it is
-    lost), **no** (keep the card for this run, no question) or **never**
-    (keep it and do not offer this distribution again). Without the
-    option, the GUI asks (once, unless “Do not ask me again” was ticked)
-    and **--headless** keeps the card and logs one line. Refused
-    together with **--sdcard**: an explicit card is never offered an
-    upgrade. See [Why JNEXT needs an SD-card
+    **yes** (upgrade without asking: your files are carried over to the
+    new card and the old card is kept as a backup in `previous/`;
+    refused when the card has no original image to compare with, and
+    then **fresh** is the way), **fresh** (a new card with nothing
+    carried over; the old card is kept as the backup), **no** (keep the
+    card for this run, no question) or **never** (keep it and do not
+    offer this distribution again). Without the option, the GUI asks
+    (once, unless “Keep my card (don’t ask again)” was chosen) and
+    **--headless** keeps the card and logs one line. Refused together
+    with **--sdcard**: an explicit card is never offered an upgrade. See
+    [Why JNEXT needs an SD-card
     image](../03-first-run/01-why-jnext-needs-an-sd-card-image.md).
 
 **--sdcard-readonly**
@@ -256,10 +260,9 @@ with status 1.
     Without **--sdcard-file-dest** it lands in the root of the card
     under its own name. Give it once per run. The image written is the
     one **--sdcard** names, or the default-location image when
-    **--sdcard** is omitted — in which case a loud warning says so,
-    because that image is shared with every other run. With
-    **--sdcard-writes** the copy goes into that file instead and the
-    image is not written. See **PUTTING A FILE ON THE CARD**.
+    **--sdcard** is omitted (your own card). With **--sdcard-writes**
+    the copy goes into that file instead and the image is not written.
+    See **PUTTING A FILE ON THE CARD**.
 
 **--sdcard-file-dest** *PATH*
 :   Optional. The path on the card that **--sdcard-file-add**’s *FILE*
@@ -272,6 +275,66 @@ with status 1.
 :   Let **--sdcard-file-add** replace files that are already there.
     Without it an existing destination file is refused and nothing is
     written.
+
+**--sdcard-file-extract** *PATH*
+:   Copy the file, or the directory with everything in it, at *PATH* on
+    the SD card (`/GAMES/game.nex`; long or 8.3 names, any letter case)
+    into the **current directory** under its own name, and **exit
+    without starting emulation**. A local file or directory of that name
+    is refused and left as it is. Give it once per run. It reads the
+    card **--sdcard** names, or the default-location image when
+    **--sdcard** is omitted, as a run with the same options would see it
+    (with **--sdcard-writes**, through that file). The image is never
+    written; the writes file keeps its contents (as for any run given
+    it, it may be compacted). See **GETTING YOUR FILES OUT**.
+
+**--sdcard-writes-flatten** *OUT*
+:   Write *OUT*, a plain image of the card with the **--sdcard-writes**
+    *FILE* laid over it (the card as the machine sees it), and **exit
+    without starting emulation**. Any FAT tool (mtools, a loop mount,
+    7-Zip) can open *OUT*. Requires **--sdcard-writes**. An *OUT* that
+    already exists is refused. See **GETTING YOUR FILES OUT**.
+
+**--sdcard-go-back**
+:   Go back to the previous SD card that an upgrade kept in `previous/`
+    next to the default card, and **exit without starting emulation**.
+    It is a swap: the card that was in use becomes the backup, your
+    **--sdcard-writes** files go with their cards, and the distribution
+    you left is not offered again. Exits 0 when done; 2 when there is no
+    previous card; 3 when it failed and nothing was changed; 4 when the
+    card is in use by another jnext. Refused together with **--sdcard**,
+    another SD card command, **--load** or **--inject**.
+
+**--sdcard-delete-backup**
+:   Delete the previous SD card an upgrade kept in `previous/`, giving
+    its disk space back, and **exit without starting emulation**.
+    Nothing else is touched. It exits with the statuses of
+    **--sdcard-go-back**, and is refused in the same cases.
+
+**--sdcard-export-changes** *DIR*
+:   Copy the files you added or changed on the card, as the machine sees
+    it (the card plus the **--sdcard-writes** file, when one is given),
+    into *DIR* as ordinary files, write the list `CHANGES.txt` beside
+    them, and **exit without starting emulation**. *DIR* must be new or
+    empty. What it compares the card against, in this order: the card as
+    jnext made it (the default card, when its original image is still on
+    disk and matches), the image named by **--sdcard-export-base**, the
+    card itself when there is a **--sdcard-writes** file (so only that
+    file’s changes are exported); with none of these it refuses. See
+    **GETTING YOUR FILES OUT**.
+
+**--sdcard-export-base** *FILE*
+:   With **--sdcard-export-changes**: the image the card was made from,
+    to compare against. A raw distribution image is accepted as it is.
+
+**--sdcard-import-changes** *DIR*
+:   Put the files of a **--sdcard-export-changes** directory *DIR* onto
+    the card (or, with **--sdcard-writes**, into that file) and **exit
+    without starting emulation**. *DIR* must hold the `CHANGES.txt` the
+    export wrote. A file already on the card is replaced, a read-only
+    one too; nothing is ever deleted; the attributes (read-only, hidden,
+    system) are restored. All or nothing, as **--sdcard-file-add**. See
+    **GETTING YOUR FILES OUT**.
 
 **--warm-start-regenerate**
 

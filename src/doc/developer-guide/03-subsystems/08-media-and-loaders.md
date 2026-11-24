@@ -32,7 +32,7 @@ the guest's own driver talks to. Both are called out below.
 | `.pok` | yes | — | `platform/pok_trainers.*`, `gui/pok_dialog.*` | Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers) |
 
 Format selection is by **file extension**: for `--load` in `src/main.cpp`
-(the `ext` chain, `src/main.cpp:3218-3276`), and again in the GUI's file dialogs and in the headless
+(the `ext` chain, `src/main.cpp:3447-3505`), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -766,7 +766,7 @@ precondition: the DivMMC automap that takes `$0008` to NextZXOS needs
 
 | Call | Directly loaded NEX | `--esxdos-stub` only |
 |---|---|---|
-| `$85`-`$87` `DISK_FILEMAP` / `STRMSTART` / `STRMEND` | with the host bridge, block streaming from the NEX file; without it, the catch-all error below | falls through |
+| `$85`-`$87` `DISK_FILEMAP` / `STRMSTART` / `STRMEND` | with the host bridge, block streaming from the NEX file (`kHandle` only); a handle of the host directory, with `--esxdos-stub` or a root, streams that file (below); otherwise the catch-all error below | with a host directory: the same host-file streaming; otherwise falls through |
 | `$88` `M_DOSVERSION` | `BC`=`'NX'`; `DE`=`$0194`, or `$0202` with the host bridge | same, `$0194` |
 | `$89` `M_GETSETDRV` | get or set `C:` returns `A`=`$10`; any other drive, carry set, `A`=`$0B` | falls through |
 | `$93` `M_GETERR` | `B`=1: the message for the error code in `A` (`A`=0: the bit-7-terminated one at `IX`) copied to the 32-byte buffer at `DE`, bit 7 on its last character; carry clear, `A`=`$02`. `B`=0 gets the catch-all error | the same, only while `--esxdos-stub-root` or an implicit root is active; otherwise falls through |
@@ -878,6 +878,26 @@ handle-keyed and follows the handle rule. The one interaction
 worth knowing: with a root configured, the extended-NEX bridge's *sibling*
 lookup is skipped, so only the NEX's own filename still resolves beside the
 NEX — otherwise one name could mean two files.
+
+**Block streaming of host files.** `DISK_FILEMAP`, `DISK_STRMSTART` and
+`DISK_STRMEND` on a host-directory file reuse the extended-NEX engine
+(`ExtendedNexHost`). `HostFileStreams` keeps one `ExtendedNexHost` per mapped
+host file, keyed by its path, each opened at a region of synthetic card
+addresses (`kFirstBlock + i * kRegionBlocks`, 4 GB per file, 224 regions; a full
+table answers `esx_enfile`). A region outlives `F_CLOSE`, as a card address
+outlives a handle, and is dropped with the table by `init()` and `load_nex()`.
+The `DISK_FILEMAP` cursor is per open handle (`EsxdosHostFs::filemap_cursor`),
+so a fresh `F_OPEN` maps from the start. One stream runs at a time: starting
+one ends the other (host or extended NEX), and port `$EB` serves whichever is
+active before the SPI path. The dispatcher claims `$86` only for an address
+inside a region and `$87` only while a host stream runs; the extended-NEX case
+likewise falls through, for host handles and for foreign addresses, whenever
+the host directory is active, so NextZXOS (bare `--esxdos-stub-root`) and the
+card keep their own. There is no SD read overlay for these addresses: a
+program's own CMD17/CMD18 to them is not served. `DISK_FILEMAP` maps from the
+start of the file whatever was read; the error answers for a directory or closed
+handle (`esx_ebadf`) are unmeasured on NextZXOS. Rows: `XNEX-45..58` in
+`test/core/extended_nex_test.cpp`.
 
 **Reading the filespec.** Two readers, and the distinction is load-bearing. A
 dot command's COMMAND TAIL is "terminated by `$00`, `$0d` or `':'`"
@@ -1335,11 +1355,15 @@ Power Reset, a guest NR 0x02 reset and a machine-type change.
 
 **File > Load.** `handle_load_path()` sends a `.pok` to `open_pok_file()` before
 any cold boot. The same function now also refuses, before the cold boot, a file
-that would route to the NEX loader (a `.nex`, or an extension nothing owns) but
-has no `Next` prologue (`NexLoader::probe_version()`), which `NexLoader::load()`
-would refuse anyway: before, the session was reset and then the load failed. The
-reason follows the case: a `.nex` is "not a NEX file" and nothing more, and only
-an extension nothing owns is told the list of formats and where a `.pok` goes.
+that would route to the NEX loader (a `.nex`, or an extension nothing owns) and
+that `NexLoader::load()` would refuse anyway (`NexLoader::preboot_check()`): before,
+the session was reset and then the load failed. That is a file without a complete
+512-byte header, or one whose version is above what the loader takes (V1.3). The
+first four bytes are not checked for a `.nex`, because the NEXLOAD that NextZXOS
+ships never reads them; a file with an extension nothing owns must still start
+with `Next`, since nothing on the Next would run NEXLOAD on it. The reason follows
+the case: a `.nex` is "not a NEX file" (or names its too-new version), and only an
+extension nothing owns is told the list of formats and where a `.pok` goes.
 
 The suites: `pok_trainers_test` (POK-01..25 and POK-60 the parser, the list and
 `load_pok_file`, POK-30..57 and POK-61..64 the session and the command-line
@@ -1542,14 +1566,30 @@ jnext talks to the same `.img` file in two entirely different ways, at two
 different times, for two different consumers. The split looks redundant until
 you notice that the two consumers want opposite things.
 
-**`src/core/sd_rom_extractor.*` is a host-side FAT32 reader.** Before the
+**`src/core/sd_rom_extractor.*` is a host-side FAT reader.** Before the
 machine can start, jnext needs the ROM images that on real hardware live as
 files on the card, and there is no guest yet to ask for them — so the emulator
 opens the `.img` *as a filesystem* and pulls them out by path:
 `/MACHINES/NEXT/48.rom`, `128.rom`, `plus3.rom`, `enNxtmmc.rom`,
-`enNextMf.rom` and `enAltZX.rom`. It is read-only,
-handles MBR + FAT32-LBA only, and does short-name lookup only, which is all
-that job needs.
+`enNextMf.rom` and `enAltZX.rom`. It is read-only
+and does short-name lookup only, which is all that job needs.
+
+It finds the volume by the firmware's FatFs rules (`find_volume`/`check_fs`,
+`ff.c`): a FAT boot record in sector 0 is the volume itself (a card with no
+partition table, LBA 0); otherwise the four MBR entries are tried in order,
+skipping a type byte or LBA of 0, and the first whose sector is a FAT boot
+record wins, whatever its type byte. One leniency is kept from before: an entry
+of type `0x0B`/`0x0C` is taken without the boot-record test. FAT12, FAT16 and
+FAT32 are read: FAT32 layout when `BPB_FATSz16` is 0 (no cluster-count
+reclassification, so under-clustered images still read), else FAT12/16 with the
+sub-type by cluster count (at most 0xFF5 is FAT12, at most 0xFFF5 FAT16; more is
+refused). The FAT12/16 root directory is a fixed run of sectors bounded by
+`RootEntCnt`, not a cluster chain. The card identity of a snapshot or bug report
+reads `BS_VolID`/`BS_VolLab` at 0x27/0x2B (FAT12/16) or 0x43/0x47 (FAT32); a
+partition-less card has `partition_lba` 0. On the Next machine the firmware
+loads the DivMMC and Multiface ROMs itself and NextZXOS the Alt ROM pages, so a
+failed host read there is logged at info level only. The writers
+(`--sdcard-file-add`, the provisioner) stay FAT32-only.
 
 **`src/peripheral/sd_card.cpp` is emulated hardware.** Once the machine is
 running, the guest wants a card, not a filesystem: NextZXOS carries its own
@@ -1580,19 +1620,59 @@ the basename of the effective download address. `provision_sd_card` records it i
 from when the address only ever named 24.11, so it is 24.11. A raw image is
 reused only when its sha sidecar verifies AND its `.distro` is the current one.
 When the default card exists and is of another distribution, the provisioner makes
-one offer through the `UpgradeFn` seam (Qt: a box with "Download and replace",
-"Keep my card" and a "Do not ask me again" check box; SDL: a three-button message
-box; no seam, as in `--headless` and `--sdcard-file-add`: no offer, one log line).
-The text names both versions and says the card's contents are lost. Keep goes on
-with the card, and "do not ask again" writes `<fixed>.distro-declined` with the
-current distribution, so only a later one asks again. `--sdcard-upgrade
-ask|yes|no|never` makes each choice without the dialog. An explicit card, from
-`--sdcard` or the Preferences path, returns before any of this and is never offered
-an upgrade. A card is replaced atomically: the new raw and card are made as
-`<name>.new` and moved over the old ones only when the derive worked, so a failed
-download or patch leaves the old card byte-identical (an accepted upgrade then
-goes on with it and reports a warning; `--sdcard-download-force`, which was asked to
-recover a card, fails). Recipe 3 gives each distribution's card its own FAT32 volume
+one offer through the `UpgradeFn` seam (Qt: a box with "Upgrade (keep my files)", "Keep my card (don't ask
+again)" and "Not now"; SDL: the same three buttons in a message box; no seam, as in `--headless` and
+`--sdcard-file-add`: no offer, one log line). The text names both versions, says the user's files are carried
+over and the old card kept as a backup. "Not now" (and closing) goes on with the card, and "don't ask again"
+writes `<fixed>.distro-declined` with the current distribution, so only a later one asks again. `--sdcard-upgrade
+ask|yes|fresh|no|never` makes each choice without the dialog. An explicit card, from `--sdcard` or the
+Preferences path, returns before any of this and is never offered an upgrade.
+
+An accepted upgrade runs in `<sdcard dir>/upgrade-work/` (`src/core/sdcard_upgrade.cpp`): the free space is
+checked before the download, the new raw and card are made there, and when the card has a pristine base
+(`carry::pristine_base_ok`: the raw exists and matches its `.sha256`, same `.distro`, a known recipe, and for
+recipe 3 the volume serial) the old card is rebuilt as it was made, the user's changes (card against that
+rebuild, and each overlay against the card) are carried onto the new card, and the result is verified, all
+before anything of the old set is touched. The overlays carried are the command line's `--sdcard-writes` FILEs
+plus the files listed in `overlays.list` that still bind to the card; each is rebuilt as `FILE.new`, bound to
+the new card's final size and mtime. Without a pristine base `--sdcard-upgrade yes` is refused and `fresh`
+starts a new card with nothing carried. The switch is six idempotent steps journalled by marker files
+(`SWITCHING`, `sN.done`): the old set moves into `previous.new/`, the new raw takes its place with its sidecars
+(a card is never in place without the raw it was made from), then the new card, each `FILE.new` replaces its FILE, `previous.new/` replaces `previous/`, the report goes into
+`previous/upgrade-report.txt` and `upgrade-work/` is removed. A failure before the first step removes the work
+directory and leaves the old set in use (an accepted upgrade then reports a warning); from the first step on the
+only way is forward, and the next start finishes it (`upgrade::recover`). `--sdcard-download-force`, which was
+asked to recover a card, still replaces atomically with `<name>.new` files and has no backup.
+
+The backup is managed by `src/core/sdcard_backup.cpp`. `card_set_status` reads the state of the set (the card's
+distribution against the one jnext downloads now, the pristine base and its reason, the backup's size and
+distribution) and `menu_state` turns it into the three File-menu entries: Upgrade (slot 0 holds the default card
+and it is older), Go Back and Delete (a backup exists; Delete's label carries `size_label`). `go_back` is a swap in
+four journalled steps (`go-back-work/SWAPPING`, `gN.done`): the current set and its overlays go to a scratch
+directory, the backup's set comes into place and its overlays are copied back to their recorded paths, the
+distribution that was left is written to `.distro-declined`, the old backup directory goes, and the scratch
+directory becomes `previous/`. `recover` finishes an interrupted swap at the start of every provisioning.
+`--sdcard-go-back` and `--sdcard-delete-backup` run it under the card's image lock and exit 0, 2 (no backup),
+3 (failed, nothing changed) or 4 (the card is in use). In the Qt window the actions eject slot 0 through the
+live card change, do their work outside the frame tick, re-bind the session's writes file over the new card,
+insert the card again and hard-reset the machine. The machine is deliberately not paused: the card change is
+serviced on the frame tick, and a paused session does not tick, so a paused machine would never see the eject
+(it keeps running without the card between the eject and the insert, as it does after File > Eject).
+`sdcard_menu_test` drives this flow with the real actions, the real confirm boxes and the tick's service stepped
+by hand (SDMENU-09 to SDMENU-11).
+
+The default location's card is locked from the first moment of a start, before crash recovery, the offer or the
+upgrade run (`main.cpp` takes the card's lock and the command line's writes file); the listed overlays an upgrade
+would move are locked as well, and a set another jnext has open gets no offer and no upgrade. The overlay list is
+read from the writes files' headers only (`sd_write_journal::peek_file`): binding a file registers it as the
+card's write target and compacts it, which a start that merely makes an offer must not do.
+
+Two properties of FAT shaped the carry. A name that ends in a space or a dot cannot be addressed through FatFs
+(it drops those from a path): such an entry is listed as not carried and what is inside it is not entered
+(`Entry::unaddressable`). A name that needs a long-name entry gets a generated short name (`LONGNA~1`), and a
+file really named `LONGNA~1.TXT` written after it would be opened instead of created, so the carry writes the
+names that are their own short names first (`write_order`).
+Recipe 3 gives each distribution's card its own FAT32 volume
 serial, the first 4 bytes of the raw image's SHA-256, written into the boot sector
 and its backup copy after the format.
 
@@ -1920,6 +2000,31 @@ sector: the card the machine sees would differ from the one the copy is laid out
 failure messages name the journal file (`MountedCard::target`), not the image. A forced
 replace of a file reuses its clusters (FatFs's `f_open` reuses the cluster hole), so the next
 `bind()` compacts the superseded records and the file does not grow.
+
+**Taking files off the card: `--sdcard-file-extract`.** `extract_from_image()` in
+`src/core/sdcard_file_extract.cpp` is the opposite of file-add and the one rescue command that is not
+limited to the first FAT32-LBA partition. Which volume to mount is the ROM extractor's own decision,
+exported as `find_sd_fat_volume()` in `src/core/sd_rom_extractor.cpp` (the firmware's `find_volume` rules:
+FAT12/16/32, any non-zero partition type over a FAT boot record, or no partition table, plus the
+512-byte-sector and fits-in-the-file checks), so the two readers cannot disagree about a card. The
+volume is then mounted through FatFs with `fatfs_glue::attach(..., journal, /*read_only=*/true)`: the
+image is opened read-only and the card's writes file, when bound, is laid over it, so the extraction
+sees what a run with the same options would boot and writes nothing: the engine never writes the image or the writes file (at the command line `bind_card_writes()` runs first and, as for any run given a writes file, may compact it). A journal that holds
+sector 0 or the volume's boot sector is refused, as in file-add. An under-clustered FAT32 volume,
+which parses but which FatFs (like the firmware) will not mount, is refused with the re-cluster hint.
+It runs in two passes: the first resolves the path (`f_stat` of each prefix, then a listing of the
+parent for the stored spelling, because `f_stat` returns the short name when the short name matched),
+walks the subtree's directories and builds the whole plan; the second creates and streams. Every
+structural refusal happens in the first, and a failure in the second removes the one top-level entry the
+run created (an existing local name is refused up front with `symlink_status`, so it is always new).
+The host names are `carry::escape_name(name, true)`, the same function the export uses. An entry FatFs
+cannot open by its long name (a trailing dot or space, a control byte, a character FAT forbids in a path)
+is opened by its 8.3 alias. The guards against a damaged card are the set of start clusters of the
+directories read (a directory that points at itself, its parent or the root is reached a second time,
+which is refused, so the walk terminates) and a
+per-directory set of host names folded to upper case (two entries a case-insensitive host could not tell
+apart). `main()` counts the verb with the others (one per run, `headless`, a terminal command for
+`startup_report::classify()`), and the card lock returns 5 for it like the other verbs.
 
 **The glue caches sectors.** FatFs keeps one sector window per volume, so every path lookup
 re-reads its directory, and an uncached `disk_read` costs an `lseek` plus an 8 KiB stream-buffer

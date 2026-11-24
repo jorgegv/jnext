@@ -4,7 +4,7 @@
 // RECORDS (Emulator::begin_warm_start_recording(), stepped by prepare_warm_start(), default switches) and every corpus run then
 // restores; so no corpus run ever executes the boot itself with the switches under test. This
 // suite does: nextboot.rom through to NextZXOS on the SD image (the unit harness's per-run clone,
-// $JNEXT_TEST_SD_IMAGE; standalone, the master under ~/.jnext/sdcard, opened read-only), the RTC
+// $JNEXT_TEST_SD_IMAGE; standalone, the test master under ~/.jnext/sdcard/test-suite, opened read-only), the RTC
 // pinned, the framebuffer and the audio hashed after every frame and the whole save_state() stream
 // every 4th frame and at the last. The oracle is the unbatched path of the same binary. A boot has
 // every kind of HALT the corpus lacks: firmware loops, the esxDOS and DivMMC paths, the boot ROM
@@ -22,6 +22,7 @@
 #include <ctime>
 #include <string>
 #include "../row_id.h"
+#include "../test_sd_image.h"
 
 namespace {
 
@@ -41,9 +42,7 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
 }
 
 std::string sd_image() {
-    if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) return env;
-    const char* home = std::getenv("HOME");
-    return std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+    return test_sd_image_path();
 }
 
 } // namespace

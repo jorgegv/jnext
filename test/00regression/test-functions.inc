@@ -291,6 +291,18 @@ sd_card_sidecars() {
     done
 }
 
+# sd_extra_cfg <name>: a config dir of its own, $RUN_DIR/extra/<name>, holding a HARD LINK of this
+# row's SD clone (same inode: nothing is copied) and its sidecars; prints the path (GH #555). A jnext
+# locks the card it boots, so a row that runs two jnext at once on the card gives every instance but
+# one such a dir: JNEXT_CONFIG_DIR="$(sd_extra_cfg b)" "$JNEXT" ... Fails when the link cannot be made.
+sd_extra_cfg() {
+    local d="$RUN_DIR/extra/$1" img="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    mkdir -p "$d/sdcard" || return 1
+    ln -f "$img" "$d/sdcard/" || return 1
+    sd_card_sidecars "$img" "$d/sdcard/cspect-next-1gb-fixed.img" || return 1
+    printf '%s\n' "$d"
+}
+
 # sd_expected_distro: the zip name of the default distribution, from its one definition
 # (sdcard::kDistroUrl in src/core/sdcard_provisioner.cpp: the line after the declaration).
 # Fails, printing nothing, unless exactly one name comes out.
@@ -313,10 +325,16 @@ sd_expected_recipe() {
 }
 
 # ---- The SD master gate: shared by 01-sdcard-provision.sh and tools/sd-master-ensure.sh ----
+# sd_test_state_dir: the jnext state dir whose sdcard/ holds the suites' OWN master card (GH #555).
+# It is ~/.jnext/sdcard/test-suite, never the user's own card (the cspect-next-1gb-fixed.img directly under ~/.jnext/sdcard):
+# the gate below deletes and re-derives its master whenever the distribution or the recipe moves,
+# and a user's saved files must not go with it. JNEXT_REGRESSION_SD_STATE_DIR (the candidate-card
+# seam) replaces it. The same relative path is spelled in test/test_sd_image.h (HS-196 checks).
+sd_test_state_dir() { printf '%s\n' "${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext/sdcard/test-suite}"; }
 # sd_master_paths: where the master card and its sidecars live (the candidate-card seam,
 # JNEXT_REGRESSION_SD_STATE_DIR, moves them). Sets the SD_MASTER_* names and the short aliases the gate uses.
 sd_master_paths() {
-    SD_MASTER_DIR="${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}/sdcard"
+    SD_MASTER_DIR="$(sd_test_state_dir)/sdcard"
     SD_MASTER_IMAGE="$SD_MASTER_DIR/cspect-next-1gb-fixed.img"
     SD_MASTER_WITNESS="$SD_MASTER_IMAGE.sha256"
     # Written by jnext itself when it derives the image: the number of the
@@ -371,7 +389,7 @@ sd_rederive() {
     # DISTRIBUTION NAME (its .distro sidecar, else sn-emulator-24.11.zip): jnext reuses a raw
     # only when the distribution it was downloaded from is the one the address names (GH #476),
     # so any other name makes it refuse the verified raw and try the download.
-    local sd_env=("JNEXT_CONFIG_DIR=${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jnext}")
+    local sd_env=("JNEXT_CONFIG_DIR=$(sd_test_state_dir)")
     [[ -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] \
         || sd_env+=("JNEXT_SDCARD_DISTRO_URL=file:///nonexistent-candidate-card-never-download/$(sd_seam_raw_distro)")
     # A download that hangs must not hang the caller (make gui-release, make unit-test): bound it.

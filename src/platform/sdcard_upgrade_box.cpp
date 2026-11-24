@@ -30,13 +30,13 @@ void say_kept(const std::string& from, const std::string& to, const std::string&
 }  // namespace
 
 UpgradeChoice sdl_offer_upgrade(const std::string& from, const std::string& to,
-                                const std::string& message) {
+                                const std::string& message, bool files_carry_over) {
     const std::string title = distribution_title(to) + " is available";
     SDL_MessageBoxButtonData buttons[3] = {
-        { 0, kUpgradeButtonReplace, "Download and replace" },
+        { 0, kUpgradeButtonReplace, files_carry_over ? kUpgradeLabelReplace : kUpgradeLabelFresh },
         { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT,
-          kUpgradeButtonKeep, "Keep my card" },
-        { 0, kUpgradeButtonNever, "Keep, do not ask again" },
+          kUpgradeButtonKeep, kUpgradeLabelKeep },
+        { 0, kUpgradeButtonNever, kUpgradeLabelNever },
     };
     SDL_MessageBoxData box{};
     box.flags      = SDL_MESSAGEBOX_WARNING;
@@ -53,6 +53,34 @@ UpgradeChoice sdl_offer_upgrade(const std::string& from, const std::string& to,
         return UpgradeChoice::Keep;
     }
     return upgrade_choice_for_button(pressed);
+}
+
+std::string report_box_text(const std::string& report, const std::string& report_path) {
+    std::string out;
+    size_t pos = 0;
+    int lines = 0;
+    while (pos < report.size() && lines < 20) {
+        const size_t nl = report.find('\n', pos);
+        out += report.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos + 1);
+        if (nl == std::string::npos) { out += "\n"; pos = report.size(); break; }
+        pos = nl + 1;
+        ++lines;
+    }
+    if (pos < report.size()) out += "...\nthe full list is in " + report_path + "\n";
+    return out;
+}
+
+void sdl_show_report(const std::string& report) {
+    const std::string path = default_sdcard_dir() + "/previous/upgrade-report.txt";
+    const std::string text = report_box_text(report, path);
+    if (!SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "SD card upgraded", text.c_str(), nullptr))
+        Log::emulator()->warn("sdcard: the upgrade report box could not be shown ({}); the report is in {}",
+                              SDL_GetError(), path);
+}
+
+void sdl_show_notice(const std::string& message) {
+    if (!SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "SD card", message.c_str(), nullptr))
+        Log::emulator()->warn("sdcard: the notice box could not be shown ({}): {}", SDL_GetError(), message);
 }
 
 }  // namespace sdcard

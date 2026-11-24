@@ -252,6 +252,15 @@ void Im2Controller::tick(uint32_t tstates_for_pulse) {
     // step_devices() so it observes this tick's device states + this tick's
     // decoder-sourced dma_delay_ctrl_ pulse.
     step_dma_delay();
+    // GH #556 (D-H2): the RETI/RETN's own tick sees the decoder in S_ED4D/S_ED45
+    // (the hold, im2_control.vhd:238); by the end of the instruction the three
+    // clock-driven states are over (:181-192) and o_dma_delay is low again, so the
+    // value the next instruction boundary sees is dma_int | nmi, with no hold.
+    if (dec_state_ == DecState::S_ED4D_T4 || dec_state_ == DecState::S_ED45_T4) {
+        dec_state_      = DecState::S_0;
+        dma_delay_ctrl_ = false;
+        step_dma_delay();
+    }
     // V19-IM2-03 fix: int_unq is a ONE-CYCLE pulse from nr_20_we per VHDL
     // zxnext.vhd:1946-1947 — `im2_int_unq[i] <= nr_20_we and nr_wr_dat(N)`
     // and `nr_20_we` is a one-cycle write pulse. Pre-fix step_pulse() only
@@ -1286,9 +1295,12 @@ uint8_t Im2Controller::ack_vector() {
 // Derived flat signals are latched after the FSM step:
 //   - reti_decode_ is true while the decoder sits in S_ED_T4, matching
 //     VHDL line 233 (o_reti_decode <= '1' when state = S_ED_T4).
-//   - dma_delay_ctrl_ is true while the decoder is in any of the windows
-//     where the VHDL asserts o_dma_delay (line 238):
-//     {S_ED_T4, S_ED4D_T4, S_ED45_T4, S_SRL_T1, S_SRL_T2}.
+//   - dma_delay_ctrl_ is true while the decoder is in S_ED_T4 (between the ED
+//     and the next fetch) or in S_ED4D_T4/S_ED45_T4 (the RETI/RETN instruction
+//     itself): the windows where the VHDL asserts o_dma_delay (line 238). The
+//     S_SRL_T1/T2 states of that list are clock-driven and end inside the
+//     RETI/RETN (:181-192), so no fetch ever observes them (GH #556); tick()
+//     drops the hold at the end of the RETI/RETN instruction.
 // -----------------------------------------------------------------------------
 void Im2Controller::on_m1_cycle(uint16_t /*pc*/, uint8_t opcode) {
     reti_seen_pulse_ = false;
@@ -1367,6 +1379,18 @@ bool Im2Controller::ieo(DevIdx d) const {
 // (stay) branch we simply do nothing new.
 // -----------------------------------------------------------------------------
 void Im2Controller::advance_decoder(uint8_t opcode) {
+    // GH #556: S_ED4D_T4 -> S_SRL_T1 -> S_SRL_T2 -> S_0 (and the ED45 twin) are
+    // plain clock transitions, not fetch-driven (im2_control.vhd:181-192, state
+    // process :160-207, no ifetch_fe_t3 term): they run on three consecutive CPU
+    // clocks and are over inside the RETI/RETN's own stack-pop cycles, long before
+    // the next opcode fetch. So by the time any opcode is fetched the decoder is
+    // already in S_0 and that opcode is decoded from S_0. (This model used to step
+    // one state per fetch and drop the fetched byte, so an ED 4D within the next
+    // three fetches was never seen as RETI and the line device stayed in S_ISR.)
+    if (dec_state_ == DecState::S_ED4D_T4 || dec_state_ == DecState::S_ED45_T4 ||
+        dec_state_ == DecState::S_SRL_T1  || dec_state_ == DecState::S_SRL_T2) {
+        dec_state_ = DecState::S_0;
+    }
     switch (dec_state_) {
 
         // vhdl:161-170
@@ -1409,21 +1433,11 @@ void Im2Controller::advance_decoder(uint8_t opcode) {
             }
             break;
 
-        // vhdl:181-183 — ED 4D path joins the shared SRL delay window
+        // vhdl:181-192 — the ED 4D / ED 45 -> S_SRL_T1 -> S_SRL_T2 -> S_0 chain is
+        // clock-driven and collapsed on entry above; these states never reach here.
         case DecState::S_ED4D_T4:
-            dec_state_ = DecState::S_SRL_T1;
-            break;
-
-        // vhdl:190-192 — ED 45 path joins the shared SRL delay window
         case DecState::S_ED45_T4:
-            dec_state_ = DecState::S_SRL_T1;
-            break;
-
-        // vhdl:186-189 — "extra states prevent accumulation of return
-        // addresses on the stack" (DMA-interruption guard).
         case DecState::S_SRL_T1:
-            dec_state_ = DecState::S_SRL_T2;
-            break;
         case DecState::S_SRL_T2:
             dec_state_ = DecState::S_0;
             break;

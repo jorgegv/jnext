@@ -58,6 +58,7 @@ nav:
       - The first boot: 03-first-run/04-the-first-boot.md
       - Running a program: 03-first-run/05-running-a-program.md
       - If something goes wrong: 03-first-run/06-if-something-goes-wrong.md
+      - Upgrading NextZXOS on your card: 03-first-run/07-upgrading-nextzxos.md
   - 4. Configuration:
       - 04-configuration/index.md
       - Preferences: 04-configuration/01-preferences.md

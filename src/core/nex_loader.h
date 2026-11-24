@@ -265,15 +265,32 @@ public:
     bool is_v13() const { return std::memcmp(header_.version, "V1.3", 4) == 0; }
 
     /// GH #228 — pre-load version query for the user-facing entry points.
-    /// Reads only the 8-byte "Next"+version prologue of `path`. Returns true
-    /// and fills `version_bcd` (BCD-packed as nex_version_bcd() does) and
-    /// `version_str` (the raw 4 header chars, NUL-terminated) when the file
-    /// starts with the "Next" magic. Returns false when the file cannot be
-    /// read or is not a NEX file at all — callers then fall through to the
+    /// Reads the version prologue of `path`. Returns true and fills
+    /// `version_bcd` (BCD-packed as nex_version_bcd() does) and `version_str`
+    /// (the raw 4 header chars, NUL-terminated) when the file holds a whole
+    /// 512-byte header. The "Next" magic is not checked, as in the NEXLOAD
+    /// NextZXOS ships (GH #556). Returns false when the file cannot be read
+    /// or is shorter than a header — callers then fall through to the
     /// full load(), whose own error names the real problem, so a probe
     /// failure is never a reason to refuse here.
     static bool probe_version(const std::string& path, uint8_t& version_bcd,
                               char version_str[5]);
+
+    /// GH #381 / #556 - what the GUI asks BEFORE it cold-boots for a file that
+    /// would route to this loader, so a file the load cannot take is refused
+    /// with the session untouched. Mirrors what load() refuses:
+    ///   NotNex - unreadable, or shorter than the 512-byte header; or, when
+    ///            `nex_extension` is false (an extension nothing owns), a file
+    ///            whose first four bytes are not "Next" (nothing on the Next
+    ///            runs NEXLOAD on such a file, so the bytes are the only
+    ///            evidence it is one). A `.nex` is NOT magic-checked: the
+    ///            NEXLOAD NextZXOS ships never reads them.
+    ///   TooNew - a readable header whose version is above kNexLoaderVersionBcd
+    ///            (load() refuses it).
+    /// `version_bcd` / `version_str` are filled for Ok and TooNew.
+    enum class PreBoot { Ok, NotNex, TooNew };
+    static PreBoot preboot_check(const std::string& path, bool nex_extension,
+                                 uint8_t& version_bcd, char version_str[5]);
 
     /// File offset at which the first 16K bank's data begins. Derived from
     /// the header-described blocks, or taken from the V1.3 `banks_offset`

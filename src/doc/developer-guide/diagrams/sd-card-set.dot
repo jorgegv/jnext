@@ -1,0 +1,28 @@
+// The states of the default SD card set and what moves it from one to the next (src/core/sdcard_provisioner.cpp,
+// sdcard_upgrade.cpp, sdcard_backup.cpp). Rendered by `make docs-devguide-diagrams` into ../img/sd-card-set.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+digraph sdcardset {
+  rankdir=LR;
+  node [shape=box, style=rounded, fontname="Helvetica", fontsize=11];
+  edge [fontname="Helvetica", fontsize=10];
+
+  nocard   [label="no card"];
+  current  [label="current\n(.distro = ours)"];
+  older    [label="older\n(offer, or a verb)"];
+  declined [label="declined\n(.distro-declined = ours)"];
+  newer    [label="newer / unknown\n(used as it is,\n.newer-seen)"];
+  work     [label="upgrading\n(upgrade-work/)"];
+  switching [label="switching\n(SWITCHING + sN.done)"];
+  backup   [label="current + backup\n(previous/)"];
+
+  nocard -> current   [label="download,\nrecipe patch"];
+  older -> work       [label="Upgrade / yes / fresh"];
+  older -> declined   [label="Keep my card\n(don't ask again)"];
+  declined -> older   [label="--sdcard-upgrade ask,\nthe next release"];
+  work -> older       [label="any failure:\nold set untouched"];
+  work -> switching   [label="carried + verified"];
+  switching -> backup [label="six steps,\nrolled forward after a crash"];
+  backup -> backup    [label="go back (swap)"];
+  backup -> current   [label="delete backup"];
+  current -> newer    [label="a newer jnext's card"];
+}

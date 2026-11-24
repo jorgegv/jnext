@@ -61,7 +61,7 @@ make -C /home/jorgegv/tmp/worktrees/jnext/agent-<ID> worktree-bootstrap
 `roms/*` is git-ignored, so a fresh worktree gets only the tracked `nextboot.rom`.
 Without the SD image, `make unit-test` and the regression suite cannot run. They now
 say so loudly instead of quietly reporting a smaller number (Task 37) — but the
-agent still can't work. The target verifies the machine-wide SD master (`~/.jnext/sdcard/`) and the git submodules (`git worktree add` leaves them empty), and says how to fix either.
+agent still can't work. The target verifies the suites' machine-wide SD master (`~/.jnext/sdcard/test-suite/`, never the user's own card) and the git submodules (`git worktree add` leaves them empty), and says how to fix either.
 
 ### 4. Sync demo artifacts (only if needed)
 

@@ -46,6 +46,7 @@ struct Backing {
     uint32_t     part_lba     = 0; // partition start offset, in sectors
     uint32_t     sector_count = 0; // volume size, in sectors
     bool         active       = false;
+    bool         read_only    = false; // no write of any kind reaches the image or the journal
     std::shared_ptr<sd_write_journal::Journal> journal; // non-null = journal mode
     std::unique_ptr<uint8_t[]> cache_data; // kCacheLines * kSectorSize, null = detached
     std::vector<uint64_t>      cache_tag;  // FatFs sector held by each line, or kNoTag
@@ -83,7 +84,7 @@ namespace fatfs_glue {
 
 bool attach(uint8_t pdrv, const std::string& image_path, uint32_t part_lba,
             uint32_t sector_count, std::string& err,
-            std::shared_ptr<sd_write_journal::Journal> journal) {
+            std::shared_ptr<sd_write_journal::Journal> journal, bool read_only) {
     if (pdrv >= FF_VOLUMES) { err = "fatfs_glue: pdrv out of range"; return false; }
     Backing& b = g_backing[pdrv];
     b.active = false; // a failed re-attach leaves the drive not ready, never half torn down
@@ -91,7 +92,8 @@ bool attach(uint8_t pdrv, const std::string& image_path, uint32_t part_lba,
     b.file.clear();
     b.cache_drop();
     b.journal = std::move(journal);
-    if (b.journal) {
+    b.read_only = read_only;
+    if (b.journal || read_only) {
         b.file.open(image_path, std::ios::in | std::ios::binary);
         if (!b.file) {
             err = "fatfs_glue: cannot open image read-only: " + image_path;
@@ -117,6 +119,7 @@ void detach(uint8_t pdrv) {
     if (b.file.is_open()) { b.file.flush(); b.file.close(); }
     b.file.clear();
     b.journal.reset();
+    b.read_only = false;
     b.cache_drop();
     b.active = false;
 }
@@ -130,7 +133,7 @@ extern "C" {
 
 DSTATUS disk_status(BYTE pdrv) {
     if (pdrv >= FF_VOLUMES || !g_backing[pdrv].active) return STA_NOINIT;
-    return 0;
+    return g_backing[pdrv].read_only ? STA_PROTECT : 0;   // FatFs then refuses every write itself
 }
 
 DSTATUS disk_initialize(BYTE pdrv) {
@@ -171,6 +174,7 @@ DRESULT disk_read(BYTE pdrv, BYTE* buff, LBA_t sector, UINT count) {
 DRESULT disk_write(BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count) {
     if (pdrv >= FF_VOLUMES || !g_backing[pdrv].active) return RES_NOTRDY;
     Backing& b = g_backing[pdrv];
+    if (b.read_only) return RES_WRPRT;
     if (static_cast<uint64_t>(sector) + count > b.sector_count) return RES_PARERR;
     if (b.journal) {
         for (UINT i = 0; i < count; ++i) {
@@ -203,7 +207,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void* buff) {
     Backing& b = g_backing[pdrv];
     switch (cmd) {
         case CTRL_SYNC:
-            if (b.journal) return RES_OK; // every commit is already appended
+            if (b.journal || b.read_only) return RES_OK; // every commit is already appended / nothing to flush
             b.file.flush();
             return b.file.good() ? RES_OK : RES_ERROR;
         case GET_SECTOR_COUNT:

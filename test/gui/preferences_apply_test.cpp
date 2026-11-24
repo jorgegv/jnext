@@ -91,6 +91,7 @@
 #include "gui/preferences_dialog.h"
 #include <spdlog/sinks/ostream_sink.h>
 #include "../row_id.h"
+#include "../test_sd_image.h"
 
 namespace {
 
@@ -1046,10 +1047,7 @@ void test_quick_snapshot_host_actions()
     qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
     const QDir snaps(home.path() + QStringLiteral("/snapshots"));
 
-    const char* env = std::getenv("JNEXT_TEST_SD_IMAGE");
-    const std::string sd = env ? std::string(env)
-                               : std::string(std::getenv("HOME") ? std::getenv("HOME") : ".") +
-                                     "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+    const std::string sd = test_sd_image_path();
     Fixture f(MachineType::ZX48K, -1, sd);
     f.win.set_unattended(true);
     auto find = [&f](const char* text) {
@@ -1236,6 +1234,74 @@ void test_snapshot_load_refusal()
                     "boot and says it is not a NEX file, without calling its extension unknown or mentioning "
                     ".pok (NEX file format: a NEX starts with \"Next\"; doc/REFERENCES.md)",
           loaded.empty() && nex_ok, (loaded.empty() ? std::string("none") : loaded[0]) + " " + detail);
+
+    // PA-24h..l: GH #556. The pre-boot refusal must hold for files of 512 bytes or more too
+    // (probe_version no longer checks the magic: NextZXOS's NEXLOAD never reads it), so these
+    // fixtures are all 600 bytes. Rule: NexLoader::preboot_check = what NexLoader::load refuses
+    // (no complete header; a version above V1.3) for a .nex, plus the "Next" bytes for an extension
+    // nothing owns. None of them may reach the V1.3 dialog (it ignores unattended mode).
+    auto pad = [](const std::string& text) {
+        std::vector<uint8_t> v(text.begin(), text.end());
+        v.resize(600, ' ');
+        return v;
+    };
+    {
+        // Version bytes 5 and 7 are 'o','e' -> bcd above 0x13: an unknown extension without "Next".
+        loaded.clear();
+        f.win.handle_load_path(write("notes600.txt", pad("just some notes, no NEX header\n")));
+        const QString r = f.win.statusBar()->currentMessage();
+        check("PA-24h", "File > Load of a 600-byte text file with no known extension (version bytes above V1.3) "
+                        "requests no cold boot and names the formats, not a V1.3 prompt",
+              loaded.empty() && r.startsWith(QStringLiteral("Cannot load ")) && r.contains(QStringLiteral("POK Trainers")),
+              (loaded.empty() ? std::string("none") : loaded[0]) + " | " + r.toStdString());
+    }
+    {
+        // Version bytes read "1.2" (bcd 0x12): below the ceiling, but still no "Next" and no owner.
+        loaded.clear();
+        f.win.handle_load_path(write("data600.txt", pad("data 1.2: just some notes, no NEX header\n")));
+        const QString r = f.win.statusBar()->currentMessage();
+        check("PA-24i", "File > Load of a 600-byte file with no known extension, no \"Next\" bytes and a plausible "
+                        "version field requests no cold boot",
+              loaded.empty() && r.startsWith(QStringLiteral("Cannot load ")) && r.contains(QStringLiteral("POK Trainers")),
+              (loaded.empty() ? std::string("none") : loaded[0]) + " | " + r.toStdString());
+    }
+    {
+        // A .nex whose version is above what JNEXT loads: refused up front, naming the version.
+        // The bytes that count are 5 and 7 ('>' and 'e' of "<html>Ver": bcd 0xE5), not the "9.9" text.
+        loaded.clear();
+        const QString p = write("big600.nex", pad("<html>Ver 9.9 not a NEX</html>"));
+        f.win.handle_load_path(p);
+        const QString r = f.win.statusBar()->currentMessage();
+        check("PA-24j", "File > Load of a 600-byte .nex whose version is above V1.3 requests no cold boot and names "
+                        "the version (no V1.3 dialog)",
+              loaded.empty() && r.startsWith(QStringLiteral("Cannot load ")) &&
+                  r.contains(QStringLiteral("NEX version")) && !r.contains(QStringLiteral("POK")),
+              (loaded.empty() ? std::string("none") : loaded[0]) + " | " + r.toStdString());
+    }
+    {
+        // The game that started this: a .nex starting "NEXTv1.0" (not "Next") loads, as in NextZXOS.
+        loaded.clear();
+        std::vector<uint8_t> w(600, 0);
+        std::memcpy(w.data(), "NEXTv1.0", 8);
+        const QString wp = write("upper.nex", w);
+        f.win.handle_load_path(wp);
+        check("PA-24k", "control: File > Load of a 600-byte .nex whose first bytes are \"NEXTv1.0\" IS requested "
+                        "(no magic check for a .nex)",
+              loaded.size() == 1 && loaded[0] == wp.toStdString(),
+              loaded.empty() ? std::string("none") : loaded[0]);
+    }
+    {
+        // A .nex with no "Next" bytes at all but a loadable version: requested too, exactly what load() accepts.
+        loaded.clear();
+        std::vector<uint8_t> w(600, 0);
+        w[4] = 'V'; w[5] = '1'; w[6] = '.'; w[7] = '2';
+        const QString wp = write("nomagic.nex", w);
+        f.win.handle_load_path(wp);
+        check("PA-24l", "control: File > Load of a 600-byte .nex with zeroed first four bytes and version V1.2 IS "
+                        "requested (the pre-boot check mirrors NexLoader::load)",
+              loaded.size() == 1 && loaded[0] == wp.toStdString(),
+              loaded.empty() ? std::string("none") : loaded[0]);
+    }
 
     qunsetenv("JNEXT_CONFIG_DIR");
 }

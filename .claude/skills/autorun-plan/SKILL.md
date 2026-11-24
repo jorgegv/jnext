@@ -26,6 +26,14 @@ Issue N (or a team-run unit: its name and spec file, which stand in for the issu
 - **Related findings**: in scope, fixed on this branch.
 - **Rows**: literal IDs, oracle citation each, expected values from the oracle.
 - **Mutations** the rows must kill (derived from the planned diff).
+- **Hostile inputs** (owner, 2026-11-24), for any change that reads input jnext does not control: card or image contents, file and directory names, host paths, archives, network or protocol data. List each crafted input class and what the code does with it, each with a row:
+  - names that collide: case, 8.3 alias against long name, Unicode, reserved characters, trailing dot or space;
+  - structural loops, cross-links and aliases;
+  - sizes and boundaries: empty, full, over 64K or 65535, multi-sector or multi-cluster;
+  - encodings;
+  - platform differences: Windows, macOS, wine, wasm.
+
+  Work out the CLASS each one belongs to, and design one defence per class. Do not design against single examples. The reviewer checks this list before reading the code.
 - **Docs**: man page / user guide / developer guide pages to update.
 - **ChangeLog**: draft line + section + contributor `@handle`, or "trivial: none".
 - **Acceptance criteria**: checkable list; the reviewer grades against it.

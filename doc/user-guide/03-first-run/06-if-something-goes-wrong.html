@@ -14,7 +14,7 @@
         <link rel="prev" href="05-running-a-program.html">
       
       
-        <link rel="next" href="../04-configuration/index.html">
+        <link rel="next" href="07-upgrading-nextzxos.html">
       
       
         
@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.73</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.65</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.73</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -811,6 +811,8 @@
       
         
       
+        
+      
     
     
     
@@ -1033,6 +1035,34 @@
 
       </a>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="07-upgrading-nextzxos.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading NextZXOS on your card
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -4514,7 +4544,16 @@ question it cannot answer will decline and exit rather than hang.</p>
 is a NextZXOS SD-card image and not, say, a raw ROM file. If you built the
 image yourself, note that JNEXT enforces the FAT32 specification as strictly as
 the real firmware does, and will refuse a card the real machine would also
-refuse.</p>
+refuse. A FAT16 card, or one with no partition table at all, works on every
+machine and for snapshots, as it does on the Next. JNEXT's 48K, 128K and +3
+machines can also read their ROMs from a FAT12 card, or from a partition other
+than the first, which the Next itself cannot start from. <code>--sdcard-file-add</code>
+still needs a FAT32 card.</p>
+<p><strong>JNEXT does not start from an icon, and nothing appears.</strong> A start-up error (an unknown
+option, an SD card another JNEXT has open, a refused combination) is shown in a window, with
+the same text it prints on a terminal, every time JNEXT is started with a window. A run with
+<code>--headless</code>, with <code>--delayed-automatic-exit</code> or with an SD card command such as <code>--sdcard-file-add</code>
+never shows one: its error is on standard error.</p>
 <p>Anything else: <a href="../01-introduction/04-getting-help-and-reporting-bugs.html">1.4, <em>Getting help and reporting bugs</em></a>,
 and <a href="https://github.com/jorgegv/jnext/issues">https://github.com/jorgegv/jnext/issues</a>.</p>
 
