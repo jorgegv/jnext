@@ -87,6 +87,8 @@ public:
     /// Replaces QFile::moveToTrash (a headless session has no trash).
     void set_trash_hook_for_test(TrashHook h) { trash_hook_ = std::move(h); }
     int boxes_shown_for_test() const { return boxes_shown_; }
+    /// Hand a real QDropEvent to a pane's own event handler (the drop path, Shift detection included).
+    bool deliver_event_for_test(Side side, class QEvent& ev);
     /// Stop the polling timer (the tests call check_card_change() themselves).
     void stop_polling_for_test();
 

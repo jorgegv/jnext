@@ -5385,14 +5385,14 @@ directory, then home, and ignores a value that is relative, holds a NUL or (Wind
 (<code>src/gui/sdcard_card_model.*</code>) are a view over the logic above and decide nothing. The card pane is a <code>QListView</code> on
 <code>SdCardModel</code>: one directory as <code>cardops::list_dir</code> gives it, shown through <code>display_name</code>, every path it hands out built from
 an entry's <code>open_name</code> (an entry without one is shown and never acted on), and a drag payload whose lines are <code>%XX</code>-escaped
-so any name survives. The host pane is a <code>QListView</code> on a read-only <code>QFileSystemModel</code>. Every operation first re-reads
+so a name with a newline, a percent or a high byte survives. A card path is BYTES (code page 437) and a <code>QString</code> is Unicode, so every card path that crosses into Qt is carried as Latin-1 (<code>SdCardModel::card_text</code> / <code>card_bytes</code>, one code point per byte, lossless both ways) and the stored <code>card_dir</code> is the <code>%XX</code> escape of those bytes; host paths are UTF-8 and display strings are escaped ASCII. The host pane is a <code>QListView</code> on a read-only <code>QFileSystemModel</code>. Every operation first re-reads
 <code>card_slots()</code> and <code>held_host_files()</code>: the card in the slot may have changed under the window, a recording may have started.
 A change while the window is open (polled by a timer, and checked before each operation) resets the card pane to the new
 card's ROOT, because the emulator wins over any remembered or shown state. The three remembered values are
 <code>sdcard_manager.card</code>, <code>sdcard_manager.card_dir</code> (stored <code>%XX</code>-escaped) and <code>sdcard_manager.host_dir</code>, plain <code>AppConfig</code>
 fields, settable with <code>--set</code> like <code>paths.last_load_dir</code>; they are read back only through <code>resolve_remembered()</code>, which checks
 them. The message boxes, the text prompts and the trash go through hooks the tests replace (<code>set_box_hook_for_test</code>,
-<code>set_text_hook_for_test</code>, <code>set_trash_hook_for_test</code>); a headless session has no trash. Rows: <code>SDMW-01..19</code>
+<code>set_text_hook_for_test</code>, <code>set_trash_hook_for_test</code>); a headless session has no trash. Rows: <code>SDMW-01..29</code>
 (<code>sdcard_manager_window_test</code>, offscreen), <code>AC-104..106</code> (<code>app_config_test</code>).</p>
 <p><strong>The glue caches sectors.</strong> FatFs keeps one sector window per volume, so every path lookup
 re-reads its directory, and an uncached <code>disk_read</code> costs an <code>lseek</code> plus an 8 KiB stream-buffer

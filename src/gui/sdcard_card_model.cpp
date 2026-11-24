@@ -25,7 +25,7 @@ bool SdCardModel::reload() {
     if (!image_.isEmpty()) {
         std::string err;
         const sdcard::FileAddStatus st =
-            ops::list_dir(image_.toStdString(), dir_.toStdString(), entries_, err);
+            ops::list_dir(image_.toStdString(), card_bytes(dir_), entries_, err);
         if (st != sdcard::FileAddStatus::Ok) {
             entries_.clear();
             error_ = QString::fromStdString(err.empty() ? "the card cannot be read" : err);
@@ -34,6 +34,10 @@ bool SdCardModel::reload() {
     }
     endResetModel();
     return ok;
+}
+
+QString SdCardModel::card_shown(const QString& path) {
+    return QString::fromStdString(sdcard::carry::escape_name(card_bytes(path), false));
 }
 
 QString SdCardModel::child_path(const QString& dir, const QString& name) {
@@ -51,14 +55,14 @@ QString SdCardModel::path_of(int row) const {
     if (row < 0 || row >= static_cast<int>(entries_.size())) return {};
     const ops::CardEntry& e = entries_[static_cast<size_t>(row)];
     if (e.open_name.empty()) return {};   // shown, never acted on
-    return child_path(dir_, QString::fromStdString(e.open_name));
+    return child_path(dir_, card_text(e.open_name));
 }
 
 QByteArray SdCardModel::encode_items(const QString& image, const QStringList& paths) {
     QByteArray out = QByteArray::fromStdString(sdcard::carry::escape_name(image.toStdString(), false));
     for (const QString& p : paths) {
         out += '\n';
-        out += QByteArray::fromStdString(sdcard::carry::escape_name(p.toStdString(), false));
+        out += QByteArray::fromStdString(sdcard::carry::escape_name(card_bytes(p), false));
     }
     return out;
 }
@@ -71,7 +75,7 @@ bool SdCardModel::decode_items(const QByteArray& data, QString& image, QStringLi
         std::string raw;
         if (!sdcard::carry::unescape_name(lines[i].toStdString(), raw)) return false;
         if (i == 0) image = QString::fromStdString(raw);
-        else paths << QString::fromStdString(raw);
+        else paths << card_text(raw);
     }
     return !image.isEmpty();
 }

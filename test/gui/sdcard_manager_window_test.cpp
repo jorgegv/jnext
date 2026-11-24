@@ -24,6 +24,9 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDropEvent>
+#include <QMenu>
+#include <QTimer>
 #include <QElapsedTimer>
 #include <QFileSystemModel>
 #include <QItemSelectionModel>
@@ -46,6 +49,8 @@
 #include "core/sdcard_file_extract.h"
 #include "core/sha256.h"
 #include "debug/debugger.h"
+#include "core/held_files.h"
+#include "core/output_files.h"
 #include "gui/app_config.h"
 #include "gui/sdcard_card_model.h"
 #include "gui/sdcard_manager_dialog.h"
@@ -90,10 +95,12 @@ void check(const char* id, const char* desc, bool ok, const std::string& detail 
     ++g_total;
     if (ok) {
         ++g_pass;
-        std::printf("[PASS] %-12s %s\n", id, desc);
+        std::printf("  PASS %s: %s\n", id, desc);
     } else {
         ++g_fail;
-        std::printf("[FAIL] %-12s %s%s%s\n", id, desc, detail.empty() ? "" : " -- ", detail.c_str());
+        std::printf("  FAIL %s: %s", id, desc);
+        if (!detail.empty()) std::printf(" [%s]", detail.c_str());
+        std::printf("\n");
     }
 }
 
@@ -131,6 +138,14 @@ bool populate_shadow(FATFS& fsv, Pokes& pokes)
               {u"", "FOO        ", 0x20, c2, static_cast<uint32_t>(kD2.size())}},
              pokes);
     return c1 != 0 && c2 != 0;
+}
+
+// A card whose names hold code page 437 bytes (FatFs's OEM encoding): /caf\x82.bin and /D\x82R/inner.bin ("\x82" is e-acute).
+const Bytes kCaf = payload(333, 81);
+bool populate_cp437(FATFS&, Pokes&)
+{
+    return fat_write("0:/caf\x82.bin", kCaf) && f_mkdir("0:/D\x82R") == FR_OK && fat_write("0:/D\x82R/inner.bin", kA) &&
+           fat_write("0:/plain.bin", kB);
 }
 
 struct Img {
@@ -873,6 +888,273 @@ int main(int argc, char** argv)
         const bool nothing = sha_file(S) == sha && b.count("Delete") == 0;
         check("SDMW-19", "an entry no spelling can open (a shadowed 8.3 FOO behind a long foo) is listed but has no path: a copy of both copies only the addressable one, and Delete or Rename aimed at it acts on nothing (the card is byte-identical)",
               st == FS_FAT32 && copy_one && nothing, std::to_string(shown) + std::to_string(addressable) + std::to_string(copy_one) + std::to_string(nothing));
+        rig.session.close(rig.emu);
+    }
+    // SDMW-20
+    {
+        // F1: a card entry whose name holds a code page 437 byte can be copied, renamed and deleted
+        const std::string K = tmp_name("cp437") + ".img";
+        const int kt = make_card(K, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, populate_cp437);
+        Rig rig;
+        rig.emu.sd_card().mount(K, false);
+        rig.open();
+        Boxes b;
+        const fs::path out = fresh_dir("cp-out");
+        SdManagerDialog d(rig.emu, rig.session, sm::Remembered{{}, {}, out.string()}, QString::fromStdString(host.string()));
+        wire(d, b);
+        const bool shown = has(card_names(d), "caf%82.bin") && has(card_names(d), "D%82R");
+        select_card(d, {"caf%82.bin"});
+        child<QPushButton>(d, "copy_to_host")->click();
+        const bool copied = read_host_file(out / "caf%82.bin") == kCaf && b.count("SD Card File Manager") == 0;
+        b.say(QStringLiteral("plain2.bin"));
+        select_card(d, {"caf%82.bin"});
+        d.findChild<QAction*>("card_rename")->trigger();
+        const bool renamed = on_card(K, "/plain2.bin") && !has(card_names(d), "caf%82.bin") && b.count("SD Card File Manager") == 0;
+        select_card(d, {"D%82R"});
+        d.findChild<QAction*>("card_delete")->trigger();
+        const bool deleted = !has(card_names(d), "D%82R") && b.count("SD Card File Manager") == 0;
+        check("SDMW-20", "a card entry named with a code page 437 byte (caf<e-acute>.bin, D<e-acute>R) is shown escaped and can be copied to the host, renamed and deleted (the path stays byte-exact through the window)",
+              kt == FS_FAT32 && shown && copied && renamed && deleted,
+              std::to_string(shown) + std::to_string(copied) + std::to_string(renamed) + std::to_string(deleted));
+        rig.session.close(rig.emu);
+    }
+    // SDMW-21
+    {
+        // F1: a folder with such a name can be entered, and is remembered and restored byte-exactly (the stored value stays ASCII)
+        const std::string K = tmp_name("cp437") + ".img";
+        make_card(K, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, populate_cp437);
+        Rig rig;
+        rig.emu.sd_card().mount(K, false);
+        rig.open();
+        Boxes b;
+        SdManagerDialog d(rig.emu, rig.session, none_remembered(), QString::fromStdString(host.string()));
+        wire(d, b);
+        auto* card = child<QListView>(d, "card_view");
+        auto* model = qobject_cast<SdCardModel*>(card->model());
+        int row = -1;
+        for (int r = 0; r < model->rowCount(); ++r) if (model->index(r, 0).data().toString() == "D%82R") row = r;
+        Q_EMIT card->doubleClicked(model->index(row, 0));
+        const bool entered = SdCardModel::card_bytes(d.card_dir()) == "/D\x82R" && has(card_names(d), "inner.bin");
+        const sm::Remembered rem = d.remembered();
+        bool ascii = true;
+        for (unsigned char ch : rem.card_dir) if (ch < 0x20 || ch > 0x7E) ascii = false;
+        const QString ini = QString::fromStdString((g_dir / "cp437.conf").string());
+        {
+            AppConfig w(ini);
+            w.load();
+            w.data().sdmanager_card = QString::fromStdString(rem.card_image);
+            w.data().sdmanager_card_dir = QString::fromStdString(rem.card_dir);
+            w.save();
+        }
+        AppConfig r(ini);
+        r.load();
+        sm::Remembered back;
+        back.card_image = r.data().sdmanager_card.toStdString();
+        back.card_dir = r.data().sdmanager_card_dir.toStdString();
+        SdManagerDialog again(rig.emu, rig.session, back, QString::fromStdString(host.string()));
+        wire(again, b);
+        check("SDMW-21", "a folder whose name holds a code page 437 byte can be entered; the remembered value is ASCII (%XX), survives the config file, and reopens the window in that same folder",
+              entered && ascii && rem.card_dir == "/D%82R" && SdCardModel::card_bytes(again.card_dir()) == "/D\x82R" && has(card_names(again), "inner.bin"),
+              rem.card_dir);
+        rig.session.close(rig.emu);
+    }
+    // SDMW-22
+    {
+        // F1: the drag payload carries such a name byte-exactly, and a drop of it copies the right entry
+        const std::string K = tmp_name("cp437") + ".img";
+        make_card(K, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, populate_cp437);
+        Rig rig;
+        rig.emu.sd_card().mount(K, false);
+        rig.open();
+        Boxes b;
+        const fs::path out = fresh_dir("cp-drag");
+        SdManagerDialog d(rig.emu, rig.session, sm::Remembered{{}, {}, out.string()}, QString::fromStdString(host.string()));
+        wire(d, b);
+        auto* model = qobject_cast<SdCardModel*>(child<QListView>(d, "card_view")->model());
+        int row = -1;
+        for (int r = 0; r < model->rowCount(); ++r) if (model->index(r, 0).data().toString() == "caf%82.bin") row = r;
+        std::unique_ptr<QMimeData> m(model->mimeData({model->index(row, 0)}));
+        QString img;
+        QStringList paths;
+        const bool decoded = m && SdCardModel::decode_items(m->data(QString::fromLatin1(SdCardModel::kMime)), img, paths) &&
+                             paths.size() == 1 && SdCardModel::card_bytes(paths[0]) == "/caf\x82.bin";
+        const bool dropped = m && d.drop_on_host(*m, false) && read_host_file(out / "caf%82.bin") == kCaf;
+        check("SDMW-22", "the drag payload of an entry named with a code page 437 byte carries the path byte-exactly, and dropping it on the host pane copies that entry",
+              decoded && dropped, std::to_string(decoded) + std::to_string(dropped) + (b.texts.empty() ? std::string(" no box") : " " + b.texts.back()) + " host=" + [&] { std::string l; for (auto& e : fs::directory_iterator(out)) l += e.path().filename().string() + ","; return l; }());
+        rig.session.close(rig.emu);
+    }
+    // SDMW-23
+    {
+        // G1: Qt's own inline rename must not exist: the host model is read-only, its items are not editable, no view edits in place
+        Img a(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        rig.open();
+        Boxes b;
+        SdManagerDialog d(rig.emu, rig.session, none_remembered(), QString::fromStdString(host.string()));
+        wire(d, b);
+        auto* hostv = child<QListView>(d, "host_view");
+        auto* hmodel = qobject_cast<QFileSystemModel*>(hostv->model());
+        pump_until([&] { return hmodel->rowCount(hostv->rootIndex()) >= 2; });
+        const QModelIndex first = hmodel->index(0, 0, hostv->rootIndex());
+        const bool read_only = hmodel->isReadOnly() && !(hmodel->flags(first) & Qt::ItemIsEditable);
+        const bool no_edit = hostv->editTriggers() == QAbstractItemView::NoEditTriggers &&
+                             child<QListView>(d, "card_view")->editTriggers() == QAbstractItemView::NoEditTriggers;
+        check("SDMW-23", "the host pane's model is read-only with no editable item and neither view edits in place (Qt's inline rename would bypass the held-file check)",
+              read_only && no_edit, std::to_string(read_only) + std::to_string(no_edit));
+        rig.session.close(rig.emu);
+    }
+    // SDMW-24
+    {
+        // G2: the context menu is the way to New Folder (and Copy, Rename, Delete) in BOTH panes: drive the real signal and read the popup
+        Img a(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        rig.open();
+        Boxes b;
+        SdManagerDialog d(rig.emu, rig.session, none_remembered(), QString::fromStdString(host.string()));
+        wire(d, b);
+        auto menu_texts = [&](const char* view) {
+            QStringList texts;
+            bool seen = false;
+            QTimer::singleShot(0, [&] {
+                if (auto* m = qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
+                    seen = true;
+                    for (QAction* act : m->actions()) texts << act->text();
+                    m->close();
+                }
+            });
+            Q_EMIT child<QListView>(d, view)->customContextMenuRequested(QPoint(3, 3));
+            QCoreApplication::processEvents();
+            return seen ? texts : QStringList{QStringLiteral("<no menu>")};
+        };
+        const QStringList card = menu_texts("card_view"), hostm = menu_texts("host_view");
+        auto full = [](const QStringList& t) {
+            const QString j = t.join(QLatin1Char('|'));
+            return t.size() == 4 && j.contains(QStringLiteral("Rename")) && j.contains(QStringLiteral("Delete")) &&
+                   j.contains(QStringLiteral("New Folder")) && j.contains(QStringLiteral("Copy"));
+        };
+        check("SDMW-24", "the context menu of each pane lists Copy, Rename, Delete and New Folder",
+              full(card) && full(hostm), card.join(QLatin1Char('|')).toStdString() + " / " + hostm.join(QLatin1Char('|')).toStdString());
+        rig.session.close(rig.emu);
+    }
+    // SDMW-25
+    {
+        // G3: "Shift = move" through the REAL drop event, on both views
+        Img a(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        rig.open();
+        Boxes b;
+        const fs::path out = fresh_dir("real-drop");
+        SdManagerDialog d(rig.emu, rig.session, sm::Remembered{{}, {}, out.string()}, QString::fromStdString(host.string()));
+        wire(d, b);
+        auto send_drop = [&](const char* view, const QMimeData& m, Qt::KeyboardModifiers mods) {
+            auto* v = child<QListView>(d, view);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            QDropEvent ev(QPointF(4, 4), Qt::CopyAction | Qt::MoveAction, &m, Qt::LeftButton, mods);
+#else
+            QDropEvent ev(QPoint(4, 4), Qt::CopyAction | Qt::MoveAction, &m, Qt::LeftButton, mods);
+#endif
+            ev.ignore();
+            d.deliver_event_for_test(v == child<QListView>(d, "card_view") ? SdManagerDialog::Side::Card : SdManagerDialog::Side::Host, ev);
+            return ev.isAccepted();
+        };
+        std::unique_ptr<QMimeData> c1(card_mime(a.p, {"/MYDIR/A.BIN"}));
+        const bool plain = send_drop("host_view", *c1, Qt::NoModifier) && read_host_file(out / "A.BIN") == kA && on_card(a.p, "/MYDIR/A.BIN");
+        std::unique_ptr<QMimeData> c2(card_mime(a.p, {"/FILE.BIN"}));
+        const bool shifted = send_drop("host_view", *c2, Qt::ShiftModifier) && read_host_file(out / "FILE.BIN") == kFileBin && !on_card(a.p, "/FILE.BIN");
+        const fs::path src = fresh_dir("real-src");
+        write_host_file(src / "s1.bin", kHost1);
+        write_host_file(src / "s2.bin", kHost2);
+        std::unique_ptr<QMimeData> u1(uri_list({(src / "s1.bin").string()}));
+        const bool to_card = send_drop("card_view", *u1, Qt::NoModifier) && on_card(a.p, "/s1.bin") && fs::exists(src / "s1.bin");
+        std::unique_ptr<QMimeData> u2(uri_list({(src / "s2.bin").string()}));
+        const bool to_card_move = send_drop("card_view", *u2, Qt::ShiftModifier) && on_card(a.p, "/s2.bin") && !fs::exists(src / "s2.bin");
+        std::unique_ptr<QMimeData> c3(card_mime(a.p, {"/GAMES"}));
+        const bool ignored = !send_drop("card_view", *c3, Qt::NoModifier);
+        check("SDMW-25", "through a real QDropEvent: a plain drop copies and Shift moves, in both directions; a drop of the card's own items on the card pane is ignored",
+              plain && shifted && to_card && to_card_move && ignored,
+              std::to_string(plain) + std::to_string(shifted) + std::to_string(to_card) + std::to_string(to_card_move) + std::to_string(ignored) +
+                  (b.texts.empty() ? std::string(" no box") : " " + b.texts.back()));
+        rig.session.close(rig.emu);
+    }
+    // SDMW-26
+    {
+        // G4: the shown folder disappears while the window is open (a guest or a remote client removed it): the view falls back to the root
+        Img a(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        rig.open();
+        Boxes b;
+        SdManagerDialog d(rig.emu, rig.session, sm::Remembered{a.p, sm::encode_card_dir("/MYDIR"), {}}, QString::fromStdString(host.string()));
+        wire(d, b);
+        const bool in_folder = d.card_dir() == "/MYDIR";
+        std::string err;
+        sdcard::cardops::remove(a.p, "/MYDIR", err);
+        d.refresh();
+        check("SDMW-26", "the shown card folder removed while the window is open: refresh() shows the root, with the root's listing and no error",
+              in_folder && d.card_dir() == "/" && has(card_names(d), "GAMES") && b.titles.empty(), d.card_dir().toStdString());
+        rig.session.close(rig.emu);
+    }
+    // SDMW-27
+    {
+        // G5: a card rename as the FIRST change shows the warning and counts as a change (the card hard-resets on close)
+        Img a(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        rig.open();
+        Boxes b;
+        {
+            SdManagerDialog d(rig.emu, rig.session, none_remembered(), QString::fromStdString(host.string()));
+            wire(d, b);
+            select_card(d, {"FILE.BIN"});
+            b.say(QStringLiteral("R2.BIN"));
+            d.findChild<QAction*>("card_rename")->trigger();
+        }
+        const bool warned = b.count("Change the SD card") == 1 && rig.session.changed() && on_card(a.p, "/R2.BIN");
+        const auto res = rig.session.close(rig.emu);
+        check("SDMW-27", "a card rename as the first change shows the reset warning once, is recorded as a change, and the machine hard-resets (one cold boot) when the session closes",
+              warned && res == sm::SdManagerSession::CloseResult::ResetAndResumed && rig.boots == 1, "boots=" + std::to_string(rig.boots));
+    }
+    // SDMW-28
+    {
+        // G6: a card-to-host drop whose host name collides with a held file OTHER than the shown image is refused, never trashed
+        Img a(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        rig.open();
+        Boxes b;
+        const fs::path out = fresh_dir("held-drop");
+        write_host_file(out / "FILE.BIN", kX);
+        held_files::Hold hold((out / "FILE.BIN").string());   // a recording, the other slot's image...
+        SdManagerDialog d(rig.emu, rig.session, sm::Remembered{{}, {}, out.string()}, QString::fromStdString(host.string()));
+        wire(d, b);
+        std::unique_ptr<QMimeData> m(card_mime(a.p, {"/FILE.BIN"}));
+        d.drop_on_host(*m, false);
+        check("SDMW-28", "a card-to-host drop whose name is a held host file (not the shown image) is refused: the file is never trashed or replaced, and the reason is shown",
+              b.trashed.empty() && read_host_file(out / "FILE.BIN") == kX && !b.texts.empty() && b.texts.back().find("emulator is using") != std::string::npos,
+              b.texts.empty() ? std::string("no text") : b.texts.back());
+        rig.session.close(rig.emu);
+    }
+    // SDMW-29
+    {
+        // G7: a held host file as the source of '< Copy' is refused and the card is untouched
+        Img a(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        rig.open();
+        Boxes b;
+        const fs::path hd = fresh_dir("held-src");
+        write_host_file(hd / "rec.bin", kX);
+        held_files::Hold hold((hd / "rec.bin").string());
+        SdManagerDialog d(rig.emu, rig.session, sm::Remembered{{}, {}, hd.string()}, QString::fromStdString(host.string()));
+        wire(d, b);
+        select_host(d, {(hd / "rec.bin").string()});
+        child<QPushButton>(d, "copy_to_card")->click();
+        check("SDMW-29", "a held host file as the source of '< Copy' is refused with the reason and nothing is written to the card",
+              !on_card(a.p, "/rec.bin") && !b.texts.empty() && b.texts.back().find("emulator is using") != std::string::npos,
+              b.texts.empty() ? std::string("no text") : b.texts.back());
         rig.session.close(rig.emu);
     }
     check("SDMW-18", "the fixture cards are real volumes of the types the rows claim (FAT32 partitioned, FAT16 partitioned)", gt == FS_FAT32 && t16 == FS_FAT16);

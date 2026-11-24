@@ -2122,14 +2122,14 @@ directory, then home, and ignores a value that is relative, holds a NUL or (Wind
 (`src/gui/sdcard_card_model.*`) are a view over the logic above and decide nothing. The card pane is a `QListView` on
 `SdCardModel`: one directory as `cardops::list_dir` gives it, shown through `display_name`, every path it hands out built from
 an entry's `open_name` (an entry without one is shown and never acted on), and a drag payload whose lines are `%XX`-escaped
-so any name survives. The host pane is a `QListView` on a read-only `QFileSystemModel`. Every operation first re-reads
+so a name with a newline, a percent or a high byte survives. A card path is BYTES (code page 437) and a `QString` is Unicode, so every card path that crosses into Qt is carried as Latin-1 (`SdCardModel::card_text` / `card_bytes`, one code point per byte, lossless both ways) and the stored `card_dir` is the `%XX` escape of those bytes; host paths are UTF-8 and display strings are escaped ASCII. The host pane is a `QListView` on a read-only `QFileSystemModel`. Every operation first re-reads
 `card_slots()` and `held_host_files()`: the card in the slot may have changed under the window, a recording may have started.
 A change while the window is open (polled by a timer, and checked before each operation) resets the card pane to the new
 card's ROOT, because the emulator wins over any remembered or shown state. The three remembered values are
 `sdcard_manager.card`, `sdcard_manager.card_dir` (stored `%XX`-escaped) and `sdcard_manager.host_dir`, plain `AppConfig`
 fields, settable with `--set` like `paths.last_load_dir`; they are read back only through `resolve_remembered()`, which checks
 them. The message boxes, the text prompts and the trash go through hooks the tests replace (`set_box_hook_for_test`,
-`set_text_hook_for_test`, `set_trash_hook_for_test`); a headless session has no trash. Rows: `SDMW-01..19`
+`set_text_hook_for_test`, `set_trash_hook_for_test`); a headless session has no trash. Rows: `SDMW-01..29`
 (`sdcard_manager_window_test`, offscreen), `AC-104..106` (`app_config_test`).
 
 **The glue caches sectors.** FatFs keeps one sector window per volume, so every path lookup

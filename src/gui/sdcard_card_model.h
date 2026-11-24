@@ -17,8 +17,8 @@
 /// sdcard::cardops::display_name (printable ASCII, every other byte and '%' as %XX), so a hostile name cannot
 /// carry a control character into a widget.
 ///
-/// Dragging out: the model exports `kMime`, one line per item (the image, then each card path), every line
-/// %XX-escaped so a name with a newline or a high byte survives. The host pane accepts only that type.
+/// Dragging out: the model exports `kMime`, one line per item (the image as UTF-8, then each card path as its bytes),
+/// every line %XX-escaped so a name with a newline or a high byte survives. The host pane accepts only that type.
 class SdCardModel : public QAbstractListModel {
     Q_OBJECT
 public:
@@ -39,6 +39,15 @@ public:
     const sdcard::cardops::CardEntry& entry(int row) const { return entries_[static_cast<size_t>(row)]; }
     QString path_of(int row) const;
     bool is_dir(int row) const { return entries_[static_cast<size_t>(row)].dir; }
+
+    /// CARD PATHS ARE BYTES (code page 437, FatFs's OEM encoding), and a QString is Unicode: UTF-8 would turn a high byte
+    /// into U+FFFD and no open_name would match it again. So every card path or name that crosses into Qt is carried as
+    /// LATIN-1 (one code point per byte, lossless in both directions), and every card path that goes back to the engines
+    /// goes through card_bytes(). Host paths are UTF-8 as everywhere else; display strings are escaped ASCII.
+    static QString card_text(const std::string& bytes) { return QString::fromLatin1(bytes.data(), static_cast<int>(bytes.size())); }
+    static std::string card_bytes(const QString& s) { return s.toLatin1().toStdString(); }
+    /// What to SHOW of a card path (printable ASCII, every other byte %XX).
+    static QString card_shown(const QString& path);
 
     /// `dir` + "/" + `name` as a card path.
     static QString child_path(const QString& dir, const QString& name);
