@@ -24,11 +24,12 @@ if want sdcard-lock-func; then
     HOLD_PIDS=()
 
     # hold <label> <jnext args...>: start a long-running jnext in the background; its pid in HOLD_PID.
-    # The automatic exit is only the backstop: the row ends every holder itself.
+    # The automatic exit is only the backstop: the row ends every holder itself, so it is far longer than a run
+    # under full load needs (headless runs at full speed: a short one expired mid-row, and the lock was free).
     hold() {
         local label=$1; shift
         JNEXT_CONFIG_DIR="$CFG" "$JNEXT" --headless --machine 48k --rewind-buffer-size 0 \
-            "$@" --delayed-automatic-exit 60 > "$W/$label.log" 2>&1 &
+            "$@" --delayed-automatic-exit 900 > "$W/$label.log" 2>&1 &
         HOLD_PID=$!
         HOLD_PIDS+=("$HOLD_PID")
         local i
@@ -85,6 +86,7 @@ if want sdcard-lock-func; then
         --delayed-automatic-exit 5 --log-file "$W/second.jlog"
     grep -qF "second SD card refused: $(msg_image "$BASE/a.img")" "$W/second.jlog" 2>/dev/null \
         || faults+=("second: the slot-1 refusal is not in the log file: $({ grep -h 'refused' "$W/second.jlog" 2>/dev/null || true; } | head -c 300)")
+    kill -0 "$h1" 2>/dev/null || faults+=("harness: the holder h1 exited before its checks finished; they tested nothing")
     stop_holder "$h1"
 
     # 3. the overlay FILE is locked on its own: another card, the same writes file
@@ -93,6 +95,7 @@ if want sdcard-lock-func; then
     try overlay 1 --headless --machine 48k --sdcard "$BASE/y.img" --sdcard-writes "$BASE/w.jsdw" --delayed-automatic-exit 5
     grep -qF "the SD-writes file $BASE/w.jsdw is in use by another jnext (process $h3)" "$W/overlay.log" \
         || faults+=("overlay: the writes-file refusal is missing or wrong: $(head -c 300 "$W/overlay.log")")
+    kill -0 "$h3" 2>/dev/null || faults+=("harness: the holder h3 exited before its checks finished; they tested nothing")
     stop_holder "$h3"
 
     # 4. kill -9: the OS drops the lock, the next jnext starts (exit 0)
