@@ -48,18 +48,6 @@ std::vector<std::string> components(const std::string& path) {
     return out;
 }
 
-// A card path is built from open_names, which hold none of these: a "." or ".." component would have FatFs
-// walk to another directory (the entry found would then be one the path does not spell), and a backslash is
-// a separator to FatFs.
-bool card_path_clean(const std::string& path, std::string& err) {
-    for (const std::string& c : components(path))
-        if (c == "." || c == ".." || c.find('\\') != std::string::npos) {
-            err = "'" + path + "' is not a card path (no '.', '..' or '\\' components)";
-            return false;
-        }
-    return true;
-}
-
 std::string join_card(const std::vector<std::string>& comps, size_t count) {
     std::string s;
     for (size_t i = 0; i < count && i < comps.size(); ++i) s += "/" + comps[i];
@@ -157,13 +145,12 @@ std::string host_leaf(const std::string& source) {
 // listed in the directory reached so far (ASCII case folded), and each but the last a directory. So the
 // entry found is the one whose stored name is on the card, whatever spelling the caller believes it has,
 // and a spelling FatFs would resolve to ANOTHER entry (a typed long name with a trailing dot, a name an
-// earlier entry shadows, ".." or "." or a backslash) finds nothing. `canonical` receives the path spelt with
+// earlier entry shadows, ".." or "." or a backslash: no listing gives those as an open_name) finds nothing. `canonical` receives the path spelt with
 // the entries' own open_names; every engine call is made with it, never with the caller's string.
 // Not found: SourceUnreadable; not a card path or a file in the middle: DestInvalid. The root (no
 // components) is Ok with `last` untouched.
 FileAddStatus walk_card(const std::string& image, const std::string& path, ops::CardEntry* last,
                         std::string* canonical, std::string& err) {
-    if (!card_path_clean(path, err)) return FileAddStatus::DestInvalid;
     const std::vector<std::string> comps = components(path);
     std::string at = "/";
     for (size_t i = 0; i < comps.size(); ++i) {
