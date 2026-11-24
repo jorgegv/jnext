@@ -489,6 +489,7 @@ int main(int argc, char* argv[]) {
     bool        magic_port_mode_set = false;
     std::string record_file;
     std::string wav_record_file;
+    std::string wav_record_stems_dir;
     std::string dac_trace_file;
     std::string audio_log_file;
     std::string psg_record_file;
@@ -1280,6 +1281,9 @@ int main(int argc, char* argv[]) {
             case cli::OptId::WavRecord:
                 wav_record_file = v[0];
                 break;
+            case cli::OptId::WavRecordStems:
+                wav_record_stems_dir = v[0];
+                break;
             case cli::OptId::DacTrace:
                 dac_trace_file = v[0];
                 break;
@@ -2019,6 +2023,11 @@ int main(int argc, char* argv[]) {
     if (silent && !wav_record_file.empty()) {
         fprintf(stderr,
                 "--wav-record cannot be combined with --silent because --silent disables mixer synthesis.\n");
+        return 1;
+    }
+    if (silent && !wav_record_stems_dir.empty()) {
+        fprintf(stderr,
+                "--wav-record-stems cannot be combined with --silent because --silent disables mixer synthesis.\n");
         return 1;
     }
 
@@ -3023,6 +3032,11 @@ int main(int argc, char* argv[]) {
                     "--wav-record cannot be used while audio is disabled in preferences.\n");
             return 1;
         }
+        if (cfg.silent && !wav_record_stems_dir.empty()) {
+            fprintf(stderr,
+                    "--wav-record-stems cannot be used while audio is disabled in preferences.\n");
+            return 1;
+        }
         // Refused HERE, before the machine boots, for the same reason as a
         // --record that cannot start (GH #86): discovering at exit that the
         // recording could never have been written wastes the whole run. A
@@ -3073,6 +3087,15 @@ int main(int argc, char* argv[]) {
         app.set_config(cfg);
 
         if (!app.init(argc, argv)) {
+            audio_recorder.stop();
+            dac_trace_recorder.stop();
+            return 1;
+        }
+        // GH #539: the per-source WAV stems are a Debugger recording (INS-24), started before the first frame so they
+        // begin with the first sample, like --wav-record. A refused DIR leaves nothing behind (the verb's contract).
+        if (!wav_record_stems_dir.empty() &&
+            app.debugger().stems_record_start(jnext::dbg::CLIENT_NONE, wav_record_stems_dir) != jnext::dbg::Result::Ok) {
+            fprintf(stderr, "--wav-record-stems: cannot write the stem files in '%s'\n", wav_record_stems_dir.c_str());
             audio_recorder.stop();
             dac_trace_recorder.stop();
             return 1;
@@ -3376,7 +3399,8 @@ int main(int argc, char* argv[]) {
             fl.scheduled    = !screenshot_file.empty() || auto_exit_delay_frames >= 0 || auto_exit_delay >= 0 ||
                               pok_request.has_value() || !script_files.empty() || !script_keys.empty();
             fl.recording    = !record_file.empty() || !wav_record_file.empty() || !rzx_record_file.empty() ||
-                              !dac_trace_file.empty() || !record_script_file.empty();
+                              !dac_trace_file.empty() || !record_script_file.empty() ||
+                              !wav_record_stems_dir.empty();
             const fast_boot::Decision fd = fast_boot::decide(fl);
             if (fd.why == fast_boot::Why::Armed) {
                 app.emulator().arm_fast_boot(fd.frames, hide);
@@ -3398,6 +3422,7 @@ int main(int argc, char* argv[]) {
         // `audio_log_wanted` by value like `record_file`: the browser frontend runs this after main()
         // returned, when main()'s own locals (audio_log_file) are gone.
         auto finish = [&, record_file, audio_log_wanted = !audio_log_file.empty(),
+                       stems_wanted = !wav_record_stems_dir.empty(), stems_dir = wav_record_stems_dir,
                        psg_record_wanted = !psg_record_file.empty(), psg_record_file]() -> int {
             // Capture requests are part of the CLI contract: if one cannot start
             // or finalize, an otherwise-clean run must not report success.
@@ -3438,6 +3463,16 @@ int main(int argc, char* argv[]) {
                     Log::audio()->error("Failed to finalize DAC trace: {}",
                                         dac_trace_recorder.last_error());
                 }
+            }
+
+            // GH #539: finalised before the machine goes away; a recording the GUI started is stopped here too.
+            if (app.debugger().stems_recording() &&
+                app.debugger().stems_record_stop(jnext::dbg::CLIENT_NONE) != jnext::dbg::Result::Ok) {
+                if (stems_wanted)
+                    Log::audio()->error("--wav-record-stems: write error in '{}'", stems_dir);
+                else
+                    Log::audio()->error("Stem recording: write error");
+                capture_ok = false;
             }
 
             if (audio_log_wanted) {

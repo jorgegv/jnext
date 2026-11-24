@@ -31,6 +31,7 @@
 #include "debug/mem_coverage.h"
 #include "debug/psg_recorder.h"
 #include "debug/resume_guard.h"
+#include "debug/stem_recorder.h"
 #include "debug/symbol_table.h"
 #include "debug/user_annotations.h"
 
@@ -541,7 +542,10 @@ struct Debugger::Impl {
     /// Called from `clients_changed()`, `set_audio_scope_enabled()`, the reconstruct and the destructor.
     void sync_audio_scope(bool force = false);
     std::unique_ptr<AudioSourceTap> scope_tap;
-    bool audio_scope_derived = false;
+    bool audio_scope_derived = false;   ///< a scope is asked (NOT "a tap is installed": the stems install it too)
+    /// GH #539 -- the per-source WAV stems: a recording, not a view request, so no client row holds it.
+    /// While it runs the tap is installed with `scope_tap->stems` pointing at its AudioStemTap.
+    std::unique_ptr<StemRecorder> stems;
     // -----------------------------------------------------------------------
     // GH #531 -- INS-23, the audio write log.
     //

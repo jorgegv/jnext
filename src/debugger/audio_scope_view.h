@@ -3,6 +3,8 @@
 #include <QScrollArea>
 #include <QLabel>
 #include <QProgressBar>
+#include <QPushButton>
+#include <QString>
 
 #include <array>
 #include <cstdint>
@@ -24,6 +26,11 @@ class ScopeTrace;
 /// meter is the peak excursion from the source's resting level over the drawn window, as a percentage
 /// of its range (`audio_source_scale`), with peak and RMS in native units beside it.
 /// Under `--silent` the mixer does not run, so the tab says so instead.
+///
+/// A row above the traces records the per-source WAV stems (GH #539, INS-24 `stems_record_start()` /
+/// `stems_record_stop()`): Record stems..., Stop and a status label. The recording belongs to the
+/// backend, not to this view, so switching tabs or closing the window leaves it running, and a
+/// recording started elsewhere shows here at the next refresh.
 class AudioScopeView : public QScrollArea {
     Q_OBJECT
 public:
@@ -43,12 +50,25 @@ public:
     /// Fetch and redraw. A no-op while the backend's tap is off (nothing has been requested yet).
     void refresh();
 
+    /// The stems controls' actions, without the directory dialog (the tests' seam and the buttons' target).
+    /// False when the backend refused (the label then says `Cannot write <dir>` / `Write error in <dir>`).
+    bool start_stems_recording(const QString& dir);
+    bool stop_stems_recording();
+
     const TraceState& trace(int i) const { return state_[static_cast<size_t>(i)]; }
     /// The drawn window of source `i` (at most WINDOW samples).
     const std::vector<int16_t>& shown(int i) const { return shown_[static_cast<size_t>(i)]; }
 
 private:
+    void refresh_stems_row_();
+
     jnext::dbg::Debugger* dbg_;
+    QWidget* stems_row_ = nullptr;
+    QPushButton* stems_record_ = nullptr;
+    QPushButton* stems_stop_ = nullptr;
+    QLabel* stems_status_ = nullptr;
+    QString stems_dir_;      ///< the directory this view started (the tooltip); empty when another client did
+    QString stems_failure_;  ///< the last refusal's label, shown until the next refresh finds a recording
     QWidget* grid_ = nullptr;
     QLabel* off_label_ = nullptr;
     std::array<ScopeTrace*, jnext::dbg::AUDIO_SOURCE_COUNT> trace_{};

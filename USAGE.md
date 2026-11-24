@@ -920,6 +920,22 @@ immediately, without running the emulation.
 Record the mixed stereo output to a 44.1 kHz, 16-bit PCM WAV. Works
 headless and requires neither an audio device nor ffmpeg.
 
+**--wav-record-stems** *DIR*  
+Record the mix as seven 44.1 kHz, 16-bit stereo WAV files in *DIR*, one
+per source: `ay0.wav`, `ay1.wav`, `ay2.wav` (each AY chip after its mode
+and pan, silent while the chip is not in the mix), `dac.wav` (left is
+A+B, right is C+D), `beeper.wav` (EAR and MIC; a playing tape and Pi
+audio sent to EAR are inside it, as the Next mixes them as one term),
+`pi.wav` (the Pi I2S audio) and `mix.wav`. The stems are taken before
+the host gains and the debugger mutes, so `mix.wav` equals
+**--wav-record** at 0 dB, and the six source files add up to `mix.wav`
+exactly while every source is steady within an output sample and
+otherwise within 3 counts per sample (the rounding of the seven files).
+*DIR* is created if missing and files of those names in it are
+overwritten. If *DIR* or a file cannot be created, **jnext** exits
+non-zero without running the emulation; a write error that shows later
+exits non-zero too. Cannot be combined with **--silent**.
+
 **--dac-trace** *FILE*  
 Record `segment,tstate,channel,value` rows for physical DAC writes. A
 cold boot starts a new segment.
@@ -2516,6 +2532,13 @@ Notes worth knowing:
   be combined with **--silent**, which disables mixer synthesis. If the
   emulator exits abnormally, the file may retain its initial zero-length
   data header even though PCM follows it.
+
+- WAV stems (**--wav-record-stems** *DIR*) write one file per source
+  (each AY chip, the DAC, the beeper, the Pi and the mix) that add up to
+  the mix. They follow the same rules as **--wav-record**: headless
+  works, cold boots continue the files, **--silent** is refused, and
+  SIGTERM or SIGINT finalise them. While they record, HALT-idle programs
+  run without the HALT batching.
 
 - DAC tracing (**--dac-trace** *FILE*) records guest DAC writes before
   mixing. Channels are numbered 0-3 (A-D) and timestamps are CPU

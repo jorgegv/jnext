@@ -32,7 +32,7 @@ the guest's own driver talks to. Both are called out below.
 | `.pok` | yes | — | `platform/pok_trainers.*`, `gui/pok_dialog.*` | Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers) |
 
 Format selection is by **file extension**: for `--load` in `src/main.cpp`
-(the `ext` chain, `src/main.cpp:3195-3253`), and again in the GUI's file dialogs and in the headless
+(the `ext` chain, `src/main.cpp:3218-3276`), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -1443,6 +1443,7 @@ with `test/zip_fixture.h`), `load_error_test` ZIPG-01..09 and ZIPG-18..19 (the w
 |---|---|---|
 | PNG or `.SCR` screenshot | `--delayed-screenshot`, File ▸ Save Screenshot, File ▸ Quick Screenshot | `src/core/screenshot.*` |
 | WAV of the mixer | `--wav-record` | `src/audio/audio_recorder.*` |
+| WAV stems, one per source | `--wav-record-stems`, the Audio panel's Scopes tab | `src/debug/stem_recorder.*`, `src/audio/audio_recorder.*` |
 | DAC activity CSV | `--dac-trace` | `src/audio/dac_trace_recorder.*` |
 | MP4 with audio | `--record`, File ▸ Record MPEG4 Video | `src/core/video_recorder.*` |
 

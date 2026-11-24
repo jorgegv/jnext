@@ -24,6 +24,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "debugger/audio_panel.h"
+#include "debugger/audio_scope_view.h"
 #include "debugger/audio_tracker_view.h"
 #include "debugger/breakpoint_panel.h"
 #include "debugger/cpu_panel.h"
@@ -710,6 +711,36 @@ int main(int argc, char** argv) {
               "Audio on show: the tap is off with Chips current, on with Scopes current, off again with Chips, off with the dock tabbed away, on when it is shown again, off with the window closed, and on again when the window is reopened with Scopes still current",
               fx.ok && tabs && chips_off && scopes_on && chips_again_off && back_on && away_off && shown_on && closed_off && reopened_on,
               b2s(chips_off) + b2s(scopes_on) + b2s(chips_again_off) + b2s(back_on) + b2s(away_off) + b2s(shown_on) + b2s(closed_off) + b2s(still_scopes) + b2s(reopened_on));
+    }
+    // QLAZY-27 - a stem recording (GH #539) is not a view request: it belongs to the backend.
+    {
+        Fixture fx;
+        QTemporaryDir td;
+        fx.enable();
+        fx.show(fx.dbg()->audio_panel());
+        auto* tabs = fx.dbg()->audio_panel()->findChild<QTabWidget*>("audio_tabs");
+        if (tabs) tabs->setCurrentIndex(4);   // Scopes
+        QApplication::processEvents();
+        auto* view = fx.dbg()->audio_panel()->findChild<AudioScopeView*>("audio_scope_view");
+        const bool started = td.isValid() && view && view->start_stems_recording(td.path());
+        if (tabs) tabs->setCurrentIndex(0);   // Chips: the scope request goes, the recording stays
+        QApplication::processEvents();
+        const bool after_switch = !fx.backend->audio_scope_enabled() && fx.backend->stems_recording() &&
+                                  fx.emu.audio_scope_tap() != nullptr;
+        const uint64_t w0 = fx.emu.audio_scope_tap() ? fx.emu.audio_scope_tap()->stems->written : 0;
+        for (int i = 0; i < 3; ++i) fx.tick();
+        const uint64_t w1 = fx.emu.audio_scope_tap() ? fx.emu.audio_scope_tap()->stems->written : 0;
+        fx.mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+        QApplication::processEvents();
+        const bool closed = fx.backend->stems_recording() && fx.emu.audio_scope_tap() != nullptr;
+        for (int i = 0; i < 3; ++i) fx.emu.run_frame();
+        const uint64_t w2 = fx.emu.audio_scope_tap() ? fx.emu.audio_scope_tap()->stems->written : 0;
+        const bool stopped = fx.backend->stems_record_stop(jnext::dbg::CLIENT_NONE) == jnext::dbg::Result::Ok &&
+                             fx.emu.audio_scope_tap() == nullptr;
+        check("QLAZY-27",
+              "stems started from the Scopes tab, then Chips current, then the window closed: the scope request goes (audio_scope_enabled false) but the recording and the tap stay and the frames keep growing; after the stop the tap is null",
+              fx.ok && started && after_switch && w1 > w0 && closed && w2 > w1 && stopped,
+              "w0=" + std::to_string(w0) + " w1=" + std::to_string(w1) + " w2=" + std::to_string(w2));
     }
     {
         uint64_t scope_n = 0, chips_in_scope = 0, panels_scope = 0, panels_away = 0, scope_in_chips = 0, scope_in_siblings = 0;

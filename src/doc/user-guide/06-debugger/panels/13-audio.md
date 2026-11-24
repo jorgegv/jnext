@@ -329,6 +329,36 @@ Samples are collected only while this tab is on show, and the scopes redraw on
 every frame while the machine runs. While it is collecting, programs that sit in HALT or poll the raster run without the emulator's idle shortcuts. At 28 MHz such programs can need five to eight times the host CPU while Scopes is on show (about twice at 3.5 MHz), so a slow host may not keep real time; it ends when you leave the tab. With `--silent` the emulator does not
 synthesise audio, and the tab says so instead of drawing traces.
 
+### Recording stems
+
+The row above the traces records the mix as seven WAV files, one per source, so
+that you can bring one part of the sound into an editor or a tracker without the
+rest. **Record stems...** asks for a directory (created if it does not exist) and
+**Stop** ends the recording; the label reads `Recording stems` while it runs, and
+`Cannot write <directory>` or `Write error in <directory>` when something went
+wrong. Files of those names already in the chosen directory are overwritten without asking. The files are 44.1 kHz 16-bit stereo:
+
+| File | What it holds |
+|---|---|
+| `ay0.wav`, `ay1.wav`, `ay2.wav` | one AY chip after its stereo mode, mono flag and pan; silent while the chip is not in the mix (TurboSound off) |
+| `dac.wav` | the four DAC channels: left is A and B, right is C and D |
+| `beeper.wav` | EAR and MIC; a tape that is playing, and the Pi's audio when it is routed to EAR, are in this file because the Next mixes them as one term |
+| `pi.wav` | the Pi's audio through I2S |
+| `mix.wav` | the hardware mix, what `--wav-record` writes at 0 dB |
+
+Every file is taken before the host gains, the Sources strip and the mute and solo
+buttons, so muting something while you record does not change the files. The six
+source files add up to `mix.wav`: exactly while every source is steady within an
+output sample, and otherwise within 3 counts per sample (each of the seven files is
+rounded to a whole number on its own, and those roundings are all that can differ).
+The same recording from the command line is `--wav-record-stems DIR`.
+
+The recording belongs to the emulator, not to the tab: switching to another tab or
+closing the debugger window leaves it running, and a recording started from the
+command line shows here with **Stop** enabled. While it runs, programs that sit in
+HALT or poll the raster run without the emulator's idle shortcuts, as with the
+traces above. With `--silent` there is nothing to record and the row is hidden.
+
 ## Stopping on an audio write
 
 To stop the machine on a write to an AY register, a chip select, the DAC or the beeper, add an

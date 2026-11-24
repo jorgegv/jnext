@@ -11,7 +11,8 @@
 # The command's stdout and stderr go through a pipe: RLIMIT_FSIZE limits every
 # write to a regular file, including the row's redirected log, and a pipe is not
 # one. The pipe's reader (cat) is outside the limited subshell. Exit status is
-# the command's.
+# the command's. JNEXT_FULL_DISK_KB (default 0: every write fails) is the per-file limit in KB,
+# for a run whose headers must reach the file and whose data must not (wav-stems-stop-func).
 set -uo pipefail
-( ulimit -f 0; trap '' XFSZ; exec "$@" ) 2>&1 | cat
+( ulimit -f "${JNEXT_FULL_DISK_KB:-0}"; trap '' XFSZ; exec "$@" ) 2>&1 | cat
 exit "${PIPESTATUS[0]}"

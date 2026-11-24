@@ -18,6 +18,8 @@
 
 #include <algorithm>
 
+#include "core/log.h"
+
 namespace jnext {
 namespace dbg {
 
@@ -32,10 +34,18 @@ void Debugger::Impl::sync_audio_scope(bool force) {
     }
     // --silent skips the PSG and the mixer altogether (`Emulator::audio_off_`): nothing to tap.
     const bool on = asked && !emu.config().silent;
-    if (on && !audio_scope_derived) scope_tap = std::make_unique<AudioSourceTap>();
-    if (!on && audio_scope_derived) scope_tap.reset();
-    if (on != audio_scope_derived || force || emu.audio_scope_tap() != (on ? scope_tap.get() : nullptr))
-        emu.set_audio_scope_tap(on ? scope_tap.get() : nullptr);
+    // GH #539: the tap is installed for a scope request or a stem recording (which `--silent` refuses to start).
+    const bool recording = stems && stems->recording();
+    const bool install = on || recording;
+    const bool installed = scope_tap != nullptr;
+    if (install && !installed) scope_tap = std::make_unique<AudioSourceTap>();
+    if (!install && installed) scope_tap.reset();
+    AudioSourceTap* const want = install ? scope_tap.get() : nullptr;
+    AudioStemTap* const want_stems = recording ? &stems->tap : nullptr;
+    if (scope_tap) scope_tap->stems = want_stems;
+    if (install != installed || force || emu.audio_scope_tap() != want ||
+        (want && emu.turbosound().hw_chip_latch() != (want_stems != nullptr)))
+        emu.set_audio_scope_tap(want);
     audio_scope_derived = on;
 }
 
@@ -50,6 +60,40 @@ Result Debugger::set_audio_scope_enabled(ClientId by, bool enabled) {
 
 bool Debugger::audio_scope_enabled() const {
     return impl_->audio_scope_derived;
+}
+
+Result Debugger::stems_record_start(ClientId by, const std::string& dir) {
+    (void)by;   // attribution only: a recording is not a view request
+    Impl& im = *impl_;
+    if (im.emu.config().silent || (im.stems && im.stems->recording())) return Result::RefusedUnavailable;
+    auto rec = std::make_unique<StemRecorder>();
+    std::string why;
+    if (!rec->start(dir, why)) {
+        Log::debugger()->error("Stem recording: {}", why);
+        return Result::RefusedUnavailable;
+    }
+    im.stems = std::move(rec);
+    im.sync_audio_scope();
+    im.bump_revision();
+    return Result::Ok;
+}
+
+Result Debugger::stems_record_stop(ClientId by) {
+    (void)by;
+    Impl& im = *impl_;
+    if (!im.stems || !im.stems->recording()) return Result::RefusedUnavailable;
+    // Detach first: the tap stops feeding the recorder before the files are finalised.
+    std::unique_ptr<StemRecorder> rec = std::move(im.stems);
+    im.sync_audio_scope();
+    std::string why;
+    const bool ok = rec->stop(why);
+    if (!ok) Log::debugger()->error("Stem recording: {}", why);
+    im.bump_revision();
+    return ok ? Result::Ok : Result::RefusedUnavailable;
+}
+
+bool Debugger::stems_recording() const {
+    return impl_->stems && impl_->stems->recording();
 }
 
 Expected<AudioScopeBlock> Debugger::audio_scope_samples(size_t count) const {

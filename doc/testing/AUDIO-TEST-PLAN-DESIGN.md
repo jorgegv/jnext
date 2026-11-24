@@ -746,6 +746,7 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-09 | Each of the 13 channel mute bits, and ALL, for 50 frames, on versus off (14 runs) | State bytes and framebuffer hash are equal in every run (the hardware sums every channel: `turbosound.vhd:186-334`, `soundrive.vhd:112-113`) |
 | AIZ-10 | A parked CPU looping `OUT (C),A` to port 0x00B3 with NR 0x84 bit 6 off (thousands of dropped writes a frame); `clear_audio_drops()` in one run only | State bytes and framebuffer hash are equal: the dropped-write counters are outside `describe_state()`. The counters do move (a probe machine counts more than 1000) |
 | AIZ-11 | A CTC timer (P16, TC 109) and an auto-restarting DMA burst to port 0x00DF (prescaler 55); 20 `ctc_state()` and 20 `dma_state()` calls after each of 50 frames in one run only | State bytes and framebuffer hash are equal. Both engines were seen moving; a real AY register write between the runs makes them differ |
+| AIZ-13 | `build()` machine, a stem recording (`stems_record_start()`) on in one run and stopped in the other (GH #539), 50 frames | State bytes and framebuffer hash are equal: the stems and the per-chip latch are outside `describe_state()`. Run A's recording wrote more than 1000 frames |
 | AIZ-12 | A parked CPU looping over every audio write site (as AIZ-07); `psg_record_start()` on in one run, `psg_record_stop()` in the other | State bytes and framebuffer hash are equal over 50 frames: the `.psg` recording only reads (section 8.13). Positive control: the AY#1 file of the run that recorded holds the program's R13 pair |
 | AIZ-14 | `build()` machine, the source tap requested through a client and dropped in the other run (GH #536), 50 frames | State bytes and framebuffer hash are equal: the tap and its ring are outside `describe_state()`. Run A's tap pushed more than 1000 samples |
 
@@ -1204,6 +1205,39 @@ The panel's rows (`DAP-88` to `DAP-92`, `debugger_audio_panel_test`) cover the R
 widgets, a recording through the panel and one started elsewhere, a refused path, and the panel's bytes against the
 backend verb's. The regression row `psg-record-func` runs `--psg-record` headless on a 128K machine and compares with the
 Fuse file, with and without `--silent`, refuses an unwritable FILE and exits 1 on a write error.
+
+### 8.14 Per-source WAV stems (GH #539)
+
+`Mixer::integrate_span_tapped()`'s stem terms, `TurboSound::hw_chip_pcm()` and the `Debugger::stems_record_start()` /
+`stems_record_stop()` verbs. A stem is the mixer's `rounded_average_x4` of one source's hardware term over an output
+sample, less the source's rest level (AY 0, DAC 4096, beeper 0, Pi 2048; they sum to `MIX_REST_LEVEL x 4` = 6144).
+The six source stems add up to the mix stem within 3 counts (seven roundings in [-1/2, 1/2): the integer error is
+below 3.5) and exactly when every term is steady within the sample. Mixer-level rows use the standalone rig of 8.11
+(no I2S: the Pi stem is 0). Oracles: `audio_mixer.vhd:80-100`, `turbosound.vhd:186-202,323-335`,
+`soundrive.vhd:112-113`, `zxnext.vhd:2674,7113,7124-7126`; each row shows its arithmetic.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| STM-01 | DC on every source (SCP-02's), one sample, then the speaker-exclusive gate | ay0 (20,28), ay1 (68,96), ay2 (184,256), dac (-3280,-2192), beeper 2560, pi 0, mix (-448,748), exact sum; gated: beeper 0, mix (-3008,-1812) |
+| STM-02 | ACB with chip 0 mono, chip 1 pan 10, chip 2 pan 01; TurboSound off with AY#0 selected; MIC with the issue-2 keyboard bit and no tape | ay0 (36,36), ay1 (84,0), ay2 (0,256); chips 1 and 2 (0,0) while the scope's Ay1A reads 28; beeper stem 0 (`zxnext.vhd:7113`); the stems sum to the mix |
+| STM-03 | EAR high for 100 of 635 cycles | beeper 323 (round of 322.52, not 322), mix 323 |
+| STM-04 | EAR and DAC A 0x81 for 100 cycles (and DAC B 0x81 in a second run) | beeper 323, dac 3, mix 325, sum 326 (error +1); then dac 5 (not 3 + 3) and mix 328 |
+| STM-05 | A pan write 10 cycles before its PSG tick; then a latch turned off, a hot-path change and the latch turned on again; a mute set and cleared; `reset_ay_only()` with chip 0 loud | ay0 (32, 16) (the latched old pan), not 0; then ay0 (0,0), not the stale latch; the latch still works after a mute set and cleared and `channel_mute_mask()` hides its bit; after `reset_ay_only()` ay0 is (0,0) in the next slice; the stems sum to the mix |
+| STM-06 | A TurboSound state loaded after a different state was latched; one sample before any tick | The stems are the loaded state's breakdown (ay1 2040, ay0 0) and sum to the loaded mix; after the first recompute the latch is used |
+| STM-07 | 20 frames at 28 MHz, a Pi ramp, three sounding chips, a pan change every frame | |sum of six - mix| <= 3 on every sample with an error of at least 1 seen; the mix stem equals the mixer output sample for sample, in equal numbers |
+| STM-08 | Two machines, one with every mute and channel mute set and every host gain -6 dB | The stem frames are identical (pre-mute, pre-gain); the audible output differs |
+| STM-09 | A fixed write sequence on a standalone TurboSound, with and without a channel mute, latch off and on | The audible pair, hardware pair and per-chip audible pairs after every write, and the mixer output, are identical latch on and off |
+| STM-10 | An IM 2 HALT loop and a raster-poll loop, stems on, batching enabled, versus stems on with batching off, versus untapped | No batch runs with stems on (the untapped control batches); the stem frames equal the batch-off run's; the audible output equals the untapped run's |
+| STM-11 | Stems recording across `reset(Soft)`, `init()`, `reset(Hard)`, a state load, an in-place `Debugger::load()` and a rewind replay | The files hold exactly the mixer's emitted count; the six sum to the mix within 3 on every sample; the latch is on after the cold boot; the replay moves neither count |
+| STM-12 | Backend lifecycle with the files read back | Refused when idle; start makes seven files and installs the tap with no scope asked; stop removes it; valid 44100/2/16, equal lengths, the mix file equals the mixer output; nothing written after the stop; with a scope asked first the tap is the same one across start and stop; revision +1 per accepted verb |
+| STM-13 | Refusals | `--silent` refused and nothing created; a DIR under a regular file refused and nothing left; a directory in the way of the last file refuses the start before anything is created; a refused start leaves user files byte for byte (a directory or a write-protected file in the way, a directory that cannot take new files, ay0.wav before it); a start into a fresh directory leaves exactly the seven files and nothing else; all seven present in a directory that takes no new files starts Ok; a missing nested DIR created |
+| STM-14 | 100 cycles reach the mixer alone, then the stems start and end that sample | No stem frame for the partial sample; the next whole one is pushed, every stem 0 |
+
+The Scopes row of the Audio panel is DAP-93..98 (the controls, a start and stop, a recording started elsewhere, an
+unwritable path, `--silent`, and byte-identical files through the panel and the verb) and QLAZY-27 (a tab switch or a closed
+window does not stop the recording). The regression rows are `wav-stems-func` (the seven files across a selector cold boot,
+`mix.wav` equal to `--wav-record`, the sum bound, `--silent` refused) and `wav-stems-stop-func` (SIGTERM finalises, a
+write error and an uncreatable DIR exit non-zero).
 
 ## Test Implementation Strategy
 

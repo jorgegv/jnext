@@ -92,6 +92,9 @@ void TurboSound::reset_ay_only()
     chip_pcm_L_.fill(0);
     chip_pcm_R_.fill(0);
     chip_pcm_valid_ = true;
+    hw_chip_L_.fill(0);
+    hw_chip_R_.fill(0);
+    hw_chip_valid_ = true;
     mix_dirty_ = true;
 }
 
@@ -224,6 +227,8 @@ void TurboSound::tick_n(uint32_t count) { for (uint32_t i = 0; i < count; ++i) t
         compute_chip_stereo(i, 0, l, r);
         hw_L += l;
         hw_R += r;
+        hw_chip_L_[i] = l;   // GH #539: the stems' per-chip hardware values
+        hw_chip_R_[i] = r;
 
         const bool muted = (chip_mute_mask_ >> i) & 1;
         const uint8_t silenced = (channel_mute_mask_ >> (3 * i)) & 7;
@@ -240,6 +245,7 @@ void TurboSound::tick_n(uint32_t count) { for (uint32_t i = 0; i < count; ++i) t
     pcm_L_ = total_L & 0x0FFF;
     pcm_R_ = total_R & 0x0FFF;
     chip_pcm_valid_ = true;
+    hw_chip_valid_ = true;
 }
 
 inline void TurboSound::compute_stereo_mix()
@@ -260,7 +266,7 @@ inline void TurboSound::compute_stereo_mix()
     // host listening aid with no hardware analogue and must not reach the
     // saved state (audio/audio_mute.h).
 
-    // Debugger channel mutes in force: the same mix, out of line (cold). Every normal run
+    // Debugger channel mutes in force, or the stems' per-chip latch on (LATCH_BIT of the same mask): the same mix, out of line (cold). Every normal run
     // takes the loop below, which is the pre-mute code.
     if (__builtin_expect(channel_mute_mask_ != 0, 0)) {
         compute_stereo_mix_channels_();
@@ -290,6 +296,18 @@ inline void TurboSound::compute_stereo_mix()
     pcm_L_ = total_L & 0x0FFF;
     pcm_R_ = total_R & 0x0FFF;
     chip_pcm_valid_ = true;
+}
+
+void TurboSound::hw_chip_pcm(int idx, uint16_t& left, uint16_t& right) const
+{
+    left = right = 0;
+    if (idx < 0 || idx >= 3) return;
+    if (hw_chip_valid_) {
+        left = hw_chip_L_[idx];
+        right = hw_chip_R_[idx];
+    } else {
+        compute_chip_stereo(idx, 0, left, right);
+    }
 }
 
 void TurboSound::chip_pcm(int idx, uint16_t& left, uint16_t& right) const
@@ -339,6 +357,7 @@ void TurboSound::load_state(StateReader& r)
     chip_pcm_L_.fill(0);
     chip_pcm_R_.fill(0);
     chip_pcm_valid_ = false;
+    hw_chip_valid_ = false;   // GH #539: the stems' estimate from the loaded inputs until the next recompute
     for (auto& a : ay_) a.mark_dirty();   // the loaded outputs may predate the loaded inputs
     mix_dirty_ = true;
 }

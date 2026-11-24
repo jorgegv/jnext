@@ -52,6 +52,11 @@
 //          path. Oracles: audio_mixer.vhd:80-100, ym2149.vhd:157-162,467-536, soundrive.vhd:74-77,
 //          111-112 and turbosound.vhd:184-337; SCP-06's oracle is the mixer's own output (the tap
 //          is its hand-computed twin: SCP-02/03 pin the arithmetic against the VHDL).
+//   STM-*  the per-source WAV stems (GH #539, INS-24): seven stems (each AY chip after its pan and mono mode, the DAC, the
+//          beeper, the Pi, the mix) taken from the mixer's hardware terms, before every host gain and mute, that add up to the
+//          mix within the derived 3-count rounding bound (exactly for steady sources). Oracles: audio_mixer.vhd:80-100,
+//          turbosound.vhd:186-202,323-335, soundrive.vhd:112-113, zxnext.vhd:2674,7113,7124-7126; the stems' own arithmetic
+//          is hand-computed in each row.
 //
 //   PSG-*, PSF-*  the .psg export (GH #538): the writer against Fuse 1.6.0's psg.c, the recorder's frame
 //          mapping, the backend verbs, and the program of psg_fixture.asm against the Fuse recording of it.
@@ -65,6 +70,7 @@
 #include "audio/pi_audio.h"
 #include "audio/turbosound.h"
 #include "audio/audio_mute.h"
+#include "audio/audio_source_tap.h"
 #include "audio/psg_writer.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -1413,6 +1419,111 @@ static void aev_rows() {
         check("AIZ-08", "the AudioWrite event is invisible to the Z80: 50 frames of a CPU looping over every write site with an ANY sub on and off leave the saved state and the video unchanged (positive control: the on run delivered all five targets and a dropped write)",
               ran && same && seen == 0x1F && dropped_seen);
     }
+}
+
+// ── STM: the per-source WAV stems (GH #539) ────────────────────────────
+
+// Frame layout of AudioStemTap: ay0 ay1 ay2 dac beeper pi mix, L then R each.
+struct StemSink {
+    std::vector<std::array<int16_t, AudioStemTap::FRAME>> f;
+    static void put(void* ctx, const int16_t* fr) {
+        std::array<int16_t, AudioStemTap::FRAME> a;
+        std::copy(fr, fr + AudioStemTap::FRAME, a.begin());
+        static_cast<StemSink*>(ctx)->f.push_back(a);
+    }
+};
+// Sum of the six SOURCE stems (every pair but the mix) in channel `ch` (0 = L, 1 = R).
+static int stem_sum(const std::array<int16_t, AudioStemTap::FRAME>& a, int ch) {
+    int s = 0;
+    for (int p = 0; p < 6; ++p) s += a[static_cast<size_t>(2 * p + ch)];
+    return s;
+}
+enum { S_AY0 = 0, S_AY1 = 2, S_AY2 = 4, S_DAC = 6, S_BEEP = 8, S_PI = 10, S_MIX = 12 };
+
+// MixRig with the stems wired: the latch on, a sink collecting the frames.
+struct StemRig : MixRig {
+    AudioStemTap st;
+    StemSink sink;
+    StemRig() {
+        ts.set_hw_chip_latch(true);
+        st.out = &StemSink::put;
+        st.ctx = &sink;
+        tap.stems = &st;
+    }
+};
+
+// Three chips on the nine distinct DC levels of SCP-02 (chip c channel k at volume 3c + k + 1, R7 0x3F).
+static void stem_dc_levels(TurboSound& ts) {
+    ts.set_enabled(true);
+    for (int c = 0; c < 3; ++c) {
+        ts_reg(ts, c, 7, 0x3F);
+        for (int k = 0; k < 3; ++k) ts_reg(ts, c, static_cast<uint8_t>(8 + k), static_cast<uint8_t>(3 * c + k + 1));
+    }
+    for (int i = 0; i < 20; ++i) ts.tick();
+}
+
+// A whole WAV file read back: false unless RIFF/WAVE 44100 Hz stereo 16 bit with a consistent data length.
+struct WavFile { bool ok = false; std::vector<int16_t> pcm; };
+static WavFile read_wav(const std::string& path) {
+    WavFile w;
+    const std::string s = slurp(path);
+    auto u32 = [&](size_t o) { return static_cast<uint32_t>(static_cast<uint8_t>(s[o])) | static_cast<uint32_t>(static_cast<uint8_t>(s[o + 1])) << 8 |
+                                      static_cast<uint32_t>(static_cast<uint8_t>(s[o + 2])) << 16 | static_cast<uint32_t>(static_cast<uint8_t>(s[o + 3])) << 24; };
+    auto u16 = [&](size_t o) { return static_cast<uint32_t>(static_cast<uint8_t>(s[o])) | static_cast<uint32_t>(static_cast<uint8_t>(s[o + 1])) << 8; };
+    if (s.size() < 44 || s.compare(0, 4, "RIFF") != 0 || s.compare(8, 4, "WAVE") != 0 || s.compare(36, 4, "data") != 0) return w;
+    const uint32_t dlen = u32(40);
+    w.ok = u16(20) == 1 && u16(22) == 2 && u32(24) == 44100 && u16(34) == 16 && dlen == s.size() - 44 && dlen % 4 == 0 &&
+           u32(4) == 36 + dlen;
+    for (size_t i = 0; i + 1 < dlen; i += 2) w.pcm.push_back(static_cast<int16_t>(u16(44 + i)));
+    return w;
+}
+static const char* const STEM_FILES[7] = {"ay0.wav", "ay1.wav", "ay2.wav", "dac.wav", "beeper.wav", "pi.wav", "mix.wav"};
+// All seven files of `dir`, valid and of one length; `frames` out. Frame f, stem p, channel c is files[p].pcm[2 f + c].
+static bool read_stems(const std::string& dir, WavFile (&files)[7], size_t& frames) {
+    bool ok = true;
+    for (int i = 0; i < 7; ++i) files[i] = read_wav((std::filesystem::path(dir) / STEM_FILES[i]).string());
+    for (int i = 0; i < 7; ++i) ok = ok && files[i].ok && files[i].pcm.size() == files[0].pcm.size();
+    frames = files[0].pcm.size() / 2;
+    return ok;
+}
+static std::string stem_dir(const char* tag) {
+    const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    return (std::filesystem::temp_directory_path() / (std::string("jnext-stm-") + tag + "-" + std::to_string(stamp))).string();
+}
+// Max |sum of the six source stems - mix| over the recorded files, or -1 when a file is bad.
+static int stems_error(const std::string& dir, size_t& frames) {
+    WavFile f[7];
+    if (!read_stems(dir, f, frames)) return -1;
+    int worst = 0;
+    for (size_t i = 0; i < frames; ++i)
+        for (int c = 0; c < 2; ++c) {
+            int s = 0;
+            for (int p = 0; p < 6; ++p) s += f[p].pcm[2 * i + static_cast<size_t>(c)];
+            worst = std::max(worst, std::abs(s - f[6].pcm[2 * i + static_cast<size_t>(c)]));
+        }
+    return worst;
+}
+// build() with a Pi stream (SCP-18's set-up) and the CPU at 28 MHz.
+static void build_pi(Emulator& emu, PiAudio& pa) {
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    cfg.pi_audio = &pa;
+    emu.init(cfg);
+    nr_write(emu, 0x08, 0x0A);
+    nr_write(emu, 0xA2, 0xC0);
+    nr_write(emu, 0x07, 3);
+    ay_select(emu, 0);
+    ay_write(emu, 7, 0x3F); ay_write(emu, 8, 0x0F); ay_write(emu, 9, 0x07);
+    ay_select(emu, 1);
+    ay_write(emu, 0, 100); ay_write(emu, 1, 0);
+    ay_write(emu, 7, 0x3E); ay_write(emu, 8, 0x0C); ay_write(emu, 9, 0x05);
+    ay_select(emu, 2);
+    ay_write(emu, 7, 0x3F); ay_write(emu, 8, 0x09); ay_write(emu, 10, 0x03);
+    emu.port().out(0x1F, 0x40); emu.port().out(0x0F, 0x50);
+    emu.port().out(0x4F, 0x60); emu.port().out(0x5F, 0x70);
+    emu.port().out(0xFE, 0x10);
+    park(emu);
 }
 
 // ── PSG / PSF: the .psg export (GH #538) ───────────────────────────────
@@ -5494,6 +5605,612 @@ int main() {
         const Outcome b = run_and_save(emu, dbg, cid, 50);
         check("AIZ-14", "the source tap is outside describe_state() and the video: the same machine run with it on and off has the same saved state and framebuffer over 50 frames (the tap pushed samples)",
               ran && b.ok && a.state == b.state && a.video == b.video && pushed > 1000);
+    }
+
+    // ─────────────────── STM: the per-source WAV stems (GH #539) ───────────────────
+
+    {
+        // STM-01: DC on every source (SCP-02's set-up: chip c channel k at volume 3c + k + 1, levels {2,3,4,7,10,14,19,27,37},
+        // ym2149.vhd:150-162; DAC A-D 0x11 0x22 0x33 0x44; EAR and MIC high). One 635-cycle sample; then the speaker-exclusive gate.
+        // ABC: L = A + B, R = C + B per chip (turbosound.vhd:186-192). Sample 1 (a stem is round(4 x level) less its rest):
+        //   ay0 (4 x 5, 4 x 7) = (20, 28); ay1 (4 x 17, 4 x 24) = (68, 96); ay2 (4 x 46, 4 x 64) = (184, 256);
+        //   dac L = (0x11 + 0x22) << 2 = 204 -> 816 - 4096 = -3280, R = (0x33 + 0x44) << 2 = 476 -> 1904 - 4096 = -2192 (soundrive.vhd:112-113);
+        //   beeper 4 x (512 + 128) = 2560 (audio_mixer.vhd:80-81); pi: the rest 512 -> 2048 - 2048 = 0;
+        //   mix L = 4 x (640 + 68 + 204 + 512) - 6144 = -448, R = 4 x (640 + 95 + 476 + 512) - 6144 = 748 (audio_mixer.vhd:99-100).
+        //   Sum of the six: L 20 + 68 + 184 - 3280 + 2560 = -448, R 28 + 96 + 256 - 2192 + 2560 = 748.
+        // Sample 2 with exc_i: beeper 0; mix L = 4 x 784 - 6144 = -3008, R = 4 x 1083 - 6144 = -1812.
+        StemRig m;
+        stem_dc_levels(m.ts);
+        const uint8_t dacv[4] = {0x11, 0x22, 0x33, 0x44};
+        for (int k = 0; k < 4; ++k) m.dac.write_channel(k, dacv[k]);
+        m.beeper.set_ear(true); m.beeper.set_mic(true);
+        m.span(635);
+        m.mixer.set_exc_i(true);
+        m.span(635);
+        static const int16_t want1[14] = {20, 28, 68, 96, 184, 256, -3280, -2192, 2560, 2560, 0, 0, -448, 748};
+        static const int16_t want2[14] = {20, 28, 68, 96, 184, 256, -3280, -2192, 0, 0, 0, 0, -3008, -1812};
+        bool ok = m.sink.f.size() == 2 && m.st.written == 2;
+        for (size_t i = 0; ok && i < 14; ++i) ok = m.sink.f[0][i] == want1[i] && m.sink.f[1][i] == want2[i];
+        ok = ok && stem_sum(m.sink.f[0], 0) == m.sink.f[0][S_MIX] && stem_sum(m.sink.f[0], 1) == m.sink.f[0][S_MIX + 1] &&
+             stem_sum(m.sink.f[1], 0) == m.sink.f[1][S_MIX] && stem_sum(m.sink.f[1], 1) == m.sink.f[1][S_MIX + 1];
+        check("STM-01", "DC on every source: ay0 (20,28), ay1 (68,96), ay2 (184,256), dac (-3280,-2192), beeper 2560, pi 0, mix (-448,748), the six summing to the mix exactly; with exc_i the beeper is 0 and the mix (-3008,-1812) "
+              "(ym2149.vhd:157-162; turbosound.vhd:186-192,323-335; soundrive.vhd:112-113; audio_mixer.vhd:80-100)", ok);
+    }
+    {
+        // STM-02 (a): ACB on, chip 0 mono, chip 1 pan 10 (left only), chip 2 pan 01 (right only), the STM-01 levels. Post-pan, post-mono:
+        //   chip 0 mono: L = R = A + B + C = 2 + 3 + 4 = 9 -> (36, 36); chip 1 ACB L = A + C = 7 + 14 = 21, R off -> (84, 0);
+        //   chip 2 ACB R = C + B = 37 + 27 = 64, L off -> (0, 256) (turbosound.vhd:186-192,323-330).
+        // (b): TurboSound off with AY#0 selected: chips 1 and 2 are out of the mix (turbosound.vhd:197-202), (0, 0) in every sample, while
+        //   the scope's pre-routing Ay1A in the same tap reads 4 x 7 = 28.
+        // (c): the beeper term is beep_mic_final, not the MIC bit (zxnext.vhd:7113,7126): with the MIC bit set and beep_mic_final low (a playing
+        //   tape's high level XOR the MIC bit) the beeper stem is 0, with it high 4 x 128 = 512. And on an Emulator with the issue-2 keyboard bit
+        //   (NR 0x08 b0), OUT 0xFE with MIC = 1, EAR = 0 and no tape, i_AUDIO_EAR is the issue-2 MIC level (ear_relax, zxnext_top_issue2.vhd:662 at core 3.02.03; port_fe_mic, zxnext.vhd:3599 there), so
+        //   beep_mic_final = 1 xor (1 and 1) xor 1 = 1 and the beeper stem is 512; the stems sum to the mix exactly.
+        StemRig a;
+        stem_dc_levels(a.ts);
+        a.ts.set_stereo_mode(true);
+        a.ts.set_mono_mode(1);
+        a.ts.reg_addr(0xDE);   // chip 1, pan 10
+        a.ts.reg_addr(0xBD);   // chip 2, pan 01
+        for (int i = 0; i < 20; ++i) a.ts.tick();
+        a.span(635);
+        const bool a_ok = a.sink.f.size() == 1 && a.sink.f[0][S_AY0] == 36 && a.sink.f[0][S_AY0 + 1] == 36 &&
+                          a.sink.f[0][S_AY1] == 84 && a.sink.f[0][S_AY1 + 1] == 0 &&
+                          a.sink.f[0][S_AY2] == 0 && a.sink.f[0][S_AY2 + 1] == 256 &&
+                          stem_sum(a.sink.f[0], 0) == a.sink.f[0][S_MIX] && stem_sum(a.sink.f[0], 1) == a.sink.f[0][S_MIX + 1];
+        StemRig b;
+        stem_dc_levels(b.ts);
+        b.ts.reg_addr(0xFF);   // AY#0 selected, pan 11
+        b.ts.set_enabled(false);
+        for (int i = 0; i < 20; ++i) b.ts.tick();
+        b.span(635);
+        const bool b_ok = b.sink.f.size() == 1 && b.sink.f[0][S_AY1] == 0 && b.sink.f[0][S_AY1 + 1] == 0 &&
+                          b.sink.f[0][S_AY2] == 0 && b.sink.f[0][S_AY2 + 1] == 0 && b.sink.f[0][S_AY0] == 20 &&
+                          b.at(AudioSource::Ay1A, 0) == 28 &&
+                          stem_sum(b.sink.f[0], 0) == b.sink.f[0][S_MIX] && stem_sum(b.sink.f[0], 1) == b.sink.f[0][S_MIX + 1];
+        StemRig c0;
+        c0.beeper.set_mic(true);
+        c0.beeper.set_mic_final(false);
+        c0.span(635);
+        c0.beeper.set_mic_final(true);
+        c0.span(635);
+        const bool c0_ok = c0.sink.f.size() == 2 && c0.sink.f[0][S_BEEP] == 0 && c0.sink.f[1][S_BEEP] == 512 &&
+                           stem_sum(c0.sink.f[0], 0) == c0.sink.f[0][S_MIX] && stem_sum(c0.sink.f[1], 0) == c0.sink.f[1][S_MIX];
+        Emulator emu; fresh(emu);
+        nr_write(emu, 0x08, 0x11);
+        emu.port().out(0xFE, 0x08);
+        park(emu);
+        AudioSourceTap tap; AudioStemTap st; StemSink sink;
+        st.out = &StemSink::put; st.ctx = &sink; tap.stems = &st;
+        emu.set_audio_scope_tap(&tap);
+        for (int i = 0; i < 2; ++i) emu.run_frame();
+        bool c_ok = c0_ok && sink.f.size() > 800;
+        for (const auto& fr : sink.f)
+            c_ok = c_ok && fr[S_BEEP] == 512 && fr[S_BEEP + 1] == 512 && stem_sum(fr, 0) == fr[S_MIX] && stem_sum(fr, 1) == fr[S_MIX + 1];
+        check("STM-02", "post-pan and post-mono: ACB with chip 0 mono, chip 1 pan 10, chip 2 pan 01 gives ay0 (36,36), ay1 (84,0), ay2 (0,256); a chip out of the mix is (0,0) while the scope's Ay1A reads 28; "
+              "the beeper stem follows beep_mic_final, not the MIC bit (0 with it low, 512 with it high; 512 for MIC with the issue-2 keyboard bit and no tape); the stems sum to the mix in all (turbosound.vhd:186-202,323-335; ear_relax zxnext_top_issue2.vhd:662 and beep_mic_final zxnext.vhd:6503 at core 3.02.03)",
+              a_ok && b_ok && c_ok);
+    }
+    {
+        // STM-03: EAR high for 100 cycles, low for 535, nothing else sounding. Beeper = round(4 x 512 x 100 / 635) = round(322.52) = 323
+        // (truncation gives 322). Mix = (4 x (1536 x 635 + 51200) + 317) / 635 - 6144 = 323 (rest 1536 = DAC 1024 + Pi 512). Sum = mix.
+        StemRig m;
+        m.beeper.set_ear(true);
+        m.span(100);
+        m.beeper.set_ear(false);
+        m.span(535);
+        check("STM-03", "EAR high for 100 of 635 cycles: the beeper stem is round(322.52) = 323 (not 322), the mix 323, every other stem 0 (audio_mixer.vhd:80-81,99-100)",
+              m.sink.f.size() == 1 && m.sink.f[0][S_BEEP] == 323 && m.sink.f[0][S_MIX] == 323 && m.sink.f[0][S_MIX + 1] == 323 &&
+              stem_sum(m.sink.f[0], 0) == 323 && m.sink.f[0][S_DAC] == 0 && m.sink.f[0][S_PI] == 0 && m.sink.f[0][S_AY0] == 0);
+    }
+    {
+        // STM-04: the mix is rounded ONCE, from its own accumulator, and a stem from its own. Leg 1: EAR and DAC A = 0x81 (B 0x80) for 100 cycles,
+        // then EAR 0 and A = 0x80 for 535. Beeper 323. DAC L = round(4 x (1028 x 100 + 1024 x 535) / 635) - 4096 = round(4098.52) - 4096 = 3.
+        // Mix = round(4 x (2052 x 100 + 1536 x 535) / 635) - 6144 = round(6469.04) - 6144 = 325. Sum 323 + 3 = 326: an error of exactly +1.
+        // Leg 2: also B = 0x81 for the first 100 cycles: DAC L = round(4 x (1032 x 100 + 1024 x 535) / 635) - 4096 = round(4101.04) - 4096 = 5
+        // (rounding A and B apart gives 3 + 3 = 6); mix = round(4 x (2056 x 100 + 1536 x 535) / 635) - 6144 = round(6471.56) - 6144 = 328 = 323 + 5.
+        StemRig a;
+        a.beeper.set_ear(true); a.dac.write_channel(0, 0x81);
+        a.span(100);
+        a.beeper.set_ear(false); a.dac.write_channel(0, 0x80);
+        a.span(535);
+        StemRig b;
+        b.beeper.set_ear(true); b.dac.write_channel(0, 0x81); b.dac.write_channel(1, 0x81);
+        b.span(100);
+        b.beeper.set_ear(false); b.dac.write_channel(0, 0x80); b.dac.write_channel(1, 0x80);
+        b.span(535);
+        check("STM-04", "the mix is rounded once from its own accumulator: leg 1 beeper 323, dac 3, mix 325 (the six sum to 326, error +1); leg 2 dac 5 (not 3 + 3), mix 328 = 323 + 5",
+              a.sink.f.size() == 1 && a.sink.f[0][S_BEEP] == 323 && a.sink.f[0][S_DAC] == 3 && a.sink.f[0][S_MIX] == 325 &&
+              stem_sum(a.sink.f[0], 0) == 326 &&
+              b.sink.f.size() == 1 && b.sink.f[0][S_BEEP] == 323 && b.sink.f[0][S_DAC] == 5 && b.sink.f[0][S_MIX] == 328 &&
+              stem_sum(b.sink.f[0], 0) == 328);
+    }
+    {
+        // STM-05: the per-chip latch. Leg 1: chip 0 at volume 15 on A and B (YM 255 each, ym2149.vhd:157-162), pan 11, latch on, settled.
+        // Then the pan command setting chip 0's pan to 00 (0x9F), NO tick, a 10-cycle slice, then a tick (the recompute) and the other 625
+        // cycles. In jnext's model (the mix is recomputed on a PSG tick, GH #440) the sum still held the old pan for those 10 cycles, and a stem must sum to it: ay0 L = round(4 x 510 x 10 / 635)
+        // = round(32.13) = 32 and R = B + C = 255 + 0 (volume 0 is level 0, ym2149.vhd:483-484): round(4 x 255 x 10 / 635) = round(16.06) = 16.
+        // Computed on the fly from the new pan both would be 0. Leg 2: the latch is turned off, chip 0's pan is cleared on the
+        // hot path, the latch is turned on again: the first sample's ay0 is (0, 0), the estimate from the inputs, not the stale loud latch.
+        StemRig a;
+        a.ts.set_enabled(true);
+        ts_reg(a.ts, 0, 7, 0x3F); ts_reg(a.ts, 0, 8, 15); ts_reg(a.ts, 0, 9, 15);
+        for (int i = 0; i < 20; ++i) a.ts.tick();
+        a.ts.reg_addr(0x9F);
+        a.span(10);
+        a.ts.tick();
+        a.span(625);
+        const bool leg1 = a.sink.f.size() == 1 && a.sink.f[0][S_AY0] == 32 && a.sink.f[0][S_AY0 + 1] == 16 &&
+                          stem_sum(a.sink.f[0], 0) == a.sink.f[0][S_MIX] && stem_sum(a.sink.f[0], 1) == a.sink.f[0][S_MIX + 1];
+        StemRig b;
+        b.ts.set_enabled(true);
+        ts_reg(b.ts, 0, 7, 0x3F); ts_reg(b.ts, 0, 8, 15); ts_reg(b.ts, 0, 9, 15);
+        for (int i = 0; i < 20; ++i) b.ts.tick();
+        b.ts.set_hw_chip_latch(false);
+        b.ts.reg_addr(0x9F);
+        for (int i = 0; i < 20; ++i) b.ts.tick();
+        b.ts.set_hw_chip_latch(true);
+        b.span(635);
+        const bool leg2 = b.sink.f.size() == 1 && b.sink.f[0][S_AY0] == 0 && b.sink.f[0][S_AY0 + 1] == 0 &&
+                          stem_sum(b.sink.f[0], 0) == b.sink.f[0][S_MIX] && stem_sum(b.sink.f[0], 1) == b.sink.f[0][S_MIX + 1];
+        // Leg 3: a channel mute set and cleared again leaves the latch working (the two share one divert test): the leg-1 sequence after set_channel_mute_mask(1), set_channel_mute_mask(0)
+        // still gives ay0 (32, 16).
+        StemRig c;
+        c.ts.set_enabled(true);
+        c.ts.set_channel_mute_mask(1);
+        c.ts.set_channel_mute_mask(0);
+        ts_reg(c.ts, 0, 7, 0x3F); ts_reg(c.ts, 0, 8, 15); ts_reg(c.ts, 0, 9, 15);
+        for (int i = 0; i < 20; ++i) c.ts.tick();
+        c.ts.reg_addr(0x9F);
+        c.span(10);
+        c.ts.tick();
+        c.span(625);
+        c.ts.set_channel_mute_mask(1);
+        const bool mask_getter = c.ts.channel_mute_mask() == 1;   // the latch bit is not part of the mute (F4)
+        c.ts.set_channel_mute_mask(0);
+        const bool leg3 = c.sink.f.size() == 1 && c.sink.f[0][S_AY0] == 32 && c.sink.f[0][S_AY0 + 1] == 16 &&
+                          stem_sum(c.sink.f[0], 0) == c.sink.f[0][S_MIX] && mask_getter && c.ts.channel_mute_mask() == 0;
+        // Leg 4: reset_ay_only() (the NR 0x06 AY reset, any machine reset) clears the latch with the sum: chip 0 loud and settled, reset,
+        // a 10-cycle slice before the next PSG tick, then the tick and 625 cycles: ay0 (0, 0) and the stems sum to the mix (0).
+        StemRig d;
+        d.ts.set_enabled(true);
+        ts_reg(d.ts, 0, 7, 0x3F); ts_reg(d.ts, 0, 8, 15); ts_reg(d.ts, 0, 9, 15);
+        for (int i = 0; i < 20; ++i) d.ts.tick();
+        d.ts.reset_ay_only();
+        d.span(10);
+        d.ts.tick();
+        d.span(625);
+        const bool leg4 = d.sink.f.size() == 1 && d.sink.f[0][S_AY0] == 0 && d.sink.f[0][S_AY0 + 1] == 0 &&
+                          stem_sum(d.sink.f[0], 0) == d.sink.f[0][S_MIX] && stem_sum(d.sink.f[0], 1) == d.sink.f[0][S_MIX + 1];
+        check("STM-05", "the latch holds the hardware per-chip value of the recompute that made the sum: a pan write 10 cycles before its tick leaves ay0 (32, 16) (not 0), and the stems still sum to the mix; "
+              "a latch turned off, a hot-path change and a latch turned on again gives the estimate (0,0), not the stale latch; a channel mute set and cleared leaves the latch working and the getter hides it; reset_ay_only() clears the latch (per-chip pans and outputs: turbosound.vhd:118-138,323-330; the one-tick delay is jnext's recompute model)", leg1 && leg2 && leg3 && leg4);
+    }
+    {
+        // STM-06: the post-load estimate. State Y: chip 1 at volume 15 on A and B and volume 0 on C (level 0, ym2149.vhd:483-484), pan 11:
+        // L = A + B = 510, R = C + B = 255; chip 0 pan 00. Saved. Then chip 0 at volume 8 on A and B (YM 27 each: L = 54) with pan 11 and chip 1
+        // pan 00, settled with the latch valid. load_state(Y), then one whole sample before any tick: the stems are Y's own breakdown,
+        // ay1 (4 x 510, 4 x 255) = (2040, 1020) and ay0 (0, 0), and sum to the mix (hw_pcm (510, 255), loaded from Y). The latched pre-load
+        // breakdown (chip 0 loud, chip 1 off) would sum to 54, not 510.
+        StemRig m;
+        m.ts.set_enabled(true);
+        for (int c = 0; c < 2; ++c) { ts_reg(m.ts, c, 7, 0x3F); ts_reg(m.ts, c, 8, 15); ts_reg(m.ts, c, 9, 15); }
+        m.ts.reg_addr(0x9F);   // chip 0 pan 00
+        m.ts.reg_addr(0xFE);   // chip 1 pan 11 (selected)
+        for (int i = 0; i < 20; ++i) m.ts.tick();
+        std::vector<uint8_t> img(1 << 14);
+        StateWriter w(img.data(), img.size());
+        m.ts.save_state(w);
+        const size_t n = w.position();
+        ts_reg(m.ts, 0, 8, 8); ts_reg(m.ts, 0, 9, 8);
+        m.ts.reg_addr(0xFF);   // chip 0 pan 11
+        m.ts.reg_addr(0x9E);   // chip 1 pan 00
+        for (int i = 0; i < 20; ++i) m.ts.tick();
+        StateReader rd(img.data(), n);
+        m.ts.load_state(rd);
+        uint16_t l0, r0, l1, r1;
+        m.ts.hw_chip_pcm(0, l0, r0);
+        m.ts.hw_chip_pcm(1, l1, r1);
+        m.span(635);
+        const bool first = l0 == 0 && r0 == 0 && l1 == 510 && r1 == 255 && m.sink.f.size() == 1 &&
+                           m.sink.f[0][S_AY0] == 0 && m.sink.f[0][S_AY1] == 2040 && m.sink.f[0][S_AY1 + 1] == 1020 &&
+                           stem_sum(m.sink.f[0], 0) == m.sink.f[0][S_MIX] && stem_sum(m.sink.f[0], 1) == m.sink.f[0][S_MIX + 1];
+        m.ts.tick();
+        m.span(635);
+        uint16_t l1b, r1b;
+        m.ts.hw_chip_pcm(1, l1b, r1b);
+        const bool after = m.sink.f.size() == 2 && l1b == 510 && m.sink.f[1][S_AY1] == 2040 &&
+                           stem_sum(m.sink.f[1], 0) == m.sink.f[1][S_MIX];
+        check("STM-06", "after a state load and before the first recompute the per-chip stems are the loaded state's own breakdown (ay1 2040, ay0 0), summing to the loaded mix; after the first recompute the latch is used", first && after);
+    }
+    {
+        // STM-07: arbitrary input on a whole machine. build() (all three chips, the DAC and a beeper toggled by the CPU), a Pi ramp through I2S
+        // (NR 0xA2), the CPU at 28 MHz (NR 0x07 = 3, where an OUT is shorter than a PSG tick) and a TurboSound pan command on chip 0 every
+        // frame. Stems on from the first sample of 20 frames. Each sample: |sum of the six source stems - mix| <= 3 (the seven roundings of
+        // the mixer's own x4 average, each in [-1/2, 1/2): at most 3 after the integer sum; derived in the developer guide), and the mix
+        // stem equals the mixer's own output (0 dB, no mute), sample for sample, in equal numbers.
+        Emulator emu; PiAudio pa;
+        for (int i = 0; i < 20000; ++i) {
+            const int16_t v = static_cast<int16_t>((i % 4000) * 8 - 16000);
+            pa.push_for_test(v, static_cast<int16_t>(-v));
+        }
+        build_pi(emu, pa);
+        {   // A loop toggling EAR (OUT (0xFE),A with 0x10 and 0): the beeper changes many times inside every output sample, besides the AY square.
+            const uint8_t prog[] = {0x3E, 0x10, 0xD3, 0xFE, 0xAF, 0xD3, 0xFE, 0x18, 0xF7};
+            for (size_t i = 0; i < sizeof prog; ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+        }
+        AudioSourceTap tap; AudioStemTap st; StemSink sink;
+        st.out = &StemSink::put; st.ctx = &sink; tap.stems = &st;
+        Out o, tmp; drain(emu, tmp);
+        emu.set_audio_scope_tap(&tap);
+        static const uint8_t pans[4] = {0xDF, 0xBF, 0x9F, 0xFF};
+        for (int f = 0; f < 20; ++f) {
+            ay_select(emu, 0);
+            emu.port().out(0xFFFD, pans[f % 4]);
+            emu.run_frame();
+            drain(emu, o);
+        }
+        int worst = 0;
+        bool same_mix = sink.f.size() == o.l.size();
+        for (size_t i = 0; same_mix && i < sink.f.size(); ++i) {
+            worst = std::max({worst, std::abs(stem_sum(sink.f[i], 0) - sink.f[i][S_MIX]), std::abs(stem_sum(sink.f[i], 1) - sink.f[i][S_MIX + 1])});
+            same_mix = sink.f[i][S_MIX] == o.l[i] && sink.f[i][S_MIX + 1] == o.r[i];
+        }
+        bool pi_moves = false;
+        for (const auto& fr : sink.f) pi_moves = pi_moves || fr[S_PI] != sink.f[0][S_PI];
+        check("STM-07", "20 frames at 28 MHz with a Pi ramp, three sounding chips and a pan change every frame: over more than 800 samples the six source stems sum to the mix within 3 on every sample and the bound is exercised "
+              "(an error of at least 1 occurs); the mix stem equals the mixer's output sample for sample, in equal numbers; the Pi stem moves",
+              sink.f.size() > 800 && same_mix && worst >= 1 && worst <= 3 && pi_moves);
+    }
+    {
+        // STM-08 (D12): the stems are before every debugger mute and every host gain. The same machine twice: B mutes every source and every
+        // channel and lowers every host gain by 6 dB. The stem frames are identical; the audible output differs (control).
+        Emulator a, b; build(a); build(b);
+        AudioSourceTap ta, tb; AudioStemTap sa, sb; StemSink ka, kb;
+        sa.out = &StemSink::put; sa.ctx = &ka; ta.stems = &sa;
+        sb.out = &StemSink::put; sb.ctx = &kb; tb.stems = &sb;
+        a.set_audio_scope_tap(&ta); b.set_audio_scope_tap(&tb);
+        b.set_audio_mute_mask(AudioMute::ALL);
+        b.set_audio_channel_mute_mask(AudioChannelMute::ALL);
+        b.mixer().set_output_gain_db(-6.0f); b.mixer().set_beeper_gain_db(-6.0f);
+        b.mixer().set_dac_gain_db(-6.0f);
+        for (int c = 0; c < 3; ++c) b.mixer().set_ay_gain_db(c, -6.0f);
+        const Out oa = run_frames(a, 3), ob = run_frames(b, 3);
+        check("STM-08", "the stems are pre-mute and pre-gain: identical frames with every source and channel muted and every host gain -6 dB; the audible output differs (control)",
+              ka.f.size() > 1000 && ka.f == kb.f && oa.l != ob.l && oa.r != ob.r);
+    }
+    {
+        // STM-09: the latch never changes what is heard. A standalone TurboSound driven through a fixed sequence of register, pan and volume
+        // writes with a tick and an 11-cycle slice between them, per channel mute (none, and AY0 channel A) x latch (off, on): the audible pair,
+        // the hardware pair and each chip's audible pair after every write, and the mixer's output, are identical with the latch on and off.
+        // That covers both TurboSound paths (the hot loop and the cold one) and the latch bit sharing the mute mask's divert test.
+        struct Obs { std::vector<uint16_t> v; Out out; };
+        auto drive = [](bool latch, uint16_t mute, Obs& o) {
+            MixRig m;
+            m.ts.set_enabled(true);
+            m.ts.set_hw_chip_latch(latch);
+            m.ts.set_channel_mute_mask(mute);   // after the latch: each setter must refresh the divert byte itself
+            static const uint8_t pan_bits[4] = {3, 2, 1, 0};
+            for (int i = 0; i < 160; ++i) {
+                const int c = i % 3;
+                ts_reg(m.ts, c, 7, static_cast<uint8_t>(0x38 | (i % 8)));
+                ts_reg(m.ts, c, static_cast<uint8_t>(8 + i % 3), static_cast<uint8_t>((i * 5) % 16));
+                ts_reg(m.ts, c, 0, static_cast<uint8_t>(i * 7));
+                if (i % 5 == 0) m.ts.reg_addr(static_cast<uint8_t>(0x9C | (pan_bits[(i / 5) % 4] << 5) | (c == 0 ? 3 : c == 1 ? 2 : 1)));
+                if (i % 7 == 0) m.ts.set_mono_mode(static_cast<uint8_t>(i % 8));
+                if (i % 11 == 0) m.ts.set_stereo_mode((i / 11) & 1);
+                for (int t = 0; t < 3; ++t) {
+                    m.ts.tick();
+                    m.span(11);
+                    o.v.push_back(m.ts.pcm_left()); o.v.push_back(m.ts.pcm_right());
+                    o.v.push_back(m.ts.hw_pcm_left()); o.v.push_back(m.ts.hw_pcm_right());
+                    for (int k = 0; k < 3; ++k) { uint16_t l, r; m.ts.chip_pcm(k, l, r); o.v.push_back(l); o.v.push_back(r); }
+                }
+            }
+            int16_t buf[2 * 512];
+            for (;;) {
+                const int n = m.mixer.read_samples(buf, 512);
+                if (n <= 0) break;
+                for (int i = 0; i < n; ++i) { o.out.l.push_back(buf[2 * i]); o.out.r.push_back(buf[2 * i + 1]); }
+            }
+        };
+        bool same = true, moved = false;
+        for (uint16_t mute : {static_cast<uint16_t>(0), static_cast<uint16_t>(1)}) {
+            Obs off, on;
+            drive(false, mute, off);
+            drive(true, mute, on);
+            same = same && off.v == on.v && off.out.l == on.out.l && off.out.r == on.out.r;
+            moved = moved || std::any_of(off.v.begin(), off.v.end(), [](uint16_t x) { return x != 0; });
+        }
+        check("STM-09", "the latch is invisible to the audible mix: with and without a channel mute, TurboSound's audible pair, hardware pair and per-chip audible pairs after every write, and the mixer output, are identical with the latch off and on (the sequence sounds)",
+              same && moved);
+    }
+    {
+        // STM-10: the stems refuse batching, as a scope does. A HALT fixture and a raster-poll fixture (SCP-08/09's), one machine built, run
+        // and destroyed at a time. With stems on neither batch runs (batching enabled), the control without a tap batches, and the stem frames
+        // equal the batch-off run's; the audible output equals an untapped run's.
+        struct Run { Out out; AudioSourceTap tap; AudioStemTap st; StemSink sink; uint64_t batched = 0; };
+        auto go = [](bool poll, bool batch, bool stems, Run& r) {
+            Emulator e;
+            build_batch(e, poll);
+            e.set_cycle_batching_for_test(batch, batch, batch);
+            if (stems) {
+                r.st.out = &StemSink::put; r.st.ctx = &r.sink; r.tap.stems = &r.st;
+                e.set_audio_scope_tap(&r.tap);
+            }
+            for (int f = 0; f < 8; ++f) { e.run_frame(); drain(e, r.out); }
+            r.batched = poll ? e.poll_passes_batched_for_test() : e.halt_repeats_batched_for_test();
+        };
+        bool ok = true;
+        for (int poll = 0; poll < 2; ++poll) {
+            Run untapped_on, stems_on, stems_off, untapped_off;
+            go(poll, true, false, untapped_on);
+            go(poll, true, true, stems_on);
+            go(poll, false, true, stems_off);
+            go(poll, false, false, untapped_off);
+            ok = ok && untapped_on.batched > 0 && stems_on.batched == 0 && stems_off.batched == 0 &&
+                 stems_on.sink.f.size() > 5000 && stems_on.sink.f == stems_off.sink.f &&
+                 stems_on.out.l == untapped_on.out.l && stems_on.out.r == untapped_on.out.r &&
+                 untapped_on.out.l == untapped_off.out.l;
+        }
+        check("STM-10", "with stems on, an IM 2 HALT loop and a raster-poll loop (8 frames each) run no batch while the same machine untapped does; the stem frames and the audible output equal the batch-off run's, sample for sample", ok);
+    }
+    {
+        // STM-11: alignment across transitions, through the Debugger. Stems recording, then in turn reset(Soft), an in-place init(),
+        // reset(Hard) (a cold boot), load_state_bytes of a state saved at a frame boundary, and a rewind step_back (a replay); frames
+        // after each. The files hold exactly as many frames as the mixer emitted (none dropped, none added), the six source stems sum to
+        // the mix within 3 on every sample (those straddling a transition included), the latch is on in the new machine after the cold
+        // boot, and during the replay neither the mixer nor the stems move.
+        const std::string dir = stem_dir("stm11");
+        Emulator emu; fresh(emu); park(emu);
+        emu.set_rewind_enabled(true);
+        emu.resize_rewind_buffer(50);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("stm11")).value;
+        jnext::dbg::LoopDriver d;
+        d.cold_boot = [&]() { emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{}); return true; };
+        d.load = [](const std::string&) { return true; };   // an in-place load: no init(), the mixer keeps its partial sample
+        dbg.set_loop_driver(d);
+        nr_write(emu, 0x08, 0x0A);
+        ay_select(emu, 0); ay_write(emu, 7, 0x3E); ay_write(emu, 0, 100); ay_write(emu, 8, 15);
+        Out junk; drain(emu, junk);
+        bool ok = dbg.stems_record_start(cid, dir) == Result::Ok;
+        size_t mixed = 0;
+        auto frames = [&](int n) {
+            Out o;
+            park(emu);
+            for (int i = 0; i < n; ++i) { emu.run_frame(); drain(emu, o); }
+            mixed += o.l.size();
+        };
+        frames(3);
+        dbg.reset(cid, ResetKind::Soft);
+        frames(3);
+        EmulatorConfig cfg = emu.config();
+        { Out o; drain(emu, o); mixed += o.l.size(); }
+        emu.init(cfg);
+        frames(3);
+        { Out o; drain(emu, o); mixed += o.l.size(); }
+        dbg.reset(cid, ResetKind::Hard);
+        ok = ok && emu.turbosound().hw_chip_latch() && emu.audio_scope_tap() != nullptr;
+        frames(3);
+        const auto saved = dbg.save_state_bytes(cid, SaveStateMode::AdvanceToBoundary);
+        { Out o; drain(emu, o); mixed += o.l.size(); }
+        frames(2);
+        ok = ok && saved.status == Result::Ok && dbg.load_state_bytes(cid, saved.value.data(), saved.value.size()) == Result::Ok;
+        frames(3);
+        // An in-place Debugger::load (a .tap, a .wav) re-installs the same tap through the reconstruct re-application: the tap keeps its
+        // partial sample, so no stem frame is lost (a frame boundary is mid-sample for the mixer).
+        { Out o; drain(emu, o); mixed += o.l.size(); }
+        ok = ok && dbg.load(cid, "stm11.tap") == Result::Ok;
+        frames(3);
+        // The replay: well into a frame, step back; nothing is mixed or recorded by it.
+        dbg.pause(cid);
+        for (int i = 0; i < 3000; ++i) emu.execute_single_instruction();
+        { Out o; drain(emu, o); mixed += o.l.size(); }
+        const AudioSourceTap* t0 = emu.audio_scope_tap();
+        const uint64_t w0 = t0 && t0->stems ? t0->stems->written : 0;
+        const Result sb = dbg.step_back(cid, 1);
+        const bool replay_quiet = sb == Result::Ok && emu.mixer().available() == 0 &&
+                                  emu.audio_scope_tap() && emu.audio_scope_tap()->stems && emu.audio_scope_tap()->stems->written == w0;
+        dbg.run(cid);
+        frames(3);
+        ok = ok && replay_quiet && dbg.stems_record_stop(cid) == Result::Ok;
+        size_t nframes = 0;
+        const int worst = stems_error(dir, nframes);
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        check("STM-11", "stems recording across reset(Soft), init(), reset(Hard), a state load, an in-place load and a rewind replay: the files hold exactly the mixer's emitted sample count, the six source stems sum to the mix within 3 on every sample, "
+              "the new machine has the latch on, and the replay moves neither count",
+              ok && worst >= 0 && worst <= 3 && nframes == mixed && nframes > 2000);
+    }
+    {
+        // STM-12: the backend lifecycle, files read back. No scope is asked, so the tap is the recording's alone.
+        const std::string dir = stem_dir("stm12");
+        Emulator emu; fresh(emu); park(emu);
+        nr_write(emu, 0x08, 0x0A);
+        ay_select(emu, 0); ay_write(emu, 7, 0x3E); ay_write(emu, 0, 100); ay_write(emu, 8, 15);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("stm12")).value;
+        const bool before = !dbg.stems_recording() && emu.audio_scope_tap() == nullptr;
+        const uint64_t rev0 = dbg.state_revision();
+        const Result on_r = dbg.stems_record_start(cid, dir);
+        bool ok = before && on_r == Result::Ok && dbg.stems_recording() && dbg.state_revision() == rev0 + 1;
+        for (const char* n : STEM_FILES) ok = ok && std::filesystem::exists(std::filesystem::path(dir) / n);
+        ok = ok && emu.audio_scope_tap() != nullptr && !dbg.audio_scope_enabled() &&
+             dbg.audio_scope_samples(1).status == Result::RefusedUnavailable;
+        const bool again = dbg.stems_record_start(cid, dir) == Result::RefusedUnavailable;
+        Out o, tmp; drain(emu, tmp);
+        for (int f = 0; f < 5; ++f) { emu.run_frame(); drain(emu, o); }
+        const Result off_r = dbg.stems_record_stop(cid);
+        ok = ok && again && off_r == Result::Ok && !dbg.stems_recording() && dbg.state_revision() == rev0 + 2 &&
+             emu.audio_scope_tap() == nullptr;
+        WavFile f[7]; size_t nframes = 0;
+        const bool valid = read_stems(dir, f, nframes);
+        bool vals = valid && nframes == o.l.size() && nframes > 700;
+        for (size_t i = 0; vals && i < nframes; ++i)
+            vals = f[6].pcm[2 * i] == o.l[i] && f[6].pcm[2 * i + 1] == o.r[i];
+        const bool idle_refused = dbg.stems_record_stop(cid) == Result::RefusedUnavailable && dbg.state_revision() == rev0 + 2;
+        std::string before_more[7];
+        for (int i = 0; i < 7; ++i) before_more[i] = slurp((std::filesystem::path(dir) / STEM_FILES[i]).string());
+        for (int fr = 0; fr < 3; ++fr) emu.run_frame();
+        bool unchanged = true;
+        for (int i = 0; i < 7; ++i) unchanged = unchanged && slurp((std::filesystem::path(dir) / STEM_FILES[i]).string()) == before_more[i];
+        // A scope asked before the start keeps the SAME tap across the start and the stop, and its numbering.
+        Emulator e2; fresh(e2); park(e2);
+        Debugger d2(e2);
+        const ClientId c2 = d2.attach(client("stm12b")).value;
+        d2.set_audio_scope_enabled(c2, true);
+        const AudioSourceTap* t0 = e2.audio_scope_tap();
+        e2.run_frame();
+        const std::string dir2 = stem_dir("stm12b");
+        const bool st_ok = d2.stems_record_start(c2, dir2) == Result::Ok && e2.audio_scope_tap() == t0 && d2.audio_scope_enabled() &&
+                           e2.turbosound().hw_chip_latch();   // the latch follows the stems on a tap that was already installed
+        e2.run_frame();
+        const uint64_t mid = d2.audio_scope_samples(0).value.first_sample;
+        const bool sp_ok = d2.stems_record_stop(c2) == Result::Ok && e2.audio_scope_tap() == t0 && d2.audio_scope_enabled() &&
+                           !e2.turbosound().hw_chip_latch();
+        e2.run_frame();
+        const bool kept = st_ok && sp_ok && mid > 1000 && d2.audio_scope_samples(0).value.first_sample > mid && t0 != nullptr;
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        std::filesystem::remove_all(dir2, ec);
+        check("STM-12", "lifecycle: refused when idle; start makes the seven files and installs the tap with no scope asked (revision +1); a second start is refused; stop (revision +1) removes it; the files are valid 44100/2/16 with equal lengths, "
+              "the mix file equals the mixer's output sample for sample; nothing is written after the stop; with a scope asked first the tap stays the same one across start and stop",
+              ok && vals && idle_refused && unchanged && kept);
+    }
+    {
+        // STM-13: refusals. Under --silent nothing is created. A DIR under a regular file cannot be made: refused, not recording, nothing
+        // left in the parent. A missing nested DIR is created.
+        const std::string base = stem_dir("stm13");
+        std::filesystem::create_directories(base);
+        Emulator es;
+        EmulatorConfig cfg; cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0; cfg.silent = true;
+        es.init(cfg);
+        Debugger ds(es);
+        const ClientId cs = ds.attach(client("stm13s")).value;
+        const std::string sdir = (std::filesystem::path(base) / "silent").string();
+        const bool silent_refused = ds.stems_record_start(cs, sdir) == Result::RefusedUnavailable && !ds.stems_recording() &&
+                                    !std::filesystem::exists(sdir) && es.audio_scope_tap() == nullptr;
+        Emulator emu; fresh(emu); park(emu);
+        Debugger dbg(emu);
+        const ClientId cid = dbg.attach(client("stm13")).value;
+        const std::string file = (std::filesystem::path(base) / "plain").string();
+        if (std::FILE* f = std::fopen(file.c_str(), "wb")) std::fclose(f);
+        const bool bad_refused = dbg.stems_record_start(cid, (std::filesystem::path(file) / "sub").string()) == Result::RefusedUnavailable &&
+                                 !dbg.stems_recording() && emu.audio_scope_tap() == nullptr;
+        size_t entries = 0;
+        for (const auto& e : std::filesystem::directory_iterator(base)) { (void)e; ++entries; }
+        // A directory named like the last file: the probe refuses the start before any file is created; the directory in the way stays.
+        const std::string half = (std::filesystem::path(base) / "half").string();
+        std::filesystem::create_directories(std::filesystem::path(half) / "mix.wav");
+        const bool half_refused = dbg.stems_record_start(cid, half) == Result::RefusedUnavailable && !dbg.stems_recording() &&
+                                  emu.audio_scope_tap() == nullptr && !std::filesystem::exists(std::filesystem::path(half) / "ay0.wav") &&
+                                  !std::filesystem::exists(std::filesystem::path(half) / "beeper.wav") &&
+                                  std::filesystem::is_directory(std::filesystem::path(half) / "mix.wav");
+        // F1: a refused start changes nothing the user already had. Names of an existing directory and an existing file: a directory in
+        // the place of pi.wav (cannot be opened) refuses the start BEFORE ay0.wav (user data, earlier in the list) is truncated; then a
+        // write-protected regular pi.wav with content (where permissions are enforced: probed by opening it) survives byte for byte too.
+        const std::string keep = (std::filesystem::path(base) / "keep").string();
+        std::filesystem::create_directories(std::filesystem::path(keep) / "pi.wav");
+        auto put = [](const std::filesystem::path& p, const char* text) { if (std::FILE* f = std::fopen(p.string().c_str(), "wb")) { std::fputs(text, f); std::fclose(f); } };
+        put(std::filesystem::path(keep) / "ay0.wav", "user ay0 data");
+        const bool keep_refused = dbg.stems_record_start(cid, keep) == Result::RefusedUnavailable && !dbg.stems_recording() &&
+                                  slurp((std::filesystem::path(keep) / "ay0.wav").string()) == "user ay0 data" &&
+                                  std::filesystem::is_directory(std::filesystem::path(keep) / "pi.wav");
+        const std::string ro = (std::filesystem::path(base) / "ro").string();
+        std::filesystem::create_directories(ro);
+        put(std::filesystem::path(ro) / "ay0.wav", "user ay0 data");
+        put(std::filesystem::path(ro) / "pi.wav", "precious user data");
+        std::error_code pec;
+        std::filesystem::permissions(std::filesystem::path(ro) / "pi.wav", std::filesystem::perms::owner_read | std::filesystem::perms::group_read |
+                                     std::filesystem::perms::others_read, pec);
+        std::FILE* probe = std::fopen((std::filesystem::path(ro) / "pi.wav").string().c_str(), "rb+");
+        const bool enforced = probe == nullptr;   // false as root and where the host ignores the mode: the leg has nothing to protect
+        if (probe) std::fclose(probe);
+        const bool ro_refused = !enforced ||
+                                (dbg.stems_record_start(cid, ro) == Result::RefusedUnavailable && !dbg.stems_recording() &&
+                                 slurp((std::filesystem::path(ro) / "pi.wav").string()) == "precious user data" &&
+                                 slurp((std::filesystem::path(ro) / "ay0.wav").string()) == "user ay0 data");
+        std::filesystem::permissions(std::filesystem::path(ro) / "pi.wav", std::filesystem::perms::owner_write, std::filesystem::perm_options::add, pec);
+        // R2-N1: a directory that cannot take new files (mode 0555) with a user ay0.wav in it: ay1.wav cannot be created, so the start is refused
+        // BEFORE ay0.wav is truncated. Where the mode is not enforced (probed by creating a file) the leg has nothing to protect.
+        const std::string rod = (std::filesystem::path(base) / "rod").string();
+        std::filesystem::create_directories(rod);
+        put(std::filesystem::path(rod) / "ay0.wav", "user ay0 data");
+        std::filesystem::permissions(rod, std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec |
+                                     std::filesystem::perms::group_read | std::filesystem::perms::group_exec |
+                                     std::filesystem::perms::others_read | std::filesystem::perms::others_exec, pec);
+        std::FILE* cprobe = std::fopen((std::filesystem::path(rod) / ".probe").string().c_str(), "wb");
+        const bool rod_enforced = cprobe == nullptr;
+        if (cprobe) { std::fclose(cprobe); std::filesystem::remove(std::filesystem::path(rod) / ".probe", pec); }
+        const bool rod_refused = !rod_enforced ||
+                                 (dbg.stems_record_start(cid, rod) == Result::RefusedUnavailable && !dbg.stems_recording() &&
+                                  slurp((std::filesystem::path(rod) / "ay0.wav").string()) == "user ay0 data");
+        std::filesystem::permissions(rod, std::filesystem::perms::owner_write, std::filesystem::perm_options::add, pec);
+        const std::string nested = (std::filesystem::path(base) / "a" / "b").string();
+        // G2: a successful start into a fresh directory leaves exactly the seven stem files there and nothing else.
+        bool nested_ok = dbg.stems_record_start(cid, nested) == Result::Ok && dbg.stems_recording() &&
+                         std::filesystem::exists(std::filesystem::path(nested) / "mix.wav");
+        {
+            std::vector<std::string> names;
+            for (const auto& e : std::filesystem::directory_iterator(nested)) names.push_back(e.path().filename().string());
+            std::sort(names.begin(), names.end());
+            std::vector<std::string> want(STEM_FILES, STEM_FILES + 7);
+            std::sort(want.begin(), want.end());
+            nested_ok = nested_ok && names == want;
+        }
+        dbg.stems_record_stop(cid);
+        // G-N1: all seven files already there in a directory that takes no new files (0555) but whose files are writable: nothing needs
+        // creating, so the start is Ok (no spurious refusal from a creatability check).
+        const std::string all7 = (std::filesystem::path(base) / "all7").string();
+        std::filesystem::create_directories(all7);
+        for (const char* n : STEM_FILES) put(std::filesystem::path(all7) / n, "old");
+        std::filesystem::permissions(all7, std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec |
+                                     std::filesystem::perms::group_read | std::filesystem::perms::group_exec |
+                                     std::filesystem::perms::others_read | std::filesystem::perms::others_exec, pec);
+        const bool all7_ok = dbg.stems_record_start(cid, all7) == Result::Ok && dbg.stems_recording();
+        dbg.stems_record_stop(cid);
+        std::filesystem::permissions(all7, std::filesystem::perms::owner_write, std::filesystem::perm_options::add, pec);
+        std::error_code ec;
+        std::filesystem::remove_all(base, ec);
+        check("STM-13", "refusals: under --silent the start is refused and creates nothing; a DIR under a regular file is refused and leaves nothing (only the file in its parent); a refused start leaves pre-existing user files byte for byte (a directory or a write-protected file in the way, a directory that cannot take new files, ay0.wav before it); a directory in the way of the last file refuses before anything is created; a start into a fresh directory leaves exactly the seven files; all seven present in a directory that takes no new files starts Ok; a missing nested DIR is created",
+              silent_refused && bad_refused && half_refused && keep_refused && ro_refused && rod_refused && all7_ok && entries == 1 && nested_ok);
+    }
+    {
+        // STM-14: the stems' sync rule (SCP-04's twin). 100 cycles reach the mixer alone (EAR high, the stems were not there), then the stem
+        // recording starts and its span ends that mixer sample: the stems saw 535 of its 635 cycles, so no stem frame is pushed for it (a
+        // frame averaged over 535 cycles would not be the mixer's sample). The next whole sample is pushed, and is the all-rest one (every stem 0).
+        StemRig m;
+        m.sa = 100ull * 44100;
+        m.beeper.set_ear(true);
+        m.mixer.accumulate(m.beeper, m.ts, m.dac, 100);
+        m.beeper.set_ear(false);
+        m.span(535);
+        const bool dropped = m.sink.f.empty() && m.st.written == 0;
+        m.span(635);
+        bool rest = m.sink.f.size() == 1;
+        for (size_t i = 0; rest && i < 14; ++i) rest = m.sink.f[0][i] == 0;
+        check("STM-14", "sync rule: a sample the stems saw only 535 of 635 cycles of gets no frame; the next whole one does, all stems at rest (0)", dropped && rest);
+    }
+    {
+        // AIZ-13: the stems are invisible to the Z80: the same machine run with a recording on and off has the same saved state and framebuffer
+        // over 50 frames, and the recording wrote frames (positive control).
+        const std::string dir = stem_dir("aiz13");
+        bool ran = false;
+        size_t nframes = 0;
+        auto feature = [&](Emulator&, Debugger& dbg, ClientId cid, bool on) {
+            if (on) {
+                dbg.stems_record_start(cid, dir);
+            } else {
+                dbg.stems_record_stop(cid);
+                WavFile f[7];
+                read_stems(dir, f, nframes);
+            }
+        };
+        const bool same = invisible_dbg(feature, 50, ran, build);
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        check("AIZ-13", "the WAV stems are outside describe_state() and the video: the same machine run with a stem recording on and off has the same saved state and framebuffer over 50 frames (the recording wrote more than 1000 frames)",
+              ran && same && nframes > 1000);
     }
 
     std::printf("\n=====================================\n");

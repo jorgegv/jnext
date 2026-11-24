@@ -1022,6 +1022,26 @@ emulation.
 Record the mixed stereo output to a 44.1 kHz, 16\-bit PCM WAV.
 Works headless and requires neither an audio device nor ffmpeg.
 .TP
+\f[B]\-\-wav\-record\-stems\f[R] \f[I]DIR\f[R]
+Record the mix as seven 44.1 kHz, 16\-bit stereo WAV files in
+\f[I]DIR\f[R], one per source: \f[CR]ay0.wav\f[R], \f[CR]ay1.wav\f[R],
+\f[CR]ay2.wav\f[R] (each AY chip after its mode and pan, silent while
+the chip is not in the mix), \f[CR]dac.wav\f[R] (left is A+B, right is
+C+D), \f[CR]beeper.wav\f[R] (EAR and MIC; a playing tape and Pi audio
+sent to EAR are inside it, as the Next mixes them as one term),
+\f[CR]pi.wav\f[R] (the Pi I2S audio) and \f[CR]mix.wav\f[R].
+The stems are taken before the host gains and the debugger mutes, so
+\f[CR]mix.wav\f[R] equals \f[B]\-\-wav\-record\f[R] at 0 dB, and the six
+source files add up to \f[CR]mix.wav\f[R] exactly while every source is
+steady within an output sample and otherwise within 3 counts per sample
+(the rounding of the seven files).
+\f[I]DIR\f[R] is created if missing and files of those names in it are
+overwritten.
+If \f[I]DIR\f[R] or a file cannot be created, \f[B]jnext\f[R] exits
+non\-zero without running the emulation; a write error that shows later
+exits non\-zero too.
+Cannot be combined with \f[B]\-\-silent\f[R].
+.TP
 \f[B]\-\-dac\-trace\f[R] \f[I]FILE\f[R]
 Record \f[CR]segment,tstate,channel,value\f[R] rows for physical DAC
 writes.
@@ -2974,6 +2994,14 @@ It cannot be combined with \f[B]\-\-silent\f[R], which disables mixer
 synthesis.
 If the emulator exits abnormally, the file may retain its initial
 zero\-length data header even though PCM follows it.
+.IP \(bu 2
+WAV stems (\f[B]\-\-wav\-record\-stems\f[R] \f[I]DIR\f[R]) write one
+file per source (each AY chip, the DAC, the beeper, the Pi and the mix)
+that add up to the mix.
+They follow the same rules as \f[B]\-\-wav\-record\f[R]: headless works,
+cold boots continue the files, \f[B]\-\-silent\f[R] is refused, and
+SIGTERM or SIGINT finalise them.
+While they record, HALT\-idle programs run without the HALT batching.
 .IP \(bu 2
 DAC tracing (\f[B]\-\-dac\-trace\f[R] \f[I]FILE\f[R]) records guest DAC
 writes before mixing.

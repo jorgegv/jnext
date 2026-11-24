@@ -75,6 +75,7 @@
 #include <set>
 #include <cstdarg>
 #include <cstdint>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -2931,6 +2932,149 @@ static void test_scopes(Emulator& emu) {
         auto* square = panel.findChild<QLabel*>("scope_trig_3");  // AY1 A: the square
         check("DAP-74", "the lamp of a silent channel (AY0 C) reads 'free' and the square's (AY1 A) reads 'trig'",
               quiet && square && quiet->text() == "free" && square->text() == "trig");
+    }
+    // DAP-93..98 - the Scopes sub-tab's stems row (GH #539).
+    {
+        if (!build_next_emulator(emu)) { check("DAP-93", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        auto* tabs = panel.findChild<QTabWidget*>("audio_tabs");
+        auto* rec = panel.findChild<QPushButton*>("audio_stems_record");
+        auto* stop = panel.findChild<QPushButton*>("audio_stems_stop");
+        auto* status = panel.findChild<QLabel*>("audio_stems_status");
+        QStringList names;
+        for (int i = 0; tabs && i < tabs->count(); ++i) names << tabs->tabText(i).replace("&&", "&");
+        int traces = 0;
+        for (int i = 0; i < 16; ++i) traces += panel.findChild<QWidget*>(QString("scope_trace_%1").arg(i)) != nullptr;
+        check("DAP-93", "the Scopes tab has audio_stems_record 'Record stems...', audio_stems_stop 'Stop' (disabled) and audio_stems_status 'Not recording stems'; the five tabs and the 16 traces are unchanged",
+              rec && stop && status && rec->text() == "Record stems..." && stop->text() == "Stop" && !stop->isEnabled() &&
+              rec->isEnabled() && status->text() == "Not recording stems" && traces == 16 &&
+              names == QStringList({"Chips", "DAC & Beeper", "Log", "Tracker", "Scopes"}));
+    }
+    auto stems_dir = [](const char* tag) {
+        const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+        return (std::filesystem::temp_directory_path() / (std::string("jnext-dap-") + tag + "-" + std::to_string(stamp))).string();
+    };
+    static const char* const kStemFiles[7] = {"ay0.wav", "ay1.wav", "ay2.wav", "dac.wav", "beeper.wav", "pi.wav", "mix.wav"};
+    auto all_files = [&](const std::string& dir) {
+        bool ok = true;
+        for (const char* n : kStemFiles) ok = ok && std::filesystem::exists(std::filesystem::path(dir) / n);
+        return ok;
+    };
+    {
+        if (!build_next_emulator(emu)) { check("DAP-94", "emulator init", false); return; }
+        scope_machine(emu);
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        panel.findChild<QTabWidget*>("audio_tabs")->setCurrentIndex(4);
+        AudioScopeView* view = panel.findChild<AudioScopeView*>("audio_scope_view");
+        auto* rec = panel.findChild<QPushButton*>("audio_stems_record");
+        auto* stop = panel.findChild<QPushButton*>("audio_stems_stop");
+        auto* status = panel.findChild<QLabel*>("audio_stems_status");
+        const std::string dir = stems_dir("94");
+        const bool started = view && view->start_stems_recording(QString::fromStdString(dir));
+        const bool during = status && status->text() == "Recording stems" && stop && stop->isEnabled() && rec && !rec->isEnabled() &&
+                            dbg.stems_recording() && status->toolTip() == QString::fromStdString(dir);
+        for (int f = 0; f < 3; ++f) emu.run_frame();
+        const bool stopped = view && view->stop_stems_recording();
+        const bool after = status->text() == "Not recording stems" && !stop->isEnabled() && rec->isEnabled() && !dbg.stems_recording() && all_files(dir);
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        check("DAP-94", "start_stems_recording(dir), 3 frames, stop_stems_recording(): true; 'Recording stems' with Stop enabled and Record disabled while it runs; afterwards 'Not recording stems' and the seven files exist",
+              started && during && stopped && after);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-95", "emulator init", false); return; }
+        scope_machine(emu);
+        jnext::dbg::Debugger dbg(emu);
+        const auto cid = dbg.attach(jnext::dbg::ClientInfo{"dap95", jnext::dbg::ClientKind::Test}).value;
+        AudioPanel panel(&dbg);
+        panel.findChild<QTabWidget*>("audio_tabs")->setCurrentIndex(4);
+        auto* stop = panel.findChild<QPushButton*>("audio_stems_stop");
+        auto* status = panel.findChild<QLabel*>("audio_stems_status");
+        const std::string dir = stems_dir("95");
+        const bool outside = dbg.stems_record_start(cid, dir) == jnext::dbg::Result::Ok;
+        panel.refresh();
+        const bool shows = status && status->text() == "Recording stems" && stop && stop->isEnabled();
+        if (stop) stop->click();
+        const bool stopped = !dbg.stems_recording() && status->text() == "Not recording stems";
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        check("DAP-95", "a recording started outside the panel shows 'Recording stems' with Stop enabled at the next refresh, and Stop stops it (last verb wins)",
+              outside && shows && stopped);
+    }
+    {
+        if (!build_next_emulator(emu)) { check("DAP-96", "emulator init", false); return; }
+        jnext::dbg::Debugger dbg(emu);
+        AudioPanel panel(&dbg);
+        panel.findChild<QTabWidget*>("audio_tabs")->setCurrentIndex(4);
+        AudioScopeView* view = panel.findChild<AudioScopeView*>("audio_scope_view");
+        auto* status = panel.findChild<QLabel*>("audio_stems_status");
+        const std::string base = stems_dir("96");
+        std::filesystem::create_directories(base);
+        const std::string file = (std::filesystem::path(base) / "plain").string();
+        if (std::FILE* f = std::fopen(file.c_str(), "wb")) std::fclose(f);
+        const QString bad = QString::fromStdString((std::filesystem::path(file) / "sub").string());
+        const bool refused = view && !view->start_stems_recording(bad);
+        const bool label = status && status->text().startsWith("Cannot write") && status->text().contains(bad);
+        std::error_code ec;
+        std::filesystem::remove_all(base, ec);
+        check("DAP-96", "start_stems_recording on an unwritable path: false, not recording, the label starts 'Cannot write' and contains the path",
+              refused && !dbg.stems_recording() && label);
+    }
+    {
+        Emulator silent;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2; cfg.rewind_buffer_frames = 0; cfg.silent = true;
+        silent.init(cfg);
+        jnext::dbg::Debugger dbg(silent);
+        AudioPanel panel(&dbg);
+        panel.findChild<QTabWidget*>("audio_tabs")->setCurrentIndex(4);
+        panel.refresh();
+        auto* row = panel.findChild<QWidget*>("audio_stems_row");
+        auto* off = panel.findChild<QLabel*>("audio_scope_off");
+        auto* rec = panel.findChild<QPushButton*>("audio_stems_record");
+        check("DAP-97", "under --silent the stems row is hidden (its Record button with it) and audio_scope_off is shown",
+              row && row->isHidden() && rec && !rec->isVisible() && off && !off->isHidden());
+    }
+    {
+        // The same 3 frames recorded through the panel seam and through the backend verb: the seven files are byte-identical.
+        auto record = [&](bool through_panel, const std::string& dir) {
+            Emulator e;
+            if (!build_next_emulator(e)) return false;
+            scope_machine(e);
+            jnext::dbg::Debugger dbg(e);
+            AudioPanel panel(&dbg);
+            panel.findChild<QTabWidget*>("audio_tabs")->setCurrentIndex(4);
+            AudioScopeView* view = panel.findChild<AudioScopeView*>("audio_scope_view");
+            const bool on = through_panel ? (view && view->start_stems_recording(QString::fromStdString(dir)))
+                                          : dbg.stems_record_start(jnext::dbg::CLIENT_NONE, dir) == jnext::dbg::Result::Ok;
+            for (int f = 0; f < 3; ++f) e.run_frame();
+            const bool off = through_panel ? (view && view->stop_stems_recording())
+                                           : dbg.stems_record_stop(jnext::dbg::CLIENT_NONE) == jnext::dbg::Result::Ok;
+            return on && off;
+        };
+        const std::string a = stems_dir("98a"), b = stems_dir("98b");
+        const bool ran = record(true, a) && record(false, b);
+        auto slurp = [](const std::filesystem::path& p) {
+            std::string s;
+            if (std::FILE* f = std::fopen(p.string().c_str(), "rb")) {
+                char buf[4096];
+                size_t n;
+                while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) s.append(buf, n);
+                std::fclose(f);
+            }
+            return s;
+        };
+        bool same = ran;
+        for (const char* n : kStemFiles) {
+            const std::string x = slurp(std::filesystem::path(a) / n), y = slurp(std::filesystem::path(b) / n);
+            same = same && x.size() > 44 + 4 * 1000 && x == y;
+        }
+        std::error_code ec;
+        std::filesystem::remove_all(a, ec);
+        std::filesystem::remove_all(b, ec);
+        check("DAP-98", "the same 3 frames recorded through the panel and through the backend verb give seven byte-identical files (the GUI and the CLI share one path)", same);
     }
 }
 
