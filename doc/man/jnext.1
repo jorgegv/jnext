@@ -338,7 +338,9 @@ Give it once per run.
 It reads the card \f[B]\-\-sdcard\f[R] names, or the default\-location
 image when \f[B]\-\-sdcard\f[R] is omitted, as a run with the same
 options would see it (with \f[B]\-\-sdcard\-writes\f[R], through that
-file); neither is written.
+file).
+The image is never written; the writes file keeps its contents (as for
+any run given it, it may be compacted).
 See \f[B]GETTING YOUR FILES OUT\f[R].
 .TP
 \f[B]\-\-sdcard\-writes\-flatten\f[R] \f[I]OUT\f[R]
@@ -2489,8 +2491,9 @@ long name or the 8.3 name, ASCII letters in any case.
 The local entry is named after what the card stores
 (\f[CR]/GAMES/WOTEF.NEX\f[R] for a file stored as \f[CR]WotEF.nex\f[R]
 gives \f[CR]./WotEF.nex\f[R], and the 8.3 alias
-\f[CR]/LONGNA\(ti1.TXT\f[R] gives \f[CR]./LongName.txt\f[R]), never the
-spelling typed.
+\f[CR]/LONGFI\(ti1.TXT\f[R] of a file stored as
+\f[CR]Long File Name.txt\f[R] gives \f[CR]./Long File Name.txt\f[R]),
+never the spelling typed.
 A name the host cannot hold is written with \f[CR]%XX\f[R] in place of
 each byte outside printable ASCII, each \f[CR]%\f[R], each of
 \f[CR]<>:\(dq/\(rs|?*\f[R], a trailing dot or space, and a Windows

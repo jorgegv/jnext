@@ -34,12 +34,12 @@ namespace sdcard {
 /// What extract_from_image() did.
 struct ExtractSummary {
     bool        is_dir = false;
-    std::string card_path;            ///< as stored on the card, '/'-separated (CP437 bytes)
+    std::string card_path;            ///< as stored on the card, '/'-separated, bytes outside printable ASCII as %XX
     std::string host_path;            ///< the top-level local entry created
     unsigned    files = 0, dirs = 0;  ///< dirs counts the top one for a directory
     uint64_t    bytes = 0;
     std::vector<std::string> escaped; ///< host relative paths with an escaped component
-    bool        through_writes = false;  ///< read through a bound --sdcard-writes file
+    bool        through_writes = false;  ///< read through a bound --sdcard-writes file that exists
 };
 
 /// Copy the file or directory at `card_path` on `image_path` (seen through its bound SD-writes

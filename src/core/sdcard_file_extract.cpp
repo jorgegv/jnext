@@ -40,6 +40,9 @@ std::string fr_text(FRESULT r) {
     }
 }
 
+// A name from the card, as it may be shown: bytes outside printable ASCII (an ESC in a long name) and '%' as %XX.
+std::string shown_name(const std::string& s) { return carry::escape_name(s, false); }
+
 bool printable_ascii(unsigned char c) { return c >= 0x20 && c <= 0x7E; }
 
 // The card path, split on '/' and '\' (a FAT name holds neither), empty components dropped, so
@@ -216,7 +219,7 @@ FileAddStatus extract_from_image(const std::string& image_path, const std::strin
             }
         }
         stored += "/";
-        stored += fno.fname;
+        stored += shown_name(fno.fname);
         if (i + 1 < comps.size() && !(fno.fattrib & AM_DIR)) {
             err = "'" + card_path + "' is not on the card ('" + comps[i] + "' is a file, not a directory)";
             return St::SourceUnreadable;
@@ -286,7 +289,7 @@ FileAddStatus extract_from_image(const std::string& image_path, const std::strin
                 if (fno.fname[0] == 0) break;
                 const std::string lname = fno.fname;
                 const std::string aname = fno.altname;
-                const std::string shown = cur.shown + "/" + lname;
+                const std::string shown = cur.shown + "/" + shown_name(lname);
                 // How FatFs is to be asked for it: by the long name, or, when that is a name it
                 // cannot open (a trailing dot or space, a control byte, a '?'), by the 8.3 alias.
                 std::string comp = lname;
@@ -303,7 +306,7 @@ FileAddStatus extract_from_image(const std::string& image_path, const std::strin
                 if (!seen.insert(fold(esc)).second) {
                     f_closedir(&dj);
                     err = "directory '" + cur.shown + "' on the card holds two entries the host cannot "
-                          "tell apart ('" + lname + "'); it is a damaged directory";
+                          "tell apart ('" + shown_name(lname) + "'); it is a damaged directory";
                     return St::ImageUnusable;
                 }
                 PlanItem it;
@@ -345,7 +348,7 @@ FileAddStatus extract_from_image(const std::string& image_path, const std::strin
         FIL fp{};
         FRESULT fr = f_open(&fp, it.fat.c_str(), FA_READ);
         if (fr != FR_OK) {
-            err = "cannot read '" + it.fat.substr(2) + "' on the card (" + fr_text(fr) + ")";
+            err = "cannot read '" + shown_name(it.fat.substr(2)) + "' on the card (" + fr_text(fr) + ")";
             rollback();
             return St::ImageUnusable;
         }
@@ -363,7 +366,7 @@ FileAddStatus extract_from_image(const std::string& image_path, const std::strin
             if (fr != FR_OK) {
                 f_close(&fp);
                 out.close();
-                err = "a read of '" + it.fat.substr(2) + "' on the card failed (" + fr_text(fr) + ")";
+                err = "a read of '" + shown_name(it.fat.substr(2)) + "' on the card failed (" + fr_text(fr) + ")";
                 rollback();
                 return St::ImageUnusable;
             }
@@ -399,7 +402,8 @@ FileAddStatus extract_from_image(const std::string& image_path, const std::strin
         summary->dirs = dirs;
         summary->bytes = bytes;
         summary->escaped = std::move(escaped);
-        summary->through_writes = journal != nullptr;
+        std::error_code jec;
+        summary->through_writes = journal && fs::exists(journal->file(), jec);
     }
     return St::Ok;
 }

@@ -16,6 +16,7 @@
 
 #include "core/fatfs_diskio.h"
 #include "core/sd_rom_extractor.h"
+#include "core/sdcard_carry.h"
 #include "core/sdcard_file_add.h"
 #include "core/sha256.h"
 #include "peripheral/sd_write_journal.h"
@@ -309,12 +310,16 @@ int main() {
     {
         const Run r = run(G, "/LONGFI~1.TXT");
         check("SDFX-08", "the same file by its 8.3 alias: the local name is still the LONG name (the stored name, not the spelling typed)",
-              is(r, FileAddStatus::Ok) && tree_of(r.dest) == Tree{{"Long File Name.txt", kLong}}, info(r));
+              is(r, FileAddStatus::Ok) && tree_of(r.dest) == Tree{{"Long File Name.txt", kLong}} &&
+                  r.sum.card_path == "/Long File Name.txt",
+              info(r) + " card_path=" + r.sum.card_path);
     }
     {
         const Run r = run(G, "/mixed/WOTEF.NEX");
         check("SDFX-09", "a card name WotEF.nex asked for as /mixed/WOTEF.NEX (any case): the local name keeps the stored case",
-              is(r, FileAddStatus::Ok) && tree_of(r.dest) == Tree{{"WotEF.nex", kMixed}}, info(r));
+              is(r, FileAddStatus::Ok) && tree_of(r.dest) == Tree{{"WotEF.nex", kMixed}} &&
+                  r.sum.card_path == "/MIXED/WotEF.nex",
+              info(r) + " card_path=" + r.sum.card_path);
     }
     {
         const Run a = run(G, "\\MYDIR\\FILE.BIN");
@@ -336,7 +341,9 @@ int main() {
     {
         const Run r = run(G, "/FILE.BIN/X");
         check("SDFX-12", "a path through a file (/FILE.BIN/X) is status 2 and extracts nothing",
-              is(r, FileAddStatus::SourceUnreadable) && empty_dest(r), info(r));
+              is(r, FileAddStatus::SourceUnreadable) && r.err.find("is a file, not a directory") != std::string::npos &&
+                  empty_dest(r),
+              info(r));
     }
     {
         const Run a = run(G, "");
@@ -395,7 +402,9 @@ int main() {
     {
         const Run r = run_in(G, "/GAMES/WOTEF.NEX", g_dir / "no-such-dest");
         check("SDFX-18", "a destination directory that does not exist is status 3",
-              is(r, FileAddStatus::DestInvalid) && !fs::exists(g_dir / "no-such-dest"), info(r));
+              is(r, FileAddStatus::DestInvalid) && r.err.find("not a directory") != std::string::npos &&
+                  !fs::exists(g_dir / "no-such-dest"),
+              info(r));
     }
 
     // SDFX-19 .. SDFX-20: names a host cannot hold
@@ -596,6 +605,96 @@ int main() {
         check("SDFX-33", "read-only, hidden and system files are extracted like any other",
               is(r, FileAddStatus::Ok) &&
                   tree_of(r.dest) == Tree{{"ATTR/", {}}, {"ATTR/R.BIN", kAttr}, {"ATTR/H.BIN", kAttr}, {"ATTR/S.BIN", kAttr}},
+              info(r));
+    }
+
+    // SDFX-34: a partitioned card whose last file sits in the volume's last clusters (the glue's sector bound
+    // is the volume's size, so a volume offset that is wrong shows only there)
+    {
+        const std::string p = tmp_name("tail") + ".img";
+        const Bytes tail = payload(1500, 61);
+        uint32_t tail_clust = 0, last_clust = 0;
+        const int t = make_card(p, kLba, kFat16Sectors, FM_FAT, 512, 512, 0x06, [&](FATFS& fsv, Pokes&) {
+            DWORD nfree = 0;
+            FATFS* fp = nullptr;
+            if (f_getfree("0:", &nfree, &fp) != FR_OK || nfree < 8) return false;
+            if (!fat_write("0:/FILL.BIN", Bytes(static_cast<size_t>(nfree - 3) * 512, 0xEE))) return false;
+            if (!fat_write("0:/TAIL.BIN", tail)) return false;
+            tail_clust = file_cluster("0:/TAIL.BIN");
+            last_clust = fsv.n_fatent - 1;
+            return true;
+        });
+        const Run r = run(p, "/TAIL.BIN");
+        check("SDFX-34", "on a partitioned FAT16 card full to the end, the file in the volume's last clusters extracts byte-exact (the volume offset and size reach FatFs right)",
+              t == FS_FAT16 && tail_clust + 2 >= last_clust && is(r, FileAddStatus::Ok) &&
+                  tree_of(r.dest) == Tree{{"TAIL.BIN", tail}},
+              info(r) + " tail=" + std::to_string(tail_clust) + " last=" + std::to_string(last_clust));
+    }
+
+    // SDFX-35: an ESC in a long name never reaches a message or the summary raw
+    {
+        const std::string p = tmp_name("esc") + ".img";
+        make_card(p, kLba, kFat16Sectors, FM_FAT, 512, 512, 0x06, [&](FATFS& fsv, Pokes& pokes) {
+            if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/ESC") != FR_OK || f_mkdir("0:/ESC2") != FR_OK ||
+                !fat_write("0:/DATA/D1.BIN", kD1))
+                return false;
+            const uint32_t c = file_cluster("0:/DATA/D1.BIN");
+            const uint32_t n = static_cast<uint32_t>(kD1.size());
+            hand_dir(fsv, dir_cluster("0:/ESC"), 2, {{u"\u001b[2Jevil", "EVIL~1     ", 0x20, c, n}}, pokes);
+            hand_dir(fsv, dir_cluster("0:/ESC2"), 2, {{u"x\u001b", "A*B        ", 0x20, c, n}}, pokes);
+            return true;
+        });
+        const Run ok = run(p, "/ESC/EVIL~1");
+        const Run bad = run(p, "/ESC2");
+        auto no_esc = [](const std::string& x) { return x.find('\x1b') == std::string::npos; };
+        check("SDFX-35", "an ESC in a long name lands as %1B in the local name and the summary, and a refusal naming it shows %1B: no raw ESC reaches the output",
+              is(ok, FileAddStatus::Ok) && tree_of(ok.dest) == Tree{{"%1B[2Jevil", kD1}} && no_esc(ok.sum.card_path) &&
+                  ok.sum.card_path == "/ESC/%1B[2Jevil" && no_esc(ok.sum.host_path) &&
+                  is(bad, FileAddStatus::ImageUnusable) && no_esc(bad.err) && bad.err.find("%1B") != std::string::npos,
+              info(ok) + " | " + info(bad));
+    }
+
+    // SDFX-36: --sdcard-export-changes lists a name it cannot export (a trailing dot) without a raw ESC
+    {
+        const std::string base = tmp_name("expbase") + ".img", card = tmp_name("expcard") + ".img";
+        auto pop = [&](bool with, FATFS& fsv, Pokes& pokes) {
+            if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/D") != FR_OK || !fat_write("0:/DATA/D1.BIN", kD1)) return false;
+            if (with)
+                hand_dir(fsv, dir_cluster("0:/D"), 2,
+                         {{u"e\u001b[2J.", "EVIL~1     ", 0x20, file_cluster("0:/DATA/D1.BIN"), static_cast<uint32_t>(kD1.size())}}, pokes);
+            return true;
+        };
+        make_card(base, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& f, Pokes& k) { return pop(false, f, k); });
+        make_card(card, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& f, Pokes& k) { return pop(true, f, k); });
+        sdcard::carry::ExportRequest req;
+        req.image = card;
+        req.base_image = base;
+        req.dir = (g_dir / "export-out").string();
+        sdcard::carry::ExportReport rep;
+        std::string err;
+        const FileAddStatus st = sdcard::carry::export_changes(req, rep, err);
+        bool raw = false;
+        for (const std::string& n : rep.skipped) raw = raw || n.find('\x1b') != std::string::npos;
+        check("SDFX-36", "export-changes lists an unexportable entry whose long name holds an ESC as %1B, never raw",
+              st == FileAddStatus::Ok && rep.skipped.size() == 1 && !raw && rep.skipped[0].find("%1B") != std::string::npos,
+              "status=" + std::to_string(static_cast<int>(st)) + " " + err + " skipped=" + std::to_string(rep.skipped.size()));
+    }
+
+    // SDFX-37: a writes file that does not exist yet is not "read through"
+    {
+        const std::string p = tmp_name("nojf") + ".img";
+        make_card(p, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C,
+                  [&](FATFS&, Pokes&) { return fat_write("0:/OLD.BIN", kWotef); });
+        const std::string jf = tmp_name("nojf") + ".sdw";
+        sd_write_journal::forget_all_for_test();
+        std::error_code rec;
+        fs::remove(jf, rec);
+        bind_journal(p, jf);
+        const Run r = run(p, "/OLD.BIN");
+        const bool existed = fs::exists(jf, rec);
+        sd_write_journal::forget_all_for_test();
+        check("SDFX-37", "a writes file bound but not yet on disk is not reported as read through (through_writes false), and the file is still extracted",
+              !existed && is(r, FileAddStatus::Ok) && !r.sum.through_writes && tree_of(r.dest) == Tree{{"OLD.BIN", kWotef}},
               info(r));
     }
 

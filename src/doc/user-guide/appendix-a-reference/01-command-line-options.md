@@ -284,8 +284,9 @@ with status 1.
     is refused and left as it is. Give it once per run. It reads the
     card **--sdcard** names, or the default-location image when
     **--sdcard** is omitted, as a run with the same options would see it
-    (with **--sdcard-writes**, through that file); neither is written.
-    See **GETTING YOUR FILES OUT**.
+    (with **--sdcard-writes**, through that file). The image is never
+    written; the writes file keeps its contents (as for any run given
+    it, it may be compacted). See **GETTING YOUR FILES OUT**.
 
 **--sdcard-writes-flatten** *OUT*
 :   Write *OUT*, a plain image of the card with the **--sdcard-writes**

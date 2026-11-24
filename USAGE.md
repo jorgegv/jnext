@@ -364,7 +364,9 @@ emulation**. A local file or directory of that name is refused and left
 as it is. Give it once per run. It reads the card **--sdcard** names, or
 the default-location image when **--sdcard** is omitted, as a run with
 the same options would see it (with **--sdcard-writes**, through that
-file); neither is written. See **GETTING YOUR FILES OUT**.
+file). The image is never written; the writes file keeps its contents
+(as for any run given it, it may be compacted). See **GETTING YOUR FILES
+OUT**.
 
 **--sdcard-writes-flatten** *OUT*  
 Write *OUT*, a plain image of the card with the **--sdcard-writes**
@@ -2113,25 +2115,26 @@ or `\` between the names (the leading one is optional); each name is
 matched against the long name or the 8.3 name, ASCII letters in any
 case. The local entry is named after what the card stores
 (`/GAMES/WOTEF.NEX` for a file stored as `WotEF.nex` gives
-`./WotEF.nex`, and the 8.3 alias `/LONGNA~1.TXT` gives
-`./LongName.txt`), never the spelling typed. A name the host cannot hold
-is written with `%XX` in place of each byte outside printable ASCII,
-each `%`, each of `<>:"/\|?*`, a trailing dot or space, and a Windows
-device name’s first letter (`CON.TXT` becomes `%43ON.TXT`), on every
-system, as **--sdcard-export-changes** writes them; each such name is
-listed on standard output. A `.` or `..` component, a trailing dot or
-space and a character outside printable ASCII in the card path are
-refused (give the 8.3 name, or extract the parent directory). A file or
-directory of that name that already exists in the current directory, a
-symbolic link included, is refused and never touched: nothing is
-overwritten, and nothing is merged into an existing directory. It is all
-or nothing: every problem is found before anything is created, and a
-failure while copying removes what the run created. Hidden, system and
-read-only files are copied; dates and attributes are not. One jnext may
-use a card at a time, so a card another jnext has open is refused (exit
-5). On Git Bash, which rewrites a path that starts with `/`, write
-`//DIR/NAME` or `\DIR\NAME`. It exits with the statuses of
-**--sdcard-file-add** (see **EXIT STATUS**).
+`./WotEF.nex`, and the 8.3 alias `/LONGFI~1.TXT` of a file stored as
+`Long File Name.txt` gives `./Long File Name.txt`), never the spelling
+typed. A name the host cannot hold is written with `%XX` in place of
+each byte outside printable ASCII, each `%`, each of `<>:"/\|?*`, a
+trailing dot or space, and a Windows device name’s first letter
+(`CON.TXT` becomes `%43ON.TXT`), on every system, as
+**--sdcard-export-changes** writes them; each such name is listed on
+standard output. A `.` or `..` component, a trailing dot or space and a
+character outside printable ASCII in the card path are refused (give the
+8.3 name, or extract the parent directory). A file or directory of that
+name that already exists in the current directory, a symbolic link
+included, is refused and never touched: nothing is overwritten, and
+nothing is merged into an existing directory. It is all or nothing:
+every problem is found before anything is created, and a failure while
+copying removes what the run created. Hidden, system and read-only files
+are copied; dates and attributes are not. One jnext may use a card at a
+time, so a card another jnext has open is refused (exit 5). On Git Bash,
+which rewrites a path that starts with `/`, write `//DIR/NAME` or
+`\DIR\NAME`. It exits with the statuses of **--sdcard-file-add** (see
+**EXIT STATUS**).
 
 Like **--sdcard-file-add**, **--sdcard-export-changes**,
 **--sdcard-import-changes** and the upgrade’s carrying over of your
