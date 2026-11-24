@@ -20,7 +20,7 @@ You implement the plan at `<run>/gh<N>-plan.md` (for a team-run unit, the plan o
 - Expectations come from the oracle the plan cites, never from the code. A test fails → the code is wrong. Never change a test to match the code: stop and report.
 - Plan wrong or incomplete → stop and report with evidence and a recommendation. Never silently do something else.
 - A stage approved with **Carried test gaps** (autorun-review, owner 2026-11-24): close those gaps FIRST in the next stage, with the rows the review names, and show each mutant killed, before the stage's own work.
-- Run your own mutants in parallel, each in its own tree copy and build directory, 2-3 at a time under the 3G cap (owner 2026-11-24).
+- Run your own mutants in parallel, each in its own detached worktree (`git worktree add --detach`, never a `cp`/`tar` copy) and build directory, 2-3 at a time under the 3G cap (owner 2026-11-24).
 
 ## Do
 

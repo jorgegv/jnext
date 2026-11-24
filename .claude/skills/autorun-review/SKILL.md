@@ -17,7 +17,7 @@ Detached review worktree, branch, plan + report paths, round number.
 - Every acceptance criterion in the plan, against the tree, not the report. Grep each claimed fix.
 - Root cause and fix against the VHDL yourself (`vhdl` skill); re-read the VHDL behind any drift-flag comment.
 - ≥10 mutations derived from the DIFF: revert each behavioural edit, stub new branches dead. Anchor with one known-kill and one no-op; a crash or missing `Total:` = CAUGHT. A surviving mutant = REJECT (except a carried test gap, below).
-  - Run mutants IN PARALLEL (owner, 2026-11-24): each one in its own copy of the tree, with its own build directory. ccache is shared, so the builds are cheap. Run 2-3 at a time, each under the 3G cap. Restore each from a cp backup, or discard its copy.
+  - Run mutants IN PARALLEL (owner, 2026-11-24): each one in its own detached worktree (`git worktree add --detach`, removed after; never a `cp`/`tar` copy, whose CMake submodule update rewrites the source worktree's git metadata), with its own build directory. ccache is shared, so the builds are cheap. Run 2-3 at a time, each under the 3G cap. Restore each from a cp backup, or discard its copy.
 - Fixtures straddle each condition; sibling operations are covered as a set.
 - Run the targeted rows the change touches (`make regression-rows`: non-PGO Release build, no PGO training) and the suites it touches, in every configuration it can affect. Rendering-path changes add representative screenshot rows. A branch has no full-run stamp: the full gate is the batch gate on `main` (CLAUDE.md merge protocol step 2). Never a full re-run, never regenerate references.
 - Test-row removal or re-homing: the replacement coverage exists and passes.
