@@ -191,15 +191,11 @@ int main() {
             all_terminal = all_terminal && !classify(static_cast<int>(a.size()), a.data()).windowed;
         }
         auto base = argv_of({"--sdcard-export-base", "B"});
-        // --sdcard-export-base alone starts nothing special: it is not a command of its own
-        const bool base_alone_windowed = classify(static_cast<int>(base.size()), base.data()).windowed ==
-#ifdef __EMSCRIPTEN__
-            false;
-#else
-            true;
-#endif
-        check("STARTERR-08", "classify(): --sdcard-writes-flatten, --sdcard-export-changes and --sdcard-import-changes are terminal commands (not windowed), like --sdcard-file-add",
-              all_terminal && base_alone_windowed);
+        // --sdcard-export-base is a companion of --sdcard-export-changes and is refused alone (exit 1): like the
+        // other companions it is terminal by the table, so that refusal never opens a box
+        const bool base_alone_terminal = !classify(static_cast<int>(base.size()), base.data()).windowed;
+        check("STARTERR-08", "classify(): --sdcard-writes-flatten, --sdcard-export-changes and --sdcard-import-changes are terminal commands (not windowed), like --sdcard-file-add, and so is their companion --sdcard-export-base alone",
+              all_terminal && base_alone_terminal);
     }
 
     {

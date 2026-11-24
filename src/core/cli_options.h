@@ -382,7 +382,7 @@ inline constexpr Option OPTIONS[] = {
     { "--sdcard-export-base", 1, Doc::Documented, OptId::SdcardExportBase,
       "FILE",
       "With --sdcard-export-changes: the image the card was made\n"
-      "from, to compare against (a raw distribution image is fine)." },
+      "from, to compare against (a raw distribution image is fine).", true },
     { "--sdcard-import-changes", 1, Doc::Documented, OptId::SdcardImportChanges,
       "DIR",
       "Put the files of a --sdcard-export-changes DIR onto the card\n"
