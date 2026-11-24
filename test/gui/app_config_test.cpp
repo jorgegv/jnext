@@ -1783,8 +1783,8 @@ static void test_sdmanager_keys(QTemporaryDir& dir) {
               empty.data().sdmanager_card.isEmpty() && empty.data().sdmanager_card_dir.isEmpty() && empty.data().sdmanager_host_dir.isEmpty());
 
     const QString p = fresh_ini_path(dir, "sdm-save");
-    const QString card = QStringLiteral("/home/u/sd/my, card.img"), card_dir = QStringLiteral("/D%C3%A9j%C3%A0 %2541"),
-                  host = QStringLiteral("/home/u/Mis juegos, ROMs");
+    const QString card = QStringLiteral("/srv/u/sd/my, card.img"), card_dir = QStringLiteral("/D%C3%A9j%C3%A0 %2541"),
+                  host = QStringLiteral("/srv/u/Mis juegos, ROMs");
     { AppConfig w(p); w.load(); w.data().sdmanager_card = card; w.data().sdmanager_card_dir = card_dir; w.data().sdmanager_host_dir = host; w.save(); }
     AppConfig r(p);
     r.load();
