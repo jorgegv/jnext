@@ -230,7 +230,23 @@ display, and is never run by CI). Both the reference and jnext's recording are c
 (`psg_normalise()` in `audio_debug_test.cpp`, `tools/psg-normalise.py` for the shell; both pinned to the same body length)
 and compared byte for byte: in process on a 128K machine (PSF-01..03) and through `--psg-record` in the
 `psg-record-func` regression row. To regenerate the reference after changing the program, run the tool, check the new body
-length and update the two pins.
+length and update the two pins: `PSG_FUSE_BODY_LEN` in `audio_debug_test.cpp` and `n_fuse` in
+`test/00regression/scripts/psg-record-func.sh`. A program change that moves where a write falls
+relative to the frame interrupt is the one thing that can change the body without changing the program's
+intent, so the reference is recorded again whenever `psg_fixture.bin` is.
+
+**What the taps cost.** Every consumer sits behind one test that is false when nobody asks, and the rule
+is measured, not assumed: on `build/gui-release-non-pgo`, `test/bench/perf-attach.sh` (retired instructions,
+user mode, three interleaved reps, medians) over the eight `bench.sh` workloads, a tree with the taps built in
+and off stays within 0.1 % of one without them (the largest difference is a constant start-up cost of about
+70 to 140 thousand instructions, the size of the extra translation units). With a tap on, the cost depends on
+what the program does, not on the tap alone. The write log is per row: 7200 instructions per logged row on a DAC
+player writing 650 times a frame (+15.6 % over the run), nothing on a program that rarely writes. The source tap
+(Scopes) and the stems turn the HALT and raster-poll batches off while they run, so the cost is the unbatched
+path's: +7 % over a boot to the 48K ROM, +114 % on an idle `HALT` loop at 3.5 MHz, about 5 to 8 times the instructions
+on the batched demo programs and on the same loop at 28 MHz (Scopes), and +21.5 % on a boot and +525 % on a DAC
+player at 28 MHz (stems). The user guide gives a user the host-CPU figure for Scopes. A new tap or consumer repeats this A/B before it lands, and a
+difference over 0.1 % is bisected to its cause instead of accepted.
 
 **Frame grouping and the tracker.** `src/debug/audio_frames.h` is a pure, published helper that
 groups the log's entries, oldest first, into one `AudioFrame` per frame that holds counted AY

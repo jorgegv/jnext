@@ -3603,7 +3603,9 @@ Which space each view prints, and the columns that were added, are described in
 last one, is <code>AudioScopeView</code>). The panel owns no audio state: every number comes from one <code>Debugger::audio_state()</code> per
 refresh, and every note from <code>audio_math.h</code>, so the panel and a test read the same decode.</p>
 <ul>
-<li><strong>Chips</strong> draws the three chip blocks from <code>AudioState::chips</code>, the nine channel rows (period, note and
+<li><strong>Chips</strong> has the <code>.psg</code> row on top (<code>AudioPanel::start_psg_recording()</code> / <code>stop_psg_recording()</code>, which call
+  <code>psg_record_start()</code> and <code>psg_record_stop()</code>; like the stems it is a recording of the backend and <code>refresh_psg_()</code>
+  re-reads <code>psg_recording()</code>), and draws the three chip blocks from <code>AudioState::chips</code>, the nine channel rows (period, note and
   cents, T and N gates, volume or <code>Env</code>, a level bar from <code>AyChannelState::amplitude</code>) and the envelope line.
   Its Hex box swaps the table for the raw <code>regs</code> of the three chips.</li>
 <li><strong>DAC &amp; Beeper</strong> shows the DAC bars, the port-family and beeper lamps, the Pi and host lines, and the

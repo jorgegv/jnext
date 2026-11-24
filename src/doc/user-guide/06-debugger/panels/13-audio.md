@@ -66,7 +66,10 @@ like any other capture.
   written. The files are aligned to the start of the recording, so they stay in
   step if you play them together.
 - **Last write wins.** When a program writes the same register more than once in a
-  frame, the file keeps the last value. Fuse keeps the first.
+  frame, the file keeps the last value, the one the chip ended the frame with. Fuse
+  keeps the first, so for a program that writes a register twice in a frame the two
+  emulators' files differ at that register; for every other program they are
+  byte for byte the same.
 - **Resets, rewinds and state loads** never take the file back in time. A reset or a load
   keeps the time that passed: the silent frames before it stay in the file, and a soft
   or hard reset splits the frame it happens in. A rewind keeps what was already written
@@ -74,6 +77,29 @@ like any other capture.
 - The recording does not depend on the Log tab: it works with the log off, and
   stopping the log does not stop it. Like the mute buttons it is invisible to the
   program being debugged and is not part of a saved state.
+
+**What is inside.** The file is the 16-byte header (`PSG`, `0x1A`, twelve zero bytes) and
+then a stream of bytes. A byte from `0x00` to `0x0D` is a register number and the next
+byte its value. `0xFF` stands for one frame in which nothing was written, and `0xFE n` for
+`4 * n` such frames. Every frame that holds a write is the register and value pairs in
+register order, after the separators for the frames that passed since the previous one.
+When the recording stops, the frames up to that moment are added as separators, so a
+file that ends in silence plays the silence.
+
+**Playing it.** Open the file in an AY player that reads the PSG format (AY_Emul and
+ZXTune are two that list it) and play it as you would any tune. A few things follow from
+what the file is:
+
+- It holds register values and frame counts, not a time base or a chip clock. A frame is
+  one video frame of the emulated machine, and a player plays frames at its own rate,
+  normally 50 Hz: a recording of a machine running at 60 Hz timing plays slower than it
+  ran.
+- It sounds at the player's chip clock. A player set to the 128K Spectrum's 1.7734 MHz is
+  about 23 cents higher than JNEXT's 1.75 MHz (the same difference described under Chips).
+- A player plays one chip. With TurboSound, open each chip's file in turn; they start at
+  the same frame, so a player that can mix files plays them in step.
+- It records the program's writes to the registers, not the output, so it carries nothing
+  of the DAC, the beeper, muting or the stereo layout.
 
 The Chips tab is refreshed every frame while the Audio panel is visible and
 Chips is the current tab; with another tab current, or the panel hidden behind
@@ -352,6 +378,16 @@ source files add up to `mix.wav`: exactly while every source is steady within an
 output sample, and otherwise within 3 counts per sample (each of the seven files is
 rounded to a whole number on its own, and those roundings are all that can differ).
 The same recording from the command line is `--wav-record-stems DIR`.
+
+**Why they add up.** The Next's mixer adds its sources into one number, the beeper, the
+AY chips, the DAC and the Pi, and only then does anything else happen to it. JNEXT cuts
+that number into its terms at that point, over the same stretch of time that makes one
+output sample, so the mix is the sum of the parts by construction. A part that rests
+away from zero (the DAC and the Pi sit mid-scale when silent) has that resting level
+taken out of its file and the six resting levels add to the mix's own, which is why the
+files add to the mix instead of to the mix plus an offset. The small difference that can
+remain is rounding: each file is the exact average of its source rounded to a whole
+number on its own, and so is the mix.
 
 The recording belongs to the emulator, not to the tab: switching to another tab or
 closing the debugger window leaves it running, and a recording started from the
