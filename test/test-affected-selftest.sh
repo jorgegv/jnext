@@ -29,7 +29,7 @@
 #           its row, a removed _WIN32 arm still flags windows; --explain-miss (the stateless MISS, also for a docs-only plan)
 #   TAF-32  test/ci-gate.sh and test/regression-package.sh plan package-contract-test, not FULL
 #   TAF-31  Qt's QT_TESTCASE_* test-data define counts only for a suite that calls QFINDTESTDATA
-#   TAF-33..59 GH #564, in a git fixture: a changed pin, a new or removed suite line, a changed ? marker
+#   TAF-33..61 GH #564, in a git fixture: a changed pin, a new or removed suite line, a changed ? marker
 #           or directive, a pin plus another suite's source, and a line of no known shape (FULL);
 #           test/CMakeLists.txt statements (a new block, a changed link, an if() context, a statement
 #           naming no suite = FULL); the matrix and its generator plan the traceability check
@@ -455,8 +455,7 @@ trun
 row TAF-52 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == smoke_test ]] && echo 1 || echo 0) \
     "a comment-only change inside a multi-line statement selects no suite and is not FULL (got $(plan_get mode) $(plan_suites))"
 reset_fx
-sed -i '/^    target_link_libraries(s2_test PRIVATE libb)$/d; s/^    target_link_libraries(s1_test PRIVATE liba)$/    target_link_libraries(s1_test PRIVATE liba)\n    target_link_libraries(s2_test PRIVATE libb)/; /^else()$/d' "$cmk"
-sed -i 's/^endif()$/endif()/' "$cmk"
+sed -i '/^if(WIN32)$/,/^endif()$/c if(WIN32)\n    target_link_libraries(s1_test PRIVATE liba)\n    target_link_libraries(s2_test PRIVATE libb)\nendif()' "$cmk"
 trun
 row TAF-53 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == *s2_test* ]] && echo 1 || echo 0) \
     "a statement moved from the else() arm into the if() arm plans its suite (the arm is part of the context) (got $(plan_get mode) $(plan_suites))"
@@ -490,6 +489,16 @@ trun
 row TAF-57 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"cannot read with confidence"* ]] && echo 1 || echo 0) \
     "bracket syntax in test/CMakeLists.txt is a parse anomaly: FULL (got $(plan_get mode))"
 reset_fx
+printf '#[[ a one-line bracket comment ]]\n' >>"$cmk"
+trun
+row TAF-60 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"cannot read with confidence"* ]] && echo 1 || echo 0) \
+    "a one-line bracket comment is a parse anomaly: FULL (got $(plan_get mode))"
+reset_fx
+printf 'set(BR [[x]])\n' >>"$cmk"
+trun
+row TAF-61 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"cannot read with confidence"* ]] && echo 1 || echo 0) \
+    "a bracket argument is a parse anomaly: FULL (got $(plan_get mode))"
+reset_fx
 printf 'add_executable(s9x s9x.cpp\n' >>"$cmk"
 trun
 row TAF-58 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"cannot read with confidence"* ]] && echo 1 || echo 0) \
@@ -518,5 +527,5 @@ row TAF-46 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not
 
 echo ""
 echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
-[[ "$total" -eq 58 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 58"; exit 1; }
+[[ "$total" -eq 60 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 60"; exit 1; }
 [[ "$failed" -eq 0 ]]
