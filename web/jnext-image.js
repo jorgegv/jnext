@@ -52,6 +52,7 @@
   var WRITES_DIR = '/jnext/card-writes';
   var WRITES_DB = 'jnext-card-writes';
   var WRITES_STORE = 'journals';
+  var META_STORE = 'journal-meta';   // version 2 (GH #555): what each record was made on (page, card, distribution)
 
   function hex(buf) {
     var b = new Uint8Array(buf), s = '';
@@ -484,18 +485,24 @@
 
   // <image sha256>-<first 16 hex digits of SHA-256(page path)>: a page and an image each get
   // their own saves; the query string is not part of it, so a tracking parameter loses nothing.
+  function pageHashOf(pathname) {
+    return digest(new TextEncoder().encode(pathname)).then(function (h) { return h.substring(0, 16); });
+  }
+
   function cardWritesKey(sha256, pathname) {
-    return digest(new TextEncoder().encode(pathname)).then(function (h) {
-      return sha256.toLowerCase() + '-' + h.substring(0, 16);
-    });
+    return pageHashOf(pathname).then(function (h) { return sha256.toLowerCase() + '-' + h; });
   }
 
   function writesPath(key) { return WRITES_DIR + '/' + key + '.jsdw'; }
 
   function openWritesDb() {
     return new Promise(function (res, rej) {
-      var r = indexedDB.open(WRITES_DB, 1);
-      r.onupgradeneeded = function () { r.result.createObjectStore(WRITES_STORE); };
+      var r = indexedDB.open(WRITES_DB, 2);
+      r.onupgradeneeded = function () {
+        // version 1 had the journals; version 2 adds the store that says what each record was made on
+        if (!r.result.objectStoreNames.contains(WRITES_STORE)) r.result.createObjectStore(WRITES_STORE);
+        if (!r.result.objectStoreNames.contains(META_STORE)) r.result.createObjectStore(META_STORE);
+      };
       r.onsuccess = function () { res(r.result); };
       r.onerror = function () { rej(r.error); };
     });
@@ -513,6 +520,45 @@
     });
   }
 
+  // One transaction over both stores (the record and its tag go together or not at all).
+  function writesRequest2(make) {
+    return openWritesDb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction([WRITES_STORE, META_STORE], 'readwrite');
+        var out = make(tx.objectStore(WRITES_STORE), tx.objectStore(META_STORE), tx);
+        tx.oncomplete = function () { db.close(); res(out && out.result !== undefined ? out.result : out); };
+        tx.onerror = tx.onabort = function () { db.close(); rej(tx.error); };
+      });
+    });
+  }
+
+  // GH #555: the saves of a page's earlier visit made on a DEFAULT card of another NextZXOS distribution are
+  // reset: this release's page runs on its own distribution, and a journal made over another card's
+  // sectors is not that card's saves. Only records with a tag (made by this release or later) that say
+  // defaultCard, belong to this page (the page hash of the key) and name another distribution are removed;
+  // a record without a tag (older release: unknown provenance), a page-supplied image's and another page's stay.
+  // Resolves to the distribution the removed saves were made on, or null when nothing was removed.
+  function resetStaleWrites(pageHash, cardSha256, distribution) {
+    var current = cardSha256.toLowerCase();
+    return writesRequest2(function (journals, metas) {
+      var found = null;
+      var rq = metas.openCursor();
+      rq.onsuccess = function () {
+        var c = rq.result;
+        if (!c) return;
+        var key = c.key, m = c.value;
+        if (typeof key === 'string' && key.slice(-17) === '-' + pageHash && key.slice(0, -17) !== current &&
+            m && m.defaultCard === true && m.distribution && m.distribution !== distribution) {
+          found = found || m.distribution;
+          journals.delete(key);
+          c.delete();
+        }
+        c.continue();
+      };
+      return { get result() { return found; } };
+    });
+  }
+
   function loadCardWrites(Module, key) {
     var path = writesPath(key);
     return writesRequest('readonly', function (st) { return st.get(key); }).then(function (rec) {
@@ -527,18 +573,24 @@
   // The writes file as it is now: stored when it exists, the record deleted when it does not
   // (the core removes it for --sdcard-writes-reset and for resetCard()). The file is read
   // before anything is awaited, so what is stored is what the core had at the call.
-  function saveCardWrites(Module, key) {
+  function saveCardWrites(Module, key, meta) {
     var path = writesPath(key), bytes = null;
     if (Module.FS.analyzePath(path).exists) bytes = Module.FS.readFile(path);
-    return writesRequest('readwrite', function (st) {
-      return bytes ? st.put(bytes, key) : st.delete(key);
+    return writesRequest2(function (journals, metas) {
+      if (bytes) {
+        journals.put(bytes, key);
+        if (meta) metas.put(meta, key);
+      } else {
+        journals.delete(key);
+        metas.delete(key);
+      }
     });
   }
 
   var api = { fetchImage: fetchImage, installImage: installImage, mountWarmStartStore: mountWarmStartStore,
               devSeam: devSeam, distribution: distribution, cachedCard: cachedCard, canonicalDirs: canonicalDirs, probe: probe,
               fetchDistribution: fetchDistribution, buildFromFile: buildFromFile,
-              cardWritesKey: cardWritesKey, loadCardWrites: loadCardWrites, saveCardWrites: saveCardWrites,
+              cardWritesKey: cardWritesKey, pageHashOf: pageHashOf, resetStaleWrites: resetStaleWrites, loadCardWrites: loadCardWrites, saveCardWrites: saveCardWrites,
               CACHE_NAME: CACHE_NAME, WARM_START_DIR: WARM_START_DIR, CARD_HOST: CARD_HOST };
   root.JnextImage = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

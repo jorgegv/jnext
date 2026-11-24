@@ -18,6 +18,11 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - DivMMC with 8KB SRAM, automap, and SD card image mounting
 - Live SD-card change without a reset: File > Insert SD Card Image / Eject SD Card, or `--delayed-sdcard-insert-frames N FILE` headless
 - Second SD card slot (D: in NextZXOS): `--sdcard2 FILE`, with `--sdcard2-readonly` and `--sdcard2-writes`
+- SD card upgrades keep your files: a newer NextZXOS is offered (File > Upgrade SD Card..., `--sdcard-upgrade yes|fresh|ask|no|never`), the files you added or changed and your `--sdcard-writes` files are carried over, the old card is kept as a backup you can go back to (File > Go Back..., `--sdcard-go-back`) or delete (`--sdcard-delete-backup`); an older jnext leaves a newer card alone
+- Rescue commands for the card: `--sdcard-writes-flatten OUT` (a plain image with your writes applied), `--sdcard-export-changes DIR` (your files as ordinary files plus `CHANGES.txt`) and `--sdcard-import-changes DIR` (into another card or a writes file)
+- One card, one jnext: a second jnext on the same SD image or writes file is refused (a lock that dies with its holder); the test suites use their own card and never touch yours
+- Start-up errors of a windowed jnext appear in a window as well as on stderr
+- Web page: `keepWrites` saves made on an older NextZXOS card are reset after a NextZXOS update, with an `onNotice('card-writes-reset', ...)` callback
 - Floating bus emulation (48K/128K modes)
 - Pentagon-512 / Pentagon-1024 paging modes via NextREG NR 0x8F
 

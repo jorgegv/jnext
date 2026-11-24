@@ -10,7 +10,11 @@
 #include "core/nex_loader.h"   // probe_version + nex_version_needs_v13_optin (GH #228)
 #include "core/esxdos_hostfs.h"
 #include "core/rzx_recorder.h"
+#include "core/image_lock.h"
 #include "core/sdcard_file_add.h"
+#include "core/sdcard_carry.h"
+#include "core/sdcard_upgrade.h"
+#include "core/sdcard_backup.h"
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
 #include "esp01/esp_at.h"          // AtEngine::UNASSOCIATED_IP, for --esp-ip-address
@@ -29,6 +33,8 @@
 #include "platform/emulator_boot.h"   // emulator_boot_machine (RZX playback)
 #include "platform/quit_signal.h"      // SIGINT/SIGTERM as a quit request (GH #364)
 #include "platform/sdcard_upgrade_box.h"   // the SDL frontend's upgrade offer
+#include "platform/startup_report.h"       // GH #555: start-up errors in a message box
+#include "platform/startup_error_sdl.h"
 #include "platform/pok_trainers.h"     // --delayed-pok-frames / --pok-trainers (GH #381)
 #include "core/screenshot.h"   // screenshot_format_for_path (GH #18)
 #include "video/renderer.h"
@@ -76,6 +82,7 @@
 #ifdef ENABLE_QT_UI
 #include "gui/qt_app.h"
 #include "gui/sdcard_download_dialog.h"
+#include "gui/startup_error_box.h"
 #include "gui/main_window.h"
 #include "gui/app_config.h"
 #include "gui/emulator_widget.h"      // crt_shader_built_in() for --crt
@@ -230,7 +237,7 @@ static bool int_arg(const std::string& arg, const cli::Option* opt, const char* 
                     long lo, long hi, int& out) {
     long n = 0;
     if (!cli::parse_int(v, lo, hi, n)) {
-        fprintf(stderr, "%s: %s must be a whole number from %ld to %ld, not \"%s\".\n",
+        startup_report::report("%s: %s must be a whole number from %ld to %ld, not \"%s\".\n",
                 arg.c_str(), first_metavar(opt).c_str(), lo, hi, v);
         return false;
     }
@@ -241,8 +248,7 @@ static bool int_arg(const std::string& arg, const cli::Option* opt, const char* 
 static bool hex16_arg(const std::string& arg, const cli::Option* opt, const char* v,
                       uint16_t& out) {
     if (!cli::parse_hex16(v, out)) {
-        fprintf(stderr,
-                "%s: %s must be a hexadecimal number from 0 to FFFF (0x prefix optional), "
+        startup_report::report("%s: %s must be a hexadecimal number from 0 to FFFF (0x prefix optional), "
                 "not \"%s\".\n",
                 arg.c_str(), first_metavar(opt).c_str(), v);
         return false;
@@ -270,12 +276,12 @@ static bool bind_card_writes(const char* flag, const char* label, const std::str
                              const std::string& sha256_hex)
 {
     if (reset && file.empty()) {
-        fprintf(stderr, "%s-reset needs %s FILE\n", flag, flag);
+        startup_report::report("%s-reset needs %s FILE\n", flag, flag);
         return false;
     }
     if (file.empty()) return true;
     if (readonly) {
-        fprintf(stderr, "%s cannot be combined with %s-readonly: "
+        startup_report::report("%s cannot be combined with %s-readonly: "
                         "a write-protected card has no writes to keep.\n",
                 flag, std::strncmp(flag, "--sdcard2", 9) == 0 ? "--sdcard2" : "--sdcard");
         return false;
@@ -290,20 +296,49 @@ static bool bind_card_writes(const char* flag, const char* label, const std::str
         binding.mtime = static_cast<int64_t>(t.time_since_epoch().count());
     }
     if (bind_ec) {
-        fprintf(stderr, "%s: cannot stat the SD image %s: %s\n", flag, image.c_str(),
+        startup_report::report("%s: cannot stat the SD image %s: %s\n", flag, image.c_str(),
                 bind_ec.message().c_str());
         return false;
     }
     std::string why;
     if (!sd_write_journal::bind(image, file, binding, reset, why)) {
-        fprintf(stderr, "%s: %s\n", flag, why.c_str());
+        if (!reset && sdcard::upgrade::file_belongs_to_backup(sdcard::default_sdcard_dir(), file))
+            why += " It holds writes for your previous SD card (" +
+                   sdcard::distribution_title(sdcard::upgrade::backup_distribution(sdcard::default_sdcard_dir())) +
+                   ", kept as a backup): go back to it "
+                   "(--sdcard-go-back), or discard the writes with " + std::string(flag) + "-reset.";
+        startup_report::report("%s: %s\n", flag, why.c_str());
         return false;
+    }
+    if (std::strncmp(flag, "--sdcard2", 9) != 0 && image == sdcard::default_sdcard_image_path()) {
+        std::error_code aec;
+        sdcard::upgrade::register_overlay(sdcard::default_sdcard_dir(), std::filesystem::absolute(file, aec).string());
     }
     Log::emulator()->info("{} writes are kept in {}; the image is not written", label, file);
     return true;
 }
 
+static int run_main(int argc, char* argv[]);   // GH #555: the whole program, below
+
+// GH #555: the real entry point. run_main() is the whole program; when a windowed, attended run
+// ends with a failure before its loop started, the reason (kept by startup_report) goes into the
+// frontend's own message box too, because a desktop launch has no terminal to show stderr in.
 int main(int argc, char* argv[]) {
+    const startup_report::Launch launch = startup_report::classify(argc, argv);
+    const int rc = run_main(argc, argv);
+    if (startup_report::should_show(rc, launch.windowed, launch.unattended,
+                                    startup_report::running() || startup_report::dialog_shown())) {
+        const std::string text = startup_report::text(rc);
+#ifdef ENABLE_QT_UI
+        gui::show_startup_error("jnext could not start", text);
+#else
+        startup_report::show_error_sdl("jnext could not start", text);
+#endif
+    }
+    return rc;
+}
+
+static int run_main(int argc, char* argv[]) {
 #ifdef _WIN32
     // Must run before any stdout/stderr output and before Qt/SDL init.
     win_attach_parent_console();
@@ -335,7 +370,7 @@ int main(int argc, char* argv[]) {
         const Log::SinkResult r = Log::apply_sink_policy(policy);
         if (!r.ok) {
             // Not a log line: the log is precisely what could not be opened.
-            std::fprintf(stderr, "jnext: %s\n", r.error.c_str());
+            startup_report::report("jnext: %s\n", r.error.c_str());
             return 1;
         }
         if (policy.destination == log_sink_policy::Destination::File) output_files::begin(policy.path);
@@ -346,6 +381,7 @@ int main(int argc, char* argv[]) {
 
     // Initialize all loggers at default level (info).
     Log::init();
+    startup_report::install_log_tap();   // GH #555: warn/error lines are kept for the start-up error box
     Log::emulator()->info("jnext {}", JNEXT_VERSION_STRING);
 
     std::string inject_file;
@@ -380,6 +416,11 @@ int main(int argc, char* argv[]) {
     std::string sdcard_file_add;       // host file or directory to copy onto the card
     std::string sdcard_file_dest;      // where it lands on the card ("" = root, GH #292)
     int         sdcard_file_add_count  = 0;  // occurrences, so a repeat is refused
+    std::string sdcard_writes_flatten;   // GH #555: the rescue verbs, terminal commands like file-add
+    std::string sdcard_export_dir, sdcard_export_base, sdcard_import_dir;
+    int         sdcard_go_back_count = 0, sdcard_delete_backup_count = 0;
+    int         sdcard_flatten_count = 0, sdcard_export_count = 0, sdcard_import_count = 0,
+                sdcard_export_base_count = 0;
     int         sdcard_file_dest_count = 0;
     bool        sdcard_file_force = false;  // permit replacing an existing file
     std::string screenshot_file;
@@ -748,12 +789,12 @@ int main(int argc, char* argv[]) {
             // The browser build has no processes, sockets or script host: a
             // flag that needs one is refused with its reason, never ignored.
             if (const char* why = cli::browser_refusal(opt->id)) {
-                fprintf(stderr, "%s: %s\n", arg.c_str(), why);
+                startup_report::report("%s: %s\n", arg.c_str(), why);
                 return 1;
             }
 #ifdef JNEXT_BROWSER
             if (const char* why = browser_page::option_refusal(opt->id)) {
-                fprintf(stderr, "%s: %s\n", arg.c_str(), why);
+                startup_report::report("%s: %s\n", arg.c_str(), why);
                 return 1;
             }
 #endif
@@ -761,7 +802,7 @@ int main(int argc, char* argv[]) {
 #ifndef JNEXT_BROWSER
             // GH #545: the page's debug channel exists only in a page.
             if (const char* why = cli::page_only_refusal(opt->id)) {
-                fprintf(stderr, "%s: %s\n", arg.c_str(), why);
+                startup_report::report("%s: %s\n", arg.c_str(), why);
                 return 1;
             }
 #endif
@@ -820,8 +861,9 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::SdcardUpgrade:
                 if (std::strcmp(v[0], "ask") != 0 && std::strcmp(v[0], "yes") != 0 &&
-                    std::strcmp(v[0], "no") != 0 && std::strcmp(v[0], "never") != 0) {
-                    fprintf(stderr, "--sdcard-upgrade: '%s' is not ask, yes, no or never.\n", v[0]);
+                    std::strcmp(v[0], "no") != 0 && std::strcmp(v[0], "never") != 0 &&
+                    std::strcmp(v[0], "fresh") != 0) {
+                    startup_report::report("--sdcard-upgrade: '%s' is not ask, yes, fresh, no or never.\n", v[0]);
                     return 1;
                 }
                 sdcard_upgrade_arg = v[0];
@@ -832,6 +874,28 @@ int main(int argc, char* argv[]) {
             case cli::OptId::SdcardFileAdd:
                 sdcard_file_add = v[0];
                 ++sdcard_file_add_count;
+                break;
+            case cli::OptId::SdcardWritesFlatten:
+                sdcard_writes_flatten = v[0];
+                ++sdcard_flatten_count;
+                break;
+            case cli::OptId::SdcardExportChanges:
+                sdcard_export_dir = v[0];
+                ++sdcard_export_count;
+                break;
+            case cli::OptId::SdcardExportBase:
+                sdcard_export_base = v[0];
+                ++sdcard_export_base_count;
+                break;
+            case cli::OptId::SdcardImportChanges:
+                sdcard_import_dir = v[0];
+                ++sdcard_import_count;
+                break;
+            case cli::OptId::SdcardGoBack:
+                ++sdcard_go_back_count;
+                break;
+            case cli::OptId::SdcardDeleteBackup:
+                ++sdcard_delete_backup_count;
                 break;
             case cli::OptId::SdcardFileDest:
                 sdcard_file_dest = v[0];
@@ -881,7 +945,7 @@ int main(int argc, char* argv[]) {
             case cli::OptId::DelayedScreenshotLayers: {
                 std::string err;
                 if (!Renderer::parse_layer_mask(v[0], screenshot_layers, err)) {
-                    fprintf(stderr, "--delayed-screenshot-layers: %s\n", err.c_str());
+                    startup_report::report("--delayed-screenshot-layers: %s\n", err.c_str());
                     return 1;
                 }
                 screenshot_layers_set = true;
@@ -908,8 +972,7 @@ int main(int argc, char* argv[]) {
                 // A WRITE option, not a restore policy — which is why it is
                 // its own flag and not a `--snapshot-mode` position.
                 if (!cli::parse_snapshot_compression(v[0], snapshot_uncompressed)) {
-                    std::fprintf(stderr,
-                                 "--snapshot-compression: STATE must be on or off, "
+                    startup_report::report("--snapshot-compression: STATE must be on or off, "
                                  "not \"%s\".\n",
                                  v[0]);
                     return 1;
@@ -917,8 +980,7 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::QuickSnapshotKeep:
                 if (!cli::parse_quick_snapshot_keep(v[0], quick_snapshot_keep)) {
-                    std::fprintf(stderr,
-                                 "--quick-snapshot-keep: N must be a whole number from 1 to "
+                    startup_report::report("--quick-snapshot-keep: N must be a whole number from 1 to "
                                  "1000000, or \"unlimited\", not \"%s\".\n", v[0]);
                     return 1;
                 }
@@ -932,8 +994,7 @@ int main(int argc, char* argv[]) {
                 // with the two flags this replaced — unreachable here.
                 if (!cli::parse_snapshot_mode(v[0], snapshot_strict,
                                               snapshot_force_sdcard)) {
-                    std::fprintf(stderr,
-                                 "--snapshot-mode: MODE must be strict, normal or "
+                    startup_report::report("--snapshot-mode: MODE must be strict, normal or "
                                  "force, not \"%s\".\n",
                                  v[0]);
                     return 1;
@@ -943,7 +1004,7 @@ int main(int argc, char* argv[]) {
                 if (config_keys::Assignment a;
                     !via_table(config_keys::KeyId::StartupMachineType, v[0], a) ||
                     !parse_machine_type(a.text, machine_type)) {
-                    fprintf(stderr, "Unknown machine type: %s (valid: 48k, 128k, plus3, pentagon, next)\n", v[0]);
+                    startup_report::report("Unknown machine type: %s (valid: 48k, 128k, plus3, pentagon, next)\n", v[0]);
                     return 1;
                 }
                 machine_type_set = true;
@@ -962,7 +1023,7 @@ int main(int argc, char* argv[]) {
                 benchmark_label = v[0];
                 if (benchmark_label.empty() ||
                     benchmark_label.find_first_of(" \t") != std::string::npos) {
-                    fprintf(stderr, "--benchmark-label: label must be non-empty with no "
+                    startup_report::report("--benchmark-label: label must be non-empty with no "
                             "whitespace (the BENCH line is space-delimited)\n");
                     return 1;
                 }
@@ -998,7 +1059,7 @@ int main(int argc, char* argv[]) {
             case cli::OptId::BreakAt:
                 // GH #548: implies --debugger. An empty value names nothing to stop at.
                 if (v[0][0] == '\0') {
-                    fprintf(stderr, "--break-at: ADDR|SYMBOL must not be empty.\n");
+                    startup_report::report("--break-at: ADDR|SYMBOL must not be empty.\n");
                     return 1;
                 }
                 break_at = v[0];
@@ -1010,8 +1071,7 @@ int main(int argc, char* argv[]) {
                 // usage error — `11000x` is not 11000.
                 long n = 0;
                 if (!cli::parse_int(v[0], 0, 65535, n)) {
-                    fprintf(stderr,
-                            "--dzrp-port: PORT must be a number from 0 to 65535, not \"%s\" "
+                    startup_report::report("--dzrp-port: PORT must be a number from 0 to 65535, not \"%s\" "
                             "(0 binds an OS-chosen port and logs it).\n",
                             v[0]);
                     return 1;
@@ -1023,8 +1083,7 @@ int main(int argc, char* argv[]) {
                 // GH #281 — the same rule, for the same reason, as --dzrp-port.
                 long n = 0;
                 if (!cli::parse_int(v[0], 0, 65535, n)) {
-                    fprintf(stderr,
-                            "--gdb-port: PORT must be a number from 0 to 65535, not \"%s\" "
+                    startup_report::report("--gdb-port: PORT must be a number from 0 to 65535, not \"%s\" "
                             "(0 binds an OS-chosen port and logs it).\n",
                             v[0]);
                     return 1;
@@ -1040,8 +1099,7 @@ int main(int argc, char* argv[]) {
                 uint32_t frame = 0;
                 int      key   = 0;
                 if (!cli::parse_script_key(v[0], v[1], frame, key)) {
-                    fprintf(stderr,
-                            "--script-key: FRAME must be a whole number from 0 and N a key from 1 "
+                    startup_report::report("--script-key: FRAME must be a whole number from 0 and N a key from 1 "
                             "to 8, not \"%s\" \"%s\".\n",
                             v[0], v[1]);
                     return 1;
@@ -1071,7 +1129,7 @@ int main(int argc, char* argv[]) {
                 std::string list = source_dirs_text.value_or(std::string());
                 std::string why;
                 if (!config_keys::append_list_entry(list, v[0], why)) {
-                    fprintf(stderr, "%s\n", why.c_str());
+                    startup_report::report("%s\n", why.c_str());
                     return 1;
                 }
                 source_dirs_text = list;
@@ -1086,8 +1144,7 @@ int main(int argc, char* argv[]) {
                 // --dzrp-port: `10000x` is not 10000.
                 long n = 0;
                 if (!cli::parse_int(v[0], 0, 65535, n)) {
-                    fprintf(stderr,
-                            "--zrcp-port: PORT must be a number from 0 to 65535, not \"%s\" "
+                    startup_report::report("--zrcp-port: PORT must be a number from 0 to 65535, not \"%s\" "
                             "(0 binds an OS-chosen port and logs it).\n",
                             v[0]);
                     return 1;
@@ -1098,8 +1155,7 @@ int main(int argc, char* argv[]) {
             case cli::OptId::DebugChannel: {
                 cli::DebugProtocol dp;
                 if (!cli::parse_debug_protocol(v[0], dp)) {
-                    fprintf(stderr,
-                            "--debug-channel: PROTOCOL must be dzrp, zrcp or gdb, not \"%s\".\n",
+                    startup_report::report("--debug-channel: PROTOCOL must be dzrp, zrcp or gdb, not \"%s\".\n",
                             v[0]);
                     return 1;
                 }
@@ -1115,8 +1171,7 @@ int main(int argc, char* argv[]) {
                 // not a bind failure reported by a server much later.
                 esp::IpAddress parsed;
                 if (!esp::parse_ip(v[0], parsed)) {
-                    fprintf(stderr,
-                            "--debug-listen-address: ADDR must be a numeric IP address "
+                    startup_report::report("--debug-listen-address: ADDR must be a numeric IP address "
                             "(e.g. 127.0.0.1 or 0.0.0.0), not \"%s\".\n"
                             "  A name is rejected on purpose: a bind address resolved "
                             "through DNS could change under you.\n",
@@ -1157,8 +1212,7 @@ int main(int argc, char* argv[]) {
                 // a QSettings string list), so the two formats must not fail
                 // silently at each other. No legal host name contains a comma.
                 if (std::strchr(v[0], ',') != nullptr) {
-                    fprintf(stderr,
-                            "--esp-allow: HOST must be a single host name; commas are not "
+                    startup_report::report("--esp-allow: HOST must be a single host name; commas are not "
                             "separators here.\n"
                             "  Repeat the option instead: --esp-allow a.example "
                             "--esp-allow b.example\n");
@@ -1168,7 +1222,7 @@ int main(int argc, char* argv[]) {
                 // ignored allowlist entry would leave the user believing a
                 // restriction is in force that is not.
                 if (!esp_allow.add(v[0])) {
-                    fprintf(stderr, "--esp-allow: HOST must not be empty.\n");
+                    startup_report::report("--esp-allow: HOST must not be empty.\n");
                     return 1;
                 }
                 esp_allow_set = true;
@@ -1181,8 +1235,7 @@ int main(int argc, char* argv[]) {
                 // tell it from a port already in use.
                 esp::IpAddress parsed;
                 if (!esp::parse_ip(v[0], parsed)) {
-                    fprintf(stderr,
-                            "--esp-listen-address: ADDR must be a numeric IP address "
+                    startup_report::report("--esp-listen-address: ADDR must be a numeric IP address "
                             "(e.g. 127.0.0.1 or 0.0.0.0), not \"%s\".\n"
                             "  A name is rejected on purpose: a bind address resolved "
                             "through DNS could change under you.\n",
@@ -1206,8 +1259,7 @@ int main(int argc, char* argv[]) {
                 const bool down = (opt->id == cli::OptId::EspDelayedDisassociateFrames);
                 long n = 0;
                 if (!cli::parse_int(v[0], 0, INT_MAX, n)) {
-                    fprintf(stderr,
-                            "%s: N must be a non-negative frame number, not \"%s\".\n",
+                    startup_report::report("%s: N must be a non-negative frame number, not \"%s\".\n",
                             arg.c_str(), v[0]);
                     return 1;
                 }
@@ -1230,8 +1282,7 @@ int main(int argc, char* argv[]) {
                 // could differ between two runs of the same command.
                 esp::IpAddress parsed;
                 if (!esp::parse_ip(v[0], parsed)) {
-                    fprintf(stderr,
-                            "%s: ADDR must be a numeric IP address "
+                    startup_report::report("%s: ADDR must be a numeric IP address "
                             "(e.g. 192.168.1.50), not \"%s\".\n",
                             arg.c_str(), v[0]);
                     return 1;
@@ -1248,8 +1299,7 @@ int main(int argc, char* argv[]) {
                 esp::IpAddress unassociated;
                 esp::parse_ip(esp::AtEngine::UNASSOCIATED_IP, unassociated);
                 if (parsed == unassociated) {
-                    fprintf(stderr,
-                            "%s: %s is what the module reports while it is "
+                    startup_report::report("%s: %s is what the module reports while it is "
                             "NOT associated, so it cannot also be its address.\n",
                             arg.c_str(), esp::AtEngine::UNASSOCIATED_IP);
                     return 1;
@@ -1269,7 +1319,7 @@ int main(int argc, char* argv[]) {
                 else if (mode == "dec") magic_port_mode = EmulatorConfig::MagicPortMode::DEC;
                 else if (mode == "ascii") magic_port_mode = EmulatorConfig::MagicPortMode::ASCII;
                 else if (mode == "line") magic_port_mode = EmulatorConfig::MagicPortMode::LINE;
-                else { fprintf(stderr, "Unknown magic port mode: %s (valid: hex, dec, ascii, line)\n", v[0]); return 1; }
+                else { startup_report::report("Unknown magic port mode: %s (valid: hex, dec, ascii, line)\n", v[0]); return 1; }
                 magic_port_mode_set = true;
                 break;
             }
@@ -1303,7 +1353,7 @@ int main(int argc, char* argv[]) {
                 }
                 config_keys::Assignment ga;
                 if (!via_table(gk, v[0], ga)) {
-                    fprintf(stderr, "%s: expected a number from -24 to +24 dB, not \"%s\".\n",
+                    startup_report::report("%s: expected a number from -24 to +24 dB, not \"%s\".\n",
                             arg.c_str(), v[0]);
                     return 1;
                 }
@@ -1321,8 +1371,7 @@ int main(int argc, char* argv[]) {
                 {
                     long n = 0;
                     if (!cli::parse_int(v[0], INT_MIN, INT_MAX, n)) {
-                        fprintf(stderr,
-                                "--speed: PERCENT must be a whole number (outside 10..1000 it "
+                        startup_report::report("--speed: PERCENT must be a whole number (outside 10..1000 it "
                                 "is clamped), not \"%s\".\n", v[0]);
                         return 1;
                     }
@@ -1336,7 +1385,7 @@ int main(int argc, char* argv[]) {
             case cli::OptId::FastBoot: {
                 config_keys::Assignment fa;
                 if (!via_table(config_keys::KeyId::StartupFastBootSeconds, v[0], fa)) {
-                    fprintf(stderr, "--fast-boot: SECONDS must be a whole number from 0 to %d, not \"%s\".\n",
+                    startup_report::report("--fast-boot: SECONDS must be a whole number from 0 to %d, not \"%s\".\n",
                             fast_boot::MAX_SECONDS, v[0]);
                     return 1;
                 }
@@ -1351,8 +1400,7 @@ int main(int argc, char* argv[]) {
                     when_slow_prefer = wa.text == "video" ? audio_pacing::WhenSlowPrefer::Video
                                                           : audio_pacing::WhenSlowPrefer::Audio;
                 } else {
-                    fprintf(stderr,
-                            "Unknown --when-slow-prefer value: %s (valid: audio, video)\n",
+                    startup_report::report("Unknown --when-slow-prefer value: %s (valid: audio, video)\n",
                             v[0]);
                     return 1;
                 }
@@ -1368,7 +1416,7 @@ int main(int argc, char* argv[]) {
                 if (!via_table(idx == 0 ? config_keys::KeyId::InputJoy1Source
                                         : config_keys::KeyId::InputJoy2Source, v[0], ja) ||
                     !parse_joy_source(ja.text.c_str(), src)) {
-                    std::fprintf(stderr, "Invalid %s value '%s' (expected 'sdl', 'keys' or 'none')\n",
+                    startup_report::report("Invalid %s value '%s' (expected 'sdl', 'keys' or 'none')\n",
                                  arg.c_str(), v[0]);
                     return 1;
                 }
@@ -1384,8 +1432,7 @@ int main(int argc, char* argv[]) {
                 config_keys::Assignment da;
                 if (!via_table(idx == 0 ? config_keys::KeyId::InputJoy1Device
                                         : config_keys::KeyId::InputJoy2Device, v[0], da)) {
-                    std::fprintf(stderr,
-                        "Invalid %s value '%s' (expected the 32-hex-digit controller id "
+                    startup_report::report("Invalid %s value '%s' (expected the 32-hex-digit controller id "
                         "jnext logs, optionally followed by #N)\n", arg.c_str(), v[0]);
                     return 1;
                 }
@@ -1399,8 +1446,7 @@ int main(int argc, char* argv[]) {
                 if (config_keys::Assignment ma;
                     !via_table(config_keys::KeyId::InputMouseRelease, v[0], ma) ||
                     !pointer_capture::parse_release_method(ma.text, mouse_release)) {
-                    std::fprintf(stderr,
-                        "Unknown --mouse-release value: %s (valid: ctrl-alt, middle-click, esc)\n",
+                    startup_report::report("Unknown --mouse-release value: %s (valid: ctrl-alt, middle-click, esc)\n",
                         v[0]);
                     return 1;
                 }
@@ -1410,15 +1456,13 @@ int main(int argc, char* argv[]) {
             case cli::OptId::TouchKeyboard: {
                 cli::TouchKeyboard tk;
                 if (!cli::parse_touch_keyboard(v[0], tk)) {
-                    std::fprintf(stderr,
-                        "Unknown --touch-keyboard value: %s (valid: auto, on, off)\n", v[0]);
+                    startup_report::report("Unknown --touch-keyboard value: %s (valid: auto, on, off)\n", v[0]);
                     return 1;
                 }
 #ifdef JNEXT_BROWSER
                 browser_frontend::set_touch_keyboard(static_cast<int>(tk));
 #else
-                std::fprintf(stderr,
-                    "warning: --touch-keyboard has no effect outside a browser page; ignoring.\n");
+                startup_report::report("warning: --touch-keyboard has no effect outside a browser page; ignoring.\n");
 #endif
                 break;
             }
@@ -1449,8 +1493,7 @@ int main(int argc, char* argv[]) {
                 // starts at frame 0 and is spent before the guest is listening
                 // — the exact silent no-op this option exists to prevent.
                 if (!cli::parse_int(v[0], 0, INT_MAX, joy_uart_rx_delay_frames)) {
-                    std::fprintf(stderr,
-                                 "--joy-uart-rx-delay-frames: N must be a non-negative "
+                    startup_report::report("--joy-uart-rx-delay-frames: N must be a non-negative "
                                  "whole number of frames, not \"%s\".\n", v[0]);
                     return 1;
                 }
@@ -1464,8 +1507,7 @@ int main(int argc, char* argv[]) {
                 if (std::strcmp(v[0], "1") == 0)      joy_uart_connector = 0;
                 else if (std::strcmp(v[0], "2") == 0) joy_uart_connector = 1;
                 else {
-                    std::fprintf(stderr,
-                                 "--joy-uart-connector: N must be 1 or 2, not \"%s\".\n",
+                    startup_report::report("--joy-uart-connector: N must be 1 or 2, not \"%s\".\n",
                                  v[0]);
                     return 1;
                 }
@@ -1523,12 +1565,12 @@ int main(int argc, char* argv[]) {
                                           : "--delayed-sdcard-insert-frames";
                 long n = 0;
                 if (!cli::parse_int(v[0], 0, INT_MAX, n)) {
-                    fprintf(stderr, "%s: N must be a "
+                    startup_report::report("%s: N must be a "
                                     "non-negative frame number, not \"%s\".\n", flag, v[0]);
                     return 1;
                 }
                 if (*v[1] == '\0') {
-                    fprintf(stderr, "%s: FILE is empty. "
+                    startup_report::report("%s: FILE is empty. "
                                     "It names the SD-card image to insert.\n", flag);
                     return 1;
                 }
@@ -1581,7 +1623,7 @@ int main(int argc, char* argv[]) {
             case cli::OptId::Rtc:
                 rtc_fixed_arg = v[0];
                 if (!parse_rtc_datetime(rtc_fixed_arg, rtc_fixed_tm)) {
-                    fprintf(stderr, "Invalid --rtc value: '%s' (expected \"YYYY-MM-DD HH:MM:SS\" "
+                    startup_report::report("Invalid --rtc value: '%s' (expected \"YYYY-MM-DD HH:MM:SS\" "
                             "or YYYY-MM-DDTHH:MM:SS)\n",
                             rtc_fixed_arg.c_str());
                     return 1;
@@ -1591,7 +1633,7 @@ int main(int argc, char* argv[]) {
                 config_keys::Assignment a;
                 std::string why;
                 if (!config_keys::parse_assignment(v[0], a, why)) {
-                    fprintf(stderr, "--set: %s\n", why.c_str());
+                    startup_report::report("--set: %s\n", why.c_str());
                     return 1;
                 }
                 const config_keys::Key& info = config_keys::info(a.id);
@@ -1599,7 +1641,7 @@ int main(int argc, char* argv[]) {
                     (a.id == config_keys::KeyId::DebuggerKey ? a.family_name : std::string(info.name));
 #ifdef __EMSCRIPTEN__
                 if (const char* why = config_keys::browser_refusal(info)) {
-                    fprintf(stderr, "--set %s: %s\n", key.c_str(), why);
+                    startup_report::report("--set %s: %s\n", key.c_str(), why);
                     return 1;
                 }
 #endif
@@ -1610,7 +1652,7 @@ int main(int argc, char* argv[]) {
             case cli::OptId::CpuSpeed: {
                 int index = 0;
                 if (!cli::parse_cpu_speed_mhz(v[0], index)) {
-                    fprintf(stderr, "--cpu-speed: MHZ must be 3.5, 7, 14 or 28, not \"%s\".\n", v[0]);
+                    startup_report::report("--cpu-speed: MHZ must be 3.5, 7, 14 or 28, not \"%s\".\n", v[0]);
                     return 1;
                 }
                 cpu_speed_opt = index;
@@ -1626,12 +1668,12 @@ int main(int argc, char* argv[]) {
             case cli::OptId::Crt: {
                 cli::CrtEffect e;
                 if (!cli::parse_crt_effect(v[0], e)) {
-                    fprintf(stderr, "--crt: EFFECT must be off, scanlines, soft, tv or pc, not \"%s\".\n", v[0]);
+                    startup_report::report("--crt: EFFECT must be off, scanlines, soft, tv or pc, not \"%s\".\n", v[0]);
                     return 1;
                 }
 #ifdef ENABLE_QT_UI
                 if (e.needs_shader && !EmulatorWidget::crt_shader_built_in()) {
-                    fprintf(stderr, "--crt: \"%s\" needs the GPU shader, which this build does not have "
+                    startup_report::report("--crt: \"%s\" needs the GPU shader, which this build does not have "
                                     "(off and scanlines are available).\n", v[0]);
                     return 1;
                 }
@@ -1653,15 +1695,14 @@ int main(int argc, char* argv[]) {
             // unknown option, not a filename — a mistyped flag must not be
             // silently swallowed as a file.
             if (!positional_file.empty()) {
-                fprintf(stderr,
-                        "Only one file may be given ('%s' and '%s').\n"
+                startup_report::report("Only one file may be given ('%s' and '%s').\n"
                         "Run '%s --help' for a list of available options.\n",
                         positional_file.c_str(), arg.c_str(), argv[0]);
                 return 1;
             }
             positional_file = arg;
         } else {
-            fprintf(stderr, "Unknown option: %s\nRun '%s --help' for a list of available options.\n", arg.c_str(), argv[0]);
+            startup_report::report("Unknown option: %s\nRun '%s --help' for a list of available options.\n", arg.c_str(), argv[0]);
             return 1;
         }
     }
@@ -1679,8 +1720,7 @@ int main(int argc, char* argv[]) {
     // rather than silently picking one.
     if (!positional_file.empty()) {
         if (!load_file.empty()) {
-            fprintf(stderr,
-                    "--load %s and the file argument %s cannot be combined; give only one.\n",
+            startup_report::report("--load %s and the file argument %s cannot be combined; give only one.\n",
                     load_file.c_str(), positional_file.c_str());
             return 1;
         }
@@ -1690,7 +1730,7 @@ int main(int argc, char* argv[]) {
     // GH #541: a .zip is checked after its extraction, below (a NEX archive is accepted).
     if (!load_file.empty() && !program_archive::is_archive_path(load_file)) {
         if (const char* why = browser_page::program_refusal(load_file)) {
-            fprintf(stderr, "--load %s: %s\n", load_file.c_str(), why);
+            startup_report::report("--load %s: %s\n", load_file.c_str(), why);
             return 1;
         }
     }
@@ -1713,14 +1753,14 @@ int main(int argc, char* argv[]) {
             std::string chosen, ignored;
             if (!archive.open(load_file, ignored) || !archive.choose(chosen, ignored) ||
                 !browser_page::archive_program_allowed(chosen)) {
-                fprintf(stderr, "--load %s: %s\n", load_file.c_str(),
+                startup_report::report("--load %s: %s\n", load_file.c_str(),
                         browser_page::program_refusal(load_file));
                 return 1;
             }
         }
 #endif
         if (!program_archive::extract_single_program(load_file, extracted, why, &member)) {
-            fprintf(stderr, "--load %s: %s.\n", load_file.c_str(), why.c_str());
+            startup_report::report("--load %s: %s.\n", load_file.c_str(), why.c_str());
             return 1;
         }
         Log::emulator()->info("--load {}: loading {} from the archive", load_file,
@@ -1754,17 +1794,17 @@ int main(int argc, char* argv[]) {
                                                                   : "--delayed-sdcard-insert-frames")
                                                                : nullptr;
         if (card_opt) {
-            fprintf(stderr, "--no-sdcard cannot be combined with %s: there is no SD card.\n", card_opt);
+            startup_report::report("--no-sdcard cannot be combined with %s: there is no SD card.\n", card_opt);
             return 1;
         }
         // The NMI buttons page in the Multiface or DivMMC ROM, which come from the card.
         if (!delayed_nmis.empty()) {
-            fprintf(stderr, "--no-sdcard cannot be combined with --delayed-nmi: there is no ROM to "
+            startup_report::report("--no-sdcard cannot be combined with --delayed-nmi: there is no ROM to "
                             "service an NMI.\n");
             return 1;
         }
         if (machine_type != MachineType::ZXN_ISSUE2) {
-            fprintf(stderr, "--no-sdcard needs the Next: the other machines run from ROMs on the SD card.\n");
+            startup_report::report("--no-sdcard needs the Next: the other machines run from ROMs on the SD card.\n");
             return 1;
         }
         std::string ext;
@@ -1773,7 +1813,7 @@ int main(int argc, char* argv[]) {
             for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         }
         if (load_file.empty() || ext != ".nex") {
-            fprintf(stderr, "--no-sdcard needs --load of a .nex (directly, or in a .zip): with no SD card "
+            startup_report::report("--no-sdcard needs --load of a .nex (directly, or in a .zip): with no SD card "
                             "there are no ROMs to run anything else.\n");
             return 1;
         }
@@ -1796,26 +1836,23 @@ int main(int argc, char* argv[]) {
         const bool load_is_rzx = (load_ext == ".rzx");   // --load x.rzx plays it
         const bool plays       = load_is_rzx || !rzx_play_file.empty();
         if (load_is_rzx && !rzx_play_file.empty()) {
-            fprintf(stderr, "--load %s and --rzx-play %s: only one RZX recording can play.\n",
+            startup_report::report("--load %s and --rzx-play %s: only one RZX recording can play.\n",
                     load_file.c_str(), rzx_play_file.c_str());
             return 1;
         }
         if (plays && !rzx_record_file.empty()) {
-            fprintf(stderr,
-                    "--rzx-record cannot record during RZX playback: every IN is answered "
+            startup_report::report("--rzx-record cannot record during RZX playback: every IN is answered "
                     "from the file being played, so the recording would hold no input.\n");
             return 1;
         }
         if (plays && ((!load_file.empty() && !load_is_rzx) || !inject_file.empty())) {
-            fprintf(stderr,
-                    "RZX playback cannot be combined with %s: the recording replaces the "
+            startup_report::report("RZX playback cannot be combined with %s: the recording replaces the "
                     "machine with its own snapshot.\n",
                     !inject_file.empty() ? "--inject" : "--load");
             return 1;
         }
         if ((plays || !rzx_record_file.empty()) && !tape_save_file.empty()) {
-            fprintf(stderr,
-                    "--tape-save cannot be combined with RZX recording or playback: its SAVE "
+            startup_report::report("--tape-save cannot be combined with RZX recording or playback: its SAVE "
                     "trap skips the ROM routine, which a recording cannot replay.\n");
             return 1;
         }
@@ -1829,7 +1866,7 @@ int main(int argc, char* argv[]) {
     if (!esxdos_stub_root.empty()) {
         std::string why;
         if (!EsxdosHostFs::validate_root(esxdos_stub_root, why)) {
-            fprintf(stderr, "--esxdos-stub-root: %s\n", why.c_str());
+            startup_report::report("--esxdos-stub-root: %s\n", why.c_str());
             return 1;
         }
     }
@@ -1850,10 +1887,10 @@ int main(int argc, char* argv[]) {
                 c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         }
         if (load_file.empty()) {
-            fprintf(stderr, "--warm-start-regenerate has nothing to regenerate without "
+            startup_report::report("--warm-start-regenerate has nothing to regenerate without "
                             "--load: a run with no program boots the firmware anyway.\n");
         } else if (ws_ext != ".nex") {
-            fprintf(stderr, "--warm-start-regenerate applies to .nex files only; '%s' "
+            startup_report::report("--warm-start-regenerate applies to .nex files only; '%s' "
                             "loads as it always has.\n", load_file.c_str());
         }
     }
@@ -1861,7 +1898,7 @@ int main(int argc, char* argv[]) {
     // --delayed-screenshot-layers only means anything with a screenshot to
     // apply it to. Say so instead of quietly doing nothing.
     if (screenshot_layers_set && screenshot_file.empty()) {
-        fprintf(stderr, "--delayed-screenshot-layers requires --delayed-screenshot FILE.\n");
+        startup_report::report("--delayed-screenshot-layers requires --delayed-screenshot FILE.\n");
         return 1;
     }
     // ...and nothing to apply it to is also what a `.SCR` target is: a .SCR
@@ -1870,8 +1907,7 @@ int main(int argc, char* argv[]) {
     // the same reason as the check above.
     if (screenshot_layers_set
         && screenshot_format_for_path(screenshot_file) == ScreenshotFormat::Scr) {
-        fprintf(stderr,
-                "--delayed-screenshot-layers cannot be used with a .scr screenshot: "
+        startup_report::report("--delayed-screenshot-layers cannot be used with a .scr screenshot: "
                 "a .SCR records the ULA screen memory, not the composited layers.\n");
         return 1;
     }
@@ -1905,7 +1941,7 @@ int main(int argc, char* argv[]) {
         };
         for (const Needs& n : needs) {
             if (n.given && !n.base) {
-                fprintf(stderr, "%s requires %s.\n", n.option, n.needs);
+                startup_report::report("%s requires %s.\n", n.option, n.needs);
                 return 1;
             }
         }
@@ -1917,13 +1953,13 @@ int main(int argc, char* argv[]) {
     std::optional<jnext::pok::CliRequest> pok_request;
     if (pok_frames_count > 0) {
         if (pok_frames_count > 1 || pok_trainers_count > 1) {
-            fprintf(stderr, "--delayed-pok-frames and --pok-trainers can each be given once: "
+            startup_report::report("--delayed-pok-frames and --pok-trainers can each be given once: "
                             "one POK file per run.\n");
             return 1;
         }
 #ifdef ENABLE_QT_UI
         if (!headless) {
-            fprintf(stderr, "--delayed-pok-frames is not available in the Qt window: use Machine > "
+            startup_report::report("--delayed-pok-frames is not available in the Qt window: use Machine > "
                             "POK Trainers... (it works with --headless, and in the SDL-only build).\n");
             return 1;
         }
@@ -1931,13 +1967,13 @@ int main(int argc, char* argv[]) {
         std::vector<jnext::pok::Pick> picks;
         std::string pok_err;
         if (!jnext::pok::parse_picks(pok_trainers_text, picks, pok_err)) {
-            fprintf(stderr, "--pok-trainers: %s\n", pok_err.c_str());
+            startup_report::report("--pok-trainers: %s\n", pok_err.c_str());
             return 1;
         }
         jnext::pok::CliRequest request;
         pok_err = jnext::pok::make_cli_request(pok_file, picks, request);
         if (!pok_err.empty()) {
-            fprintf(stderr, "--delayed-pok-frames: %s\n", pok_err.c_str());
+            startup_report::report("--delayed-pok-frames: %s\n", pok_err.c_str());
             return 1;
         }
         pok_request = std::move(request);
@@ -1949,7 +1985,7 @@ int main(int argc, char* argv[]) {
             sdcard_file_add_count, sdcard_file_dest_count,
             sdcard_file_dest.empty(), sdcard_file_force);
         if (!usage.empty()) {
-            fprintf(stderr, "%s\n", usage.c_str());
+            startup_report::report("%s\n", usage.c_str());
             return 1;
         }
     }
@@ -1961,8 +1997,7 @@ int main(int argc, char* argv[]) {
     // writes file and the image is left alone (GH #507).
     if (sdcard_file_add_count > 0) {
         if (sdcard_readonly) {
-            fprintf(stderr,
-                    "--sdcard-file-add cannot be combined with --sdcard-readonly: "
+            startup_report::report("--sdcard-file-add cannot be combined with --sdcard-readonly: "
                     "it exists to write the image.\n");
             return 1;
         }
@@ -1975,11 +2010,65 @@ int main(int argc, char* argv[]) {
                          : !inject_file.empty() ? "--inject"
                                                 : nullptr;
         if (runs) {
-            fprintf(stderr,
-                    "--sdcard-file-add cannot be combined with %s: it copies the file "
+            startup_report::report("--sdcard-file-add cannot be combined with %s: it copies the file "
                     "onto the card and exits without starting emulation.\n", runs);
             return 1;
         }
+    }
+    // GH #555 - the rescue verbs (flatten, export, import) are terminal commands too: one per run,
+    // each with what it needs, none combined with "and then run this".
+    {
+        const int verbs = (sdcard_file_add_count > 0) + (sdcard_flatten_count > 0) +
+                          (sdcard_export_count > 0) + (sdcard_import_count > 0);
+        const int repeats = sdcard_flatten_count > 1 || sdcard_export_count > 1 ||
+                            sdcard_import_count > 1 || sdcard_export_base_count > 1;
+        const char* usage = nullptr;
+        std::string usage_text;
+        if (repeats) usage = "--sdcard-writes-flatten, --sdcard-export-changes, --sdcard-export-base and --sdcard-import-changes may each be given once.";
+        else if (verbs > 1) usage = "--sdcard-file-add, --sdcard-writes-flatten, --sdcard-export-changes and --sdcard-import-changes are separate commands: give one per run.";
+        else if (sdcard_export_base_count > 0 && sdcard_export_count == 0) usage = "--sdcard-export-base requires --sdcard-export-changes DIR.";
+        else if (sdcard_flatten_count > 0 && sdcard_writes_file.empty()) usage = "--sdcard-writes-flatten requires --sdcard-writes FILE.";
+        else if ((sdcard_flatten_count > 0 && sdcard_writes_flatten.empty()) ||
+                 (sdcard_export_count > 0 && sdcard_export_dir.empty()) ||
+                 (sdcard_import_count > 0 && sdcard_import_dir.empty()) ||
+                 (sdcard_export_base_count > 0 && sdcard_export_base.empty()))
+            usage = "--sdcard-writes-flatten, --sdcard-export-changes, --sdcard-export-base and --sdcard-import-changes need a non-empty value.";
+        else if (sdcard_import_count > 0 && sdcard_readonly)
+            usage = "--sdcard-import-changes cannot be combined with --sdcard-readonly: it exists to write the card.";
+        else if (verbs > 0 && sdcard_file_add_count == 0 && (!load_file.empty() || !inject_file.empty())) {
+            usage_text = std::string(sdcard_flatten_count ? "--sdcard-writes-flatten" : sdcard_export_count ? "--sdcard-export-changes" : "--sdcard-import-changes") +
+                         " cannot be combined with --load or --inject: it runs without starting emulation.";
+            usage = usage_text.c_str();
+        }
+        if (usage) {
+            startup_report::report("%s\n", usage);
+            return 1;
+        }
+        // A terminal command starts no window: its SD provisioning is headless too (no dialogs, no
+        // upgrade offer), as --sdcard-file-add's is by its own count.
+        if (verbs > 0 && sdcard_file_add_count == 0) headless = true;
+    }
+    // GH #555 S6 - --sdcard-go-back and --sdcard-delete-backup act on the default location's backup:
+    // terminal commands, one per run, never with an explicit card or another verb or a program.
+    if (sdcard_go_back_count > 0 || sdcard_delete_backup_count > 0) {
+        const char* verb = sdcard_go_back_count ? "--sdcard-go-back" : "--sdcard-delete-backup";
+        const char* usage = nullptr;
+        if (sdcard_go_back_count + sdcard_delete_backup_count > 1)
+            usage = "--sdcard-go-back and --sdcard-delete-backup are separate commands: give one, once.";
+        else if (sdcard_file_add_count > 0 || sdcard_flatten_count > 0 || sdcard_export_count > 0 ||
+                 sdcard_import_count > 0)
+            usage = "--sdcard-go-back and --sdcard-delete-backup cannot be combined with another SD card command.";
+        else if (!load_file.empty() || !inject_file.empty())
+            usage = "--sdcard-go-back and --sdcard-delete-backup cannot be combined with --load or --inject: they run without starting emulation.";
+        if (usage) {
+            startup_report::report("%s\n", usage);
+            return 1;
+        }
+        if (sdcard_cli_given) {
+            startup_report::report("%s cannot be used with --sdcard: it acts on the default SD card's backup.\n", verb);
+            return 1;
+        }
+        headless = true;
     }
     // Headless automation (each says so in --help): the windowed frontends
     // never read these, so there they were accepted and did nothing (#138).
@@ -1994,7 +2083,7 @@ int main(int argc, char* argv[]) {
                                   : !script_keys.empty()   ? "--script-key"
                                   : nullptr;
         if (headless_only) {
-            fprintf(stderr, "%s requires --headless (it is a headless automation option).\n",
+            startup_report::report("%s requires --headless (it is a headless automation option).\n",
                     headless_only);
             return 1;
         }
@@ -2005,16 +2094,15 @@ int main(int argc, char* argv[]) {
     // --benchmark is headless-only (Task 27 T1): the GUI frontends pace to
     // wall clock, so a "benchmark" there would measure the frame timer.
     if (benchmark_frames > 0 && !headless) {
-        fprintf(stderr, "--benchmark requires --headless.\n");
+        startup_report::report("--benchmark requires --headless.\n");
         return 1;
     }
     if (!benchmark_label.empty() && benchmark_frames <= 0) {
-        fprintf(stderr, "--benchmark-label requires --benchmark N.\n");
+        startup_report::report("--benchmark-label requires --benchmark N.\n");
         return 1;
     }
     if (silent && !wav_record_file.empty()) {
-        fprintf(stderr,
-                "--wav-record cannot be combined with --silent because --silent disables mixer synthesis.\n");
+        startup_report::report("--wav-record cannot be combined with --silent because --silent disables mixer synthesis.\n");
         return 1;
     }
 
@@ -2028,18 +2116,18 @@ int main(int argc, char* argv[]) {
     if (sdcard_sha256_given) {
         std::array<uint8_t, 32> dg{};
         if (!warm_start::parse_sha256_hex(sdcard_sha256_arg, dg)) {
-            fprintf(stderr, "--sdcard-sha256: '%s' is not a SHA-256 (64 hex digits)\n",
+            startup_report::report("--sdcard-sha256: '%s' is not a SHA-256 (64 hex digits)\n",
                     sdcard_sha256_arg.c_str());
             return 1;
         }
         // All zeros is the cache header's "no digest": it would silently fall
         // back to a size-only key. No file has that SHA-256.
         if (dg == std::array<uint8_t, 32>{}) {
-            fprintf(stderr, "--sdcard-sha256: all zeros is not the SHA-256 of any file\n");
+            startup_report::report("--sdcard-sha256: all zeros is not the SHA-256 of any file\n");
             return 1;
         }
         if (sd_card_image.empty()) {
-            fprintf(stderr, "--sdcard-sha256 needs --sdcard: it describes that file\n");
+            startup_report::report("--sdcard-sha256 needs --sdcard: it describes that file\n");
             return 1;
         }
         sdcard_sha256_norm = sdcard_sha256_arg;
@@ -2075,7 +2163,7 @@ int main(int argc, char* argv[]) {
             std::string why;
             if (!jnext::dbgkeys::apply_overrides(session_debug_keys, debug_key_assignments, why,
                                                  kQtCtrlIsCommand)) {
-                fprintf(stderr, "--set debugger_keys: %s\n", why.c_str());
+                startup_report::report("--set debugger_keys: %s\n", why.c_str());
                 return 1;
             }
             session_debug_keys_given = true;
@@ -2128,9 +2216,50 @@ int main(int argc, char* argv[]) {
     // nothing of jnext's to upgrade. The option is refused with --sdcard, where it would be
     // silently ignored; with the Preferences path it is ignored like the rest of the default flow.
     if (!sdcard_upgrade_arg.empty() && sdcard_cli_given) {
-        fprintf(stderr, "--sdcard-upgrade cannot be used with --sdcard: an explicit SD card image is "
+        startup_report::report("--sdcard-upgrade cannot be used with --sdcard: an explicit SD card image is "
                         "never offered an upgrade.\n");
         return 1;
+    }
+    // GH #555 S6 - go back to the previous card / delete the backup: the default location only, under
+    // the card's lock, then exit. 0 done, 2 no backup, 3 failed (nothing changed), 4 the card is in use.
+    if (sdcard_go_back_count > 0 || sdcard_delete_backup_count > 0) {
+        const std::string sd_dir  = sdcard::default_sdcard_dir();
+        const std::string sd_card = sdcard::default_sdcard_image_path();
+        sdcard::sd_locks::set_enabled(true);
+        std::string lock_why;
+        // the lock is on the PATH, not on the file: mid-switch of another process the card is absent for a moment
+        if (!sdcard::sd_locks::hold(0, sd_card, "", lock_why)) {
+            Log::emulator()->error("SD card refused: {}", lock_why);
+            startup_report::report("error: %s\n", lock_why.c_str());
+            return 4;
+        }
+        std::string berr;
+        {
+            std::string unote;
+            if (!sdcard::upgrade::recover(sd_dir, unote, berr)) {
+                startup_report::report("error: an interrupted upgrade could not be finished: %s\n", berr.c_str());
+                return 3;
+            }
+        }
+        if (!sdcard::backup::recover(sd_dir, berr)) {
+            startup_report::report("error: an interrupted go-back could not be finished: %s\n", berr.c_str());
+            return 3;
+        }
+        const sdcard::backup::Result br = sdcard_go_back_count > 0 ? sdcard::backup::go_back(sd_dir, berr)
+                                                                    : sdcard::backup::delete_backup(sd_dir, berr);
+        if (br == sdcard::backup::Result::NoBackup) {
+            std::fprintf(stderr, "%s\n", berr.c_str());   // terminal verb: no start-up box
+            return 2;
+        }
+        if (br == sdcard::backup::Result::Failed) {
+            std::fprintf(stderr, "error: %s\n", berr.c_str());   // terminal verb: no start-up box
+            return 3;
+        }
+        if (sdcard_go_back_count > 0)
+            std::fprintf(stdout, "Went back to the previous SD card; the card that was in use is the backup now\n");
+        else
+            std::fprintf(stdout, "Deleted the previous SD card backup\n");
+        return 0;
     }
     if (!no_sdcard) {
         sdcard::ProvisionOptions opts;
@@ -2139,6 +2268,11 @@ int main(int argc, char* argv[]) {
         else if (sdcard_upgrade_arg == "yes")   opts.upgrade_mode = sdcard::UpgradeMode::Yes;
         else if (sdcard_upgrade_arg == "no")    opts.upgrade_mode = sdcard::UpgradeMode::No;
         else if (sdcard_upgrade_arg == "never") opts.upgrade_mode = sdcard::UpgradeMode::Never;
+        else if (sdcard_upgrade_arg == "fresh") opts.upgrade_mode = sdcard::UpgradeMode::Fresh;
+        if (!sdcard_writes_file.empty()) {
+            std::error_code aec;
+            opts.overlays.push_back(std::filesystem::absolute(sdcard_writes_file, aec).string());
+        }
         opts.auto_confirm    = sdcard_download_confirm;
         opts.force_download  = sdcard_download_force;
         opts.download        = sdcard::default_http_download;
@@ -2170,10 +2304,12 @@ int main(int argc, char* argv[]) {
             opts.busy     = [&](const std::string& p, const std::function<bool()>& w) {
                 return gui_prov.busy(p, w);
             };
-            opts.upgrade  = [&](const std::string& f, const std::string& t, const std::string& m) {
-                return gui_prov.offer_upgrade(f, t, m);
+            opts.upgrade  = [&](const std::string& f, const std::string& t, const std::string& m, bool carries) {
+                return gui_prov.offer_upgrade(f, t, m, carries);
             };
             opts.sleep    = [&](unsigned ms, const std::string& n) { gui_prov.retry_wait(ms, n); };
+            opts.show_report = [&](const std::string& rep) { gui_prov.show_report(rep); };
+            opts.notice   = [&](const std::string& m) { gui_prov.warn(m); };
         } else {
             opts.confirm  = sdcard::cli_confirm;
             opts.progress = sdcard::make_cli_progress();
@@ -2185,15 +2321,33 @@ int main(int argc, char* argv[]) {
         opts.busy     = sdcard::cli_busy;
         // The SDL window frontend asks with a message box; --headless and the terminal
         // command --sdcard-file-add never ask (they log how to upgrade).
-        if (!headless && sdcard_file_add_count == 0) opts.upgrade = sdcard::sdl_offer_upgrade;
+        if (!headless && sdcard_file_add_count == 0) {
+            opts.upgrade = sdcard::sdl_offer_upgrade;
+            opts.show_report = sdcard::sdl_show_report;
+            opts.notice = sdcard::sdl_show_notice;
+        }
 #endif
 #endif   // __EMSCRIPTEN__
+        // GH #555 - the default location's card set is guarded by the card's lock from the first moment:
+        // crash recovery, the offer and the upgrade (which moves the card and its overlays) all run under
+        // it, so a card another jnext has open gets no offer and no upgrade, only the lock message.
+        if (sd_card_image.empty()) {
+            sdcard::sd_locks::set_enabled(true);
+            std::string early_why;
+            if (!sdcard::sd_locks::hold(0, sdcard::default_sdcard_image_path(), sdcard_writes_file, early_why)) {
+                Log::emulator()->error("SD card refused: {}", early_why);
+                startup_report::report("error: %s\n", early_why.c_str());
+                return (sdcard_file_add_count > 0 || sdcard_flatten_count > 0 || sdcard_export_count > 0 ||
+                        sdcard_import_count > 0)
+                    ? static_cast<int>(sdcard::FileAddStatus::ImageUnusable) : 1;
+            }
+        }
         sdcard::ProvisionResult res = sdcard::provision_sd_card(opts);
         if (res.status == sdcard::ProvisionStatus::Ok) {
             sd_card_image = res.path;
             if (!res.warning.empty()) {
                 Log::emulator()->warn("SD-card image: {}", res.warning);
-                std::fprintf(stderr, "warning: %s\n", res.warning.c_str());
+                startup_report::report("warning: %s\n", res.warning.c_str());
 #ifdef ENABLE_QT_UI
                 if (sd_gui_dialogs) gui_prov.warn(res.warning);
 #endif
@@ -2207,8 +2361,9 @@ int main(int argc, char* argv[]) {
             // answer and needs no report.
             if (sd_gui_dialogs && res.status == sdcard::ProvisionStatus::Failed && !res.error.empty()) {
                 Log::emulator()->error("SD-card image: {}", res.error);
-                gui_prov.warn("The SD-card image could not be installed:\n\n" + res.error +
-                              "\n\njnext cannot start without one.");
+                gui_prov.warn(res.refused ? "The SD card was not changed:\n\n" + res.error
+                                          : "The SD-card image could not be installed:\n\n" + res.error +
+                                            "\n\njnext cannot start without one.");
                 logged = true;
             }
 #endif
@@ -2216,10 +2371,13 @@ int main(int argc, char* argv[]) {
             // reason to stderr and nowhere else, so a run with --log-file kept no trace of it.
             if (!logged && res.status == sdcard::ProvisionStatus::Failed && !res.error.empty())
                 Log::emulator()->error("SD-card image: {}", res.error);
+            if (res.refused) {   // a refusal of what was asked, the card is there and untouched: the reason only
+                startup_report::report("error: %s\n", res.error.c_str());
+                return 1;
+            }
             if (!res.error.empty())
-                std::fprintf(stderr, "error: SD-card image: %s\n", res.error.c_str());
-            std::fprintf(stderr,
-                "error: no SD-card image available.\n"
+                startup_report::report("error: SD-card image: %s\n", res.error.c_str());
+            startup_report::report("error: no SD-card image available.\n"
                 "jnext is a ZX Spectrum Next emulator and the SD card image is the canonical\n"
                 "source for all peripheral ROMs (DivMMC, Multiface, NextZXOS) and machine\n"
                 "ROMs (48K, 128K, +3) - same as real hardware. Provide one with --sdcard FILE,\n"
@@ -2237,7 +2395,7 @@ int main(int argc, char* argv[]) {
 #ifdef __EMSCRIPTEN__
         std::string extracted, member, why;
         if (!program_archive::extract_single_sd_image(sd_card_image, extracted, why, &member)) {
-            fprintf(stderr, "--sdcard %s: %s.\n", sd_card_image.c_str(), why.c_str());
+            startup_report::report("--sdcard %s: %s.\n", sd_card_image.c_str(), why.c_str());
             return 1;
         }
         Log::emulator()->info("SD card image: using {} from {}",
@@ -2247,10 +2405,26 @@ int main(int argc, char* argv[]) {
         sd_card_image = extracted;
         g_extracted_sd_card = extracted;
 #else
-        fprintf(stderr, "--sdcard %s: is a ZIP archive, not an SD card image; unzip it first\n",
+        startup_report::report("--sdcard %s: is a ZIP archive, not an SD card image; unzip it first\n",
                 sd_card_image.c_str());
         return 1;
 #endif
+    }
+
+    // GH #555 - one jnext per card image: the image (and its --sdcard-writes FILE) is locked for
+    // the life of the process, before anything reads or writes it. --sdcard-file-add writes the
+    // image, so a locked one is its "image unusable" (exit 5).
+    sdcard::sd_locks::set_enabled(true);
+    {
+        std::string lock_why;
+        if (!sd_card_image.empty() &&
+            !sdcard::sd_locks::hold(0, sd_card_image, sdcard_writes_file, lock_why)) {
+            Log::emulator()->error("SD card refused: {}", lock_why);
+            startup_report::report("error: %s\n", lock_why.c_str());
+            return (sdcard_file_add_count > 0 || sdcard_flatten_count > 0 || sdcard_export_count > 0 ||
+                    sdcard_import_count > 0)
+                ? static_cast<int>(sdcard::FileAddStatus::ImageUnusable) : 1;
+        }
     }
 
     // --sdcard-writes: the guest's writes go to FILE and the image is never
@@ -2269,13 +2443,13 @@ int main(int argc, char* argv[]) {
                           : sdcard2_writes_reset         ? "--sdcard2-writes-reset"
                                                          : nullptr;
         if (needs) {
-            fprintf(stderr, "%s needs --sdcard2 FILE\n", needs);
+            startup_report::report("%s needs --sdcard2 FILE\n", needs);
             return 1;
         }
     } else {
         const std::string why = Emulator::sd_image_refusal(sd_card2_image);
         if (!why.empty()) {
-            fprintf(stderr, "--sdcard2: %s\n", why.c_str());
+            startup_report::report("--sdcard2: %s\n", why.c_str());
             return 1;
         }
         if (sd_card2_from_prefs && sdcard::same_image_file(sd_card2_image, sd_card_image)) {
@@ -2283,9 +2457,17 @@ int main(int argc, char* argv[]) {
                                    "image; the second slot stays empty");
             sd_card2_image.clear();
         } else if (sdcard::same_image_file(sd_card2_image, sd_card_image)) {
-            fprintf(stderr, "--sdcard2 %s: is the first SD card's image; the two slots "
+            startup_report::report("--sdcard2 %s: is the first SD card's image; the two slots "
                             "need two different images\n", sd_card2_image.c_str());
             return 1;
+        }
+        if (!sd_card2_image.empty()) {
+            std::string lock_why;
+            if (!sdcard::sd_locks::hold(1, sd_card2_image, sdcard2_writes_file, lock_why)) {
+                Log::emulator()->error("second SD card refused: {}", lock_why);
+                startup_report::report("error: %s\n", lock_why.c_str());
+                return 1;
+            }
         }
         if (!sd_card2_image.empty() &&
             !bind_card_writes("--sdcard2-writes", "second SD card", sd_card2_image,
@@ -2302,26 +2484,6 @@ int main(int argc, char* argv[]) {
     // is not there yet — a card is needed either way).
     // ---------------------------------------------------------------------
     if (sdcard_file_add_count > 0) {
-        // Writing the DEFAULT image is not wrong, but it is shared: every
-        // other jnext session and the whole regression suite resolve from it.
-        // Said loudly, once, and never repaired behind the user's back — a
-        // silent 1 GB backup copy per invocation would be its own surprise.
-        // Not a string comparison: `--sdcard ./cspect-next-1gb-fixed.img`, a
-        // symlink to it, or a case-different spelling all name the default
-        // image, and a warning a relative path defeats is one that goes
-        // missing exactly when it matters.
-        // Not given when the copy goes into a writes file: the image is not written.
-        if (sdcard_writes_file.empty() &&
-            sdcard::same_image_file(sd_card_image,
-                                    sdcard::default_sdcard_image_path())) {
-            std::fprintf(stderr,
-                "warning: writing into the DEFAULT SD-card image\n"
-                "           %s\n"
-                "         Every jnext run that is given no --sdcard boots this image, and so\n"
-                "         does the test suite. Pass --sdcard FILE to write a private copy\n"
-                "         instead ('cp --reflink=auto' makes one instantly).\n",
-                sd_card_image.c_str());
-        }
         // A file or a directory (GH #292); no --sdcard-file-dest = the card
         // root under the source's own name.
         std::string add_err;
@@ -2330,7 +2492,7 @@ int main(int argc, char* argv[]) {
             sd_card_image, sdcard_file_add, sdcard_file_dest,
             sdcard_file_force, add_err, &summary);
         if (st != sdcard::FileAddStatus::Ok) {
-            std::fprintf(stderr, "error: --sdcard-file-add: %s\n", add_err.c_str());
+            startup_report::report("error: --sdcard-file-add: %s\n", add_err.c_str());
             return static_cast<int>(st);
         }
         // In journal mode the copy is in the writes file, not the image.
@@ -2354,14 +2516,76 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    // ---------------------------------------------------------------------
+    // GH #555 - the rescue verbs. Like --sdcard-file-add they run on exactly the image a normal run
+    // would boot, after the image lock, and exit; they share its exit statuses.
+    // ---------------------------------------------------------------------
+    if (sdcard_flatten_count > 0) {
+        const auto journal = sd_write_journal::for_image(sd_card_image);
+        std::string ferr;
+        const sdcard::FileAddStatus st = journal
+            ? sdcard::carry::flatten(sd_card_image, *journal, sdcard_writes_flatten, ferr)
+            : sdcard::FileAddStatus::DestInvalid;
+        if (!journal) ferr = "no writes file is bound to the SD image";
+        if (st != sdcard::FileAddStatus::Ok) {
+            std::fprintf(stderr, "error: --sdcard-writes-flatten: %s\n", ferr.c_str());   // terminal verb: no start-up box
+            return static_cast<int>(st);
+        }
+        std::fprintf(stdout, "Wrote '%s': '%s' with the writes of '%s' laid over it\n",
+                     sdcard_writes_flatten.c_str(), sd_card_image.c_str(), sdcard_writes_file.c_str());
+        return 0;
+    }
+    if (sdcard_export_count > 0) {
+        sdcard::carry::ExportRequest req;
+        req.image = sd_card_image;
+        req.journal = sd_write_journal::for_image(sd_card_image);
+        req.base_image = sdcard_export_base;
+        req.dir = sdcard_export_dir;
+        req.is_default_card = sdcard::same_image_file(sd_card_image, sdcard::default_sdcard_image_path());
+        sdcard::carry::ExportReport rep;
+        std::string eerr;
+        const sdcard::FileAddStatus st = sdcard::carry::export_changes(req, rep, eerr);
+        if (st != sdcard::FileAddStatus::Ok) {
+            std::fprintf(stderr, "error: --sdcard-export-changes: %s\n", eerr.c_str());   // terminal verb: no start-up box
+            return static_cast<int>(st);
+        }
+        std::fprintf(stdout,
+                     "Exported %u added and %u changed file(s) and %u director%s of '%s' to '%s' "
+                     "(compared against: %s; %u removed file(s) listed, not exported)\n",
+                     rep.added, rep.changed, rep.dirs, rep.dirs == 1 ? "y" : "ies",
+                     sd_card_image.c_str(), sdcard_export_dir.c_str(), rep.base.c_str(), rep.removed);
+        for (const std::string& n : rep.escaped)
+            std::fprintf(stdout, "  written with an escaped name: %s\n", n.c_str());
+        for (const std::string& n : rep.skipped)
+            std::fprintf(stdout, "  not exported (a name jnext cannot address, a trailing space or dot): %s\n", n.c_str());
+        return 0;
+    }
+    if (sdcard_import_count > 0) {
+        sdcard::carry::ImportReport rep;
+        std::string ierr;
+        const sdcard::FileAddStatus st = sdcard::carry::import_changes(sd_card_image, sdcard_import_dir, rep, ierr);
+        if (st != sdcard::FileAddStatus::Ok) {
+            std::fprintf(stderr, "error: --sdcard-import-changes: %s\n", ierr.c_str());   // terminal verb: no start-up box
+            return static_cast<int>(st);
+        }
+        const std::string kept = sdcard_writes_file.empty()
+            ? std::string()
+            : ", kept in " + sdcard_writes_file + " (the image is not written)";
+        std::fprintf(stdout, "Imported %zu file(s) into %s (%zu new, %zu replaced, %u new director%s)%s\n",
+                     rep.written.size() + rep.replaced.size(), sd_card_image.c_str(), rep.written.size(),
+                     rep.replaced.size(), rep.dirs_created, rep.dirs_created == 1 ? "y" : "ies", kept.c_str());
+        for (const std::string& p : rep.written)  std::fprintf(stdout, "  written  %s\n", p.c_str());
+        for (const std::string& p : rep.replaced) std::fprintf(stdout, "  replaced %s\n", p.c_str());
+        return 0;
+    }
+
     // Task 79 — --joyN-source only has an effect in the interactive frontends
     // (SDL / Qt); headless has no host input dispatcher, so warn loudly rather than
     // silently accepting an inert flag. GH #417: --set input.joyN_source / _device
     // are the same settings and are covered by the same warning.
     if (headless && (joy_source_set[0] || joy_source_set[1] ||
                      joy_device_set[0] || joy_device_set[1])) {
-        std::fprintf(stderr,
-            "warning: --joy1-source/--joy2-source/--joy1-device/--joy2-device (and --set input.joyN_source, "
+        startup_report::report("warning: --joy1-source/--joy2-source/--joy1-device/--joy2-device (and --set input.joyN_source, "
             "input.joyN_device) have no effect with --headless "
             "(no host joystick input in headless mode); ignoring.\n");
     }
@@ -2371,23 +2595,20 @@ int main(int argc, char* argv[]) {
     // audio device, so there is nothing to trade off and nothing to degrade.
     // The next three print the spelling the user used (--set startup.x or the flag).
     if (headless && when_slow_prefer_set) {
-        std::fprintf(stderr,
-            "warning: %s has no effect with --headless "
+        startup_report::report("warning: %s has no effect with --headless "
             "(headless runs uncapped with no audio device); ignoring.\n",
             spelled(config_keys::KeyId::StartupWhenSlowPrefer, "--when-slow-prefer").c_str());
     }
     // GH #365 — pointer capture exists only in the interactive frontends.
     if (headless && mouse_release_set) {
-        std::fprintf(stderr,
-            "warning: %s has no effect with --headless "
+        startup_report::report("warning: %s has no effect with --headless "
             "(no host mouse in headless mode); ignoring.\n",
             spelled(config_keys::KeyId::InputMouseRelease, "--mouse-release").c_str());
     }
     // --speed is a pace, and headless has none: it runs uncapped. Said, as
     // for --when-slow-prefer, rather than quietly ignored.
     if (headless && speed_percent_set) {
-        std::fprintf(stderr,
-            "warning: %s has no effect with --headless (headless runs "
+        startup_report::report("warning: %s has no effect with --headless (headless runs "
             "uncapped); ignoring.\n",
             spelled(config_keys::KeyId::StartupEmulatorSpeedPercent, "--speed").c_str());
     }
@@ -2434,21 +2655,19 @@ int main(int argc, char* argv[]) {
             for (const std::string& d : said) dup = dup || d == g.second;
             if (dup) continue;
             said.push_back(g.second);
-            std::fprintf(stderr, "warning: %s has no effect %s; ignoring.\n", g.second.c_str(), why);
+            startup_report::report("warning: %s has no effect %s; ignoring.\n", g.second.c_str(), why);
         }
     }
 
     // Task 79 — cursor keys can drive only one connector.
     if (joy_source[0] == JoySource::CursorKeys && joy_source[1] == JoySource::CursorKeys) {
-        std::fprintf(stderr,
-            "error: --joy1-source and --joy2-source cannot both be 'keys' "
+        startup_report::report("error: --joy1-source and --joy2-source cannot both be 'keys' "
             "(the host cursor keys can drive only one connector).\n");
         return 1;
     }
     // GH #311 — one controller drives at most one connector.
     if (!joy_device_id[0].empty() && joy_device_id[0] == joy_device_id[1]) {
-        std::fprintf(stderr,
-            "error: --joy1-device and --joy2-device cannot name the same controller.\n");
+        startup_report::report("error: --joy1-device and --joy2-device cannot name the same controller.\n");
         return 1;
     }
     // ---------------------------------------------------------------------
@@ -2481,7 +2700,7 @@ int main(int argc, char* argv[]) {
     // --no-sdcard runs the Next's synthetic machine: the saved Preferences machine joins the CLI
     // one in the merge above, so the check made with the CLI value alone (above) cannot see it.
     if (no_sdcard && configured_machine != MachineType::ZXN_ISSUE2) {
-        fprintf(stderr, "--no-sdcard needs the Next: the other machines run from ROMs on the SD card "
+        startup_report::report("--no-sdcard needs the Next: the other machines run from ROMs on the SD card "
                         "(the saved machine is %s: give --machine next).\n",
                 machine_type_str(configured_machine));
         return 1;
@@ -2536,7 +2755,7 @@ int main(int argc, char* argv[]) {
         if (req.wanted) {
             std::function<void(const std::string&)> report = [](const std::string& m) {
                 Log::uart()->error("NextPi: {}", m);   // kept by --log-file; stderr may go nowhere
-                std::fprintf(stderr, "error: NextPi: %s\n", m.c_str());
+                startup_report::report("error: NextPi: %s\n", m.c_str());
             };
             popts.download = sdcard::default_http_download;
             popts.confirm  = sdcard::cli_confirm;
@@ -2566,7 +2785,7 @@ int main(int argc, char* argv[]) {
                 // without NextPi, from --nextpi it exits (and says so on stderr too).
                 report = [&](const std::string& m) {
                     Log::uart()->error("NextPi: {}", m);
-                    if (req.asked_on_cli) std::fprintf(stderr, "error: NextPi: %s\n", m.c_str());
+                    if (req.asked_on_cli) startup_report::report("error: NextPi: %s\n", m.c_str());
                     gui_prov.warn("NextPi could not be started:\n\n" + m +
                                   (req.asked_on_cli ? "\n\njnext exits, because --nextpi asked for it."
                                                     : "\n\njnext starts without it."));
@@ -2881,21 +3100,21 @@ int main(int argc, char* argv[]) {
         // (An EMPTY list given with --set esp.allowed_hosts= restricts nothing, so it
         // claims nothing and is not refused.)
         if (esp_allow_set && !esp_allow.allowed_hosts.empty() && !cfg.esp_enabled) {
-            fprintf(stderr, "%s requires the ESP to be enabled (--esp).\n",
+            startup_report::report("%s requires the ESP to be enabled (--esp).\n",
                     spelled(config_keys::KeyId::EspAllowedHosts, "--esp-allow").c_str());
             return 1;
         }
         // Same reasoning: a bind address given for a module that is off reads
         // as "I have configured where it listens" when nothing will listen.
         if (!esp_listen_address.empty() && !cfg.esp_enabled) {
-            fprintf(stderr, "--esp-listen-address requires the ESP to be enabled (--esp).\n");
+            startup_report::report("--esp-listen-address requires the ESP to be enabled (--esp).\n");
             return 1;
         }
         // GH #12 (owner decision), the same reasoning for the debugger: an
         // address for protocol servers that are all off configures nothing.
         if (!debug_listen_address.empty() && cfg.dzrp_port < 0 && cfg.zrcp_port < 0 &&
             cfg.gdb_port < 0) {
-            fprintf(stderr, "--debug-listen-address requires a debugger server port "
+            startup_report::report("--debug-listen-address requires a debugger server port "
                             "(--dzrp-port, --zrcp-port or --gdb-port).\n");
             return 1;
         }
@@ -2903,26 +3122,23 @@ int main(int argc, char* argv[]) {
         // a module that is off is a user who believes their bench exercised
         // the disconnected path when nothing was ever connected.
         if (!esp_ip_address.empty() && !cfg.esp_enabled) {
-            fprintf(stderr, "--esp-ip-address requires the ESP to be enabled (--esp).\n");
+            startup_report::report("--esp-ip-address requires the ESP to be enabled (--esp).\n");
             return 1;
         }
         if (!esp_ip_address_after.empty() && !cfg.esp_enabled) {
-            fprintf(stderr,
-                    "--esp-ip-address-after requires the ESP to be enabled (--esp).\n");
+            startup_report::report("--esp-ip-address-after requires the ESP to be enabled (--esp).\n");
             return 1;
         }
         // GH #247. With no re-association there is no "after", so the option
         // would run to completion changing nothing — the silent no-op this
         // whole family of refusals exists to prevent.
         if (!esp_ip_address_after.empty() && esp_associate_frame < 0) {
-            fprintf(stderr,
-                    "--esp-ip-address-after needs an outage that ENDS: give "
+            startup_report::report("--esp-ip-address-after needs an outage that ENDS: give "
                     "--esp-delayed-associate-frames too.\n");
             return 1;
         }
         if ((esp_disassociate_frame >= 0 || esp_associate_frame >= 0) && !cfg.esp_enabled) {
-            fprintf(stderr,
-                    "--esp-delayed-disassociate-frames / --esp-delayed-associate-frames "
+            startup_report::report("--esp-delayed-disassociate-frames / --esp-delayed-associate-frames "
                     "require the ESP to be enabled (--esp).\n");
             return 1;
         }
@@ -2932,14 +3148,12 @@ int main(int argc, char* argv[]) {
         // path it never took, which is the one outcome this feature must not
         // produce — so both are refused rather than run.
         if (esp_associate_frame >= 0 && esp_disassociate_frame < 0) {
-            fprintf(stderr,
-                    "--esp-delayed-associate-frames needs an outage to end: give "
+            startup_report::report("--esp-delayed-associate-frames needs an outage to end: give "
                     "--esp-delayed-disassociate-frames too (the module starts associated).\n");
             return 1;
         }
         if (esp_associate_frame >= 0 && esp_associate_frame <= esp_disassociate_frame) {
-            fprintf(stderr,
-                    "--esp-delayed-associate-frames N must be GREATER than "
+            startup_report::report("--esp-delayed-associate-frames N must be GREATER than "
                     "--esp-delayed-disassociate-frames M (%d <= %d leaves no outage).\n",
                     esp_associate_frame, esp_disassociate_frame);
             return 1;
@@ -2949,8 +3163,7 @@ int main(int argc, char* argv[]) {
         // have configured my serial source" when there is no source at all.
         const bool joy_uart_live = !joy_uart_fifo.empty() || joy_uart_pty;
         if (joy_uart_connector_set && joy_uart_rx_file.empty() && !joy_uart_live) {
-            fprintf(stderr,
-                    "--joy-uart-connector and --joy-uart-rx-delay-frames require a serial "
+            startup_report::report("--joy-uart-connector and --joy-uart-rx-delay-frames require a serial "
                     "source to configure: give --joy-uart-rx FILE, --joy-uart-fifo PATH or "
                     "--joy-uart-pty too.\n");
             return 1;
@@ -2960,8 +3173,7 @@ int main(int argc, char* argv[]) {
         // flag there would silently do nothing, which is the class of quiet
         // no-op every refusal in this block exists to prevent.
         if (joy_uart_rx_delay_frames_set && joy_uart_rx_file.empty()) {
-            fprintf(stderr,
-                    "--joy-uart-rx-delay-frames schedules a recorded stream: delays require "
+            startup_report::report("--joy-uart-rx-delay-frames schedules a recorded stream: delays require "
                     "a serial source given with --joy-uart-rx FILE. A live cable "
                     "(--joy-uart-fifo / --joy-uart-pty) delivers bytes when the host sends "
                     "them.\n");
@@ -2971,15 +3183,13 @@ int main(int argc, char* argv[]) {
         // interleave into one byte stream that neither end could parse, and the
         // user would have no way to tell which half they were looking at.
         if (joy_uart_live && !joy_uart_rx_file.empty()) {
-            fprintf(stderr,
-                    "--joy-uart-rx (a recorded stream) and --joy-uart-fifo / "
+            startup_report::report("--joy-uart-rx (a recorded stream) and --joy-uart-fifo / "
                     "--joy-uart-pty (a live cable) both attach to the same joystick "
                     "socket; give one.\n");
             return 1;
         }
         if (!joy_uart_fifo.empty() && joy_uart_pty) {
-            fprintf(stderr,
-                    "--joy-uart-fifo and --joy-uart-pty both attach a live cable to the "
+            startup_report::report("--joy-uart-fifo and --joy-uart-pty both attach a live cable to the "
                     "same joystick socket; give one.\n");
             return 1;
         }
@@ -2992,7 +3202,7 @@ int main(int argc, char* argv[]) {
             std::vector<uint8_t> probe;
             std::string          error;
             if (!read_joy_uart_source_file(joy_uart_rx_file, probe, error)) {
-                fprintf(stderr, "--joy-uart-rx: %s\n", error.c_str());
+                startup_report::report("--joy-uart-rx: %s\n", error.c_str());
                 return 1;
             }
         }
@@ -3009,14 +3219,13 @@ int main(int argc, char* argv[]) {
                 joy_uart_pty ? JoyUartEndpoint::open_pty(error)
                              : JoyUartEndpoint::open_fifo(joy_uart_fifo, error);
             if (!probe) {
-                fprintf(stderr, "%s: %s\n",
+                startup_report::report("%s: %s\n",
                         joy_uart_pty ? "--joy-uart-pty" : "--joy-uart-fifo", error.c_str());
                 return 1;
             }
         }
         if (cfg.silent && !wav_record_file.empty()) {
-            fprintf(stderr,
-                    "--wav-record cannot be used while audio is disabled in preferences.\n");
+            startup_report::report("--wav-record cannot be used while audio is disabled in preferences.\n");
             return 1;
         }
         // Refused HERE, before the machine boots, for the same reason as a
@@ -3027,7 +3236,7 @@ int main(int argc, char* argv[]) {
         if (!rzx_record_file.empty()) {
             std::string why;
             if (!RzxRecorder::can_write(rzx_record_file, why)) {
-                fprintf(stderr, "--rzx-record: cannot write '%s': %s\n",
+                startup_report::report("--rzx-record: cannot write '%s': %s\n",
                         rzx_record_file.c_str(), why.c_str());
                 return 1;
             }
@@ -3060,7 +3269,7 @@ int main(int argc, char* argv[]) {
         if (!audio_log_file.empty()) {
             std::string why;
             if (!audio_log.open(audio_log_file, why)) {
-                fprintf(stderr, "--audio-log: %s\n", why.c_str());
+                startup_report::report("--audio-log: %s\n", why.c_str());
                 audio_recorder.stop();
                 dac_trace_recorder.stop();
                 return 1;
@@ -3254,8 +3463,7 @@ int main(int argc, char* argv[]) {
                     if (NexLoader::preboot_check(load_file, true, ver_bcd, ver) ==
                             NexLoader::PreBoot::Ok &&
                         nex_version_needs_v13_optin(ver_bcd)) {
-                        fprintf(stderr,
-                                "--load: '%s' is NEX version %s - NEX V1.3 is an experimental "
+                        startup_report::report("--load: '%s' is NEX version %s - NEX V1.3 is an experimental "
                                 "format and is not supported in any way.\n"
                                 "Pass --experimental-nex-v1.3 to load it anyway (unsupported; "
                                 "V1.0-V1.2 files load normally).\n",
@@ -3457,11 +3665,13 @@ int main(int argc, char* argv[]) {
 
 #ifdef JNEXT_BROWSER
         if constexpr (std::is_same_v<std::decay_t<decltype(app)>, SdlApp>) {
+            startup_report::mark_running();
             audio_log_guard.stream = nullptr;   // the page's loop finalises the stream, after this scope
             browser_frontend::run(app, std::move(finish));
             return 0;
         }
 #endif
+        startup_report::mark_running();   // GH #555: from here on a failure is the app's, not start-up's
         app.run();
         return finish();
     };
@@ -3499,7 +3709,7 @@ int main(int argc, char* argv[]) {
                 ? app.set_delayed_keypress(dk.key, dk.delay)
                 : app.set_delayed_keypress_seconds(dk.key, dk.delay);
             if (!ok) {
-                fprintf(stderr, "Unknown --delayed-keypress key name: '%s'\n"
+                startup_report::report("Unknown --delayed-keypress key name: '%s'\n"
                         "Valid: single char (a-z 0-9 . , ; :), ENTER, SPACE, "
                         "UP, DOWN, LEFT, RIGHT, sym+<char>, caps+<char>\n",
                         dk.key.c_str());
@@ -3512,7 +3722,7 @@ int main(int argc, char* argv[]) {
                 ? app.set_delayed_nmi(dn.button, dn.delay)
                 : app.set_delayed_nmi_seconds(dn.button, dn.delay);
             if (!ok) {
-                fprintf(stderr, "Unknown --delayed-nmi button name: '%s'\n"
+                startup_report::report("Unknown --delayed-nmi button name: '%s'\n"
                         "Valid: nmi (or mf, m1)  = the NMI button   (Multiface)\n"
                         "       drive (or divmmc) = the DRIVE button (DivMMC)\n"
                         "(RESET is not an NMI button)\n",

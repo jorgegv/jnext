@@ -479,7 +479,7 @@ keep it, and every card made from it, out of the repository and off GitHub:
 
 - The tests build the minimal card at run time from the developer's own cached
   distribution, into a scratch directory under `~/tmp` that is deleted when the run ends
-  (`~/.jnext/sdcard` is only read, in place). Tests that need a zip use a synthetic one
+  (the suites' own master under `~/.jnext/sdcard/test-suite` is only read, in place). Tests that need a zip use a synthetic one
   made at run time.
 - Playwright's trace, HAR and video are off.
 - No CI artifact path reaches the card.

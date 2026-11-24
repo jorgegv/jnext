@@ -500,6 +500,7 @@ struct OfferRun {
     bool clicked = false, has_checkbox = false;
 };
 OfferRun run_offer(const char* button, bool tick, const std::string& message) {
+    (void)tick;   // the check box is gone; kept so the call sites read the same
     OfferRun r;
     SdcardGuiProvisioner gui;
     QTimer::singleShot(0, [&] {
@@ -511,8 +512,7 @@ OfferRun run_offer(const char* button, bool tick, const std::string& message) {
             r.buttons += b->text().toStdString() + ";";
             if (button && b->text() == button) want = b;
         }
-        r.has_checkbox = mb->checkBox() && mb->checkBox()->text() == "Do not ask me again";
-        if (tick && mb->checkBox()) mb->checkBox()->setChecked(true);
+        r.has_checkbox = mb->checkBox() != nullptr;
         if (want) { r.clicked = true; want->click(); } else mb->close();   // closing = the escape button
     });
     r.choice = gui.offer_upgrade("sn-emulator-24.11.zip", "sn-emulator-99.99.zip", message);
@@ -521,21 +521,37 @@ OfferRun run_offer(const char* button, bool tick, const std::string& message) {
 
 void test_upgrade_offer() {
     const std::string msg = "NextZXOS 99.99 is available. The SD card image jnext uses is NextZXOS 24.11.\n\n"
-                            "Replacing it DELETES everything you saved on the current card.";
-    const OfferRun a = run_offer("Download and replace", false, msg);
-    check("SDD-UPG-01", "'Download and replace' answers Replace",
+                            "Your current card is kept as a backup.";
+    const OfferRun a = run_offer("Upgrade (keep my files)", false, msg);
+    check("SDD-UPG-01", "'Upgrade (keep my files)' answers Replace",
           a.clicked && a.choice == sdcard::UpgradeChoice::Replace, a.buttons);
-    const OfferRun b = run_offer("Keep my card", false, msg);
-    check("SDD-UPG-02", "'Keep my card' answers Keep, and so does closing the box",
+    const OfferRun b = run_offer("Not now", false, msg);
+    check("SDD-UPG-02", "'Not now' answers Keep, and so does closing the box",
           b.clicked && b.choice == sdcard::UpgradeChoice::Keep &&
               run_offer(nullptr, false, msg).choice == sdcard::UpgradeChoice::Keep, b.buttons);
-    const OfferRun c = run_offer("Keep my card", true, msg);
-    check("SDD-UPG-03", "'Do not ask me again' ticked with Keep answers KeepDontAskAgain, and means nothing for Replace",
-          c.has_checkbox && c.choice == sdcard::UpgradeChoice::KeepDontAskAgain &&
-              run_offer("Download and replace", true, msg).choice == sdcard::UpgradeChoice::Replace);
-    check("SDD-UPG-04", "the box names both versions' offer text and warns that the card's contents are deleted",
-          has(a.text, "NextZXOS 99.99 is available") && has(a.text, "NextZXOS 24.11") &&
-              has(a.text, "DELETES everything you saved"), a.text);
+    const OfferRun c = run_offer("Keep my card (don't ask again)", false, msg);
+    check("SDD-UPG-03", "'Keep my card (don't ask again)' answers KeepDontAskAgain, and there is no check box",
+          c.clicked && !c.has_checkbox && c.choice == sdcard::UpgradeChoice::KeepDontAskAgain, c.buttons);
+    check("SDD-UPG-04", "the box shows the provisioner's offer text, which names both versions and does not say anything is deleted",
+          has(a.text, "NextZXOS 99.99 is available") && has(a.text, "NextZXOS 24.11") && has(a.text, "kept as a backup") &&
+              !has(a.text, "DELETES"), a.text);
+    check("SDD-UPG-05", "the box has exactly the three buttons, Upgrade, Keep my card (don't ask again) and Not now",
+          a.buttons == "Upgrade (keep my files);Not now;Keep my card (don't ask again);", a.buttons);
+    {
+        // no original image: the same box, the affirmative button is the fresh start
+        SdcardGuiProvisioner::UpgradeBox u = SdcardGuiProvisioner::upgrade_box("sn-emulator-99.99.zip", msg, false);
+        std::string labels;
+        for (QAbstractButton* b : u.box->buttons()) labels += b->text().toStdString() + ";";
+        check("SDD-UPG-07", "without a pristine base the box's buttons are 'Fresh start (keep my card as a backup)', 'Not now' and 'Keep my card (don't ask again)', and the first still answers Replace",
+              labels == "Fresh start (keep my card as a backup);Not now;Keep my card (don't ask again);" &&
+                  SdcardGuiProvisioner::upgrade_answer(u, u.replace) == sdcard::UpgradeChoice::Replace, labels);
+    }
+    {
+        const std::string report = "Kept from your card (1):\n  added /MINE.TXT\n";
+        auto box = SdcardGuiProvisioner::report_box(report);
+        check("SDD-UPG-06", "the upgrade report box carries the whole list as its detailed text",
+              box->detailedText().toStdString() == report && !box->text().isEmpty());
+    }
 }
 
 // -- SDD-RETRY: the wait between two download attempts (GH #497) ------------------------------

@@ -47,7 +47,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-macos
+          key: sdcard-image-distro-26.11a-recipe3-ts-macos
 
       # The project's own target, same as a local Mac build (CLAUDE.md: CI runs
       # the EXACT same commands as a local run). CMAKE_PREFIX_PATH goes through
@@ -95,7 +95,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
-          key: sdcard-image-distro-26.11a-recipe3-macos
+          key: sdcard-image-distro-26.11a-recipe3-ts-macos
 
       - name: make gui-release
         run: OPENSSL_ROOT_DIR=/opt/local/libexec/openssl3 CMAKE_PREFIX_PATH=/opt/local/libexec/qt6:/opt/local make gui-release

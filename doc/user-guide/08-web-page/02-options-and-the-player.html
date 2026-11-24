@@ -809,6 +809,8 @@
       
         
       
+        
+      
     
     
     
@@ -1013,6 +1015,34 @@
     
   
     If something goes wrong
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-first-run/07-upgrading-nextzxos.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading NextZXOS on your card
   
 
     
@@ -4772,7 +4802,7 @@
 <td><code>--touch-keyboard</code>: the on-screen keyboard. <code>'auto'</code> (default) shows it on a phone or tablet, <code>'on'</code> always, <code>'off'</code> never. See "Keyboard", below.</td>
 </tr>
 <tr>
-<td><code>onProgress</code>, <code>onReady</code>, <code>onError</code></td>
+<td><code>onProgress</code>, <code>onReady</code>, <code>onError</code>, <code>onNotice</code></td>
 <td>functions</td>
 <td>Events, below.</td>
 </tr>
@@ -4796,6 +4826,9 @@
   or <code>restore</code>; <code>fraction</code> runs from 0 to 1 (the phases are in <a href="01-a-page-with-a-game.html">8.1</a>).</li>
 <li><code>onReady()</code>: the program is in the machine and a frame has been shown. It fires after
   the mount's click, after <code>load()</code> and after <code>reset()</code>.</li>
+<li><code>onNotice(code, message)</code>: something the visitor should know that is not a failure. Today one code:
+  <code>card-writes-reset</code>, when <code>keepWrites</code> saves from an older NextZXOS card were reset
+  (<a href="04-the-image-and-what-the-browser-keeps.html#keeping-the-saves">8.4</a>).</li>
 <li><code>onError(message)</code>: every failure. The promise of the call that failed rejects with the
   same message. The messages are listed in <a href="04-the-image-and-what-the-browser-keeps.html#if-it-does-not-start">8.4</a>.</li>
 </ul>

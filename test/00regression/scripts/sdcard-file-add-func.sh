@@ -320,40 +320,38 @@ if want sdcard-file-add-func; then
                                   --sdcard-file-dest /X.BIN \
                                   --inject "$W/long.bin"
 
-    # --- 7. the shared-image warning ------------------------------------------
-    # Writing the default-location image is allowed but loud, because every run
-    # given no --sdcard boots it. With an explicit --sdcard it must stay quiet,
-    # or the warning becomes noise nobody reads, and it is not given either when
-    # --sdcard-writes sends the copy to a writes file (GH #507).
-    run_add 0 "default-warns" --sdcard-file-add "$W/long.bin" \
+    # --- 7. no shared-image warning (GH #555) ---------------------------------
+    # Writing the default-location image used to warn that "the test suite boots it
+    # too". The suites now boot their own card (~/.jnext/sdcard/test-suite), so the
+    # warning was untrue and is gone: no spelling of the default image, and no
+    # --sdcard or --sdcard-writes form, may print it. The writes through each
+    # spelling still reach the default image (the mcopy checks below).
+    run_add 0 "default-quiet" --sdcard-file-add "$W/long.bin" \
                               --sdcard-file-dest /WARNCHK.BIN
     grep -q "DEFAULT SD-card image" <<< "$ADD_OUT" \
-        || faults+=("writing the default-location image did not warn that it is shared")
+        && faults+=("writing the default-location image still warns that it is shared")
     # A SECOND card, at a path that is not the default one, so "explicit" and
-    # "default" are genuinely different images — pointing --sdcard at the
-    # default path is still the default image, and would still (correctly) warn.
+    # "default" are genuinely different images (the spellings of the default one,
+    # below, are the same image, and none of them warns either).
     cp --reflink=auto "$CARD" "$W/explicit.img"
     run_add 0 "explicit-quiet" --sdcard "$W/explicit.img" \
                                --sdcard-file-add "$W/long.bin" \
                                --sdcard-file-dest /WARNCHK2.BIN
     grep -q "DEFAULT SD-card image" <<< "$ADD_OUT" \
         && faults+=("an explicit --sdcard still printed the shared-image warning")
-    # The warning must also survive a different SPELLING of the same image. A
-    # string comparison passes the two rows above and fails both of these, and
-    # the person it fails is the one about to clobber the shared card.
-    run_add 0 "default-warns-dotpath" \
+    # No spelling of the default image warns either.
+    run_add 0 "default-quiet-dotpath" \
         --sdcard "$CFG/sdcard/./cspect-next-1gb-fixed.img" \
         --sdcard-file-add "$W/long.bin" --sdcard-file-dest /WARNCHK3.BIN
     grep -q "DEFAULT SD-card image" <<< "$ADD_OUT" \
-        || faults+=("a './' spelling of the default image skipped the shared-image warning")
+        && faults+=("a './' spelling of the default image printed the shared-image warning")
     ln -sfn "$CARD" "$W/card-link.img"
-    run_add 0 "default-warns-symlink" \
+    run_add 0 "default-quiet-symlink" \
         --sdcard "$W/card-link.img" \
         --sdcard-file-add "$W/long.bin" --sdcard-file-dest /WARNCHK4.BIN
     grep -q "DEFAULT SD-card image" <<< "$ADD_OUT" \
-        || faults+=("a symlink to the default image skipped the shared-image warning")
-    # Both of those really did write the shared card, which is the point of
-    # warning about them.
+        && faults+=("a symlink to the default image printed the shared-image warning")
+    # Both of those really did write the default card.
     mcopy -i "$CARD@@$OFF" ::/WARNCHK3.BIN "$W/w3.out" 2>/dev/null \
         || faults+=("the './' spelling did not write the default image after all")
     mcopy -i "$CARD@@$OFF" ::/WARNCHK4.BIN "$W/w4.out" 2>/dev/null \
@@ -368,7 +366,7 @@ if want sdcard-file-add-func; then
         && faults+=("--sdcard wrote into the DEFAULT image as well as the one it names")
 
     # With --sdcard-writes the copy goes into the writes file, so the default image is NOT
-    # written and the warning would be false: the issue's own form (no --sdcard).
+    # written: the issue's own form (no --sdcard).
     def_sha=$(sha256sum "$CARD" | cut -d' ' -f1)
     run_add 0 "default-writes-quiet" --sdcard-file-add "$W/long.bin" \
                                      --sdcard-file-dest /WARNCHK5.BIN \

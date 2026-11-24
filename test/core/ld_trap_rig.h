@@ -14,15 +14,14 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "../test_sd_image.h"
 
 namespace ldrig {
 
 using Bytes = std::vector<uint8_t>;
 
 inline std::string sd_image() {
-    if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) return env;
-    const char* home = std::getenv("HOME");
-    return std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+    return test_sd_image_path();
 }
 
 struct Case {

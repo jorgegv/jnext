@@ -809,6 +809,8 @@
       
         
       
+        
+      
     
     
     
@@ -1013,6 +1015,34 @@
     
   
     If something goes wrong
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-first-run/07-upgrading-nextzxos.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading NextZXOS on your card
   
 
     
@@ -4720,13 +4750,17 @@ Ignored when <strong>--sdcard</strong> is given: an explicit path always wins.</
 <dd>What to do when the default-location card is of an older NextZXOS
 distribution than the one jnext downloads now. <em>MODE</em> is <strong>ask</strong>
 (the default in the GUI: forget any “do not ask again” and ask),
-<strong>yes</strong> (replace the card without asking: everything saved on it is
-lost), <strong>no</strong> (keep the card for this run, no question) or <strong>never</strong>
-(keep it and do not offer this distribution again). Without the
-option, the GUI asks (once, unless “Do not ask me again” was ticked)
-and <strong>--headless</strong> keeps the card and logs one line. Refused
-together with <strong>--sdcard</strong>: an explicit card is never offered an
-upgrade. See <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an SD-card
+<strong>yes</strong> (upgrade without asking: your files are carried over to the
+new card and the old card is kept as a backup in <code>previous/</code>;
+refused when the card has no original image to compare with, and
+then <strong>fresh</strong> is the way), <strong>fresh</strong> (a new card with nothing
+carried over; the old card is kept as the backup), <strong>no</strong> (keep the
+card for this run, no question) or <strong>never</strong> (keep it and do not
+offer this distribution again). Without the option, the GUI asks
+(once, unless “Keep my card (don’t ask again)” was chosen) and
+<strong>--headless</strong> keeps the card and logs one line. Refused together
+with <strong>--sdcard</strong>: an explicit card is never offered an upgrade. See
+<a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an SD-card
 image</a>.</dd>
 <dt><strong>--sdcard-readonly</strong></dt>
 <dd>Open the SD image read-only, so the host file is never modified. The
@@ -4812,10 +4846,9 @@ into the SD-card image and <strong>exit without starting emulation</strong>.
 Without <strong>--sdcard-file-dest</strong> it lands in the root of the card
 under its own name. Give it once per run. The image written is the
 one <strong>--sdcard</strong> names, or the default-location image when
-<strong>--sdcard</strong> is omitted — in which case a loud warning says so,
-because that image is shared with every other run. With
-<strong>--sdcard-writes</strong> the copy goes into that file instead and the
-image is not written. See <strong>PUTTING A FILE ON THE CARD</strong>.</dd>
+<strong>--sdcard</strong> is omitted (your own card). With <strong>--sdcard-writes</strong>
+the copy goes into that file instead and the image is not written.
+See <strong>PUTTING A FILE ON THE CARD</strong>.</dd>
 <dt><strong>--sdcard-file-dest</strong> <em>PATH</em></dt>
 <dd>Optional. The path on the card that <strong>--sdcard-file-add</strong>’s <em>FILE</em>
 becomes, from the root of the card (<code>/NEXTZXOS/DRV-A.DSK</code>). The
@@ -4826,6 +4859,48 @@ copies its contents straight into the root of the card.</dd>
 <dd>Let <strong>--sdcard-file-add</strong> replace files that are already there.
 Without it an existing destination file is refused and nothing is
 written.</dd>
+<dt><strong>--sdcard-writes-flatten</strong> <em>OUT</em></dt>
+<dd>Write <em>OUT</em>, a plain image of the card with the <strong>--sdcard-writes</strong>
+<em>FILE</em> laid over it (the card as the machine sees it), and <strong>exit
+without starting emulation</strong>. Any FAT tool (mtools, a loop mount,
+7-Zip) can open <em>OUT</em>. Requires <strong>--sdcard-writes</strong>. An <em>OUT</em> that
+already exists is refused. See <strong>GETTING YOUR FILES OUT</strong>.</dd>
+<dt><strong>--sdcard-go-back</strong></dt>
+<dd>Go back to the previous SD card that an upgrade kept in <code>previous/</code>
+next to the default card, and <strong>exit without starting emulation</strong>.
+It is a swap: the card that was in use becomes the backup, your
+<strong>--sdcard-writes</strong> files go with their cards, and the distribution
+you left is not offered again. Exits 0 when done; 2 when there is no
+previous card; 3 when it failed and nothing was changed; 4 when the
+card is in use by another jnext. Refused together with <strong>--sdcard</strong>,
+another SD card command, <strong>--load</strong> or <strong>--inject</strong>.</dd>
+<dt><strong>--sdcard-delete-backup</strong></dt>
+<dd>Delete the previous SD card an upgrade kept in <code>previous/</code>, giving
+its disk space back, and <strong>exit without starting emulation</strong>.
+Nothing else is touched. It exits with the statuses of
+<strong>--sdcard-go-back</strong>, and is refused in the same cases.</dd>
+<dt><strong>--sdcard-export-changes</strong> <em>DIR</em></dt>
+<dd>Copy the files you added or changed on the card, as the machine sees
+it (the card plus the <strong>--sdcard-writes</strong> file, when one is given),
+into <em>DIR</em> as ordinary files, write the list <code>CHANGES.txt</code> beside
+them, and <strong>exit without starting emulation</strong>. <em>DIR</em> must be new or
+empty. What it compares the card against, in this order: the card as
+jnext made it (the default card, when its original image is still on
+disk and matches), the image named by <strong>--sdcard-export-base</strong>, the
+card itself when there is a <strong>--sdcard-writes</strong> file (so only that
+file’s changes are exported); with none of these it refuses. See
+<strong>GETTING YOUR FILES OUT</strong>.</dd>
+<dt><strong>--sdcard-export-base</strong> <em>FILE</em></dt>
+<dd>With <strong>--sdcard-export-changes</strong>: the image the card was made from,
+to compare against. A raw distribution image is accepted as it is.</dd>
+<dt><strong>--sdcard-import-changes</strong> <em>DIR</em></dt>
+<dd>Put the files of a <strong>--sdcard-export-changes</strong> directory <em>DIR</em> onto
+the card (or, with <strong>--sdcard-writes</strong>, into that file) and <strong>exit
+without starting emulation</strong>. <em>DIR</em> must hold the <code>CHANGES.txt</code> the
+export wrote. A file already on the card is replaced, a read-only
+one too; nothing is ever deleted; the attributes (read-only, hidden,
+system) are restored. All or nothing, as <strong>--sdcard-file-add</strong>. See
+<strong>GETTING YOUR FILES OUT</strong>.</dd>
 <dt><strong>--warm-start-regenerate</strong></dt>
 <dd>
 <p>Discard the cached warm-start recording and take a fresh one on the

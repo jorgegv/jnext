@@ -45,6 +45,7 @@
 
 #include "../row_id.h"
 #include "../test_portable.h"
+#include "../test_sd_image.h"
 
 using jnext::dbg::ClientId;
 using jnext::dbg::ClientInfo;
@@ -132,9 +133,7 @@ struct Rig {
                  bool with_rom = false) {
         cfg.type           = type;
         if (with_rom) {
-            const char* env = std::getenv("JNEXT_TEST_SD_IMAGE");
-            const char* home = std::getenv("HOME");
-            cfg.sd_card_image = env ? env : std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+            cfg.sd_card_image = test_sd_image_path();
             cfg.sd_card_readonly = true;
             cfg.rewind_buffer_frames = 0;
         }

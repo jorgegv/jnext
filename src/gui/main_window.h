@@ -325,6 +325,17 @@ public:
     // (Emulator::request_sd_card_change()); the frontend performs it at the end
     // of its tick. A refusal is reported at once, in a dialog.
     void handle_sd_card_path(const QString& path, int slot = 0);
+    /// GH #555 S6: File > Upgrade SD Card..., Go Back to the Previous SD Card, Delete the Previous
+    /// SD Card Backup. The enablement and the delete label (with the backup's size) follow
+    /// sdcard::backup::menu_state(); refreshed whenever the File menu opens.
+    void refresh_card_set_actions();
+    QAction* upgrade_sd_action()      const { return upgrade_sd_action_; }
+    QAction* go_back_sd_action()      const { return go_back_sd_action_; }
+    QAction* delete_backup_action()   const { return delete_backup_action_; }
+    /// Test seams of the live card-set flow (sdcard_menu_test): called just before the work (the card is out
+    /// of the machine), and standing in for provision_sd_card in an upgrade. Empty in production.
+    std::function<void()>                    card_op_before_work_for_test;
+    std::function<bool(std::string& err)>    card_op_upgrade_work_for_test;
 
     /// The frontend performed the change (`image` empty = eject; `error` empty
     /// = success): say so on the status bar, and in a dialog — posted to the
@@ -480,6 +491,10 @@ private:
     void on_pok_open();
     void on_insert_sd();
     void on_insert_sd2();
+    void on_upgrade_sd();            // GH #555 S6
+    void on_go_back_sd();
+    void on_delete_backup();
+    void run_card_op();              // after the eject: the upgrade or the go-back itself
     void on_reset();
     void on_soft_reset();
     void on_machine_type(MachineType type);
@@ -727,6 +742,12 @@ private:
     QAction* eject_sd_action_   = nullptr;
     QAction* insert_sd2_action_ = nullptr;   // GH #505, disabled with --no-sdcard (GH #540)
     QAction* eject_sd2_action_  = nullptr;
+    QAction* upgrade_sd_action_    = nullptr;   // GH #555 S6
+    QAction* go_back_sd_action_    = nullptr;
+    QAction* delete_backup_action_ = nullptr;
+    enum class CardOp { None, Upgrade, GoBack };
+    CardOp   card_op_ = CardOp::None;           // set while the card is out for one of them
+    bool     card_op_inserting_ = false;        // the card is being put back
     QLabel*       esp_label_    = nullptr;
     std::uint64_t esp_seen_id_  = 0;   // 0 = nothing rendered yet (ids start at 1)
     std::uint64_t esp_seen_seq_ = 0;

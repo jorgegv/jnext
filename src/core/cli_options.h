@@ -55,6 +55,12 @@ enum class OptId {
     SdcardUpgrade,
     SdcardReadonly,
     SdcardFileAdd,
+    SdcardWritesFlatten,
+    SdcardExportChanges,
+    SdcardExportBase,
+    SdcardImportChanges,
+    SdcardGoBack,
+    SdcardDeleteBackup,
     SdcardFileDest,
     SdcardFileForce,
     WarmStartRegenerate,
@@ -302,10 +308,12 @@ inline constexpr Option OPTIONS[] = {
       "What to do when the default-location card is of an older\n"
       "NextZXOS distribution than the one jnext downloads: ask (the\n"
       "default in the GUI; forgets a \"do not ask again\"), yes\n"
-      "(replace it, losing what is saved on it), no (keep it this\n"
-      "run) or never (keep it and do not offer this distribution\n"
-      "again). Refused with --sdcard (an explicit card is never\n"
-      "offered an upgrade)." },
+      "(upgrade it, carrying your files over and keeping the old\n"
+      "card as a backup), fresh (a new card, nothing carried over,\n"
+      "the old card kept as the backup), no (keep it this run) or\n"
+      "never (keep it and do not offer this distribution again).\n"
+      "Refused with --sdcard (an explicit card is never offered an\n"
+      "upgrade)." },
     { "--sdcard-readonly", 0, Doc::Documented, OptId::SdcardReadonly,
       "",
       "Open the SD image read-only; the host file is never written" },
@@ -327,6 +335,46 @@ inline constexpr Option OPTIONS[] = {
       "",
       "Let --sdcard-file-add replace existing files. Without\n"
       "it an existing destination is refused, untouched." },
+    // GH #555 - rescue verbs: terminal commands like --sdcard-file-add. They share its exit statuses.
+    { "--sdcard-writes-flatten", 1, Doc::Documented, OptId::SdcardWritesFlatten,
+      "OUT",
+      "Write OUT, a plain image of the card with the --sdcard-writes\n"
+      "FILE laid over it (what the machine sees), and exit without\n"
+      "starting emulation. Any FAT tool can open OUT. Needs\n"
+      "--sdcard-writes; refuses an OUT that exists." },
+    { "--sdcard-go-back", 0, Doc::Documented, OptId::SdcardGoBack,
+      "",
+      "Go back to the previous SD card an upgrade kept in previous/\n"
+      "next to the default card: the card now in use becomes the\n"
+      "backup (a swap, your writes files included), and the\n"
+      "distribution you left is not offered again. Exits without\n"
+      "starting emulation: 0 done, 2 there is no previous card, 3\n"
+      "failed with nothing changed, 4 the card is in use by another\n"
+      "jnext. Refused with --sdcard." },
+    { "--sdcard-delete-backup", 0, Doc::Documented, OptId::SdcardDeleteBackup,
+      "",
+      "Delete the previous SD card an upgrade kept in previous/ and\n"
+      "give its disk space back; nothing else is touched. Exits\n"
+      "without starting emulation, with the statuses of\n"
+      "--sdcard-go-back. Refused with --sdcard." },
+    { "--sdcard-export-changes", 1, Doc::Documented, OptId::SdcardExportChanges,
+      "DIR",
+      "Copy the files you added or changed on the card (as the\n"
+      "machine sees it: the card plus any --sdcard-writes FILE) into\n"
+      "DIR, with the list CHANGES.txt, and exit without starting\n"
+      "emulation. Compared against the card as jnext made it, else\n"
+      "--sdcard-export-base, else the card itself when there is a\n"
+      "--sdcard-writes FILE. DIR must be empty or new." },
+    { "--sdcard-export-base", 1, Doc::Documented, OptId::SdcardExportBase,
+      "FILE",
+      "With --sdcard-export-changes: the image the card was made\n"
+      "from, to compare against (a raw distribution image is fine)." },
+    { "--sdcard-import-changes", 1, Doc::Documented, OptId::SdcardImportChanges,
+      "DIR",
+      "Put the files of a --sdcard-export-changes DIR onto the card\n"
+      "(or into the --sdcard-writes FILE) and exit without starting\n"
+      "emulation. Files that exist are replaced; nothing is deleted;\n"
+      "CHANGES.txt is required." },
     { "--warm-start-regenerate", 0, Doc::Documented, OptId::WarmStartRegenerate,
       "",
       "Discard the cached warm-start recording and take a fresh one\n"

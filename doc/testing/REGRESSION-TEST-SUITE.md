@@ -71,7 +71,7 @@ shell, inside the counter guard. A run has these phases:
 
 | Phase | Rows | Lanes |
 |---|---|---|
-| lints, SD provisioning | the 8 group rows | 1 |
+| lints, SD provisioning | the 9 group rows | 1 |
 | screenshots | `regression_tests.conf` | `JNEXT_TEST_JOBS`, default every CPU |
 | parallel | untagged functional rows | `JNEXT_TEST_JOBS`, default every CPU |
 | quiet | rows tagged `quiet` | `JNEXT_TEST_QUIET_JOBS`, default 1 |
@@ -171,7 +171,7 @@ tag (a subset of `linux,macos,windows,emscripten`; `linux` is mandatory, so a Li
 unchanged; no tag means linux, macos and windows; `emscripten` is opt-in), with a `# os:` reason on the line above the
 row. `# expect-macos: N`, `# expect-windows: N` and `# expect-emscripten: N` pin the counts both ways. The
 run prints the absent rows by name; they are not SKIPs and are not counted. The
-7 lints (tree checks) run in the Linux run only. Currently absent: the X11
+8 lints (tree checks) run in the Linux run only. Currently absent: the X11
 key-injection rows and the rows that do not run jnext (Linux only); the
 `--record`/ffmpeg rows, `joy-uart-link`, `nextpi`, `startup-stack` on Windows;
 `audio-underrun`, `sdl-options` and `dzrp-paused-headless` (the macOS CI runner's
@@ -210,7 +210,7 @@ installing it, and runs the harness against the binary inside:
   (`wine-run.sh --jnext` drops it when no `CMakeCache.txt` sits beside the exe), so a DLL missing from the zip fails the run. A sha256
   manifest of the zip's members proves none changed, and the scratch copy is removed after a green run.
 - Rows: every screenshot row plus 17 functional rows named in the script. Green needs exit 0,
-  no FAIL, no SKIP and exactly lints (7 on Linux, 0 on Windows) + 1 SD provision + 68 + 17.
+  no FAIL, no SKIP and exactly lints (8 on Linux, 0 on Windows) + 1 SD provision + 68 + 17.
 - Never stamped, not in the batch gate; `release.yml` runs it after each package, before the upload.
   The Flatpak is a documented gap.
 
@@ -772,7 +772,7 @@ Load-bearing rationale that used to live as long comments inside
   The earlier git-ignored local fixture (`roms/nextzxos-1gb-fat32fix.img`) had
   accumulated dev-session leftover files, which made `boot-nextzxos-dotls`
   (which screenshots a live SD directory listing) unreproducible against a
-  clean checkout. The pristine self-provisioned `~/.jnext/sdcard/` image is
+  clean checkout. The pristine self-provisioned `~/.jnext/sdcard/test-suite/` image (never the user's own card, GH #555) is
   the same one an end user gets, so references stay reproducible.
 - **Why every run boots a PRIVATE clone of that image** (GH #65). The image is
   machine-wide mutable state and NextZXOS writes back to the card it boots, so
@@ -882,7 +882,7 @@ Load-bearing rationale that used to live as long comments inside
   invalid bash, so a looser match would only claim reach the shell has not.
   Every other word in the set was checked and takes none. `harness-selftest`
   HS-49a/HS-49b prove the call is still reached from `00-preflight-lint.sh` and that
-  its verdict still turns the row red; the `7 lint + 1 sdcard-provision + …`
+  its verdict still turns the row red; the `8 lint + 1 sdcard-provision + …`
   row-count witness is the second, independent check that the row exists at all.
 - **Why the published debug headers get an include-graph row** (GH #276 B0,
   `test/lint-debug-headers.sh`, row 5 of the preflight). Epic #276's defining

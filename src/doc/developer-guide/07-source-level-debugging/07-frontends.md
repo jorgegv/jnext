@@ -90,8 +90,8 @@ the SDL-only and Windows trees test it): an absolute name; then the map's direct
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading `..` is dropped.
 `DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:350`) takes the
-configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3285`, fed by
-`apply_startup_config()`, `:3056`: the saved list with the command line's `--source-dir` or
+configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3472`, fed by
+`apply_startup_config()`, `:3243`: the saved list with the command line's `--source-dir` or
 `paths.source_dirs` value over it), and **Locate File...** (`SourcePanel::locate_file()`, `source_panel.cpp:460`)
 adds to a second, session-only list through `DebuggerManager::on_source_dir_located()` (`debugger_manager.cpp:362`). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by

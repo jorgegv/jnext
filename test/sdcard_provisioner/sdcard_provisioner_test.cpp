@@ -143,6 +143,7 @@
 
 #include "core/fat32_image.h"
 #include "core/sdcard_provisioner.h"
+#include "core/sdcard_backup.h"
 #include "range_server.h"
 
 #include <zlib.h>
@@ -2281,7 +2282,7 @@ void test_upgrade_rows() {
     };
     struct Spy { int calls = 0; std::string from, to, msg; sdcard::UpgradeChoice answer = sdcard::UpgradeChoice::Keep; };
     auto spy_fn = [](Spy& sp) {
-        return sdcard::UpgradeFn([&sp](const std::string& f, const std::string& t, const std::string& m) {
+        return sdcard::UpgradeFn([&sp](const std::string& f, const std::string& t, const std::string& m, bool) {
             ++sp.calls; sp.from = f; sp.to = t; sp.msg = m; return sp.answer; });
     };
 
@@ -2293,10 +2294,10 @@ void test_upgrade_rows() {
         sdcard::ProvisionOptions o; o.download = zip_dl; o.upgrade = spy_fn(sp);
         auto r = sdcard::provision_sd_card(o);
         check("PROV-DIST-01", "a default card with no .distro (24.11) and a current distribution 99.99 gets exactly one "
-              "offer, naming both versions and the loss of what is saved on the card",
+              "offer, naming both versions, saying the old card is kept as a backup and never that anything is deleted",
               sp.calls == 1 && sp.from == sdcard::kLegacyDistribution && sp.to == kNew &&
               sp.msg.find("NextZXOS 24.11") != std::string::npos && sp.msg.find("NextZXOS 99.99") != std::string::npos &&
-              sp.msg.find("DELETES everything you saved") != std::string::npos,
+              sp.msg.find("kept as a backup") != std::string::npos && sp.msg.find("DELETES") == std::string::npos,
               "calls=" + std::to_string(sp.calls) + " from=" + sp.from + " to=" + sp.to);
         check("PROV-DIST-02", "Keep: the card is untouched, the download is not called, nothing is recorded",
               r.status == sdcard::ProvisionStatus::Ok && r.path == fixed && read_file(fixed) == user_card &&
@@ -2339,9 +2340,10 @@ void test_upgrade_rows() {
         clean();
     }
     {
+        const std::string older_dist = "sn-emulator-23.01.zip\n";   // a parsable older distribution (owner-approved fixture baseline change, GH #555)
         // 06a: a failing download after "Replace": the old card and its raw are byte-identical, the run goes on
         // with it and says so (Ok + a warning)
-        user_card_only(); write_file(raw, {'o', 'l', 'd', 'r', 'a', 'w'}); write_file(fixed_distro, {'o', 'l', 'd', '\n'});
+        user_card_only(); write_file(raw, {'o', 'l', 'd', 'r', 'a', 'w'}); write_file(fixed_distro, std::vector<uint8_t>(older_dist.begin(), older_dist.end()));
         downloads = 0;
         Spy sp; sp.answer = sdcard::UpgradeChoice::Replace;
         sdcard::ProvisionOptions o; o.download = failing_dl; o.upgrade = spy_fn(sp);
@@ -2351,10 +2353,10 @@ void test_upgrade_rows() {
               r.status == sdcard::ProvisionStatus::Ok && r.path == fixed && read_file(fixed) == user_card &&
               read_file(raw) == std::vector<uint8_t>{'o', 'l', 'd', 'r', 'a', 'w'} &&
               !r.warning.empty() && r.warning.find("stays in use") != std::string::npos &&
-              slurp_text(fixed_distro) == "old\n" && !file_exists(fixed + ".new") && !file_exists(raw + ".new"),
+              slurp_text(fixed_distro) == older_dist && !file_exists(fixed + ".new") && !file_exists(raw + ".new"),
               r.warning);
         // 06b: a download that works but a raw the patch cannot read: the same
-        user_card_only(); write_file(fixed_distro, {'o', 'l', 'd', '\n'});
+        user_card_only(); write_file(fixed_distro, std::vector<uint8_t>(older_dist.begin(), older_dist.end()));
         downloads = 0;
         sdcard::ProvisionOptions o2; o2.download = junk_zip_dl; o2.upgrade = spy_fn(sp);
         auto r2 = sdcard::provision_sd_card(o2);
@@ -2430,10 +2432,69 @@ void test_upgrade_rows() {
         check("PROV-DIST-11c", "no keeps the card for this run: no UI, nothing recorded",
               sp.calls == 0 && !file_exists(declined) && read_file(fixed) == user_card);
         user_card_only(); downloads = 0;
-        o.upgrade_mode = sdcard::UpgradeMode::Yes; o.download = failing_dl; o.retries = 0;   // GH #497: one attempt
+        o.upgrade_mode = sdcard::UpgradeMode::Fresh; o.download = failing_dl; o.retries = 0;   // GH #497: one attempt
         auto r = sdcard::provision_sd_card(o);
-        check("PROV-DIST-11d", "yes replaces without asking (the UI is not called, the download is)",
+        check("PROV-DIST-11d", "fresh upgrades without asking (the UI is not called, the download is)",
               sp.calls == 0 && downloads == 1 && r.status == sdcard::ProvisionStatus::Ok && !r.warning.empty());
+        // yes carries the files over, which this card (no original image on disk) cannot: refused before any download
+        user_card_only(); downloads = 0;
+        o.upgrade_mode = sdcard::UpgradeMode::Yes;
+        auto r2 = sdcard::provision_sd_card(o);
+        check("PROV-DIST-11e", "yes on a card with no original image is refused with the reason and the fresh hint, before any download",
+              r2.status == sdcard::ProvisionStatus::Failed && downloads == 0 && read_file(fixed) == user_card &&
+              r2.error.find("cannot be carried over") != std::string::npos &&
+              r2.error.find("--sdcard-upgrade fresh") != std::string::npos, r2.error);
+    }
+    // -- SDNEW: an older jnext meeting a newer card (GH #555 S7) -------------------------------------------------
+    {
+        using sdcard::backup::compare_distributions;
+        check("SDNEW-01", "distributions order by version, not by text: 24.11 < 26.9 < 26.11 < 26.11a < 26.11b < 26.12 < 27.1; equal names are equal; a name with no version is unknown",
+              compare_distributions("sn-emulator-24.11.zip", "sn-emulator-26.9.zip") == -1 &&
+              compare_distributions("sn-emulator-26.9.zip", "sn-emulator-26.11.zip") == -1 &&
+              compare_distributions("sn-emulator-26.11.zip", "sn-emulator-26.11a.zip") == -1 &&
+              compare_distributions("sn-emulator-26.11a.zip", "sn-emulator-26.11b.zip") == -1 &&
+              compare_distributions("sn-emulator-26.11b.zip", "sn-emulator-26.12.zip") == -1 &&
+              compare_distributions("sn-emulator-26.12.zip", "sn-emulator-27.1.zip") == -1 &&
+              compare_distributions("sn-emulator-27.1.zip", "sn-emulator-26.12.zip") == 1 &&
+              compare_distributions("sn-emulator-26.11a.zip", "sn-emulator-26.11a.zip") == 0 &&
+              compare_distributions("foo.zip", "sn-emulator-26.11.zip") == 2);
+        // the card is 99.99, this jnext's distribution is 99.98: the card is newer
+        jtp::set_env("JNEXT_SDCARD_DISTRO_URL", url_newer.c_str());
+        user_card_only(); downloads = 0;
+        write_file(fixed_distro, std::vector<uint8_t>{'s','n','-','e','m','u','l','a','t','o','r','-','9','9','.','9','9','.','z','i','p','\n'});
+        Spy sp; sp.answer = sdcard::UpgradeChoice::Replace;
+        int notices = 0; std::string note;
+        sdcard::ProvisionOptions o; o.download = zip_dl; o.upgrade = spy_fn(sp);
+        o.notice = [&](const std::string& m) { ++notices; note = m; };
+        auto r = sdcard::provision_sd_card(o);
+        const bool first_ok = r.status == sdcard::ProvisionStatus::Ok && r.path == fixed && sp.calls == 0 && downloads == 0 &&
+                              read_file(fixed) == user_card && notices == 1;
+        check("SDNEW-02", "a card newer than this jnext's distribution gets no offer and no download, is used as it is, and the notice names both versions",
+              first_ok && note.find("NextZXOS 99.99") != std::string::npos && note.find("NextZXOS 99.98") != std::string::npos &&
+                  note.find("used as it is") != std::string::npos, note);
+        auto r2 = sdcard::provision_sd_card(o);
+        check("SDNEW-04", "the notice is given once per card distribution: the second start does not repeat it",
+              r2.status == sdcard::ProvisionStatus::Ok && notices == 1 && sp.calls == 0);
+        // an unparsable distribution name is treated as newer
+        user_card_only(); std::remove((fixed + ".newer-seen").c_str());
+        write_file(fixed_distro, std::vector<uint8_t>{'f','o','o','.','z','i','p','\n'});
+        Spy sp5; notices = 0; downloads = 0;
+        sdcard::ProvisionOptions o5; o5.download = zip_dl; o5.upgrade = spy_fn(sp5); o5.notice = [&](const std::string&) { ++notices; };
+        auto r5 = sdcard::provision_sd_card(o5);
+        check("SDNEW-05", "a distribution whose name cannot be placed in the order is treated as newer: no offer, no download, used as it is",
+              r5.status == sdcard::ProvisionStatus::Ok && sp5.calls == 0 && downloads == 0 && read_file(fixed) == user_card && notices == 1);
+        // an OLDER distribution name with a recipe greater than this jnext's counts as newer
+        jtp::set_env("JNEXT_SDCARD_DISTRO_URL", url_new.c_str());
+        user_card_only(); std::remove((fixed + ".newer-seen").c_str());
+        write_file(fixed_distro, std::vector<uint8_t>{'s','n','-','e','m','u','l','a','t','o','r','-','2','4','.','1','1','.','z','i','p','\n'});
+        write_file(recipe, std::vector<uint8_t>{'9','9','\n'});
+        Spy sp3; downloads = 0;
+        sdcard::ProvisionOptions o3; o3.download = zip_dl; o3.upgrade = spy_fn(sp3);
+        auto r3 = sdcard::provision_sd_card(o3);
+        check("SDNEW-03", "a card whose recipe is greater than this jnext's counts as newer even when its distribution is older: no offer, no download",
+              r3.status == sdcard::ProvisionStatus::Ok && sp3.calls == 0 && downloads == 0 && read_file(fixed) == user_card);
+        std::remove(recipe.c_str());
+        std::remove((fixed + ".newer-seen").c_str());
     }
     jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
 

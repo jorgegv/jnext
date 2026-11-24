@@ -14,13 +14,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # sn-emulator-99.99.zip in a local file: libcurl reads file://, so the row never touches
 # the network, and the "distribution" is a synthetic FAT32 image made here (a marker file,
 # no NextZXOS byte).
-#   1. headless, no option: exit 0, the card is byte-identical, and the log says the newer
+#   1. headless, no option: exit 0, the card is byte-identical (this clone has no original image, so the log says its files cannot be carried over and names --sdcard-upgrade fresh), and the log says the newer
 #      distribution is available and how to upgrade (--sdcard-upgrade yes);
 #   2. --sdcard-upgrade no: the card is untouched and nothing is recorded;
 #   3. --sdcard-upgrade never: the card is untouched, <card>.distro-declined names 99.99,
 #      and a later run says nothing about it; --sdcard-upgrade ask forgets it and says it again;
 #   4. --sdcard-upgrade with --sdcard is refused (exit 1);
-#   5. --sdcard-upgrade yes: the card is REPLACED by the distribution's own (the marker file
+#   5. --sdcard-upgrade yes without an original image is refused (exit 1, naming fresh); --sdcard-upgrade fresh: the card is REPLACED by the distribution's own, the old one is in previous/ (the marker file
 #      is on it, .distro names 99.99, .recipe is 3, its volume serial is the first 4 bytes of
 #      the raw's SHA-256, the declined sidecar is gone) and the old raw/sha are the new ones.
 #   6. the candidate-card seam's offline re-derive (01-sdcard-provision.sh with the REAL jnext, which
@@ -92,7 +92,7 @@ PY
             su_reset
             rc=$(su_run one)
             [[ $rc == 0 ]] || su_faults+=("1: the run exited $rc: $(tail -n 2 "$su_dir/one.txt" | tr '\n' ' ')")
-            grep -qF "$line_new. Run jnext --sdcard-upgrade yes to replace it (everything saved on the card is lost)" "$su_dir/one.txt" \
+            grep -qF "$line_new. Your files cannot be carried over (the original image" "$su_dir/one.txt" && grep -qF "jnext --sdcard-upgrade fresh makes a new card and keeps this one as the backup." "$su_dir/one.txt" \
                 || su_faults+=("1: the log does not say how to upgrade")
             [[ "$(su_card_sha)" == "$su_old_sha" ]] || su_faults+=("1: the card changed without a yes")
             [[ ! -e "$su_card.distro-declined" ]] || su_faults+=("1: a headless run recorded a decline")
@@ -115,8 +115,16 @@ PY
             [[ $rc == 1 ]] && grep -qF "cannot be used with --sdcard" "$su_dir/four.txt" \
                 || su_faults+=("4: --sdcard-upgrade with --sdcard was not refused (exit $rc)")
             # 5: yes
+            # 5a: yes needs the card's original image, which this clone has none of: refused, nothing changed
+            rc=$(su_run five_a --sdcard-upgrade yes)
+            [[ $rc == 1 ]] && grep -qF "cannot be carried over" "$su_dir/five_a.txt" && grep -qF -- "--sdcard-upgrade fresh" "$su_dir/five_a.txt" \
+                || su_faults+=("5a: yes without an original image was not refused with the fresh hint (exit $rc)")
+            [[ "$(su_card_sha)" == "$su_old_sha" ]] || su_faults+=("5a: the refused upgrade changed the card")
+            # 5b: fresh: a new card, the old one kept in previous/
             printf 'sn-emulator-99.99.zip\n' > "$su_card.distro-declined"
-            rc=$(su_run five --sdcard-upgrade yes)
+            rc=$(su_run five --sdcard-upgrade fresh)
+            [[ "$(sha256sum < "$su_dir/cfg/sdcard/previous/cspect-next-1gb-fixed.img" 2>/dev/null | cut -d' ' -f1)" == "$su_old_sha" ]] \
+                || su_faults+=("5: the old card is not in previous/ byte-identical")
             [[ -f "$su_card" && "$(su_card_sha)" != "$su_old_sha" ]] || su_faults+=("5: the card was not replaced")
             LANG=C mcopy -n -i "$su_card@@$su_off" ::/MARKER.TXT "$su_dir/marker.out" </dev/null >/dev/null 2>&1 || true
             cmp -s "$su_dir/marker.out" "$su_dir/MARKER.TXT" || su_faults+=("5: the new card does not hold the distribution's MARKER.TXT")

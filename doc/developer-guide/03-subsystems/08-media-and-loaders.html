@@ -14,7 +14,7 @@
         <link rel="prev" href="07-input.html">
       
       
-        <link rel="next" href="09-debug-and-the-debugger.html">
+        <link rel="next" href="08-1-the-sd-card-set.html">
       
       
         
@@ -793,6 +793,8 @@
       
         
       
+        
+      
     
     
     
@@ -1285,6 +1287,34 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="08-1-the-sd-card-set.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.8.1 The SD card set
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
     
     
       
@@ -1306,10 +1336,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_10" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_11" >
         
           
-          <label class="md-nav__link" for="__nav_4_10" id="__nav_4_10_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_11" id="__nav_4_11_label" tabindex="0">
             
   
   
@@ -1327,8 +1357,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_10_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4_10">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_11">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1519,10 +1549,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_11" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_12" >
         
           
-          <label class="md-nav__link" for="__nav_4_11" id="__nav_4_11_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_12" id="__nav_4_12_label" tabindex="0">
             
   
   
@@ -1540,8 +1570,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_11_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4_11">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_12_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_12">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -3269,7 +3299,7 @@ the guest's own driver talks to. Both are called out below.</p>
 </tbody>
 </table>
 <p>Format selection is by <strong>file extension</strong>: for <code>--load</code> in <code>src/main.cpp</code>
-(the <code>ext</code> chain, <code>src/main.cpp:3181-3239</code>), and again in the GUI's file dialogs and in the headless
+(the <code>ext</code> chain, <code>src/main.cpp:3390-3448</code>), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -4817,19 +4847,55 @@ the basename of the effective download address. <code>provision_sd_card</code> r
 from when the address only ever named 24.11, so it is 24.11. A raw image is
 reused only when its sha sidecar verifies AND its <code>.distro</code> is the current one.
 When the default card exists and is of another distribution, the provisioner makes
-one offer through the <code>UpgradeFn</code> seam (Qt: a box with "Download and replace",
-"Keep my card" and a "Do not ask me again" check box; SDL: a three-button message
-box; no seam, as in <code>--headless</code> and <code>--sdcard-file-add</code>: no offer, one log line).
-The text names both versions and says the card's contents are lost. Keep goes on
-with the card, and "do not ask again" writes <code>&lt;fixed&gt;.distro-declined</code> with the
-current distribution, so only a later one asks again. <code>--sdcard-upgrade
-ask|yes|no|never</code> makes each choice without the dialog. An explicit card, from
-<code>--sdcard</code> or the Preferences path, returns before any of this and is never offered
-an upgrade. A card is replaced atomically: the new raw and card are made as
-<code>&lt;name&gt;.new</code> and moved over the old ones only when the derive worked, so a failed
-download or patch leaves the old card byte-identical (an accepted upgrade then
-goes on with it and reports a warning; <code>--sdcard-download-force</code>, which was asked to
-recover a card, fails). Recipe 3 gives each distribution's card its own FAT32 volume
+one offer through the <code>UpgradeFn</code> seam (Qt: a box with "Upgrade (keep my files)", "Keep my card (don't ask
+again)" and "Not now"; SDL: the same three buttons in a message box; no seam, as in <code>--headless</code> and
+<code>--sdcard-file-add</code>: no offer, one log line). The text names both versions, says the user's files are carried
+over and the old card kept as a backup. "Not now" (and closing) goes on with the card, and "don't ask again"
+writes <code>&lt;fixed&gt;.distro-declined</code> with the current distribution, so only a later one asks again. <code>--sdcard-upgrade
+ask|yes|fresh|no|never</code> makes each choice without the dialog. An explicit card, from <code>--sdcard</code> or the
+Preferences path, returns before any of this and is never offered an upgrade.</p>
+<p>An accepted upgrade runs in <code>&lt;sdcard dir&gt;/upgrade-work/</code> (<code>src/core/sdcard_upgrade.cpp</code>): the free space is
+checked before the download, the new raw and card are made there, and when the card has a pristine base
+(<code>carry::pristine_base_ok</code>: the raw exists and matches its <code>.sha256</code>, same <code>.distro</code>, a known recipe, and for
+recipe 3 the volume serial) the old card is rebuilt as it was made, the user's changes (card against that
+rebuild, and each overlay against the card) are carried onto the new card, and the result is verified, all
+before anything of the old set is touched. The overlays carried are the command line's <code>--sdcard-writes</code> FILEs
+plus the files listed in <code>overlays.list</code> that still bind to the card; each is rebuilt as <code>FILE.new</code>, bound to
+the new card's final size and mtime. Without a pristine base <code>--sdcard-upgrade yes</code> is refused and <code>fresh</code>
+starts a new card with nothing carried. The switch is six idempotent steps journalled by marker files
+(<code>SWITCHING</code>, <code>sN.done</code>): the old set moves into <code>previous.new/</code>, the new raw takes its place with its sidecars
+(a card is never in place without the raw it was made from), then the new card, each <code>FILE.new</code> replaces its FILE, <code>previous.new/</code> replaces <code>previous/</code>, the report goes into
+<code>previous/upgrade-report.txt</code> and <code>upgrade-work/</code> is removed. A failure before the first step removes the work
+directory and leaves the old set in use (an accepted upgrade then reports a warning); from the first step on the
+only way is forward, and the next start finishes it (<code>upgrade::recover</code>). <code>--sdcard-download-force</code>, which was
+asked to recover a card, still replaces atomically with <code>&lt;name&gt;.new</code> files and has no backup.</p>
+<p>The backup is managed by <code>src/core/sdcard_backup.cpp</code>. <code>card_set_status</code> reads the state of the set (the card's
+distribution against the one jnext downloads now, the pristine base and its reason, the backup's size and
+distribution) and <code>menu_state</code> turns it into the three File-menu entries: Upgrade (slot 0 holds the default card
+and it is older), Go Back and Delete (a backup exists; Delete's label carries <code>size_label</code>). <code>go_back</code> is a swap in
+four journalled steps (<code>go-back-work/SWAPPING</code>, <code>gN.done</code>): the current set and its overlays go to a scratch
+directory, the backup's set comes into place and its overlays are copied back to their recorded paths, the
+distribution that was left is written to <code>.distro-declined</code>, the old backup directory goes, and the scratch
+directory becomes <code>previous/</code>. <code>recover</code> finishes an interrupted swap at the start of every provisioning.
+<code>--sdcard-go-back</code> and <code>--sdcard-delete-backup</code> run it under the card's image lock and exit 0, 2 (no backup),
+3 (failed, nothing changed) or 4 (the card is in use). In the Qt window the actions eject slot 0 through the
+live card change, do their work outside the frame tick, re-bind the session's writes file over the new card,
+insert the card again and hard-reset the machine. The machine is deliberately not paused: the card change is
+serviced on the frame tick, and a paused session does not tick, so a paused machine would never see the eject
+(it keeps running without the card between the eject and the insert, as it does after File &gt; Eject).
+<code>sdcard_menu_test</code> drives this flow with the real actions, the real confirm boxes and the tick's service stepped
+by hand (SDMENU-09 to SDMENU-11).</p>
+<p>The default location's card is locked from the first moment of a start, before crash recovery, the offer or the
+upgrade run (<code>main.cpp</code> takes the card's lock and the command line's writes file); the listed overlays an upgrade
+would move are locked as well, and a set another jnext has open gets no offer and no upgrade. The overlay list is
+read from the writes files' headers only (<code>sd_write_journal::peek_file</code>): binding a file registers it as the
+card's write target and compacts it, which a start that merely makes an offer must not do.</p>
+<p>Two properties of FAT shaped the carry. A name that ends in a space or a dot cannot be addressed through FatFs
+(it drops those from a path): such an entry is listed as not carried and what is inside it is not entered
+(<code>Entry::unaddressable</code>). A name that needs a long-name entry gets a generated short name (<code>LONGNA~1</code>), and a
+file really named <code>LONGNA~1.TXT</code> written after it would be opened instead of created, so the carry writes the
+names that are their own short names first (<code>write_order</code>).
+Recipe 3 gives each distribution's card its own FAT32 volume
 serial, the first 4 bytes of the raw image's SHA-256, written into the boot sector
 and its backup copy after the format.</p>
 <p>Downloads are resumable, by one contract for every caller of

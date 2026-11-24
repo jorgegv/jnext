@@ -14,6 +14,7 @@
 #include "core/sd_rom_extractor.h"
 #include "core/sdcard_provisioner.h"
 #include "core/sdcard_file_add.h"
+#include "core/image_lock.h"
 #include "core/program_archive.h"
 #include "core/warm_start_cache.h"
 #include "core/sha256.h"
@@ -9124,6 +9125,22 @@ std::string Emulator::change_sd_card(const SdCardChange& change)
         return why;
     }
 
+    // GH #555 - one jnext per card image: the new image is locked before the switch, together with
+    // the SD-writes file bound to it (a card swapped away from and back to gets its journal again
+    // from the registry, so its file is part of the card). hold() keeps what the slot already has
+    // for the same card and drops the rest once the new locks are taken. A card or writes file
+    // held by another jnext is refused, BEFORE anything is unmounted: the current card stays.
+    // An eject releases the slot.
+    if (change.image.empty()) {
+        sdcard::sd_locks::release(change.slot);
+    } else {
+        const auto bound = sd_write_journal::for_image(change.image);
+        if (!sdcard::sd_locks::hold(change.slot, change.image, bound ? bound->file() : std::string(), why)) {
+            Log::emulator()->error("SD card change refused: {}", why);
+            return why;
+        }
+    }
+
     if (change.slot == 1) {
         // The second card (GH #505). Unlike card 0 its configured path follows an
         // EJECT too: it has no power-on role (the ROMs come from card 0), so a hard
@@ -9141,6 +9158,7 @@ std::string Emulator::change_sd_card(const SdCardChange& change)
             config_.sd_card2_image.clear();
             why = "could not mount '" + change.image + "'; the slot is empty";
             Log::emulator()->error("Second SD card change: {}", why);
+            sdcard::sd_locks::release(1);
         }
     } else if (change.image.empty()) {
         sd_card_.unmount();
@@ -9157,6 +9175,7 @@ std::string Emulator::change_sd_card(const SdCardChange& change)
         // mount() unmounted the old card first; the slot is now empty.
         why = "could not mount '" + change.image + "'; the slot is empty";
         Log::emulator()->error("SD card change: {}", why);
+        sdcard::sd_locks::release(0);
     }
 
     // Whatever happened to the slot, it is not the card these were taken with.

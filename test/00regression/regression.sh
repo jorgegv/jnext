@@ -21,7 +21,7 @@
 #                     never from the caller.
 #                     Runs the screenshots and the functional rows whose `os=` tag in
 #                     functional_tests.conf admits that OS (emscripten only the rows
-#                     whose tag NAMES it); the 7 lints (tree checks) and the stamp
+#                     whose tag NAMES it); the 8 lints (tree checks) and the stamp
 #                     stay with the Linux run. `make regression-win` /
 #                     `make regression-macos` / `make regression-wasm`.
 #   --preflight-only  Run only the harness preflight checks and exit (no tests).
@@ -213,6 +213,11 @@ export -n JNEXT_REGRESSION_STAMP JNEXT_REGRESSION_LOCK 2>/dev/null || true
 # to its rows; one inherited from an enclosing run (the harness self-test runs this driver inside
 # harness-selftest-func) would hide an unmeasurable boot.
 unset BOOT_COMMIT_MEASURED
+# No row reaches the developer's display: a row that runs jnext without --headless (or starts a
+# window of its own) used to inherit DISPLAY / WAYLAND_DISPLAY and opened its windows, or a start-up
+# error box (GH #555), on the desktop of whoever ran the suite. A row that needs a display starts its
+# own (`xvfb-run -d`, which sets DISPLAY for its child only). Pinned by harness-selftest HS-200.
+unset DISPLAY WAYLAND_DISPLAY
 
 # Shared helpers/constants and the one-time environment setup (locale, jnext
 # binary resolution, SD args, manifest paths, TMP_DIR + EXIT trap, counters,
@@ -225,7 +230,7 @@ source "$(dirname "$0")/parallel-rows.inc"
 regression_lanes
 
 # The tools the HARNESS itself executes — this driver, its .inc files, the
-# row runner, the stamp script, the group scripts and the seven lints — checked
+# row runner, the stamp script, the group scripts and the eight lints — checked
 # before anything runs, so a missing one is a named harness fault and never a
 # lint or a row that FAILs "exit 127" (GH #295 CI: procps was missing in CI and
 # a check read the failure as evidence). Rows check their own tools (python3,
@@ -289,7 +294,7 @@ for arg in "${FILTER_TESTS[@]+"${FILTER_TESTS[@]}"}"; do IS_FILTERED["$arg"]=1; 
 
 # --- Candidate-card seams (evaluating a new NextZXOS distribution) ---
 # JNEXT_REGRESSION_SD_STATE_DIR: a jnext state dir whose sdcard/ holds the
-# master this run uses instead of ~/.jnext/sdcard. JNEXT_REGRESSION_SHOTS_DIR:
+# master this run uses instead of ~/.jnext/sdcard/test-suite. JNEXT_REGRESSION_SHOTS_DIR:
 # where a failing screenshot row leaves its actual PNG. The stamp and the
 # reference screenshots certify the DEFAULT card, so a seam run is never
 # stamped and never --update; and neither path may lie inside the checkout,
@@ -838,12 +843,12 @@ if [[ "$REG_STAMP_MODE" == 1 || "$REG_STAMP_MODE" == confirm ]]; then
 fi
 echo ""
 
-# Group rows: the seven preflight lints and the SD-image provisioning, then the
+# Group rows: the eight preflight lints and the SD-image provisioning, then the
 # whole screenshot suite. Every test script is SOURCED (never exec'd) so all of
 # them share this one shell's counters, REPORTED_FUNC and ORDERED_TESTS.
 # shellcheck source=test/00regression/scripts/00-preflight-lint.sh
 if $PLATFORM_MODE; then
-    # The 7 lints check the source tree; they run in the Linux run.
+    # The 8 lints check the source tree; they run in the Linux run.
     echo "  (lints: tree checks, run by the Linux run only)"
 else
     source "$SCRIPTS_DIR/00-preflight-lint.sh"
@@ -949,7 +954,7 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
         # row's merge adds a name, it must equal the row's own, and started rows are
         # RUN_FUNC -- run_row_merge faults on any other name, HS-95d.)
     done
-    reg_lints=7; $PLATFORM_MODE && reg_lints=0
+    reg_lints=8; $PLATFORM_MODE && reg_lints=0
     expected=$(( reg_lints + 1 + ${#ORDERED_TESTS[@]} + ${#RUN_FUNC[@]} ))
     actual=$(( pass + fail + skip ))
     [[ "$actual" -eq "$expected" ]] \

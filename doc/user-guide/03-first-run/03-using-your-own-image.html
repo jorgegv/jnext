@@ -811,6 +811,8 @@
       
         
       
+        
+      
     
     
     
@@ -1004,6 +1006,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#moving-to-a-new-nextzxos-by-hand" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Moving to a new NextZXOS by hand
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1084,6 +1097,34 @@
     
   
     If something goes wrong
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="07-upgrading-nextzxos.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading NextZXOS on your card
   
 
     
@@ -4604,6 +4645,23 @@ first, or quote the path.</p>
 <p>ROMs and the firmware always come from the first card. <code>--sdcard-file-add</code> works on any
 FAT32 image, so <code>jnext --sdcard card2.img --sdcard-file-add game.nex</code> puts a file on
 a second-card image.</p>
+<h2 id="moving-to-a-new-nextzxos-by-hand">Moving to a new NextZXOS by hand<a class="headerlink" href="#moving-to-a-new-nextzxos-by-hand" title="Permanent link">&para;</a></h2>
+<p>An image you name yourself is never upgraded for you. To move your files to a new NextZXOS:</p>
+<ol>
+<li>Get the new distribution and make its card (<code>tools/fix-sdcard-image.sh</code>, or let JNEXT fetch it
+   into a separate <code>JNEXT_CONFIG_DIR</code>).</li>
+<li>Export your changes from the old card:
+   <code>jnext --sdcard OLD.img --sdcard-export-base ORIGINAL.img --sdcard-export-changes ~/my-files</code>,
+   where <code>ORIGINAL.img</code> is the image the old card was made from. If you keep your changes in a
+   writes file, <code>--sdcard-writes FILE</code> replaces <code>--sdcard-export-base</code>.</li>
+<li>Open <code>~/my-files/CHANGES.txt</code> and delete the lines of files you do not want on the new card (for
+   example a <code>config.ini</code> written for the old NextZXOS).</li>
+<li>Import them: <code>jnext --sdcard NEW.img --sdcard-import-changes ~/my-files</code>. Add <code>--sdcard-writes FILE2</code>
+   to keep them in a writes file instead.</li>
+</ol>
+<p>A file the new card already has is replaced by yours: that is the opposite of the automatic upgrade,
+where the new NextZXOS's version wins. The report says which files were written and which replaced.
+Files you deleted are not moved. See <a href="07-upgrading-nextzxos.html">3.7</a> for the other rescue commands.</p>
 
 
 

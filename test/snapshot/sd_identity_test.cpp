@@ -64,6 +64,7 @@
 #include <filesystem>
 #include <unistd.h>   // getpid (POSIX)
 #include "../row_id.h"
+#include "../test_sd_image.h"
 
 namespace {
 
@@ -258,10 +259,7 @@ bool is_lower_hex(const std::string& s, size_t want_len) {
 }
 
 std::string canonical_image() {
-    if (const char* env = std::getenv("JNEXT_TEST_SD_IMAGE")) return env;
-    const char* home = std::getenv("HOME");
-    return std::string(home ? home : ".") +
-           "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+    return test_sd_image_path();
 }
 
 // ── The end-to-end seam, shared with `--verdict` ──────────────────────────

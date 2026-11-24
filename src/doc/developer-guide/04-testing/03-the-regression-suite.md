@@ -78,8 +78,8 @@ No test row passes `--sdcard`. Every row relies on jnext's own default-location
 lookup instead, and the suite provisions that image for itself in the
 `[sdcard-provision]` row. Two separate mechanisms do two different jobs:
 
-- **A hash gate** protects the machine-wide master under `~/.jnext/sdcard/`
-  from whatever happened to it between runs, re-deriving it only when it has
+- **A hash gate** protects the suites' own machine-wide master, under
+  `~/.jnext/sdcard/test-suite/sdcard/`, from whatever happened to it between runs, re-deriving it only when it has
   drifted. This is not a theoretical concern: after an evening of manual
   NextZXOS booting the image had 11012 bytes changed, and a full run reported
   91 pass / 5 FAIL on a branch that was green. The hash witness is written
@@ -94,7 +94,17 @@ lookup instead, and the suite provisions that image for itself in the
   unit-test targets (`make sdcard-image`, a prerequisite of `make unit-test`)
   run it too, so a host left with the previous distribution's card is repaired
   before anything reads it, under the same lock; a current master is not
-  touched. `sdcard-ensure-func` tests the tool. With a candidate card
+  touched. `sdcard-ensure-func` tests the tool.
+  The master is **never the user's own card**, the `cspect-next-1gb-fixed.img`
+  directly under `~/.jnext/sdcard/`: the gate deletes and re-derives its card
+  whenever the distribution or the recipe moves, and a developer's saved files
+  must not go with it. `sd_test_state_dir` (shell) and `test/test_sd_image.h`
+  (C++, the unit suites' fallback when `JNEXT_TEST_SD_IMAGE` is unset) name the
+  one test location, `HS-197` checks that they agree, `sdcard-user-card-func`
+  runs the gate against a current-looking sentinel user card and shows it
+  byte-identical afterwards, and the preflight's `lint-user-card` (row 8) bans
+  the user card's path from tests, the SD-master tools, the Makefile and the
+  workflows. With a candidate card
   (`JNEXT_REGRESSION_SD_STATE_DIR`) the tool does nothing.
 - **A per-run clone** points `JNEXT_CONFIG_DIR` at a private directory, so the
   run boots its own copy and every non-headless invocation starts from clean
@@ -221,7 +231,7 @@ the same tree twice (the same non-PGO `jnext`, master A = the default, master B
    (`make regression-rows` pins that binary itself and is not refused under the
    seam.) The two variables are validated by the driver:
    `JNEXT_REGRESSION_SD_STATE_DIR` (the state directory whose `sdcard/` holds
-   the master, in place of `~/.jnext`) and `JNEXT_REGRESSION_SHOTS_DIR` (where a
+   the master, in place of `~/.jnext/sdcard/test-suite`) and `JNEXT_REGRESSION_SHOTS_DIR` (where a
    failing screenshot row leaves its actual PNG, which is otherwise deleted with
    the run directory; the driver creates it). Both must be absolute paths
    without a `..` component, outside the checkout (`//` and `/./` are

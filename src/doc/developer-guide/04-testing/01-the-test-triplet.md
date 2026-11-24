@@ -112,9 +112,9 @@ $ make regression
 ```
 
 This layer launches the real `jnext` binary headless and looks at what comes
-out of it. It reports **268 rows**, made up of 7 preflight lints, 1 SD-image
-provisioning row, 68 screenshot rows and 192 functional rows. The last two
-numbers come from the `# expect: 68` and `# expect: 192` pins in
+out of it. It reports **310 rows**, made up of 8 preflight lints, 1 SD-image
+provisioning row, 68 screenshot rows and 233 functional rows. The last two
+numbers come from the `# expect: 68` and `# expect: 233` pins in
 `regression_tests.conf` and `functional_tests.conf`, and the arithmetic that
 ties them to the total is the harness's own end-of-run accounting assertion.
 

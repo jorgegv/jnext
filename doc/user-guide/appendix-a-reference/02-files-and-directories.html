@@ -809,6 +809,8 @@
       
         
       
+        
+      
     
     
     
@@ -1013,6 +1015,34 @@
     
   
     If something goes wrong
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-first-run/07-upgrading-nextzxos.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upgrading NextZXOS on your card
   
 
     
@@ -4488,6 +4518,26 @@
 <tr>
 <td><code>~/.jnext/sdcard/cspect-next-1gb.img</code></td>
 <td>The canonical distribution image the one above is produced from.</td>
+</tr>
+<tr>
+<td><code>~/.jnext/sdcard/previous/</code></td>
+<td>The backup an upgrade leaves: the old card, its original image and sidecars, <code>overlays/</code> (your old writes files) and <code>upgrade-report.txt</code>. Managed by the File menu entries and <code>--sdcard-go-back</code> / <code>--sdcard-delete-backup</code> (<a href="../03-first-run/07-upgrading-nextzxos.html">3.7</a>).</td>
+</tr>
+<tr>
+<td><code>~/.jnext/sdcard/overlays.list</code></td>
+<td>The <code>--sdcard-writes</code> files used with the default card, one path per line, so an upgrade rebuilds them too.</td>
+</tr>
+<tr>
+<td><code>~/.jnext/sdcard/*.distro</code>, <code>*.recipe</code>, <code>*.sha256</code>, <code>*.distro-declined</code>, <code>*.newer-seen</code></td>
+<td>Small files beside the images: which NextZXOS each came from, how the card was made, the original's checksum, the release whose offer you turned down, the newer release a notice was shown for.</td>
+</tr>
+<tr>
+<td><code>~/.jnext/sdcard/upgrade-work/</code></td>
+<td>Scratch while an upgrade runs; removed when it ends or at the next start.</td>
+</tr>
+<tr>
+<td><code>~/.jnext/locks/</code></td>
+<td>The locks that keep a second JNEXT off a card or writes file.</td>
 </tr>
 <tr>
 <td><code>~/.jnext/warm-start/</code></td>

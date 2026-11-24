@@ -81,7 +81,7 @@ for b in "$BASE_BIN" "$NEW_BIN"; do
     "$b" --version >/dev/null 2>&1 || die "$b does not run"
 done
 
-SD_MASTER="${JNEXT_TEST_SD_IMAGE:-$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img}"
+SD_MASTER="${JNEXT_TEST_SD_IMAGE:-$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img}"
 [[ -f "$SD_MASTER" ]] || die "SD image missing: $SD_MASTER"
 # A PRIVATE clone: jnext opens the image read-write and boot-nextzxos mutates it,
 # and a benchmark must not alter the input the next run measures. $HOME, not

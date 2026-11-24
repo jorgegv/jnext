@@ -496,6 +496,25 @@ add_executable(sdcard_writes_test sdcard/sdcard_writes_test.cpp)
 target_link_libraries(sdcard_writes_test PRIVATE jnext_peripheral)
 target_include_directories(sdcard_writes_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sdcard_writes_tests COMMAND sdcard_writes_test)
+# One jnext per SD card image (GH #555): the ImageLock. image_lock_any_test runs on every
+# target (the WebAssembly lock is a no-op); image_lock_test needs real file locks (native);
+# the symlink and hard-link rows need POSIX file-system objects.
+add_executable(image_lock_any_test image_lock/image_lock_any_test.cpp)
+target_link_libraries(image_lock_any_test PRIVATE jnext_core)
+target_include_directories(image_lock_any_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME image_lock_any_tests COMMAND image_lock_any_test)
+if(NOT EMSCRIPTEN)
+    add_executable(image_lock_test image_lock/image_lock_test.cpp)
+    target_link_libraries(image_lock_test PRIVATE jnext_core)
+    target_include_directories(image_lock_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME image_lock_tests COMMAND image_lock_test)
+endif()
+if(NOT WIN32 AND NOT EMSCRIPTEN)
+    add_executable(image_lock_posix_test image_lock/image_lock_posix_test.cpp)
+    target_link_libraries(image_lock_posix_test PRIVATE jnext_core)
+    target_include_directories(image_lock_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME image_lock_posix_tests COMMAND image_lock_posix_test)
+endif()
 # Host write errors (GH #455): RLIMIT_FSIZE has no Windows equivalent, so the rows
 # live in a `# os: posix` suite.
 if(NOT WIN32 AND NOT EMSCRIPTEN)
@@ -509,7 +528,7 @@ endif()
 # Host-side FAT32 reader for ROM-from-SD extraction at Emulator::init time.
 # Pure host code (no Z80 / no peripherals) — links jnext_core only.
 # Test fixture is the SD image jnext provisions for itself at
-# ~/.jnext/sdcard/cspect-next-1gb-fixed.img, overridable via
+# ~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img, overridable via
 # JNEXT_TEST_SD_IMAGE — which run-unit-tests.sh sets to a private per-run
 # clone (GH #75). Nothing under roms/ is involved.
 add_executable(sd_rom_extractor_test sd_rom_extractor/sd_rom_extractor_test.cpp core/log_capture.cpp)
@@ -533,6 +552,27 @@ add_executable(sdcard_file_add_test sdcard_file_add/sdcard_file_add_test.cpp)
 target_link_libraries(sdcard_file_add_test PRIVATE jnext_core)
 target_include_directories(sdcard_file_add_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sdcard_file_add_tests COMMAND sdcard_file_add_test)
+# GH #555: the comparison / carry-over engine and the rescue verbs (flatten, export, import).
+if(NOT EMSCRIPTEN)
+    add_executable(sdcard_carry_test sdcard_carry/sdcard_carry_test.cpp)
+    target_link_libraries(sdcard_carry_test PRIVATE jnext_core)
+    target_include_directories(sdcard_carry_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_carry_tests COMMAND sdcard_carry_test)
+endif()
+# GH #555 S5: the upgrade flow (provision_sd_card carrying the user's files over; 600 MB sparse fixtures).
+# GH #555 S6: the backup an upgrade leaves, go back, delete, the menu state.
+if(NOT EMSCRIPTEN)
+    add_executable(sdcard_backup_test sdcard_backup/sdcard_backup_test.cpp)
+    target_link_libraries(sdcard_backup_test PRIVATE jnext_core ZLIB::ZLIB)
+    target_include_directories(sdcard_backup_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_backup_tests COMMAND sdcard_backup_test)
+endif()
+if(NOT EMSCRIPTEN)
+    add_executable(sdcard_upgrade_test sdcard_upgrade/sdcard_upgrade_test.cpp)
+    target_link_libraries(sdcard_upgrade_test PRIVATE jnext_core ZLIB::ZLIB)
+    target_include_directories(sdcard_upgrade_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_upgrade_tests COMMAND sdcard_upgrade_test)
+endif()
 if(NOT WIN32 AND NOT EMSCRIPTEN)
     add_executable(sdcard_file_add_posix_test sdcard_file_add/sdcard_file_add_posix_test.cpp)
     target_link_libraries(sdcard_file_add_posix_test PRIVATE jnext_core)
@@ -1171,6 +1211,24 @@ target_link_libraries(pok_trainers_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(pok_trainers_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME pok_trainers_tests COMMAND pok_trainers_test)
+
+# GH #555 - the live SD card change takes and drops the image lock (Emulator::change_sd_card).
+if(NOT EMSCRIPTEN)
+    add_executable(sdcard_swap_lock_test platform/sdcard_swap_lock_test.cpp)
+    target_link_libraries(sdcard_swap_lock_test PRIVATE
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(sdcard_swap_lock_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_swap_lock_tests COMMAND sdcard_swap_lock_test)
+endif()
+
+# GH #555 - fatal start-up errors in a message box (src/platform/startup_report.*): no machine, no Qt.
+add_executable(startup_report_test platform/startup_report_test.cpp)
+target_link_libraries(startup_report_test PRIVATE jnext_platform jnext_core spdlog::spdlog)
+target_include_directories(startup_report_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(startup_report_test PRIVATE JNEXT_MAIN_CPP="${CMAKE_SOURCE_DIR}/src/main.cpp")
+add_test(NAME startup_report_tests COMMAND startup_report_test)
 
 # GH #548 - the --debugger / --break-at startup stop (src/platform/startup_stop.*): a real
 # Emulator and Debugger, no Qt and no SD image, built like pok_trainers_test.
@@ -2123,6 +2181,13 @@ if(ENABLE_QT_UI)
     target_include_directories(no_sdcard_ui_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME no_sdcard_ui_tests COMMAND no_sdcard_ui_test)
 
+    # GH #555 S6 - File > Upgrade SD Card... / Go Back / Delete the Previous SD Card Backup: the actions, their enablement, the size label.
+    add_executable(sdcard_menu_test gui/sdcard_menu_test.cpp)
+    set_target_properties(sdcard_menu_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(sdcard_menu_test PRIVATE jnext_gui)
+    target_include_directories(sdcard_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_menu_tests COMMAND sdcard_menu_test)
+
     # GH #492 stage 2 - File > Save Bug Report...: the menu entry, the real file dialog, the report the Qt
     # frontend writes (settings file included).
     add_executable(bug_report_ui_test gui/bug_report_ui_test.cpp)
@@ -2735,6 +2800,14 @@ add_test(NAME lores_integration_tests COMMAND lores_integration_test)
 add_executable(sdfile_tool sdfile/sdfile_tool.cpp)
 target_link_libraries(sdfile_tool PRIVATE jnext_core)
 target_include_directories(sdfile_tool PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# distro_variant - test-support BINARY (GH #555): makes the "next release" of a distribution image at
+# run time for the real-content upgrade row (sdcard-upgrade-real-func). Not an add_test().
+if(NOT EMSCRIPTEN)
+    add_executable(distro_variant tools/distro_variant.cpp)
+    target_link_libraries(distro_variant PRIVATE jnext_core)
+    target_include_directories(distro_variant PRIVATE ${CMAKE_SOURCE_DIR}/src)
+endif()
 
 # row_id_fork_probe — test-support BINARY, deliberately NOT an add_test(): a
 # stand-in suite the harness self-test (HS-62) runs through the unit harness to

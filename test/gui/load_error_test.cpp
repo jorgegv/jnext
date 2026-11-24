@@ -62,6 +62,7 @@
 #include "../zip_fixture.h"
 #include "core/program_archive.h"
 #include "platform/pok_trainers.h"
+#include "../test_sd_image.h"
 
 namespace {
 
@@ -203,10 +204,7 @@ struct Fixture {
         // GH #408, LE-32: a non-Next machine needs its ROM, which comes from
         // the SD image (the Next fixtures run without one, as they always have).
         if (mt != MachineType::ZXN_ISSUE2) {
-            const char* env = std::getenv("JNEXT_TEST_SD_IMAGE");
-            const char* home = std::getenv("HOME");
-            cfg.sd_card_image = env ? std::string(env)
-                                    : std::string(home ? home : ".") + "/.jnext/sdcard/cspect-next-1gb-fixed.img";
+            cfg.sd_card_image = test_sd_image_path();
         }
         if (!emu.init(cfg)) return;
         backend = std::make_unique<jnext::dbg::Debugger>(emu);

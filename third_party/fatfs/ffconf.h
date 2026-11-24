@@ -166,10 +166,12 @@
 / Drive/Volume Configurations
 /---------------------------------------------------------------------------*/
 
-#define FF_VOLUMES		1
+#define FF_VOLUMES		2
 /* Number of volumes (logical drives) to be used. (1-10) */
-/* jnext only ever attaches drive "0:" (the destination image being formatted);
-   the under-clustered source is read by the lenient hand-rolled reader, not FatFs. */
+/* jnext attaches drive "0:" for the image it writes (the one being formatted, a file-add
+   destination); drive "1:" is the second image of a card-to-card operation (GH #555: the
+   upgrade's comparison and carry-over, export). An under-clustered source is still read by the
+   lenient hand-rolled reader, not FatFs. */
 
 
 #define FF_STR_VOLUME_ID	0

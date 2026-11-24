@@ -176,7 +176,7 @@ coverage-theatre rule:
   accumulated dev-session leftover files, making that one reference
   unreproducible against a clean checkout. The suite now self-provisions
   jnext's own pristine fallback SD image (the "[sdcard-provision]" row,
-  `$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img` — the same
+  `$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img` — the same
   FAT32-patched canonical distro image an end user gets via
   `--sdcard-download-confirm`) instead of forcing a local fixture; no test
   row passes `--sdcard` any more. `img/boot-nextzxos-dotls-reference.png`
@@ -224,7 +224,7 @@ git-ignored, the workflow provisions the NextZXOS SD image at job time by
 running jnext's own `--sdcard-download-confirm` flow — the same sanctioned
 download+FAT32-patch path an end user hits — which yields a **pristine**
 distro image at jnext's default location
-(`$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img`).
+(`$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img`, the suites' own master).
 
 The regression step there is two-phase:
 

@@ -32,7 +32,7 @@ the guest's own driver talks to. Both are called out below.
 | `.pok` | yes | — | `platform/pok_trainers.*`, `gui/pok_dialog.*` | Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers) |
 
 Format selection is by **file extension**: for `--load` in `src/main.cpp`
-(the `ext` chain, `src/main.cpp:3181-3239`), and again in the GUI's file dialogs and in the headless
+(the `ext` chain, `src/main.cpp:3390-3448`), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -1619,19 +1619,59 @@ the basename of the effective download address. `provision_sd_card` records it i
 from when the address only ever named 24.11, so it is 24.11. A raw image is
 reused only when its sha sidecar verifies AND its `.distro` is the current one.
 When the default card exists and is of another distribution, the provisioner makes
-one offer through the `UpgradeFn` seam (Qt: a box with "Download and replace",
-"Keep my card" and a "Do not ask me again" check box; SDL: a three-button message
-box; no seam, as in `--headless` and `--sdcard-file-add`: no offer, one log line).
-The text names both versions and says the card's contents are lost. Keep goes on
-with the card, and "do not ask again" writes `<fixed>.distro-declined` with the
-current distribution, so only a later one asks again. `--sdcard-upgrade
-ask|yes|no|never` makes each choice without the dialog. An explicit card, from
-`--sdcard` or the Preferences path, returns before any of this and is never offered
-an upgrade. A card is replaced atomically: the new raw and card are made as
-`<name>.new` and moved over the old ones only when the derive worked, so a failed
-download or patch leaves the old card byte-identical (an accepted upgrade then
-goes on with it and reports a warning; `--sdcard-download-force`, which was asked to
-recover a card, fails). Recipe 3 gives each distribution's card its own FAT32 volume
+one offer through the `UpgradeFn` seam (Qt: a box with "Upgrade (keep my files)", "Keep my card (don't ask
+again)" and "Not now"; SDL: the same three buttons in a message box; no seam, as in `--headless` and
+`--sdcard-file-add`: no offer, one log line). The text names both versions, says the user's files are carried
+over and the old card kept as a backup. "Not now" (and closing) goes on with the card, and "don't ask again"
+writes `<fixed>.distro-declined` with the current distribution, so only a later one asks again. `--sdcard-upgrade
+ask|yes|fresh|no|never` makes each choice without the dialog. An explicit card, from `--sdcard` or the
+Preferences path, returns before any of this and is never offered an upgrade.
+
+An accepted upgrade runs in `<sdcard dir>/upgrade-work/` (`src/core/sdcard_upgrade.cpp`): the free space is
+checked before the download, the new raw and card are made there, and when the card has a pristine base
+(`carry::pristine_base_ok`: the raw exists and matches its `.sha256`, same `.distro`, a known recipe, and for
+recipe 3 the volume serial) the old card is rebuilt as it was made, the user's changes (card against that
+rebuild, and each overlay against the card) are carried onto the new card, and the result is verified, all
+before anything of the old set is touched. The overlays carried are the command line's `--sdcard-writes` FILEs
+plus the files listed in `overlays.list` that still bind to the card; each is rebuilt as `FILE.new`, bound to
+the new card's final size and mtime. Without a pristine base `--sdcard-upgrade yes` is refused and `fresh`
+starts a new card with nothing carried. The switch is six idempotent steps journalled by marker files
+(`SWITCHING`, `sN.done`): the old set moves into `previous.new/`, the new raw takes its place with its sidecars
+(a card is never in place without the raw it was made from), then the new card, each `FILE.new` replaces its FILE, `previous.new/` replaces `previous/`, the report goes into
+`previous/upgrade-report.txt` and `upgrade-work/` is removed. A failure before the first step removes the work
+directory and leaves the old set in use (an accepted upgrade then reports a warning); from the first step on the
+only way is forward, and the next start finishes it (`upgrade::recover`). `--sdcard-download-force`, which was
+asked to recover a card, still replaces atomically with `<name>.new` files and has no backup.
+
+The backup is managed by `src/core/sdcard_backup.cpp`. `card_set_status` reads the state of the set (the card's
+distribution against the one jnext downloads now, the pristine base and its reason, the backup's size and
+distribution) and `menu_state` turns it into the three File-menu entries: Upgrade (slot 0 holds the default card
+and it is older), Go Back and Delete (a backup exists; Delete's label carries `size_label`). `go_back` is a swap in
+four journalled steps (`go-back-work/SWAPPING`, `gN.done`): the current set and its overlays go to a scratch
+directory, the backup's set comes into place and its overlays are copied back to their recorded paths, the
+distribution that was left is written to `.distro-declined`, the old backup directory goes, and the scratch
+directory becomes `previous/`. `recover` finishes an interrupted swap at the start of every provisioning.
+`--sdcard-go-back` and `--sdcard-delete-backup` run it under the card's image lock and exit 0, 2 (no backup),
+3 (failed, nothing changed) or 4 (the card is in use). In the Qt window the actions eject slot 0 through the
+live card change, do their work outside the frame tick, re-bind the session's writes file over the new card,
+insert the card again and hard-reset the machine. The machine is deliberately not paused: the card change is
+serviced on the frame tick, and a paused session does not tick, so a paused machine would never see the eject
+(it keeps running without the card between the eject and the insert, as it does after File > Eject).
+`sdcard_menu_test` drives this flow with the real actions, the real confirm boxes and the tick's service stepped
+by hand (SDMENU-09 to SDMENU-11).
+
+The default location's card is locked from the first moment of a start, before crash recovery, the offer or the
+upgrade run (`main.cpp` takes the card's lock and the command line's writes file); the listed overlays an upgrade
+would move are locked as well, and a set another jnext has open gets no offer and no upgrade. The overlay list is
+read from the writes files' headers only (`sd_write_journal::peek_file`): binding a file registers it as the
+card's write target and compacts it, which a start that merely makes an offer must not do.
+
+Two properties of FAT shaped the carry. A name that ends in a space or a dot cannot be addressed through FatFs
+(it drops those from a path): such an entry is listed as not carried and what is inside it is not entered
+(`Entry::unaddressable`). A name that needs a long-name entry gets a generated short name (`LONGNA~1`), and a
+file really named `LONGNA~1.TXT` written after it would be opened instead of created, so the carry writes the
+names that are their own short names first (`write_order`).
+Recipe 3 gives each distribution's card its own FAT32 volume
 serial, the first 4 bytes of the raw image's SHA-256, written into the boot sector
 and its backup copy after the format.
 
