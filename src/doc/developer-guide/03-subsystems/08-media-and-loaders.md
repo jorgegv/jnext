@@ -2059,6 +2059,50 @@ this process has mounted, so the process already holds the lock, and a second `f
 the same process would be refused. Rows: `SDOPS-01..22` and `SDOPS-24..56` (`sdcard_card_ops_test`),
 `SDWP-01` for `SdCardDevice::write_protected()` (`sdcard_test`).
 
+**The SD card file manager's logic.** `src/platform/sdcard_manager.{h,cpp}` (namespace `sdmanager`,
+toolkit-free, like `StartupStop`) holds everything the manager's window decides; the window only draws and
+asks. `slots()` says what each of the two card slots holds and whether the manager may change it. A card is
+shown read-only, with one sentence of reason, when the slot is empty, when `Emulator::sd_card_change_refusal()`
+names a state that forbids a card change (`--no-sdcard`, an RZX recording or playback, the loaded NEX's read
+overlay), when `SdCardDevice::write_protected()` (`--sdcard-readonly`), or when `cardops::probe()` finds a card
+jnext cannot write. The card operations themselves would write a write-protected slot, so `slots()` is the only
+place that enforces the first three.
+
+`SdManagerSession` is the contract with the machine. `open()` attaches its own OBSERVER client to the hosted
+`Debugger` (it arms nothing, so the window costs no per-instruction tracking) and pauses the machine unless
+something already had. Every card write goes through `before_card_write()`: the warning before the first change of
+a session must be accepted (a declined one allows nothing and is asked again), the machine is paused again if a
+remote debugger client resumed it, and the write is noted as a change BEFORE the engine runs, whatever its
+outcome, because a rollback is not byte-identical (replaced files and a directory's grown cluster stay). `close()`
+with no change runs the machine again if it was running at `open()` and leaves a machine that was paused paused.
+After a change it calls `Debugger::reset(Hard)`, which is synchronous and keeps the pause, so no frame runs on the
+old machine over the changed card, and then runs the machine if it was running at `open()`. The hard reset is the
+card change's whole invalidation: NextZXOS keeps its FAT and directories in RAM and the emulator keeps a warm start,
+and a cold boot drops both. `Emulator::request_hard_reset()` is used only as the fallback when `reset()` is refused
+(no `LoopDriver`, or an unacknowledged corruption); it is performed by the loop owner at its next tick whether or
+not frames run, and the machine is left paused, because a request followed by a resume would let a tick of frames
+run on the old machine first. A remote client can still resume the machine while the window is open; the re-pause
+before each write bounds the frames that run over an unchanged card, and the reset on close happens anyway.
+
+`run_transfer()`, `delete_items()` and `make_folder()` are the operations, with hooks for the questions, the trash
+and the gate. Each item is all-or-nothing (the engines roll back), a run stops at the first failure or Cancel and
+reports what was done, skipped, failed and not attempted, and an item repeated or contained in another selected one
+is skipped. A card path is never trusted: it is walked from the root through real listings and every component must be
+the `open_name` of a listed entry, so a typed long name FatFs would resolve to another entry, a `..` or a backslash finds
+nothing, and the engines are called with the path spelt from the listing. The host name a copy off the card creates is
+the one `extract_from_image()` creates (`carry::escape_name` of the stored name, looked up on the card, not taken from the
+caller), so Replace trashes exactly the host entry the copy would collide with. A copy onto the card names its card entry
+from the host path's own file name under the file-add name rules, refuses a destination folder that is gone (the engine
+would create it), and a type clash is refused without asking. The mounted image, and any folder holding it, is refused as a
+copy source and as a delete target, by file identity. The host side of a delete or a Replace goes to the trash through a
+hook; there is no permanent fallback. Rows: `SDMS-01..10`, `SDMT-01..20`, `SDMR-01..04` (`sdcard_manager_test`).
+
+`resolve_remembered()` is what the window opens on, and the emulator wins over the remembered state: the remembered
+card's slot if it is mounted, otherwise the first mounted slot; the remembered card directory only on the remembered card,
+and only if every component is a directory that exists on the card now (matched by `open_name`), otherwise the root, never a
+nearest parent; the host directory, which is not machine state, falls back to its nearest existing parent, then the Load
+directory, then home, and ignores a value that is relative, holds a NUL or (Windows) names a UNC or device path.
+
 **The glue caches sectors.** FatFs keeps one sector window per volume, so every path lookup
 re-reads its directory, and an uncached `disk_read` costs an `lseek` plus an 8 KiB stream-buffer
 refill. `fatfs_glue::attach()` therefore gives the drive a direct-mapped, write-through cache

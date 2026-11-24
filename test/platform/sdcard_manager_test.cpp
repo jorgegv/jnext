@@ -406,8 +406,12 @@ int main() {
         r.dbg->run(b);
         const bool ran = !r.paused();
         const bool re = r.ss.ensure_paused();
-        check("SDMS-08", "ensure_paused pauses again after another client's run()",
-              ran && re && r.paused() && r.pause_owner() == r.ss.client());
+        // and the per-write gate does it too, before the write is noted
+        r.dbg->run(b);
+        const bool ran2 = !r.paused();
+        const bool gated = r.ss.before_card_write([] { return true; });
+        check("SDMS-08", "ensure_paused pauses again after another client's run(), and so does the per-write gate (before_card_write) before it notes the write",
+              ran && re && r.paused() && r.pause_owner() == r.ss.client() && ran2 && gated && r.paused() && r.ss.changed());
         r.ss.close(r.emu);
     }
     // SDMS-09
@@ -678,8 +682,20 @@ int main() {
         const sm::TransferReport r2 = sm::run_transfer(card_req(G, dd2.string(), {"/GAMES/WOTEF.NEX", "/FILE.BIN"}), h2);
         const bool second = r2.done.empty() && r2.failed == "/GAMES/WOTEF.NEX" && read_host_file(dd2 / "WOTEF.NEX") == kX &&
                             r2.not_attempted.size() == 1 && !fs::exists(dd2 / "FILE.BIN");
-        check("SDMT-07", "card to host over an existing host entry, Replace: the existing one goes to the trash first (exactly that path), then the copy; a failed trash fails the item and leaves it",
-              first && second, rep_str(r) + " | " + rep_str(r2));
+        // the existing entry is found under the ESCAPED host name the copy would create, not the raw card name
+        const auto esc = ls(G, "/ESC");
+        const fs::path dd3 = fresh_dir("rep");
+        write_host_file(dd3 / "%1B[2Jevil", kX);
+        Hk hk3;
+        hk3.answers = {sm::OverwriteAnswer::Replace};
+        sm::TransferHooks h3 = hk3.hooks();
+        const sm::TransferReport r3 = sm::run_transfer(
+            card_req(G, dd3.string(), {esc.size() == 1 ? "/ESC/" + esc[0].open_name : std::string()}), h3);
+        const bool third = esc.size() == 1 && r3.done.size() == 1 && hk3.log.size() == 2 &&
+                           hk3.log[0] == "ask:" + (dd3 / "%1B[2Jevil").string() + ":file" &&
+                           hk3.log[1] == "trash:" + (dd3 / "%1B[2Jevil").string() && read_host_file(dd3 / "%1B[2Jevil") == kD1;
+        check("SDMT-07", "card to host over an existing host entry, Replace: the existing one (found under the escaped host name the copy creates) goes to the trash first, exactly that path, then the copy; a failed trash fails the item and leaves it",
+              first && second && third, rep_str(r) + " | " + rep_str(r2) + " | " + rep_str(r3));
     }
     // SDMT-09
     {
