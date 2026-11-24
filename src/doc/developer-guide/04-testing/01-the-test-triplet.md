@@ -207,7 +207,7 @@ with `main` (`origin/main` when there is no local `main`; the remote-run host's 
 `TEST-AFFECTED MISS`, so the map or the conf is fixed on the same branch; with no such base, or in a
 platform tree (SDL-only, Windows, WebAssembly), the check is silent. A docs-only plan ran no suite, so
 every suite that fails is a miss. The planner's rows are
-`TAF-01..10` and `TAF-12..71` in `test/test-affected-selftest.sh` (`make test-affected-selftest`,
+`TAF-01..10` and `TAF-12..74` in `test/test-affected-selftest.sh` (`make test-affected-selftest`,
 part of `make unit-test`), on a hand-written fixture build tree, and `HS-194a..j` in the harness
 self-test.
 

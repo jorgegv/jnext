@@ -29,7 +29,7 @@
 #           its row, a removed _WIN32 arm still flags windows; --explain-miss (the stateless MISS, also for a docs-only plan)
 #   TAF-32  test/ci-gate.sh and test/regression-package.sh plan package-contract-test, not FULL
 #   TAF-31  Qt's QT_TESTCASE_* test-data define counts only for a suite that calls QFINDTESTDATA
-#   TAF-33..71 GH #564, in a git fixture: a changed pin, a new or removed suite line, a changed ? marker
+#   TAF-33..74 GH #564, in a git fixture: a changed pin, a new or removed suite line, a changed ? marker
 #           or directive, a pin plus another suite's source, and a line of no known shape (FULL);
 #           test/CMakeLists.txt statements (a new block, a changed link, an if() context, a statement
 #           naming no suite = FULL); the matrix and its generator plan the traceability check
@@ -549,6 +549,15 @@ anomaly TAF-68 'endif()\n' "an end*() with nothing open is a parse anomaly: FULL
 anomaly TAF-69 'if(WIN32)\n' "an if() still open at the end of the file is a parse anomaly: FULL"
 anomaly TAF-70 'target_link_libraries(s2_test PRIVATE liba #[[ note ]]\n    libb)\n' "a bracket comment inside a statement is a parse anomaly: FULL"
 
+anomaly TAF-72 'else()\n' "an else() with nothing open is a parse anomaly: FULL"
+anomaly TAF-73 'elseif(WIN32)\n' "an elseif() with nothing open is a parse anomaly: FULL"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = -s ] && exit 128; done\nexec %s "$@"\n' "$(command -v git)" >"$STUB/git"; chmod +x "$STUB/git"
+sed -i 's/^s2_test 1 /s2_test 2 /' "$R/test/unit-tests.conf"
+OUT=$(PATH="$STUB:$PATH" perl "$TOOL" "${TOK[@]}" --base HEAD 2>&1); RC=$?
+row TAF-74 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"git command that reads the change failed"* ]] && echo 1 || echo 0) \
+    "a failing git ls-files -s (the submodule pointer probe) makes the plan FULL, not a skipped probe (got $(plan_get mode))"
+reset_fx; rm -f "$STUB/git"
+
 echo 'target_compile_definitions(s1_test PRIVATE X="a\")" Y=1)' >>"$cmk"
 variant
 sed -i 's/Y=1)/Y=2)/' "$cmk"
@@ -573,5 +582,5 @@ row TAF-46 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not
 
 echo ""
 echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
-[[ "$total" -eq 70 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 70"; exit 1; }
+[[ "$total" -eq 73 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 73"; exit 1; }
 [[ "$failed" -eq 0 ]]

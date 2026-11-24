@@ -456,7 +456,7 @@ for my $f (@changed) {
     $suites{$_} = 1 for keys %$edges;
     # A submodule pointer (gitlink) changes every object that includes the submodule.
     if ($have_git) {
-        my ($ls) = git('ls-files', '-s', '--', $f);
+        my ($ls) = gitc('ls-files', '-s', '--', $f);
         if (defined $ls && $ls =~ /^160000\b/) { $full = 1; $full_why{"$f (a submodule pointer)"} = 1; next }
     }
     if ($file_suites{$f}) {
@@ -484,7 +484,7 @@ for my $f (@changed) {
         if ($declared_rows->{$row}) { $rows{$row} = 1 } else { $full = 1; $full_why{"$f (names no declared row)"} = 1 }
     }
     elsif ($act eq 'row-conf') {
-        my @d = $o{files} ? () : git('diff', '-U0', $base, '--', $f);
+        my @d = $o{files} ? () : gitc('diff', '-U0', $base, '--', $f);
         my $n = 0;
         for my $l (@d) {
             next unless $l =~ /^[+-]\s*([A-Za-z0-9][A-Za-z0-9._-]*)(\s|$)/ && $l !~ /^(\+\+\+|---)/;
