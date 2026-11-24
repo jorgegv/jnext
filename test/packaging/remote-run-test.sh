@@ -902,8 +902,9 @@ drive_in() {
 }
 # RRUN-50: only REMOTE_RUN_BASE_REPO (what slot.sh sets on every host): its main gives the base
 REMOTE_RUN_BASE_REPO=$LOC52 drive_in --id b50 gh52 "$B2_SHA" unit-test
-row RRUN-50 "$([[ $RC -eq 0 && "$MBX" == "$L2_SHA" && "$MBX" != "$MAIN_SHA" ]] && echo 1 || echo 0)" \
-    "REMOTE_RUN_BASE_REPO alone, run from outside a repository: the base is that repository's merge base ($MBX) (rc $RC)"
+row RRUN-50 "$([[ $RC -eq 0 && "$MBX" == "$L2_SHA" && "$MBX" != "$MAIN_SHA" \
+    && "$OUT" == *"test-affected base: $L2_SHA (git -C $LOC52 merge-base"* ]] && echo 1 || echo 0)" \
+    "REMOTE_RUN_BASE_REPO alone, run from outside a repository: the base is that repository's merge base ($MBX) and the driver's note names it (rc $RC)"
 # RRUN-51: only --fallback-local DIR (the documented normal call): DIR's main gives the base
 drive_in --id b51 --fallback-local "$LOC47" gh52 "$B2_SHA" unit-test
 row RRUN-51 "$([[ $RC -eq 0 && "$MBX" == "$L1_SHA" && "$MBX" != "$MAIN_SHA" ]] && echo 1 || echo 0)" \
