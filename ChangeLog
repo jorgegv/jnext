@@ -5,6 +5,7 @@
 ### User Features
 - SD card upgrades keep your files and writes files and keep a backup you can go back to; a newer card is left alone by an older jnext; startup errors show in a window
 - Export your SD card changes to a folder and import them into another card (--sdcard-export-changes, --sdcard-import-changes, --sdcard-writes-flatten)
+- --sdcard-file-extract copies a file or directory off an SD card image into the current directory
 - Web pages: saves kept on an older NextZXOS card are reset after an update, with an onNotice callback
 - `--esxdos-stub` serves the esxDOS block-streaming calls from its host directory, so streaming games like The Way of the Exploding Fist run
 - Browser player hands the page the files JNEXT writes (recordings, screenshots, traces, exports): listFiles(), readFile(), stop()
