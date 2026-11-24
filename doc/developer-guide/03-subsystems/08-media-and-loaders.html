@@ -3299,7 +3299,7 @@ the guest's own driver talks to. Both are called out below.</p>
 </tbody>
 </table>
 <p>Format selection is by <strong>file extension</strong>: for <code>--load</code> in <code>src/main.cpp</code>
-(the <code>ext</code> chain, <code>src/main.cpp:3390-3448</code>), and again in the GUI's file dialogs and in the headless
+(the <code>ext</code> chain, <code>src/main.cpp:3447-3505</code>), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -5269,6 +5269,30 @@ sector: the card the machine sees would differ from the one the copy is laid out
 failure messages name the journal file (<code>MountedCard::target</code>), not the image. A forced
 replace of a file reuses its clusters (FatFs's <code>f_open</code> reuses the cluster hole), so the next
 <code>bind()</code> compacts the superseded records and the file does not grow.</p>
+<p><strong>Taking files off the card: <code>--sdcard-file-extract</code>.</strong> <code>extract_from_image()</code> in
+<code>src/core/sdcard_file_extract.cpp</code> is the opposite of file-add and the one rescue command that is not
+limited to the first FAT32-LBA partition. Which volume to mount is the ROM extractor's own decision,
+exported as <code>find_sd_fat_volume()</code> in <code>src/core/sd_rom_extractor.cpp</code> (the firmware's <code>find_volume</code> rules:
+FAT12/16/32, any non-zero partition type over a FAT boot record, or no partition table, plus the
+512-byte-sector and fits-in-the-file checks), so the two readers cannot disagree about a card. The
+volume is then mounted through FatFs with <code>fatfs_glue::attach(..., journal, /*read_only=*/true)</code>: the
+image is opened read-only and the card's writes file, when bound, is laid over it, so the extraction
+sees what a run with the same options would boot and writes nothing anywhere. A journal that holds
+sector 0 or the volume's boot sector is refused, as in file-add. An under-clustered FAT32 volume,
+which parses but which FatFs (like the firmware) will not mount, is refused with the re-cluster hint.
+It runs in two passes: the first resolves the path (<code>f_stat</code> of each prefix, then a listing of the
+parent for the stored spelling, because <code>f_stat</code> returns the short name when the short name matched),
+walks the subtree's directories and builds the whole plan; the second creates and streams. Every
+structural refusal happens in the first, and a failure in the second removes the one top-level entry the
+run created (an existing local name is refused up front with <code>symlink_status</code>, so it is always new).
+The host names are <code>carry::escape_name(name, true)</code>, the same function the export uses. An entry FatFs
+cannot open by its long name (a trailing dot or space, a control byte, a character FAT forbids in a path)
+is opened by its 8.3 alias. The guards against a damaged card are the set of start clusters of the
+directories read (the FAT32 root is normalised to cluster 0, which is in the set from the start, so a
+directory that points at itself, its parent or the root is refused and the walk terminates) and a
+per-directory set of host names folded to upper case (two entries a case-insensitive host could not tell
+apart). <code>main()</code> counts the verb with the others (one per run, <code>headless</code>, a terminal command for
+<code>startup_report::classify()</code>), and the card lock returns 5 for it like the other verbs.</p>
 <p><strong>The glue caches sectors.</strong> FatFs keeps one sector window per volume, so every path lookup
 re-reads its directory, and an uncached <code>disk_read</code> costs an <code>lseek</code> plus an 8 KiB stream-buffer
 refill. <code>fatfs_glue::attach()</code> therefore gives the drive a direct-mapped, write-through cache

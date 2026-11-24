@@ -213,6 +213,22 @@ files on its card. A copy that cannot be completed is refused or undone
 as a whole, never left half-done; the **jnext(1)** man page, under PUTTING A
 FILE ON THE CARD, lists exactly what is refused and why.
 
+To get a file or a directory back off the card, name it:
+
+```
+jnext --sdcard-file-extract /DEMOS/game.nex
+jnext --sdcard-file-extract /mygames
+```
+
+JNEXT copies it into the current directory under its own name and exits without
+starting the machine. The path on the card can use `/` or `\`, and a long name or its 8.3
+name in any letter case; the copy is named as the card stores it. A file or directory of that
+name that is already there is refused and left alone: nothing is overwritten. Without
+`--sdcard`, it is your own card that is read; with `--sdcard-writes FILE` the files you
+saved there are read too. It works on any card the Next itself mounts, FAT12, FAT16 or
+FAT32, partitioned or not. The man page, under GETTING YOUR FILES OUT, lists the rest:
+the names a computer cannot hold, and what is refused.
+
 (A NEX file whose header asks to keep its own file open can also read that
 file, and read files next to it, when loaded directly. It cannot write them.)
 

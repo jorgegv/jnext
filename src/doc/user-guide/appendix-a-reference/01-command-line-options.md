@@ -276,6 +276,17 @@ with status 1.
     Without it an existing destination file is refused and nothing is
     written.
 
+**--sdcard-file-extract** *PATH*
+:   Copy the file, or the directory with everything in it, at *PATH* on
+    the SD card (`/GAMES/game.nex`; long or 8.3 names, any letter case)
+    into the **current directory** under its own name, and **exit
+    without starting emulation**. A local file or directory of that name
+    is refused and left as it is. Give it once per run. It reads the
+    card **--sdcard** names, or the default-location image when
+    **--sdcard** is omitted, as a run with the same options would see it
+    (with **--sdcard-writes**, through that file); neither is written.
+    See **GETTING YOUR FILES OUT**.
+
 **--sdcard-writes-flatten** *OUT*
 :   Write *OUT*, a plain image of the card with the **--sdcard-writes**
     *FILE* laid over it (the card as the machine sees it), and **exit
