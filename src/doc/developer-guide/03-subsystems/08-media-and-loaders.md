@@ -2129,7 +2129,7 @@ card's ROOT, because the emulator wins over any remembered or shown state. The t
 `sdcard_manager.card`, `sdcard_manager.card_dir` (stored `%XX`-escaped) and `sdcard_manager.host_dir`, plain `AppConfig`
 fields, settable with `--set` like `paths.last_load_dir`; they are read back only through `resolve_remembered()`, which checks
 them. The message boxes, the text prompts and the trash go through hooks the tests replace (`set_box_hook_for_test`,
-`set_text_hook_for_test`, `set_trash_hook_for_test`); a headless session has no trash. Rows: `SDMW-01..18`
+`set_text_hook_for_test`, `set_trash_hook_for_test`); a headless session has no trash. Rows: `SDMW-01..19`
 (`sdcard_manager_window_test`, offscreen), `AC-104..106` (`app_config_test`).
 
 **The glue caches sectors.** FatFs keeps one sector window per volume, so every path lookup

@@ -118,6 +118,21 @@ bool populate(FATFS&, Pokes&)
            f_mkdir("0:/EMPTYD") == FR_OK && fat_write("0:/FILE.BIN", kFileBin);
 }
 
+// /SHD: an earlier long entry "foo" (alias FOO~1) and a later 8.3-only "FOO". FatFs resolves the name FOO to the first, so
+// the second has no spelling that opens IT: the card pane shows it and never acts on it (empty open_name).
+const Bytes kD1 = payload(200, 21), kD2 = payload(210, 22);
+bool populate_shadow(FATFS& fsv, Pokes& pokes)
+{
+    if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/SHD") != FR_OK || !fat_write("0:/DATA/D1.BIN", kD1) || !fat_write("0:/DATA/D2.BIN", kD2))
+        return false;
+    const uint32_t c1 = file_cluster("0:/DATA/D1.BIN"), c2 = file_cluster("0:/DATA/D2.BIN");
+    hand_dir(fsv, dir_cluster("0:/SHD"), 2,
+             {{u"foo", "FOO~1      ", 0x20, c1, static_cast<uint32_t>(kD1.size())},
+              {u"", "FOO        ", 0x20, c2, static_cast<uint32_t>(kD2.size())}},
+             pokes);
+    return c1 != 0 && c2 != 0;
+}
+
 struct Img {
     std::string p;
     explicit Img(const std::string& master)
@@ -823,6 +838,38 @@ int main(int argc, char** argv)
               round && malformed && nav, std::to_string(round) + std::to_string(malformed) + std::to_string(nav));
     }
 
+    // SDMW-19
+    {
+        const std::string S = tmp_name("shadow") + ".img";
+        const int st = make_card(S, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, populate_shadow);
+        Rig rig;
+        rig.emu.sd_card().mount(S, false);
+        rig.open();
+        Boxes b;
+        const fs::path out = fresh_dir("shadow-out");
+        const std::string sha = sha_file(S);
+        SdManagerDialog d(rig.emu, rig.session, sm::Remembered{S, sm::encode_card_dir("/SHD"), out.string()},
+                          QString::fromStdString(host.string()));
+        wire(d, b);
+        auto* model = qobject_cast<SdCardModel*>(child<QListView>(d, "card_view")->model());
+        int addressable = 0, shown = 0;
+        for (int r = 0; r < model->rowCount(); ++r) {
+            ++shown;
+            if (!model->path_of(r).isEmpty()) ++addressable;
+        }
+        select_card(d, {"FOO", "foo"});
+        child<QPushButton>(d, "copy_to_host")->click();
+        const Tree got = tree_of(out);
+        const bool copy_one = shown == 2 && addressable == 1 && got.size() == 1 && got.count("foo") && got.at("foo") == kD1;
+        // only the unaddressable entry selected: nothing to act on
+        select_card(d, {"FOO"});
+        d.findChild<QAction*>("card_delete")->trigger();
+        d.findChild<QAction*>("card_rename")->trigger();
+        const bool nothing = sha_file(S) == sha && b.count("Delete") == 0;
+        check("SDMW-19", "an entry no spelling can open (a shadowed 8.3 FOO behind a long foo) is listed but has no path: a copy of both copies only the addressable one, and Delete or Rename aimed at it acts on nothing (the card is byte-identical)",
+              st == FS_FAT32 && copy_one && nothing, std::to_string(shown) + std::to_string(addressable) + std::to_string(copy_one) + std::to_string(nothing));
+        rig.session.close(rig.emu);
+    }
     check("SDMW-18", "the fixture cards are real volumes of the types the rows claim (FAT32 partitioned, FAT16 partitioned)", gt == FS_FAT32 && t16 == FS_FAT16);
     sd_write_journal::forget_all_for_test();
     std::error_code ec;
