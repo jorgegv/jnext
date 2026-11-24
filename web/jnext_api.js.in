@@ -239,8 +239,9 @@
     function placeCredit() {
       if (!creditAlive || !container.parentNode) return;
       creditOutside();
-      var c = container.getBoundingClientRect(), r = credit.getBoundingClientRect();
-      if (r.top >= c.bottom - 1 && r.left <= c.left + 1 + c.width) {
+      // Aligned to the player box (it may be narrower than a stretched container).
+      var cc = container.getBoundingClientRect(), c = box.getBoundingClientRect(), r = credit.getBoundingClientRect();
+      if (r.top >= cc.bottom - 1 && r.left <= c.left + 1 + c.width) {
         credit.style.width = c.width + 'px';
         credit.style.marginLeft = (c.left - r.left) + 'px';
         return;
@@ -250,11 +251,11 @@
       if (cs.position === 'static') container.style.position = 'relative';
       container.style.marginBottom = ((parseFloat(cs.marginBottom) || 0) + 26) + 'px';
       container.appendChild(credit);
-      credit.style.cssText = CREDIT_BASE + 'position:absolute;top:100%;right:0;margin:0;width:auto';
+      credit.style.cssText = CREDIT_BASE + 'position:absolute;top:100%;margin:0;width:auto;right:' + Math.max(0, cc.right - c.right) + 'px';
       creditInside = true;
     }
     var creditObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(placeCredit) : null;
-    if (creditObserver) creditObserver.observe(container);
+    if (creditObserver) { creditObserver.observe(container); creditObserver.observe(box); }
     window.addEventListener('resize', placeCredit);
     placeCredit();
     function dropCredit() {

@@ -484,10 +484,10 @@ row('WIDGET-17', 'data-keep-writes gives a widget player whose command line carr
 
 // GH #563: the attribution mount() adds under every player, so the widget and the plain template page both show it.
 const creditOf = (page, sel) => page.evaluate((sel) => {
-  const c = document.querySelector('.jnext-credit'), a = c && c.querySelector('a'), img = a && a.querySelector('img');
+  const c = document.querySelector('.jnext-credit'), a = c && c.querySelector('a'), img = a && a.querySelector('svg');
   const cv = document.querySelector(sel + ' canvas').getBoundingClientRect(), r = c.getBoundingClientRect();
   const ir = img.getBoundingClientRect(), box = document.querySelector(sel + ' .jnext-player').getBoundingClientRect();
-  return { href: a.href, target: a.target, rel: a.rel, text: a.textContent, icon: img.complete && img.naturalWidth > 0,
+  return { href: a.href, target: a.target, rel: a.rel, text: a.textContent, icon: img.getBoundingClientRect().width > 0 && !a.querySelector('img'),
            overlap: !(r.top >= cv.bottom - 0.5 || r.bottom <= cv.top + 0.5 || r.left >= cv.right || r.right <= cv.left),
            below: r.top >= cv.bottom - 0.5, visible: r.width > 0 && r.height > 0 && getComputedStyle(c).display !== 'none',
            vis: getComputedStyle(a).visibility + '/' + getComputedStyle(c).visibility, opacity: parseFloat(getComputedStyle(c).opacity),
