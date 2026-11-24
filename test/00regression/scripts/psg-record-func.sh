@@ -48,7 +48,9 @@ if want psg-record-func; then
         fail_row " (the Fuse reference body is not $n_fuse bytes)"
     elif ! cmp -s "$TMP_DIR/mine.body" "$TMP_DIR/fuse.body"; then
         fail_row " (the normalised recording differs from the Fuse 1.6.0 recording)"
-    elif ! cmp -s -n 16 "$mine" "$fuse_ref"; then
+    elif ! { head -c 16 "$mine" >"$TMP_DIR/mine.hdr" && head -c 16 "$fuse_ref" >"$TMP_DIR/fuse.hdr" &&
+             cmp -s "$TMP_DIR/mine.hdr" "$TMP_DIR/fuse.hdr"; }; then
+        # head -c, not `cmp -n 16`: BSD (macOS) cmp has no -n, so the check read as a header difference there.
         fail_row " (the header differs from Fuse's)"
     elif [[ -e "$TMP_DIR/fx-ay1.psg" || -e "$TMP_DIR/fx-ay2.psg" ]]; then
         fail_row " (a chip file was created for a program that only uses AY#0)"
