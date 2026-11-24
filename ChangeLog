@@ -3,6 +3,7 @@
 ## Unreleased (2026-11-22)
 
 ### User Features
+- `--esxdos-stub` serves the esxDOS block-streaming calls from its host directory, so streaming games like The Way of the Exploding Fist run
 - Browser player hands the page the files JNEXT writes (recordings, screenshots, traces, exports): listFiles(), readFile(), stop()
 
 ### Developer Features

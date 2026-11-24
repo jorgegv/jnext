@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.69</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.69</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3982,8 +3982,8 @@ precondition: the DivMMC automap that takes <code>$0008</code> to NextZXOS needs
 <tbody>
 <tr>
 <td><code>$85</code>-<code>$87</code> <code>DISK_FILEMAP</code> / <code>STRMSTART</code> / <code>STRMEND</code></td>
-<td>with the host bridge, block streaming from the NEX file; without it, the catch-all error below</td>
-<td>falls through</td>
+<td>with the host bridge, block streaming from the NEX file (<code>kHandle</code> only); a handle of the host directory, with <code>--esxdos-stub</code> or a root, streams that file (below); otherwise the catch-all error below</td>
+<td>with a host directory: the same host-file streaming; otherwise falls through</td>
 </tr>
 <tr>
 <td><code>$88</code> <code>M_DOSVERSION</code></td>
@@ -4127,6 +4127,25 @@ handle-keyed and follows the handle rule. The one interaction
 worth knowing: with a root configured, the extended-NEX bridge's <em>sibling</em>
 lookup is skipped, so only the NEX's own filename still resolves beside the
 NEX — otherwise one name could mean two files.</p>
+<p><strong>Block streaming of host files.</strong> <code>DISK_FILEMAP</code>, <code>DISK_STRMSTART</code> and
+<code>DISK_STRMEND</code> on a host-directory file reuse the extended-NEX engine
+(<code>ExtendedNexHost</code>). <code>HostFileStreams</code> keeps one <code>ExtendedNexHost</code> per mapped
+host file, keyed by its path, each opened at a region of synthetic card
+addresses (<code>kFirstBlock + i * kRegionBlocks</code>, 4 GB per file, 224 regions; a full
+table answers <code>esx_enfile</code>). A region outlives <code>F_CLOSE</code>, as a card address
+outlives a handle, and is dropped with the table by <code>init()</code> and <code>load_nex()</code>.
+The <code>DISK_FILEMAP</code> cursor is per open handle (<code>EsxdosHostFs::filemap_cursor</code>),
+so a fresh <code>F_OPEN</code> maps from the start. One stream runs at a time: starting
+one ends the other (host or extended NEX), and port <code>$EB</code> serves whichever is
+active before the SPI path. The dispatcher claims <code>$86</code> only for an address
+inside a region and <code>$87</code> only while a host stream runs; the extended-NEX case
+likewise falls through, for host handles and for foreign addresses, whenever
+the host directory is active, so NextZXOS (bare <code>--esxdos-stub-root</code>) and the
+card keep their own. There is no SD read overlay for these addresses: a
+program's own CMD17/CMD18 to them is not served. <code>DISK_FILEMAP</code> maps from the
+start of the file whatever was read; the error answers for a directory or closed
+handle (<code>esx_ebadf</code>) are unmeasured on NextZXOS. Rows: <code>XNEX-45..58</code> in
+<code>test/core/extended_nex_test.cpp</code>.</p>
 <p><strong>Reading the filespec.</strong> Two readers, and the distinction is load-bearing. A
 dot command's COMMAND TAIL is "terminated by <code>$00</code>, <code>$0d</code> or <code>':'</code>"
 (<code>readdir.asm:78-79</code>), so <code>M_EXECCMD</code> uses <code>read_cmdline</code>. A FILESPEC is

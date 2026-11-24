@@ -304,6 +304,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // re-initialise before applying a file — returns file and SD traffic to
     // the configured card/ROM. load_nex() re-arms both afterwards.
     extended_nex_host_.clear();
+    host_streams_.clear();
     sd_card_.clear_read_overlay();
     direct_nex_esxdos_ = false;   // GH #250 — same lifetime as the bridge
 
@@ -1449,6 +1450,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 };
                 switch (defb) {
                     case 0x85: { // DISK_FILEMAP
+                        // GH #556: a handle of the host directory is not ours.
+                        if (esxdos_hostfs_.active() &&
+                            EsxdosHostFs::owns_handle(handle))
+                            break;
                         if (handle != ExtendedNexHost::kHandle ||
                             !extended_nex_host_.is_open()) {
                             set_a_and_carry(0x0D, true); // EBADF
@@ -1480,15 +1485,20 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                         const uint32_t address =
                             (static_cast<uint32_t>(r.IX) << 16) | r.DE;
                         if (!extended_nex_host_.stream_start(address, flags)) {
+                            // GH #556: an address outside this file's range
+                            // may be a host-directory file's, or the OS's.
+                            if (esxdos_hostfs_.active()) break;
                             set_a_and_carry(0x0E, true); // ENODEV
                             return true;
                         }
+                        host_streams_.stream_end();  // GH #556: one card, one stream
                         r.BC = 0x00EB; // B=SD/MMC protocol, C=data port
                         set_a_and_carry(flags, false);
                         return true;
                     }
                     case 0x87: { // DISK_STRMEND
                         if (!extended_nex_host_.stream_end()) {
+                            if (esxdos_hostfs_.active()) break;  // GH #556
                             set_a_and_carry(0x0E, true); // ENODEV
                             return true;
                         }
@@ -1703,6 +1713,63 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 };
 
                 switch (defb) {
+                    // GH #556 — block streaming of host files, over the same
+                    // engine as the extended NEX's (XNEX-14..23). Oracle: the
+                    // NextZXOS API (DISK_FILEMAP p.38, DISK_STRMSTART p.39,
+                    // DISK_STRMEND p.40) and tbblue stream.asm. A file's blocks
+                    // get synthetic card addresses in a region of its own
+                    // (HostFileStreams); an address outside every region, and
+                    // a STRMEND with no host stream active, are NOT claimed, so
+                    // NextZXOS (bare --esxdos-stub-root) and the extended NEX
+                    // keep their own. A directory or closed handle answers
+                    // esx_ebadf as the extended path does (unmeasured on
+                    // NextZXOS). FILEMAP maps from the start of the file
+                    // whatever was read (NextZXOS maps from its sector
+                    // bookkeeping: the same for the documented usage).
+                    case 0x85: {  // DISK_FILEMAP — A=handle, IX=buffer, DE=entries
+                        if (!EsxdosHostFs::owns_handle(handle)) break;
+                        std::string host_path;
+                        uint64_t* cursor = nullptr;
+                        if (const uint8_t err = esxdos_hostfs_.filemap_cursor(
+                                handle, host_path, cursor))
+                            return fail(err);
+                        ExtendedNexHost* region = nullptr;
+                        bool full = false;
+                        if (!host_streams_.region_for(host_path, region, full))
+                            return fail(full ? 0x0C : 0x06);  // ENFILE : EIO
+                        const std::size_t capacity = r.DE;
+                        std::vector<ExtendedNexHost::FileMapEntry> entries;
+                        if (!region->file_map(capacity, entries, *cursor))
+                            return fail(0x06);  // EIO
+                        uint16_t out = r.IX;
+                        for (const auto& entry : entries) {
+                            for (int i = 0; i < 4; ++i)
+                                mmu_.write(static_cast<uint16_t>(out++),
+                                           static_cast<uint8_t>(entry.address >> (i * 8)));
+                            mmu_.write(static_cast<uint16_t>(out++),
+                                       static_cast<uint8_t>(entry.blocks));
+                            mmu_.write(static_cast<uint16_t>(out++),
+                                       static_cast<uint8_t>(entry.blocks >> 8));
+                        }
+                        r.DE = static_cast<uint16_t>(capacity - entries.size());
+                        r.HL = out;
+                        return done(ExtendedNexHost::kCardFlags);
+                    }
+                    case 0x86: {  // DISK_STRMSTART — A=flags, IXDE=block address
+                        const uint32_t address =
+                            (static_cast<uint32_t>(r.IX) << 16) | r.DE;
+                        ExtendedNexHost* region = nullptr;
+                        if (!host_streams_.find(address, region)) break;
+                        // One card: starting a host stream ends the extended NEX's.
+                        extended_nex_host_.stream_end();
+                        if (!host_streams_.stream_start(address, handle))
+                            return fail(0x0E);  // ENODEV
+                        r.BC = 0x00EB;  // B=SD/MMC protocol, C=data port
+                        return done(handle);
+                    }
+                    case 0x87:    // DISK_STRMEND — only while a host stream runs
+                        if (!host_streams_.stream_end()) break;
+                        return done(handle);
                     case 0x9A: {  // F_OPEN — A=drive, IX=filespec, B=mode
                         uint8_t h = 0;
                         const uint8_t err = esxdos_hostfs_.open(
@@ -6518,6 +6585,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 const auto byte = extended_nex_host_.read_stream_byte();
                 return byte.value_or(0xFF);
             }
+            if (host_streams_.stream_active()) {   // GH #556
+                const auto byte = host_streams_.read_stream_byte();
+                return byte.value_or(0xFF);
+            }
             return spi_.read_data();
         },
         [this](uint16_t, uint8_t val) {
@@ -8779,6 +8850,7 @@ bool Emulator::load_nex(const std::string& path)
     // the previous one. The path is restored below only when this NEX asks the
     // loader to keep its own file open.
     extended_nex_host_.clear();
+    host_streams_.clear();
     sd_card_.clear_read_overlay();
 
     // Full machine re-initialisation before applying NEX data ensures clean

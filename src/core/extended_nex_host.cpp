@@ -4,7 +4,8 @@
 #include <filesystem>
 #include <limits>
 
-bool ExtendedNexHost::open(const std::string& path)
+bool ExtendedNexHost::open(const std::string& path, uint32_t first_block,
+                           uint64_t max_blocks)
 {
     close();
 
@@ -19,6 +20,8 @@ bool ExtendedNexHost::open(const std::string& path)
     size_ = file_size;
     position_ = 0;
     filemap_next_block_ = 0;
+    first_block_ = first_block;
+    max_blocks_ = max_blocks;
     return true;
 }
 
@@ -26,7 +29,7 @@ bool ExtendedNexHost::reopen()
 {
     if (path_.empty()) return false;
     const std::string saved_path = path_;
-    return open(saved_path);
+    return open(saved_path, first_block_, max_blocks_);
 }
 
 bool ExtendedNexHost::open_sibling(const std::string& path)
@@ -126,19 +129,20 @@ bool ExtendedNexHost::seek_sibling(uint8_t mode, uint32_t offset)
 uint32_t ExtendedNexHost::block_count() const
 {
     const uint64_t blocks = (size_ + kBlockSize - 1) / kBlockSize;
-    const uint64_t available =
+    uint64_t available =
         static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) -
-        kSyntheticFirstBlock + 1;
+        first_block_ + 1;
+    if (max_blocks_ != 0) available = std::min(available, max_blocks_);
     return static_cast<uint32_t>(std::min<uint64_t>(blocks, available));
 }
 
 bool ExtendedNexHost::read_block(uint32_t address, uint8_t* dst)
 {
-    if (!file_.is_open() || !dst || address < kSyntheticFirstBlock)
+    if (!file_.is_open() || !dst || address < first_block_)
         return false;
 
     const uint64_t block =
-        static_cast<uint64_t>(address - kSyntheticFirstBlock);
+        static_cast<uint64_t>(address - first_block_);
     if (block >= block_count()) return false;
 
     const uint64_t offset = block * kBlockSize;
@@ -184,20 +188,26 @@ bool ExtendedNexHost::seek_open_file(std::ifstream& file, uint64_t size,
 bool ExtendedNexHost::file_map(std::size_t capacity,
                                std::vector<FileMapEntry>& entries)
 {
+    return file_map(capacity, entries, filemap_next_block_);
+}
+
+bool ExtendedNexHost::file_map(std::size_t capacity,
+                               std::vector<FileMapEntry>& entries,
+                               uint64_t& next_block)
+{
     entries.clear();
     if (!file_.is_open()) return false;
 
     const uint64_t total_blocks = block_count();
-    while (entries.size() < capacity && filemap_next_block_ < total_blocks) {
-        const uint64_t remaining = total_blocks - filemap_next_block_;
+    while (entries.size() < capacity && next_block < total_blocks) {
+        const uint64_t remaining = total_blocks - next_block;
         const uint16_t blocks = static_cast<uint16_t>(
             std::min<uint64_t>(remaining, std::numeric_limits<uint16_t>::max()));
         entries.push_back({
-            kSyntheticFirstBlock +
-                static_cast<uint32_t>(filemap_next_block_),
+            first_block_ + static_cast<uint32_t>(next_block),
             blocks
         });
-        filemap_next_block_ += blocks;
+        next_block += blocks;
     }
     return true;
 }
@@ -206,12 +216,12 @@ bool ExtendedNexHost::stream_start(uint32_t address, uint8_t flags)
 {
     if (!file_.is_open()) return false;
 
-    if (address < kSyntheticFirstBlock) return false;
+    if (address < first_block_) return false;
     const uint64_t block =
-        static_cast<uint64_t>(address - kSyntheticFirstBlock);
+        static_cast<uint64_t>(address - first_block_);
     const uint64_t offset = block * kBlockSize;
     const uint64_t rounded_size = ((size_ + kBlockSize - 1) / kBlockSize) * kBlockSize;
-    if (offset >= rounded_size)
+    if (offset >= rounded_size || block >= block_count())
         return false;
 
     if (stream_file_.is_open()) stream_file_.close();
@@ -283,4 +293,70 @@ bool ExtendedNexHost::stream_end()
     if (stream_file_.is_open()) stream_file_.close();
     stream_file_.clear();
     return true;
+}
+
+// ── HostFileStreams (GH #556) ────────────────────────────────────────────
+
+bool HostFileStreams::region_for(const std::string& host_path,
+                                 ExtendedNexHost*& region, bool& full)
+{
+    full = false;
+    if (host_path.empty()) return false;
+    const std::string key =
+        std::filesystem::absolute(host_path).lexically_normal().string();
+    for (auto& r : regions_) {
+        if (r->path() == key) { region = r.get(); return true; }
+    }
+    if (regions_.size() >= kRegions) { full = true; return false; }
+    auto fresh = std::make_unique<ExtendedNexHost>();
+    const uint32_t base = kFirstBlock +
+        static_cast<uint32_t>(regions_.size()) * kRegionBlocks;
+    if (!fresh->open(key, base, kRegionBlocks)) return false;
+    regions_.push_back(std::move(fresh));
+    region = regions_.back().get();
+    return true;
+}
+
+bool HostFileStreams::find(uint32_t address, ExtendedNexHost*& region)
+{
+    if (address < kFirstBlock) return false;
+    const std::size_t index = (address - kFirstBlock) / kRegionBlocks;
+    if (index >= regions_.size()) return false;
+    region = regions_[index].get();
+    return true;
+}
+
+bool HostFileStreams::stream_start(uint32_t address, uint8_t flags)
+{
+    ExtendedNexHost* region = nullptr;
+    if (!find(address, region)) return false;
+    // One card, one CMD18: starting a stream ends any other.
+    for (auto& r : regions_) r->stream_end();
+    return region->stream_start(address, flags);
+}
+
+bool HostFileStreams::stream_end()
+{
+    bool ended = false;
+    for (auto& r : regions_) ended = r->stream_end() || ended;
+    return ended;
+}
+
+bool HostFileStreams::stream_active() const
+{
+    for (const auto& r : regions_)
+        if (r->stream_active()) return true;
+    return false;
+}
+
+std::optional<uint8_t> HostFileStreams::read_stream_byte()
+{
+    for (auto& r : regions_)
+        if (r->stream_active()) return r->read_stream_byte();
+    return std::nullopt;
+}
+
+void HostFileStreams::clear()
+{
+    regions_.clear();
 }

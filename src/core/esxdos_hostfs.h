@@ -208,6 +208,12 @@ public:
                  uint32_t& position);
     uint8_t fgetpos(uint8_t handle, uint32_t& position) const;
     uint8_t fstat(uint8_t handle, StatInfo& out) const;
+    /// GH #556: DISK_FILEMAP's view of an open FILE handle: its host path and
+    /// its continuation cursor (next block to map; esxDOS keeps it per open
+    /// handle, F_OPEN starts it at 0). esx_ebadf for a directory or a closed
+    /// handle.
+    uint8_t filemap_cursor(uint8_t handle, std::string& host_path,
+                           uint64_t*& next_block);
     uint8_t stat(const std::string& guest_path, StatInfo& out);
     uint8_t sync(uint8_t handle);
 
@@ -301,6 +307,7 @@ private:
         std::string   path;
         std::fstream  stream;
         uint64_t      position = 0;
+        uint64_t      filemap_next_block = 0;  // DISK_FILEMAP cursor
     };
 
     /// One host directory entry, as every call that NAMES an entry sees it.

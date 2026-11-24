@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.69</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.68</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.69</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4618,6 +4618,10 @@ NEX's own directory if you give both). <code>F_OPEN</code>, <code>F_READ</code>,
 on the real files in that directory, including files in subdirectories. Edit a
 file on the host, re-run, and the program reads the new version — nothing to
 copy.</p>
+<p>The esxDOS block-streaming calls are served too (<code>DISK_FILEMAP</code>,
+<code>DISK_STRMSTART</code>, <code>DISK_STRMEND</code>, with the data read from port <code>$EB</code>), so
+games that stream their intro and music from the files, such as The Way of the
+Exploding Fist, run from the host directory.</p>
 <p>It is read-only unless you also pass <code>--esxdos-stub-writable</code>. With that flag
 the program can also delete (<code>F_UNLINK</code>, wildcards too), rename (<code>F_RENAME</code>),
 make and remove directories (<code>F_MKDIR</code>, <code>F_RMDIR</code>), truncate files
@@ -4723,6 +4727,8 @@ wrong answer is worse than a clear refusal:</p>
   fiction</li>
 <li><code>M_P3DOS</code>, which calls NextZXOS ROM routines directly, including raw sector
   reads. A directory has no sectors to give.</li>
+<li>raw SD-card commands sent by the program itself to the addresses
+  <code>DISK_FILEMAP</code> gives: stream them with <code>DISK_STRMSTART</code> instead</li>
 <li><code>F_CHMOD</code> of the hidden and system attributes and of a directory's
   attributes: a host file or directory has no such attribute for the next
   <code>F_STAT</code> or <code>F_READDIR</code> to show, so the call is refused with <code>esx_enosys</code>

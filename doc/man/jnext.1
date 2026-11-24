@@ -2699,6 +2699,13 @@ follow the host files, not a FAT directory.
 directly \(em including raw sector reads \(em is not answered either: a
 host directory cannot supply sectors.
 .PP
+The block\-streaming calls work on its files too, as streaming games use
+them: \f[CR]DISK_FILEMAP\f[R] on an open file, \f[CR]DISK_STRMSTART\f[R]
+on the address it returns, the data read from port \f[CR]$EB\f[R],
+\f[CR]DISK_STRMEND\f[R].
+The addresses are only handles for that flow (one stream at a time); a
+program\(cqs own raw SD\-card commands sent to them are not served.
+.PP
 \f[CR]F_GETCWD\f[R] answers in NextZXOS\(cqs form, \f[CR]C:/\f[R] and
 then each directory\(cqs 8.3 name followed by \f[CR]/\f[R] (for example
 \f[CR]C:/MYGAME\(ti1/DATA/\f[R]), so a program that builds a path as the
