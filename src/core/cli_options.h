@@ -256,6 +256,11 @@ struct Option {
     // help text, because the row will not compile without it.
     const char* args;
     const char* help;
+    // A run with this option never opens the main window: it is a command that copies and exits (or
+    // prints and exits), one of that command's companions (which are refused when given alone), or
+    // --headless. startup_report::classify reads it, so a refusal of such a command line goes to the
+    // terminal and never to a message box nobody is there to dismiss.
+    bool terminal = false;
 };
 
 // The table. Order is the man page's reading order, which keeps a diff of the
@@ -325,23 +330,23 @@ inline constexpr Option OPTIONS[] = {
       "(or, with --sdcard-writes, into that FILE) and exit without\n"
       "starting emulation. Lands in the card\n"
       "root under its own name unless --sdcard-file-dest says\n"
-      "otherwise. Given once per run." },
+      "otherwise. Given once per run.", true },
     { "--sdcard-file-dest", 1, Doc::Documented, OptId::SdcardFileDest,
       "PATH",
       "Optional: the card path --sdcard-file-add's FILE becomes,\n"
       "as an absolute path (e.g. /NEXTZXOS/DRV-A.DSK; '/' merges\n"
-      "a directory into the root). Missing directories are created." },
+      "a directory into the root). Missing directories are created.", true },
     { "--sdcard-file-force", 0, Doc::Documented, OptId::SdcardFileForce,
       "",
       "Let --sdcard-file-add replace existing files. Without\n"
-      "it an existing destination is refused, untouched." },
+      "it an existing destination is refused, untouched.", true },
     // GH #555 - rescue verbs: terminal commands like --sdcard-file-add. They share its exit statuses.
     { "--sdcard-writes-flatten", 1, Doc::Documented, OptId::SdcardWritesFlatten,
       "OUT",
       "Write OUT, a plain image of the card with the --sdcard-writes\n"
       "FILE laid over it (what the machine sees), and exit without\n"
       "starting emulation. Any FAT tool can open OUT. Needs\n"
-      "--sdcard-writes; refuses an OUT that exists." },
+      "--sdcard-writes; refuses an OUT that exists.", true },
     { "--sdcard-go-back", 0, Doc::Documented, OptId::SdcardGoBack,
       "",
       "Go back to the previous SD card an upgrade kept in previous/\n"
@@ -350,13 +355,13 @@ inline constexpr Option OPTIONS[] = {
       "distribution you left is not offered again. Exits without\n"
       "starting emulation: 0 done, 2 there is no previous card, 3\n"
       "failed with nothing changed, 4 the card is in use by another\n"
-      "jnext. Refused with --sdcard." },
+      "jnext. Refused with --sdcard.", true },
     { "--sdcard-delete-backup", 0, Doc::Documented, OptId::SdcardDeleteBackup,
       "",
       "Delete the previous SD card an upgrade kept in previous/ and\n"
       "give its disk space back; nothing else is touched. Exits\n"
       "without starting emulation, with the statuses of\n"
-      "--sdcard-go-back. Refused with --sdcard." },
+      "--sdcard-go-back. Refused with --sdcard.", true },
     { "--sdcard-export-changes", 1, Doc::Documented, OptId::SdcardExportChanges,
       "DIR",
       "Copy the files you added or changed on the card (as the\n"
@@ -364,7 +369,7 @@ inline constexpr Option OPTIONS[] = {
       "DIR, with the list CHANGES.txt, and exit without starting\n"
       "emulation. Compared against the card as jnext made it, else\n"
       "--sdcard-export-base, else the card itself when there is a\n"
-      "--sdcard-writes FILE. DIR must be empty or new." },
+      "--sdcard-writes FILE. DIR must be empty or new.", true },
     { "--sdcard-export-base", 1, Doc::Documented, OptId::SdcardExportBase,
       "FILE",
       "With --sdcard-export-changes: the image the card was made\n"
@@ -374,7 +379,7 @@ inline constexpr Option OPTIONS[] = {
       "Put the files of a --sdcard-export-changes DIR onto the card\n"
       "(or into the --sdcard-writes FILE) and exit without starting\n"
       "emulation. Files that exist are replaced; nothing is deleted;\n"
-      "CHANGES.txt is required." },
+      "CHANGES.txt is required.", true },
     { "--warm-start-regenerate", 0, Doc::Documented, OptId::WarmStartRegenerate,
       "",
       "Discard the cached warm-start recording and take a fresh one\n"
@@ -791,7 +796,7 @@ inline constexpr Option OPTIONS[] = {
     // Headless and automation
     { "--headless", 0, Doc::Documented, OptId::Headless,
       "",
-      "Run without display/audio (for automated testing)" },
+      "Run without display/audio (for automated testing)", true },
     { "--benchmark", 1, Doc::Documented, OptId::Benchmark,
       "N",
       "Headless-only: run exactly N frames uncapped, then\n"
@@ -1168,16 +1173,16 @@ inline constexpr Option OPTIONS[] = {
       "Set NO_COLOR to a non-empty value for uncoloured console logs." },
     { "--help", 0, Doc::Documented, OptId::Help,
       "",
-      "Print this help and exit" },
+      "Print this help and exit", true },
     { "-h", 0, Doc::ShortAlias, OptId::Help,
       "",
-      "Print this help and exit" },
+      "Print this help and exit", true },
     { "--version", 0, Doc::Documented, OptId::Version,
       "",
-      "Print version and exit" },
+      "Print version and exit", true },
     { "-V", 0, Doc::ShortAlias, OptId::Version,
       "",
-      "Print version and exit" },
+      "Print version and exit", true },
 };
 
 inline constexpr std::size_t OPTION_COUNT = sizeof(OPTIONS) / sizeof(OPTIONS[0]);

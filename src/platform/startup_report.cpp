@@ -127,17 +127,8 @@ Launch classify(int argc, const char* const argv[])
     for (int i = 1; i < argc; ++i) {
         const cli::Option* opt = cli::find(argv[i]);
         if (!opt) continue;
+        if (opt->terminal) l.windowed = false;   // the command table says so (cli_options.h), not a list here
         switch (opt->id) {
-        case cli::OptId::Headless:
-        case cli::OptId::Help:
-        case cli::OptId::Version:
-        case cli::OptId::SdcardFileAdd:
-        case cli::OptId::SdcardWritesFlatten:
-        case cli::OptId::SdcardExportChanges:
-        case cli::OptId::SdcardImportChanges:
-        case cli::OptId::SdcardGoBack:
-        case cli::OptId::SdcardDeleteBackup:
-            l.windowed = false; break;
         case cli::OptId::DelayedAutomaticExit:
         case cli::OptId::DelayedAutomaticExitFrames:
             l.unattended = true; break;

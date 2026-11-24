@@ -11,6 +11,7 @@
 //   Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d
 #include "platform/startup_report.h"
 
+#include "core/cli_options.h"
 #include "core/log.h"
 #include "../row_id.h"
 
@@ -199,6 +200,26 @@ int main() {
 #endif
         check("STARTERR-08", "classify(): --sdcard-writes-flatten, --sdcard-export-changes and --sdcard-import-changes are terminal commands (not windowed), like --sdcard-file-add",
               all_terminal && base_alone_windowed);
+    }
+
+    {
+        // The companions of --sdcard-file-add are refused when given alone (exit 1); a modal box there blocks
+        // forever under Cocoa and wine (the v1.3.70 gate), so each is terminal by the table, alone or not.
+        bool dest_alone = false, force_alone = false, table_ok = true;
+        {
+            auto d = argv_of({"--sdcard-file-dest", "/X.BIN"});
+            auto f = argv_of({"--sdcard-file-force"});
+            dest_alone = !classify(static_cast<int>(d.size()), d.data()).windowed;
+            force_alone = !classify(static_cast<int>(f.size()), f.data()).windowed;
+        }
+        for (const char* name : {"--headless", "--help", "-h", "--version", "-V", "--sdcard-file-add", "--sdcard-file-dest",
+                                 "--sdcard-file-force", "--sdcard-writes-flatten", "--sdcard-export-changes",
+                                 "--sdcard-import-changes", "--sdcard-go-back", "--sdcard-delete-backup"}) {
+            const cli::Option* o = cli::find(name);
+            table_ok = table_ok && o && o->terminal;
+        }
+        check("STARTERR-11", "classify(): --sdcard-file-dest and --sdcard-file-force alone are not windowed (their refusal never opens a box), and every command of that kind is marked terminal in the table",
+              dest_alone && force_alone && table_ok);
     }
 
     {
