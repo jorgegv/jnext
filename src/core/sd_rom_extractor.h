@@ -140,3 +140,11 @@ struct SdImageIdentity {
 /// not the same claim.
 bool read_sd_image_identity(const std::string& sd_image_path,
                             SdImageIdentity& out, std::string& why);
+
+/// The FAT volume of an SD image as the firmware finds it (the rules extract_sd_rom applies, one
+/// copy): `lba` is its boot sector (0 = no partition table) and `sectors` its size in 512-byte
+/// sectors (BPB_TotSec16, else BPB_TotSec32). Used to present the volume to FatFs (GH #557). False,
+/// with `why`, for an unreadable image, no FAT volume, a BPB extract_sd_rom refuses, a sector size
+/// other than 512 (the only one the FatFs glue supports), or a volume that does not fit in the file.
+bool find_sd_fat_volume(const std::string& sd_image_path, uint32_t& lba, uint32_t& sectors,
+                        std::string& why);

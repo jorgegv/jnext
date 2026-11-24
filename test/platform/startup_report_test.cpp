@@ -245,6 +245,39 @@ int main() {
               start != std::string::npos && scanned > 1000 && bare == marked && marked >= 5);
     }
 
+    {
+        // GH #557: --sdcard-file-extract copies a file off the card and exits: a terminal verb, no box.
+        auto x = argv_of({"--sdcard-file-extract", "/GAMES/WOTEF.NEX"});
+        const auto l = classify(static_cast<int>(x.size()), x.data());
+        check("STARTERR-11", "classify(): --sdcard-file-extract is a terminal command (not windowed, not unattended), like --sdcard-file-add",
+              !l.windowed && !l.unattended);
+    }
+
+    {
+        // GH #557: whatever goes with --sdcard-file-extract, in either order, the run is a terminal command:
+        // a refused one (a repeat, an empty value, --load, --no-sdcard, a companion without its verb) never shows a box.
+        const std::vector<std::vector<const char*>> lines = {
+            {"--sdcard-readonly", "--sdcard-file-extract", "/X"},
+            {"--sdcard-file-extract", "/X", "--sdcard-readonly"},
+            {"--sdcard", "C.img", "--sdcard-file-extract", "/X"},
+            {"--sdcard-file-extract", "/X", "--sdcard", "C.img", "--sdcard-writes", "W.sdw"},
+            {"--sdcard-file-extract", "/X", "--sdcard-file-extract", "/Y"},
+            {"--sdcard-file-extract", "", "--no-sdcard"},
+            {"--load", "a.nex", "--sdcard-file-extract", "/X"},
+            {"--sdcard-file-dest", "/D", "--sdcard-file-force", "--sdcard-file-extract", "/X"},
+            {"--sdcard-file-extract", "/X", "--sdcard-file-add", "f"},
+        };
+        bool all_terminal = true;
+        for (const auto& l : lines) {
+            std::vector<const char*> a{"jnext"};
+            a.insert(a.end(), l.begin(), l.end());
+            const auto c = classify(static_cast<int>(a.size()), a.data());
+            all_terminal = all_terminal && !c.windowed && !c.unattended;
+        }
+        check("STARTERR-12", "classify(): --sdcard-file-extract with its companions and with the flags it is refused with, in either order, is never windowed (a refusal shows no box)",
+              all_terminal);
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;
 }

@@ -12,6 +12,7 @@
 #include "core/rzx_recorder.h"
 #include "core/image_lock.h"
 #include "core/sdcard_file_add.h"
+#include "core/sdcard_file_extract.h"
 #include "core/sdcard_carry.h"
 #include "core/sdcard_upgrade.h"
 #include "core/sdcard_backup.h"
@@ -422,6 +423,8 @@ static int run_main(int argc, char* argv[]) {
     int         sdcard_flatten_count = 0, sdcard_export_count = 0, sdcard_import_count = 0,
                 sdcard_export_base_count = 0;
     int         sdcard_file_dest_count = 0;
+    std::string sdcard_extract_path;     // GH #557: --sdcard-file-extract PATH (a terminal command)
+    int         sdcard_extract_count = 0;
     bool        sdcard_file_force = false;  // permit replacing an existing file
     std::string screenshot_file;
     int         screenshot_delay = 10;        // seconds (used unless screenshot_delay_frames is set)
@@ -874,6 +877,10 @@ static int run_main(int argc, char* argv[]) {
             case cli::OptId::SdcardFileAdd:
                 sdcard_file_add = v[0];
                 ++sdcard_file_add_count;
+                break;
+            case cli::OptId::SdcardFileExtract:
+                sdcard_extract_path = v[0];
+                ++sdcard_extract_count;
                 break;
             case cli::OptId::SdcardWritesFlatten:
                 sdcard_writes_flatten = v[0];
@@ -1779,6 +1786,10 @@ static int run_main(int argc, char* argv[]) {
                              : !sdcard_upgrade_arg.empty()     ? "--sdcard-upgrade"
                              : sdcard_readonly                 ? "--sdcard-readonly"
                              : sdcard_file_add_count > 0       ? "--sdcard-file-add"
+                             : sdcard_extract_count > 0        ? "--sdcard-file-extract"
+                             : sdcard_flatten_count > 0        ? "--sdcard-writes-flatten"
+                             : sdcard_export_count > 0         ? "--sdcard-export-changes"
+                             : sdcard_import_count > 0         ? "--sdcard-import-changes"
                              : sdcard_file_dest_count > 0      ? "--sdcard-file-dest"
                              : sdcard_file_force               ? "--sdcard-file-force"
                              : sdcard_sha256_given             ? "--sdcard-sha256"
@@ -2014,6 +2025,25 @@ static int run_main(int argc, char* argv[]) {
                     "onto the card and exits without starting emulation.\n", runs);
             return 1;
         }
+    }
+    // GH #557 - --sdcard-file-extract is a terminal command too: once, with a path, alone, and never with
+    // "and then run this". --sdcard-readonly is fine: it never writes the card.
+    if (sdcard_extract_count > 0) {
+        const char* usage = nullptr;
+        if (sdcard_extract_count > 1)
+            usage = "--sdcard-file-extract may be given once.";
+        else if (sdcard_extract_path.empty())
+            usage = "--sdcard-file-extract needs a non-empty card path.";
+        else if (sdcard_file_add_count > 0 || sdcard_flatten_count > 0 || sdcard_export_count > 0 ||
+                 sdcard_import_count > 0 || sdcard_go_back_count > 0 || sdcard_delete_backup_count > 0)
+            usage = "--sdcard-file-extract is a separate command from the other SD card commands: give one per run.";
+        else if (!load_file.empty() || !inject_file.empty())
+            usage = "--sdcard-file-extract cannot be combined with --load or --inject: it runs without starting emulation.";
+        if (usage) {
+            startup_report::report("%s\n", usage);
+            return 1;
+        }
+        headless = true;
     }
     // GH #555 - the rescue verbs (flatten, export, import) are terminal commands too: one per run,
     // each with what it needs, none combined with "and then run this".
@@ -2338,7 +2368,7 @@ static int run_main(int argc, char* argv[]) {
                 Log::emulator()->error("SD card refused: {}", early_why);
                 startup_report::report("error: %s\n", early_why.c_str());
                 return (sdcard_file_add_count > 0 || sdcard_flatten_count > 0 || sdcard_export_count > 0 ||
-                        sdcard_import_count > 0)
+                        sdcard_import_count > 0 || sdcard_extract_count > 0)
                     ? static_cast<int>(sdcard::FileAddStatus::ImageUnusable) : 1;
             }
         }
@@ -2422,7 +2452,7 @@ static int run_main(int argc, char* argv[]) {
             Log::emulator()->error("SD card refused: {}", lock_why);
             startup_report::report("error: %s\n", lock_why.c_str());
             return (sdcard_file_add_count > 0 || sdcard_flatten_count > 0 || sdcard_export_count > 0 ||
-                    sdcard_import_count > 0)
+                    sdcard_import_count > 0 || sdcard_extract_count > 0)
                 ? static_cast<int>(sdcard::FileAddStatus::ImageUnusable) : 1;
         }
     }
@@ -2513,6 +2543,33 @@ static int run_main(int argc, char* argv[]) {
                          sdcard_file_add.c_str(), summary.dest.c_str(),
                          sd_card_image.c_str(), kept.c_str());
         }
+        return 0;
+    }
+
+    // ---------------------------------------------------------------------
+    // GH #557 - --sdcard-file-extract: the card's file or directory into the current directory. Reads the
+    // card as a run with the same options would see it (image plus --sdcard-writes), writes neither.
+    // ---------------------------------------------------------------------
+    if (sdcard_extract_count > 0) {
+        std::error_code cwd_ec;
+        const std::string dest = std::filesystem::current_path(cwd_ec).string();
+        sdcard::ExtractSummary sum;
+        std::string xerr;
+        const sdcard::FileAddStatus st = cwd_ec
+            ? sdcard::FileAddStatus::DestInvalid
+            : sdcard::extract_from_image(sd_card_image, sdcard_extract_path, dest, xerr, &sum);
+        if (cwd_ec) xerr = "cannot find the current directory (" + cwd_ec.message() + ")";
+        if (st != sdcard::FileAddStatus::Ok) {
+            std::fprintf(stderr, "error: --sdcard-file-extract: %s\n", xerr.c_str());   // terminal verb: no start-up box
+            return static_cast<int>(st);
+        }
+        const std::string via = sum.through_writes ? ", read through " + sdcard_writes_file : std::string();
+        std::fprintf(stdout, "Extracted '%s' from %s to '%s' (%u file(s), %u director%s, %llu bytes)%s\n",
+                     sum.card_path.c_str(), sd_card_image.c_str(), sum.host_path.c_str(), sum.files,
+                     sum.dirs, sum.dirs == 1 ? "y" : "ies", static_cast<unsigned long long>(sum.bytes),
+                     via.c_str());
+        for (const std::string& n : sum.escaped)
+            std::fprintf(stdout, "  written with an escaped name: %s\n", n.c_str());
         return 0;
     }
 
