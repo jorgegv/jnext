@@ -23,6 +23,9 @@
 // and paths (SDMT-17, SDMT-18, SDMT-14), a selection mixing good and bad items (SDMT-05, SDMT-08, SDMT-10,
 // SDMT-15), the remembered config values (SDMR-01, SDMR-04).
 //
+// Not driven by a row (stated): the video recorder's raw temp files (VideoRecorder::start needs ffmpeg in PATH)
+// and NextPi's overlay (needs QEMU). Both register through the same held_files::Hold as the members SDMT-32 drives.
+//
 // Run: ./build/test/sdcard_manager_test
 
 #include "platform/sdcard_manager.h"

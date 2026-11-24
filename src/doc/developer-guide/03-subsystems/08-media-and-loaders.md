@@ -2099,12 +2099,18 @@ old entry is in the trash. A copy onto the card names its card entry from the ho
 file-add name rules, refuses a destination folder that is gone (the engine would create it), and a type clash is refused
 without asking. Whether the destination exists is read from the LISTING of the destination folder by stored name: FatFs
 resolves a typed name that equals another entry's 8.3 alias to that entry and would overwrite it, so such a name is refused,
-naming the entry. `held_host_files()` lists every host file or folder the running emulator holds: both slots' images
-(mounted and configured), each one's SD-writes file (reopened by path on every commit, so a trashed one comes back without
-its header and the guest's writes are lost), the tape-save target and a running tape, RZX or video recording, the loaded
-TAP, TZX and WAV, the NEX a read overlay serves and the esxDOS root. Each of them, and any folder holding one, is refused as
+naming the entry; the engine (`add_to_image`, a single file and every file of a folder merge) makes the same refusal, so `--sdcard-file-add` never overwrites through an alias either. `held_host_files()` lists every host file or folder the running process holds, and the class is enumerated at its source:
+`core/held_files.h` is a registry, and every holder records the path it holds WHILE it holds it (a `held_files::Hold`
+member, or `output_files::begin/end` for a writer of an output option). Today that is the mounted SD image and the bound
+SD-writes file (reopened by path on every commit, so a trashed one comes back without its header and the guest's writes are
+lost), the image lock files (a trashed one lets a second jnext lock the same card), `--wav-record`, `--dac-trace`,
+`--log-file`, a tape save, the compositor trace, an RZX recording, a video recording with its two raw temp files, the
+joystick-UART FIFOs and NextPi's overlay. A new holder that records nothing in the registry is the only way to be missed:
+anything that opens a host file and keeps it open, or appends to it again by path, must register it. On top of the registry
+the manager adds what only the configuration knows: each slot's configured image (an ejected card 0 keeps its path), the NEX
+a read overlay serves, the loaded TAP, TZX and WAV and the esxDOS root. Each of them, and any folder holding one, is refused as
 a copy or move source, as a Replace target and as a delete target, by file identity, whichever slot the pane shows. The host side of a delete or a Replace goes to the trash through a
-hook; there is no permanent fallback. Rows: `SDMS-01..12`, `SDMT-01..28`, `SDMR-01..05` (`sdcard_manager_test`).
+hook; there is no permanent fallback. Rows: `SDMS-01..12`, `SDMT-01..34`, `SDMR-01..05` (`sdcard_manager_test`).
 
 `resolve_remembered()` is what the window opens on, and the emulator wins over the remembered state: the remembered
 card's slot if it is mounted, otherwise the first mounted slot; the remembered card directory only on the remembered card,
