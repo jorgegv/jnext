@@ -4774,6 +4774,9 @@ feature may offer to replace such a card: answer <strong>Keep my card</strong>.)
 <li><code>--sdcard-import-changes DIR</code> puts such a folder onto a card (or into a writes file). A
   file the card already has is replaced by yours, and nothing is deleted.</li>
 </ul>
+<p>Export, import and the upgrade's carrying over of your files, like <code>--sdcard-file-add</code>, work on the
+first FAT32 partition of the card. A card of your own with a FAT12 or FAT16 volume, or no partition
+table, still runs, but these commands cannot reach its files.</p>
 <p>Moving to a new NextZXOS by hand is an export and an import (<a href="03-using-your-own-image.html">3.3</a>).</p>
 <h2 id="messages">Messages<a class="headerlink" href="#messages" title="Permanent link">&para;</a></h2>
 <table>

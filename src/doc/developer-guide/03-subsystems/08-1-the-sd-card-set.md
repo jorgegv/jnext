@@ -142,7 +142,7 @@ committed or posted.
 logger tap keeps warnings and errors. `main` wraps `run_main`: when a windowed, attended run (no
 `--headless`, no `--delayed-automatic-exit`, not a terminal command, not a browser) fails before its
 loop started, and no dialog of its own was shown, the text goes into a Qt or SDL box (on the offscreen
-and dummy platforms into one debug line). Test rows run with no `DISPLAY` or `WAYLAND_DISPLAY`.
+and dummy platforms into one debug line). Test rows run with no `DISPLAY` or `WAYLAND_DISPLAY`. `startup_report_test` reads `src/main.cpp` and fails when `run_main` holds a bare `fprintf(stderr` or `std::cerr` that is not marked as a terminal verb, so a new fatal refusal cannot bypass `report()`.
 
 ## The browser
 

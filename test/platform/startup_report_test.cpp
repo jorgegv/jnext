@@ -219,6 +219,32 @@ int main() {
               should_show(1, p.windowed, p.unattended, false) == plain_shows && !should_show(1, hl.windowed, hl.unattended, false));
     }
 
+    {
+        // A fatal refusal before the loop must go through report(): a bare fprintf(stderr) reaches only a
+        // terminal, and a desktop launch then gets the generic box. The only bare ones left in run_main are the
+        // terminal verbs (they never show a box), and each says so on its own line.
+        std::ifstream in(JNEXT_MAIN_CPP);
+        const std::string src((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const size_t start = src.find("static int run_main(int argc, char* argv[]) {");
+        int bare = 0, marked = 0, scanned = 0;
+        if (start != std::string::npos) {
+            size_t pos = start;
+            while (pos < src.size()) {
+                size_t nl = src.find('\n', pos);
+                if (nl == std::string::npos) nl = src.size();
+                const std::string line = src.substr(pos, nl - pos);
+                ++scanned;
+                if (line.find("fprintf(stderr") != std::string::npos || line.find("std::cerr") != std::string::npos) {
+                    ++bare;
+                    if (line.find("// terminal verb: no start-up box") != std::string::npos) ++marked;
+                }
+                pos = nl + 1;
+            }
+        }
+        check("STARTERR-10", "run_main has no bare fprintf(stderr) or std::cerr outside the marked terminal verbs: every fatal start-up refusal goes through report()",
+              start != std::string::npos && scanned > 1000 && bare == marked && marked >= 5);
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;
 }

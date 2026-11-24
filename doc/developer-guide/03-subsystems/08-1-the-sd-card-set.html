@@ -3330,7 +3330,7 @@ committed or posted.</p>
 logger tap keeps warnings and errors. <code>main</code> wraps <code>run_main</code>: when a windowed, attended run (no
 <code>--headless</code>, no <code>--delayed-automatic-exit</code>, not a terminal command, not a browser) fails before its
 loop started, and no dialog of its own was shown, the text goes into a Qt or SDL box (on the offscreen
-and dummy platforms into one debug line). Test rows run with no <code>DISPLAY</code> or <code>WAYLAND_DISPLAY</code>.</p>
+and dummy platforms into one debug line). Test rows run with no <code>DISPLAY</code> or <code>WAYLAND_DISPLAY</code>. <code>startup_report_test</code> reads <code>src/main.cpp</code> and fails when <code>run_main</code> holds a bare <code>fprintf(stderr</code> or <code>std::cerr</code> that is not marked as a terminal verb, so a new fatal refusal cannot bypass <code>report()</code>.</p>
 <h2 id="the-browser">The browser<a class="headerlink" href="#the-browser" title="Permanent link">&para;</a></h2>
 <p><code>jnext-card-writes</code> is at version 2: <code>journals</code> holds the saves, <code>journal-meta</code> tags each record with
 <code>{page, cardSha256, distribution, defaultCard}</code>. On a mount with <code>keepWrites</code> on the default card,

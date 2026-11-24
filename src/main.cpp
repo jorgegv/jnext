@@ -2248,11 +2248,11 @@ static int run_main(int argc, char* argv[]) {
         const sdcard::backup::Result br = sdcard_go_back_count > 0 ? sdcard::backup::go_back(sd_dir, berr)
                                                                     : sdcard::backup::delete_backup(sd_dir, berr);
         if (br == sdcard::backup::Result::NoBackup) {
-            std::fprintf(stderr, "%s\n", berr.c_str());
+            std::fprintf(stderr, "%s\n", berr.c_str());   // terminal verb: no start-up box
             return 2;
         }
         if (br == sdcard::backup::Result::Failed) {
-            std::fprintf(stderr, "error: %s\n", berr.c_str());
+            std::fprintf(stderr, "error: %s\n", berr.c_str());   // terminal verb: no start-up box
             return 3;
         }
         if (sdcard_go_back_count > 0)
@@ -2528,7 +2528,7 @@ static int run_main(int argc, char* argv[]) {
             : sdcard::FileAddStatus::DestInvalid;
         if (!journal) ferr = "no writes file is bound to the SD image";
         if (st != sdcard::FileAddStatus::Ok) {
-            std::fprintf(stderr, "error: --sdcard-writes-flatten: %s\n", ferr.c_str());
+            std::fprintf(stderr, "error: --sdcard-writes-flatten: %s\n", ferr.c_str());   // terminal verb: no start-up box
             return static_cast<int>(st);
         }
         std::fprintf(stdout, "Wrote '%s': '%s' with the writes of '%s' laid over it\n",
@@ -2546,7 +2546,7 @@ static int run_main(int argc, char* argv[]) {
         std::string eerr;
         const sdcard::FileAddStatus st = sdcard::carry::export_changes(req, rep, eerr);
         if (st != sdcard::FileAddStatus::Ok) {
-            std::fprintf(stderr, "error: --sdcard-export-changes: %s\n", eerr.c_str());
+            std::fprintf(stderr, "error: --sdcard-export-changes: %s\n", eerr.c_str());   // terminal verb: no start-up box
             return static_cast<int>(st);
         }
         std::fprintf(stdout,
@@ -2565,7 +2565,7 @@ static int run_main(int argc, char* argv[]) {
         std::string ierr;
         const sdcard::FileAddStatus st = sdcard::carry::import_changes(sd_card_image, sdcard_import_dir, rep, ierr);
         if (st != sdcard::FileAddStatus::Ok) {
-            std::fprintf(stderr, "error: --sdcard-import-changes: %s\n", ierr.c_str());
+            std::fprintf(stderr, "error: --sdcard-import-changes: %s\n", ierr.c_str());   // terminal verb: no start-up box
             return static_cast<int>(st);
         }
         const std::string kept = sdcard_writes_file.empty()
@@ -3269,7 +3269,7 @@ static int run_main(int argc, char* argv[]) {
         if (!audio_log_file.empty()) {
             std::string why;
             if (!audio_log.open(audio_log_file, why)) {
-                fprintf(stderr, "--audio-log: %s\n", why.c_str());
+                startup_report::report("--audio-log: %s\n", why.c_str());
                 audio_recorder.stop();
                 dac_trace_recorder.stop();
                 return 1;

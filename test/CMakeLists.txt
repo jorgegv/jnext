@@ -1227,6 +1227,7 @@ endif()
 add_executable(startup_report_test platform/startup_report_test.cpp)
 target_link_libraries(startup_report_test PRIVATE jnext_platform jnext_core spdlog::spdlog)
 target_include_directories(startup_report_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(startup_report_test PRIVATE JNEXT_MAIN_CPP="${CMAKE_SOURCE_DIR}/src/main.cpp")
 add_test(NAME startup_report_tests COMMAND startup_report_test)
 
 # GH #548 - the --debugger / --break-at startup stop (src/platform/startup_stop.*): a real

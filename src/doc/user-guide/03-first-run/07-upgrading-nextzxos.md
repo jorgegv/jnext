@@ -119,6 +119,10 @@ These commands work on any card and exit without starting the machine.
 - `--sdcard-import-changes DIR` puts such a folder onto a card (or into a writes file). A
   file the card already has is replaced by yours, and nothing is deleted.
 
+Export, import and the upgrade's carrying over of your files, like `--sdcard-file-add`, work on the
+first FAT32 partition of the card. A card of your own with a FAT12 or FAT16 volume, or no partition
+table, still runs, but these commands cannot reach its files.
+
 Moving to a new NextZXOS by hand is an export and an import ([3.3](03-using-your-own-image.md)).
 
 ## Messages

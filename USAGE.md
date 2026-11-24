@@ -2096,6 +2096,12 @@ cannot write are each refused before anything is written. The three
 commands take the exit statuses of **--sdcard-file-add** (see **EXIT
 STATUS**).
 
+Like **--sdcard-file-add**, **--sdcard-export-changes**,
+**--sdcard-import-changes** and the upgrade’s carrying over of your
+files use the first FAT32 (LBA) partition of the card. The machine
+itself also reads FAT12, FAT16 and unpartitioned cards, so on such a
+card of your own these commands cannot reach the volume it boots.
+
 ## LOADING PROGRAMS
 
 Use **--load** *FILE*, or simply a bare filename (`jnext game.tap`). The
