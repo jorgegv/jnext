@@ -156,7 +156,7 @@ bool Volume::walk(std::string& err) {
         DIR dj{};
         FRESULT fr = f_opendir(&dj, fat(dirpath).c_str());
         if (fr != FR_OK) {
-            err = "cannot read directory '" + (dirpath.empty() ? std::string("/") : dirpath) +
+            err = "cannot read directory '" + escape_name(dirpath.empty() ? std::string("/") : dirpath, false) +
                   "' (" + fr_text(fr) + ")";
             return false;
         }
@@ -165,7 +165,7 @@ bool Volume::walk(std::string& err) {
             fr = f_readdir(&dj, &fno);
             if (fr != FR_OK) {
                 f_closedir(&dj);
-                err = "cannot read directory '" + (dirpath.empty() ? std::string("/") : dirpath) +
+                err = "cannot read directory '" + escape_name(dirpath.empty() ? std::string("/") : dirpath, false) +
                       "' (" + fr_text(fr) + ")";
                 return false;
             }
@@ -192,7 +192,7 @@ bool Volume::walk(std::string& err) {
 bool Volume::open(const Entry& e, std::string& err) {
     close();
     const FRESULT fr = f_open(&impl_->fil, fat(e.path).c_str(), FA_READ);
-    if (fr != FR_OK) { err = "cannot read '" + e.path + "' on the card (" + fr_text(fr) + ")"; return false; }
+    if (fr != FR_OK) { err = "cannot read '" + escape_name(e.path, false) + "' on the card (" + fr_text(fr) + ")"; return false; }
     impl_->file_open = true;
     return true;
 }
@@ -1031,7 +1031,7 @@ FileAddStatus export_changes(const ExportRequest& req, ExportReport& rep, std::s
             lines.push_back(l);
             continue;
         }
-        if (c.entry.unaddressable) { rep.skipped.push_back(c.entry.path); continue; }
+        if (c.entry.unaddressable) { rep.skipped.push_back(escape_name(c.entry.path, false)); continue; }
         if (c.entry.dir) {
             l.kind = 'D';
             ++rep.dirs;

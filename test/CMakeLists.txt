@@ -559,6 +559,21 @@ if(NOT EMSCRIPTEN)
     target_include_directories(sdcard_carry_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME sdcard_carry_tests COMMAND sdcard_carry_test)
 endif()
+# GH #557: --sdcard-file-extract, a file or directory off the card into a host directory. os native
+# (the extraction names and separators are exercised on the Windows build too); the symbolic-link row
+# is POSIX only. Fixtures are built at run time with FatFs, never an image from a file.
+if(NOT EMSCRIPTEN)
+    add_executable(sdcard_file_extract_test sdcard_file_extract/sdcard_file_extract_test.cpp)
+    target_link_libraries(sdcard_file_extract_test PRIVATE jnext_core)
+    target_include_directories(sdcard_file_extract_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_file_extract_tests COMMAND sdcard_file_extract_test)
+endif()
+if(NOT WIN32 AND NOT EMSCRIPTEN)
+    add_executable(sdcard_file_extract_posix_test sdcard_file_extract/sdcard_file_extract_posix_test.cpp)
+    target_link_libraries(sdcard_file_extract_posix_test PRIVATE jnext_core)
+    target_include_directories(sdcard_file_extract_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_file_extract_posix_tests COMMAND sdcard_file_extract_posix_test)
+endif()
 # GH #555 S5: the upgrade flow (provision_sd_card carrying the user's files over; 600 MB sparse fixtures).
 # GH #555 S6: the backup an upgrade leaves, go back, delete, the menu state.
 if(NOT EMSCRIPTEN)

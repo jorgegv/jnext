@@ -94,6 +94,10 @@ ROMs and the firmware always come from the first card. `--sdcard-file-add` works
 FAT32 image, so `jnext --sdcard card2.img --sdcard-file-add game.nex` puts a file on
 a second-card image.
 
+`--sdcard-file-extract` is the other way round, and reads any card the Next mounts, FAT12, FAT16
+or FAT32, with or without a partition table: `jnext --sdcard FILE --sdcard-file-extract /DIR/NAME`
+copies the file into the current directory.
+
 ## Moving to a new NextZXOS by hand
 
 An image you name yourself is never upgraded for you. To move your files to a new NextZXOS:

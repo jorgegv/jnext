@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.70</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.71</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.70</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.71</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4671,6 +4671,18 @@ copy then goes into <em>FILE</em>, and the next run given the same image and <em
 files on its card. A copy that cannot be completed is refused or undone
 as a whole, never left half-done; the <strong>jnext(1)</strong> man page, under PUTTING A
 FILE ON THE CARD, lists exactly what is refused and why.</p>
+<p>To get a file or a directory back off the card, name it:</p>
+<pre><code>jnext --sdcard-file-extract /DEMOS/game.nex
+jnext --sdcard-file-extract /mygames
+</code></pre>
+<p>JNEXT copies it into the current directory under its own name and exits without
+starting the machine. The path on the card can use <code>/</code> or <code>\</code>, and a long name or its 8.3
+name in any letter case; the copy is named as the card stores it. A file or directory of that
+name that is already there is refused and left alone: nothing is overwritten. Without
+<code>--sdcard</code>, it is your own card that is read; with <code>--sdcard-writes FILE</code> the files you
+saved there are read too. It works on any card the Next itself mounts, FAT12, FAT16 or
+FAT32, partitioned or not. The man page, under GETTING YOUR FILES OUT, lists the rest:
+the names a computer cannot hold, and what is refused.</p>
 <p>(A NEX file whose header asks to keep its own file open can also read that
 file, and read files next to it, when loaded directly. It cannot write them.)</p>
 <h2 id="the-machine-a-nex-file-starts-on">The machine a NEX file starts on<a class="headerlink" href="#the-machine-a-nex-file-starts-on" title="Permanent link">&para;</a></h2>

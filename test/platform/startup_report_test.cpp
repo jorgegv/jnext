@@ -212,13 +212,13 @@ int main() {
             dest_alone = !classify(static_cast<int>(d.size()), d.data()).windowed;
             force_alone = !classify(static_cast<int>(f.size()), f.data()).windowed;
         }
-        for (const char* name : {"--headless", "--help", "-h", "--version", "-V", "--sdcard-file-add", "--sdcard-file-dest",
+        for (const char* name : {"--headless", "--help", "-h", "--version", "-V", "--sdcard-file-add", "--sdcard-file-extract", "--sdcard-file-dest",
                                  "--sdcard-file-force", "--sdcard-writes-flatten", "--sdcard-export-changes",
                                  "--sdcard-import-changes", "--sdcard-go-back", "--sdcard-delete-backup"}) {
             const cli::Option* o = cli::find(name);
             table_ok = table_ok && o && o->terminal;
         }
-        check("STARTERR-11", "classify(): --sdcard-file-dest and --sdcard-file-force alone are not windowed (their refusal never opens a box), and every command of that kind is marked terminal in the table",
+        check("STARTERR-13", "classify(): --sdcard-file-dest and --sdcard-file-force alone are not windowed (their refusal never opens a box), and every command of that kind is marked terminal in the table",
               dest_alone && force_alone && table_ok);
     }
 
@@ -264,6 +264,39 @@ int main() {
         }
         check("STARTERR-10", "run_main has no bare fprintf(stderr) or std::cerr outside the marked terminal verbs: every fatal start-up refusal goes through report()",
               start != std::string::npos && scanned > 1000 && bare == marked && marked >= 5);
+    }
+
+    {
+        // GH #557: --sdcard-file-extract copies a file off the card and exits: a terminal verb, no box.
+        auto x = argv_of({"--sdcard-file-extract", "/GAMES/WOTEF.NEX"});
+        const auto l = classify(static_cast<int>(x.size()), x.data());
+        check("STARTERR-11", "classify(): --sdcard-file-extract is a terminal command (not windowed, not unattended), like --sdcard-file-add",
+              !l.windowed && !l.unattended);
+    }
+
+    {
+        // GH #557: whatever goes with --sdcard-file-extract, in either order, the run is a terminal command:
+        // a refused one (a repeat, an empty value, --load, --no-sdcard, a companion without its verb) never shows a box.
+        const std::vector<std::vector<const char*>> lines = {
+            {"--sdcard-readonly", "--sdcard-file-extract", "/X"},
+            {"--sdcard-file-extract", "/X", "--sdcard-readonly"},
+            {"--sdcard", "C.img", "--sdcard-file-extract", "/X"},
+            {"--sdcard-file-extract", "/X", "--sdcard", "C.img", "--sdcard-writes", "W.sdw"},
+            {"--sdcard-file-extract", "/X", "--sdcard-file-extract", "/Y"},
+            {"--sdcard-file-extract", "", "--no-sdcard"},
+            {"--load", "a.nex", "--sdcard-file-extract", "/X"},
+            {"--sdcard-file-dest", "/D", "--sdcard-file-force", "--sdcard-file-extract", "/X"},
+            {"--sdcard-file-extract", "/X", "--sdcard-file-add", "f"},
+        };
+        bool all_terminal = true;
+        for (const auto& l : lines) {
+            std::vector<const char*> a{"jnext"};
+            a.insert(a.end(), l.begin(), l.end());
+            const auto c = classify(static_cast<int>(a.size()), a.data());
+            all_terminal = all_terminal && !c.windowed && !c.unattended;
+        }
+        check("STARTERR-12", "classify(): --sdcard-file-extract with its companions and with the flags it is refused with, in either order, is never windowed (a refusal shows no box)",
+              all_terminal);
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

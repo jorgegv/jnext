@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.70</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.71</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.70</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.71</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3302,6 +3302,11 @@ device name, and a root file named like the list itself). <code>--sdcard-import-
 the file-add path with two extensions (restoring R/H/S, replacing a read-only file): everything is
 validated before the image is opened, and a failure rolls back. Import is user-wins, the upgrade is
 distribution-wins.</p>
+<p><code>--sdcard-file-extract PATH</code> is the read-only counterpart that is not limited to the first FAT32-LBA
+partition: it mounts the volume the firmware would (any FAT12/16/32 card, partitioned or not) read-only
+through FatFs, with the writes file laid over it, and copies one file or directory into the current
+directory (see "Taking files off the card" in <a href="08-media-and-loaders.html">3.8</a>). It shares <code>escape_name</code>
+with the export.</p>
 <p><code>CHANGES.txt</code> is <code>jnext-changes 1</code> on the first line, then <code># card:</code>, <code># writes:</code>, <code># base:</code> and
 <code># made: YYYY-MM-DD HH:MM:SS</code> comments (ignored on import), then one line per entry of five
 TAB-separated fields: the kind (<code>A</code> added file, <code>C</code> changed file, <code>D</code> added directory, <code>R</code> removed),
@@ -3339,11 +3344,11 @@ deleted from both stores before the machine starts, and <code>onNotice('card-wri
 called. Records without a tag, a page-supplied card's records and other pages' records stay.
 (<code>WBW-18</code> to <code>WBW-22</code>.)</p>
 <h2 id="test-rows">Test rows<a class="headerlink" href="#test-rows" title="Permanent link">&para;</a></h2>
-<p><code>sdcard_carry_test</code> (SDCMP, SDCARRY, SDFLAT, SDEXP, SDIMP), <code>sdcard_upgrade_test</code> (SDUPG), <code>sdcard_backup_test</code>
+<p><code>sdcard_carry_test</code> (SDCMP, SDCARRY, SDFLAT, SDEXP, SDIMP), <code>sdcard_file_extract_test</code> and <code>sdcard_file_extract_posix_test</code> (SDFX), <code>sdcard_upgrade_test</code> (SDUPG), <code>sdcard_backup_test</code>
 (SDBAK, SDMENU-01..06), <code>sdcard_menu_test</code> (SDMENU-07..11), <code>sdcard_provisioner_test</code> (PROV-DIST, SDNEW),
 <code>image_lock_*_test</code> (SDLOCK), <code>startup_report_test</code> (STARTERR), the regression rows
 <code>sdcard-upgrade-carry-func</code>, <code>sdcard-upgrade-real-func</code>, <code>sdcard-backup-func</code>, <code>sdcard-rescue-func</code>,
-<code>sdcard-lock-func</code>, <code>sdcard-no-default-card-func</code> and <code>startup-error-dialog-func</code>, and the browser rows
+<code>sdcard-file-extract-func</code>, <code>sdcard-lock-func</code>, <code>sdcard-no-default-card-func</code> and <code>startup-error-dialog-func</code>, and the browser rows
 <code>WBW-18</code> to <code>WBW-22</code>.</p>
 
 

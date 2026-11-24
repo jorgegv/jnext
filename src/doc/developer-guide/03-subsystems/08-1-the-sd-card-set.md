@@ -108,6 +108,12 @@ the file-add path with two extensions (restoring R/H/S, replacing a read-only fi
 validated before the image is opened, and a failure rolls back. Import is user-wins, the upgrade is
 distribution-wins.
 
+`--sdcard-file-extract PATH` is the read-only counterpart that is not limited to the first FAT32-LBA
+partition: it mounts the volume the firmware would (any FAT12/16/32 card, partitioned or not) read-only
+through FatFs, with the writes file laid over it, and copies one file or directory into the current
+directory (see "Taking files off the card" in [3.8](08-media-and-loaders.md)). It shares `escape_name`
+with the export.
+
 `CHANGES.txt` is `jnext-changes 1` on the first line, then `# card:`, `# writes:`, `# base:` and
 `# made: YYYY-MM-DD HH:MM:SS` comments (ignored on import), then one line per entry of five
 TAB-separated fields: the kind (`A` added file, `C` changed file, `D` added directory, `R` removed),
@@ -155,9 +161,9 @@ called. Records without a tag, a page-supplied card's records and other pages' r
 
 ## Test rows
 
-`sdcard_carry_test` (SDCMP, SDCARRY, SDFLAT, SDEXP, SDIMP), `sdcard_upgrade_test` (SDUPG), `sdcard_backup_test`
+`sdcard_carry_test` (SDCMP, SDCARRY, SDFLAT, SDEXP, SDIMP), `sdcard_file_extract_test` and `sdcard_file_extract_posix_test` (SDFX), `sdcard_upgrade_test` (SDUPG), `sdcard_backup_test`
 (SDBAK, SDMENU-01..06), `sdcard_menu_test` (SDMENU-07..11), `sdcard_provisioner_test` (PROV-DIST, SDNEW),
 `image_lock_*_test` (SDLOCK), `startup_report_test` (STARTERR), the regression rows
 `sdcard-upgrade-carry-func`, `sdcard-upgrade-real-func`, `sdcard-backup-func`, `sdcard-rescue-func`,
-`sdcard-lock-func`, `sdcard-no-default-card-func` and `startup-error-dialog-func`, and the browser rows
+`sdcard-file-extract-func`, `sdcard-lock-func`, `sdcard-no-default-card-func` and `startup-error-dialog-func`, and the browser rows
 `WBW-18` to `WBW-22`.

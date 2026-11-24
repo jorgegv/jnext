@@ -328,6 +328,21 @@ there.
 Without it an existing destination file is refused and nothing is
 written.
 .TP
+\f[B]\-\-sdcard\-file\-extract\f[R] \f[I]PATH\f[R]
+Copy the file, or the directory with everything in it, at \f[I]PATH\f[R]
+on the SD card (\f[CR]/GAMES/game.nex\f[R]; long or 8.3 names, any
+letter case) into the \f[B]current directory\f[R] under its own name,
+and \f[B]exit without starting emulation\f[R].
+A local file or directory of that name is refused and left as it is.
+Give it once per run.
+It reads the card \f[B]\-\-sdcard\f[R] names, or the default\-location
+image when \f[B]\-\-sdcard\f[R] is omitted, as a run with the same
+options would see it (with \f[B]\-\-sdcard\-writes\f[R], through that
+file).
+The image is never written; the writes file keeps its contents (as for
+any run given it, it may be compacted).
+See \f[B]GETTING YOUR FILES OUT\f[R].
+.TP
 \f[B]\-\-sdcard\-writes\-flatten\f[R] \f[I]OUT\f[R]
 Write \f[I]OUT\f[R], a plain image of the card with the
 \f[B]\-\-sdcard\-writes\f[R] \f[I]FILE\f[R] laid over it (the card as
@@ -2429,13 +2444,14 @@ any \f[CR].DSK\f[R] or \f[CR].P3D\f[R] found at
 \f[I]X\f[R], so copying one there is all it takes to have a +3 disk
 available at the next boot.
 .SS GETTING YOUR FILES OUT
-Three commands, like \f[B]\-\-sdcard\-file\-add\f[R] terminal commands
+Four commands, like \f[B]\-\-sdcard\-file\-add\f[R] terminal commands
 that start no emulation, get your files off a card or into one:
 .IP
 .EX
 jnext \-\-sdcard CARD \-\-sdcard\-writes dev.jsdw \-\-sdcard\-writes\-flatten flat.img
 jnext \-\-sdcard CARD \-\-sdcard\-export\-base ORIGINAL \-\-sdcard\-export\-changes \(ti/my\-files
 jnext \-\-sdcard new.img \-\-sdcard\-import\-changes \(ti/my\-files
+jnext \-\-sdcard\-file\-extract /DEMOS/game.nex
 .EE
 .PP
 \f[B]\-\-sdcard\-writes\-flatten\f[R] makes one plain image from a card
@@ -2464,8 +2480,44 @@ It never applies an \f[CR]R\f[R] line and never copies
 A directory without a valid \f[CR]CHANGES.txt\f[R], a listed file that
 is missing or has another size, and a card path jnext cannot write are
 each refused before anything is written.
-The three commands take the exit statuses of
+The three commands above take the exit statuses of
 \f[B]\-\-sdcard\-file\-add\f[R] (see \f[B]EXIT STATUS\f[R]).
+.PP
+\f[B]\-\-sdcard\-file\-extract\f[R] takes one file or directory off the
+card, by name, and puts it in the current directory.
+Write the card path with \f[CR]/\f[R] or \f[CR]\(rs\f[R] between the
+names (the leading one is optional); each name is matched against the
+long name or the 8.3 name, ASCII letters in any case.
+The local entry is named after what the card stores
+(\f[CR]/GAMES/WOTEF.NEX\f[R] for a file stored as \f[CR]WotEF.nex\f[R]
+gives \f[CR]./WotEF.nex\f[R], and the 8.3 alias
+\f[CR]/LONGFI\(ti1.TXT\f[R] of a file stored as
+\f[CR]Long File Name.txt\f[R] gives \f[CR]./Long File Name.txt\f[R]),
+never the spelling typed.
+A name the host cannot hold is written with \f[CR]%XX\f[R] in place of
+each byte outside printable ASCII, each \f[CR]%\f[R], each of
+\f[CR]<>:\(dq/\(rs|?*\f[R], a trailing dot or space, and a Windows
+device name\(cqs first letter (\f[CR]CON.TXT\f[R] becomes
+\f[CR]%43ON.TXT\f[R]), on every system, as
+\f[B]\-\-sdcard\-export\-changes\f[R] writes them; each such name is
+listed on standard output.
+A \f[CR].\f[R] or \f[CR]..\f[R] component, a trailing dot or space and a
+character outside printable ASCII in the card path are refused (give the
+8.3 name, or extract the parent directory).
+A file or directory of that name that already exists in the current
+directory, a symbolic link included, is refused and never touched:
+nothing is overwritten, and nothing is merged into an existing
+directory.
+It is all or nothing: every problem is found before anything is created,
+and a failure while copying removes what the run created.
+Hidden, system and read\-only files are copied; dates and attributes are
+not.
+One jnext may use a card at a time, so a card another jnext has open is
+refused (exit 5).
+On Git Bash, which rewrites a path that starts with \f[CR]/\f[R], write
+\f[CR]//DIR/NAME\f[R] or \f[CR]\(rsDIR\(rsNAME\f[R].
+It exits with the statuses of \f[B]\-\-sdcard\-file\-add\f[R] (see
+\f[B]EXIT STATUS\f[R]).
 .PP
 Like \f[B]\-\-sdcard\-file\-add\f[R],
 \f[B]\-\-sdcard\-export\-changes\f[R],
@@ -2474,6 +2526,12 @@ of your files use the first FAT32 (LBA) partition of the card.
 The machine itself also reads FAT12, FAT16 and unpartitioned cards, so
 on such a card of your own these commands cannot reach the volume it
 boots.
+\f[B]\-\-sdcard\-file\-extract\f[R] reads every card the machine mounts:
+FAT12, FAT16 or FAT32, partitioned (whatever the partition type, over a
+FAT boot record) or not.
+A FAT32 card with fewer than 65525 clusters is refused (exit 5): the
+Next\(cqs firmware refuses it too;
+\f[CR]tools/fix\-sdcard\-image.sh\f[R] re\-clusters one.
 .SH LOADING PROGRAMS
 Use \f[B]\-\-load\f[R] \f[I]FILE\f[R], or simply a bare filename
 (\f[CR]jnext game.tap\f[R]).
@@ -5156,11 +5214,14 @@ by another jnext (a usage error is 1, as above).
 \f[B]\-\-sdcard\-file\-add\f[R] is a scriptable non\-emulation mode, so
 it reports which failure happened rather than a single non\-zero status.
 \f[B]\-\-sdcard\-writes\-flatten\f[R],
-\f[B]\-\-sdcard\-export\-changes\f[R] and
-\f[B]\-\-sdcard\-import\-changes\f[R] use the same table:
+\f[B]\-\-sdcard\-export\-changes\f[R],
+\f[B]\-\-sdcard\-import\-changes\f[R] and
+\f[B]\-\-sdcard\-file\-extract\f[R] use the same table:
 .TP
 0
-The file or directory was copied onto the card.
+The file or directory was copied onto the card (for
+\f[B]\-\-sdcard\-file\-extract\f[R], off the card into the current
+directory).
 .TP
 1
 Command\-line usage error \(em \f[B]\-\-sdcard\-file\-dest\f[R] or
@@ -5172,8 +5233,15 @@ with an empty value, or combined with \f[B]\-\-sdcard\-readonly\f[R] or
 \f[B]\-\-sdcard\-writes\f[R], \f[B]\-\-sdcard\-export\-base\f[R] without
 \f[B]\-\-sdcard\-export\-changes\f[R]), an empty value, a repeat, or two
 of the commands in one run.
+For \f[B]\-\-sdcard\-file\-extract\f[R]: given twice, with an empty
+value, with another SD card command, with \f[B]\-\-load\f[R] or
+\f[B]\-\-inject\f[R], or with \f[B]\-\-no\-sdcard\f[R].
 .TP
 2
+For \f[B]\-\-sdcard\-file\-extract\f[R]: the card path is malformed
+(empty, or with a \f[CR].\f[R] or \f[CR]..\f[R] component, a trailing
+dot or space, a character outside printable ASCII) or names nothing on
+the card.
 For \f[B]\-\-sdcard\-import\-changes\f[R]: the directory has no
 \f[CR]CHANGES.txt\f[R], it is not a valid changes list, or a listed file
 is missing or not the size its line says.
@@ -5183,10 +5251,14 @@ directory, a device, FIFO or socket, an unreadable directory, a dangling
 symbolic link, or one that loops back.
 .TP
 3
-The destination path is unusable: malformed or non\-ASCII, a name FAT
-forbids, a component that already exists as a file, or a destination
-that already exists as a directory (for a file) or as a file (for a
-directory).
+For \f[B]\-\-sdcard\-file\-extract\f[R]: the current directory cannot be
+written, or the local file or directory cannot be created or written
+(the disk is full, a name or path too long); what the run created is
+removed again.
+Otherwise the destination path is unusable: malformed or non\-ASCII, a
+name FAT forbids, a component that already exists as a file, or a
+destination that already exists as a directory (for a file) or as a file
+(for a directory).
 For a directory this includes a host name inside it that FAT cannot
 hold, and two names that differ only in case.
 For \f[B]\-\-sdcard\-writes\-flatten\f[R] and
@@ -5201,6 +5273,9 @@ unmountable base, and a copy that failed.
 A destination file already exists and \f[B]\-\-sdcard\-file\-force\f[R]
 was not given.
 Nothing was written.
+For \f[B]\-\-sdcard\-file\-extract\f[R]: a local file, directory or
+symbolic link of that name exists in the current directory; it is left
+as it is.
 .TP
 5
 The SD image is missing, is not an MBR\-partitioned FAT32 image, holds a
@@ -5211,6 +5286,12 @@ sector; or another jnext is using the image or the writes file (one
 card, one jnext).
 For \f[B]\-\-sdcard\-export\-changes\f[R] also: the card, seen through
 its writes file, could not be opened for reading.
+For \f[B]\-\-sdcard\-file\-extract\f[R], any FAT12, FAT16 or FAT32 card
+the Next\(cqs firmware mounts is accepted; the card is refused when it
+is not one of those, uses sectors other than 512 bytes, is truncated, or
+has a damaged directory structure (a directory that is reached twice,
+two names the host cannot tell apart, a file shorter than its size, a
+name that cannot be opened).
 .TP
 6
 The card has no room \(em not enough free space, or a directory with no

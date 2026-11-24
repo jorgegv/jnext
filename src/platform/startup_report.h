@@ -43,7 +43,7 @@ std::string text(int rc);
 
 /// The two facts about a command line that decide whether a box is ever shown, read without
 /// running the parse loop: a windowed run is one with no --headless that is not a terminal
-/// command (--help, --version, --sdcard-file-add, the rescue verbs --sdcard-writes-flatten,
+/// command (--help, --version, --sdcard-file-add, --sdcard-file-extract, the rescue verbs --sdcard-writes-flatten,
 /// --sdcard-export-changes and --sdcard-import-changes, and --sdcard-go-back and
 /// --sdcard-delete-backup); an unattended one has a --delayed-automatic-exit*.
 struct Launch { bool windowed; bool unattended; };
