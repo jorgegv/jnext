@@ -372,8 +372,8 @@ reset_fx
 
 sed -i 's/target_link_libraries(s1_test PRIVATE liba)/target_link_libraries(s1_test PRIVATE liba libb)/' "$R/test/CMakeLists.txt"
 trun
-row TAF-40 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,smoke_test" ]] && echo 1 || echo 0) \
-    "a changed target_link_libraries of one suite plans that suite only (got $(plan_get mode) $(plan_suites))"
+row TAF-40 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,smoke_test" && $(both_makes) == 1 ]] && echo 1 || echo 0) \
+    "a changed target_link_libraries of one suite plans that suite only, and the traceability checks (the matrix reads CMake) (got $(plan_get mode) $(plan_suites))"
 reset_fx
 
 echo 'include_directories(/x)' >>"$R/test/CMakeLists.txt"
