@@ -29,7 +29,7 @@
 #           its row, a removed _WIN32 arm still flags windows; --explain-miss (the stateless MISS, also for a docs-only plan)
 #   TAF-32  test/ci-gate.sh and test/regression-package.sh plan package-contract-test, not FULL
 #   TAF-31  Qt's QT_TESTCASE_* test-data define counts only for a suite that calls QFINDTESTDATA
-#   TAF-33..46 GH #564, in a git fixture: a changed pin, a new or removed suite line, a changed ? marker
+#   TAF-33..47 GH #564, in a git fixture: a changed pin, a new or removed suite line, a changed ? marker
 #           or directive, a pin plus another suite's source, and a line of no known shape (FULL);
 #           test/CMakeLists.txt statements (a new block, a changed link, an if() context, a statement
 #           naming no suite = FULL); the matrix and its generator plan the traceability check
@@ -399,10 +399,19 @@ row TAF-44 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" ==
     "wrapping an existing suite in a new if() plans that suite (context is part of the statement's identity) (got $(plan_get mode) $(plan_suites))"
 reset_fx
 
-printf '%s\n' 'doc/testing/TRACEABILITY-MATRIX.md' 'test/refresh-traceability-matrix.pl' >"$W/files"
-OUT=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf" --conf "$CONF" --files "$W/files" --smoke smoke_test --plan "$W/plan" 2>&1); RC=$?
-row TAF-45 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == smoke_test && $(both_makes) == 1 ]] && echo 1 || echo 0) \
-    "the traceability matrix and its generator plan the traceability check and its self-test, not FULL (got $(plan_get mode) $(plan_suites) / $(plan_get makes))"
+sed -i 's/^add_executable(s2_test s2_test.cpp)$/add_executable(s2_test s2_test.cpp)\nadd_executable(s2_test s2_test.cpp)/' "$R/test/CMakeLists.txt"
+trun
+row TAF-47 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s2_test,smoke_test" ]] && echo 1 || echo 0) \
+    "a statement repeated in the same context (its count changed) plans the suite it names (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+r45=1
+for tf in doc/testing/TRACEABILITY-MATRIX.md test/refresh-traceability-matrix.pl; do
+    printf '%s\n' "$tf" >"$W/files"
+    OUT=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf" --conf "$CONF" --files "$W/files" --smoke smoke_test --plan "$W/plan" 2>&1); RC=$?
+    [[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == smoke_test && $(both_makes) == 1 ]] || { r45=0; echo "  (TAF-45: $tf gave $(plan_get mode) $(plan_suites) / $(plan_get makes))"; }
+done
+row TAF-45 $r45 "the traceability matrix, and its generator, each alone plan the traceability check and its self-test, not FULL"
 
 printf 'test/unit-tests.conf\n' >"$W/files"
 OUT=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf" --conf "$CONF" --files "$W/files" --smoke smoke_test --plan "$W/plan" 2>&1); RC=$?
@@ -411,5 +420,5 @@ row TAF-46 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not
 
 echo ""
 echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
-[[ "$total" -eq 45 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 45"; exit 1; }
+[[ "$total" -eq 46 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 46"; exit 1; }
 [[ "$failed" -eq 0 ]]
