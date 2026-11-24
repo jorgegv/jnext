@@ -3,6 +3,9 @@
 ## Unreleased (2026-11-22)
 
 ### User Features
+- SD card upgrades keep your files and writes files and keep a backup you can go back to; a newer card is left alone by an older jnext; startup errors show in a window
+- Export your SD card changes to a folder and import them into another card (--sdcard-export-changes, --sdcard-import-changes, --sdcard-writes-flatten)
+- Web pages: saves kept on an older NextZXOS card are reset after an update, with an onNotice callback
 - `--esxdos-stub` serves the esxDOS block-streaming calls from its host directory, so streaming games like The Way of the Exploding Fist run
 - Browser player hands the page the files JNEXT writes (recordings, screenshots, traces, exports): listFiles(), readFile(), stop()
 
@@ -13,6 +16,7 @@
 - `--debugger` and `--break-at`: a program loaded from the command line stops at its start (tape loads included) and waits for a debugger
 
 ### Bug Fixes
+- The test suites no longer touch your own SD card; a second jnext on the same card is refused
 - Hardware IM2 interrupts no longer lock up after a RETI is followed at once by a short interrupt routine (The Way of the Exploding Fist: no sprites, menu hang)
 - `--load` and File > Open accept NEX files NextZXOS loads although their first bytes are not "Next"
 - SD cards formatted FAT16 or without a partition table now work for the 48K, 128K and +3 machines and snapshots
@@ -33,7 +37,7 @@
 - Slow suites: a sector cache in the SD-image code cuts the card tests by up to 5x; the tape suite is split in two
 
 ### Contributors in this release
-- @janko-jj, @lordheavy
+- @janko-jj, @lordheavy, @derekfountain
 
 ## v1.3.47 (2026-11-21)
 
