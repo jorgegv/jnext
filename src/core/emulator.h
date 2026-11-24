@@ -1877,6 +1877,9 @@ private:
     // resetting it, so a NEX still running keeps its stand-in.
     bool direct_nex_esxdos_ = false;
     ExtendedNexHost extended_nex_host_;
+    // GH #556 — block streaming of the host directory's files (DISK_FILEMAP,
+    // DISK_STRMSTART, DISK_STRMEND); same lifetime as the bridge above.
+    HostFileStreams host_streams_;
     // GH #31 — --esxdos-stub-root. Inactive unless a root was configured.
     EsxdosHostFs    esxdos_hostfs_;
     MachineTiming  timing_;          // per-machine timing from VHDL

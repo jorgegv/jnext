@@ -821,6 +821,443 @@ int main() {
               "handle=" + std::to_string(h) + " bytes=" + bytes);
     }
 
+    // ── GH #556 — block streaming of the host directory's files ──────────────
+    // The Way of the Exploding Fist streams its data files with F_OPEN,
+    // DISK_FILEMAP, DISK_STRMSTART and port $EB reads; under --load the files
+    // come from the host directory, which used to refuse $85-$87 (Fc=1, A=2)
+    // and sent the game to DI : HALT. Oracle: the NextZXOS API (DISK_FILEMAP
+    // p.38, DISK_STRMSTART p.39, DISK_STRMEND p.40) and tbblue
+    // src/asm/streaming/stream.asm. No VHDL is involved (the esxDOS stand-in
+    // is an emulator convenience). Fixtures are generated; no game data.
+    const auto hroot = root / "hostdir";
+    std::filesystem::create_directories(hroot / "data", ec);
+    constexpr std::size_t s_size = 1300 * 512 + 100;
+    auto sbyte = [](std::size_t k) { return static_cast<uint8_t>((k * 7 + 3) & 255); };
+    auto tbyte = [](std::size_t k) { return static_cast<uint8_t>((k * 5 + 1) & 255); };
+    {
+        std::ofstream s(hroot / "data" / "s.bin", std::ios::binary);
+        for (std::size_t k = 0; k < s_size; ++k) s.put(static_cast<char>(sbyte(k)));
+        std::ofstream t(hroot / "data" / "t.bin", std::ios::binary);
+        for (std::size_t k = 0; k < 3 * 512; ++k) t.put(static_cast<char>(tbyte(k)));
+        std::ofstream b(hroot / "data" / "big.bin", std::ios::binary);
+        b.put(0);
+    }
+    std::filesystem::resize_file(hroot / "data" / "big.bin",
+                                 static_cast<uint64_t>(40) * 1024 * 1024, ec);
+    const bool h_fixtures = !ec &&
+        write_nex(hroot / "host0.nex", 0, {}) &&
+        write_nex(hroot / "host1.nex", 1, payload);
+
+    auto host_emu = [&](const char* nex) {
+        auto e = std::make_unique<Emulator>();
+        EmulatorConfig hc = cfg;
+        hc.esxdos_stub = true;
+        hc.load_file = (hroot / nex).string();
+        const bool ok = e->init(hc) && e->load_nex(hc.load_file);
+        return ok ? std::move(e) : std::unique_ptr<Emulator>();
+    };
+    auto h_open = [&](Emulator& e, const char* name) {
+        write_zstr(e, 0x9100, name);
+        Z80Registers rr{};
+        rr.AF = static_cast<uint16_t>('*' << 8);
+        rr.BC = 0x0100;   // B = FA_READ
+        rr.IX = 0x9100;
+        return esx(e, 0x9A, rr) && !carry(rr) ? static_cast<int>(reg_a(rr)) : -1;
+    };
+    auto h_close = [&](Emulator& e, int h) {
+        Z80Registers rr{};
+        rr.AF = static_cast<uint16_t>(h << 8);
+        return esx(e, 0x9B, rr) && !carry(rr);
+    };
+    auto h_map = [&](Emulator& e, int h, uint16_t ix, uint16_t de, Z80Registers& rr) {
+        rr = {};
+        rr.AF = static_cast<uint16_t>(h << 8);
+        rr.IX = ix;
+        rr.DE = de;
+        return esx(e, 0x85, rr);
+    };
+    auto m_addr = [&](Emulator& e, uint16_t at) {
+        uint32_t a = 0;
+        for (int i = 0; i < 4; ++i)
+            a |= static_cast<uint32_t>(e.mmu().read(static_cast<uint16_t>(at + i))) << (8 * i);
+        return a;
+    };
+    auto m_blocks = [&](Emulator& e, uint16_t at) {
+        return static_cast<uint32_t>(e.mmu().read(at) | (e.mmu().read(at + 1) << 8));
+    };
+    auto h_start = [&](Emulator& e, uint32_t addr, uint8_t flags, Z80Registers& rr) {
+        rr = {};
+        rr.AF = static_cast<uint16_t>(flags << 8);
+        rr.IX = static_cast<uint16_t>(addr >> 16);
+        rr.DE = static_cast<uint16_t>(addr);
+        return esx(e, 0x86, rr);
+    };
+    auto h_end = [&](Emulator& e, Z80Registers& rr) {
+        rr = {};
+        rr.AF = 0x0200;
+        return esx(e, 0x87, rr);
+    };
+    auto pin = [&](Emulator& e) { return e.port().in(0x00EB); };
+    // The SPI path's steady answer: a read returns the PREVIOUS transfer's
+    // byte (spi_master.vhd:162-166), so the first read after a reset is stale.
+    auto spi_idle = [&](Emulator& e) { (void)pin(e); return pin(e); };
+    // Map file `name` fully (one entry) and return its first block address, 0 on failure.
+    auto map_first = [&](Emulator& e, const char* name, int* handle_out = nullptr) {
+        const int h = h_open(e, name);
+        Z80Registers rr{};
+        if (handle_out) *handle_out = h;
+        for (uint16_t i = 0; i < 6; ++i) e.mmu().write(static_cast<uint16_t>(0x9500 + i), 0);
+        // DE=0 on exit: the one entry was written (not stale memory)
+        if (h < 0 || !h_map(e, h, 0x9500, 1, rr) || carry(rr) || rr.DE != 0)
+            return uint32_t{0};
+        return m_addr(e, 0x9500);
+    };
+
+    {   // XNEX-45
+        auto e = host_emu("host0.nex");
+        Z80Registers rr{};
+        const int h = e ? h_open(*e, "data/s.bin") : -1;
+        const bool ok = h >= 0x04 && h <= 0x0B && h_map(*e, h, 0x9500, 4, rr);
+        check("XNEX-45",
+              "DISK_FILEMAP of a host-directory file: Fc=0, A=$02 (card 0, block addressing), "
+              "DE=entries left, HL=IX+6n, one entry of 1301 blocks (API p.38; stream.asm:125-140)",
+              h_fixtures && ok && !carry(rr) && reg_a(rr) == 0x02 && rr.DE == 3 &&
+              rr.HL == 0x9506 && m_blocks(*e, 0x9504) == 1301,
+              "h=" + std::to_string(h) + " A=" + std::to_string(reg_a(rr)) +
+              " DE=" + std::to_string(rr.DE) + " HL=" + std::to_string(rr.HL) +
+              " blocks=" + (e ? std::to_string(m_blocks(*e, 0x9504)) : "-"));
+    }
+    {   // XNEX-46
+        auto e = host_emu("host0.nex");
+        Z80Registers rr{};
+        const uint32_t base = e ? map_first(*e, "data/s.bin") : 0;
+        const bool started = base != 0 && h_start(*e, base, 0x02, rr) && !carry(rr) &&
+                             rr.BC == 0x00EB;
+        bool data = started;
+        for (std::size_t k = 0; k < 512 && data; ++k) data = pin(*e) == sbyte(k);
+        const uint8_t crc1 = started ? pin(*e) : 0xAA;
+        const uint8_t crc2 = started ? pin(*e) : 0xAA;
+        const uint8_t token = started ? pin(*e) : 0xAA;
+        const uint8_t next = started ? pin(*e) : 0xAA;
+        check("XNEX-46",
+              "DISK_STRMSTART at a mapped address: BC=$00EB; port $EB gives bytes 0..511, a 2-byte "
+              "CRC, the $FE token, then byte 512 (API p.39)",
+              started && data && crc1 == 0 && crc2 == 0 && token == 0xFE && next == sbyte(512));
+    }
+    {   // XNEX-47
+        auto e = host_emu("host0.nex");
+        Z80Registers rr{};
+        const uint32_t base = e ? map_first(*e, "data/s.bin") : 0;
+        const bool started = base != 0 && h_start(*e, base, 0x82, rr) && !carry(rr);
+        const uint8_t first = started ? pin(*e) : 0xAA;
+        const uint8_t second = started ? pin(*e) : 0xAA;
+        check("XNEX-47", "DISK_STRMSTART with bit 7 of A (no-wait): the first port byte is $FE, "
+              "then byte 0 (API p.39, v2.01)",
+              started && first == 0xFE && second == sbyte(0));
+    }
+    {   // XNEX-48
+        auto e = host_emu("host0.nex");
+        Z80Registers rr{};
+        const uint32_t base = e ? map_first(*e, "data/s.bin") : 0;
+        const bool started = base != 0 && h_start(*e, base + 1300, 0x02, rr) && !carry(rr);
+        bool tail = started;
+        for (std::size_t i = 0; i < 512 && tail; ++i) {
+            const uint8_t want = i < 100 ? sbyte(1300 * 512 + i) : 0x00;
+            tail = pin(*e) == want;
+        }
+        check("XNEX-48", "streaming the last block gives the 100 file bytes then zero padding to 512 "
+              "(as XNEX-19)", tail);
+    }
+    {   // XNEX-49
+        auto e = host_emu("host0.nex");
+        Z80Registers rr{};
+        const uint8_t idle = e ? spi_idle(*e) : 0xAA;
+        const uint32_t base = e ? map_first(*e, "data/s.bin") : 0;
+        const bool started = base != 0 && h_start(*e, base, 0x82, rr) && !carry(rr) &&
+                             pin(*e) == 0xFE;
+        const bool ended = started && h_end(*e, rr) && !carry(rr);
+        check("XNEX-49", "DISK_STRMEND: Fc=0, and port $EB goes back to the SPI path (idle byte "
+              "as before the stream) (API p.40; stream.asm:281-289)",
+              ended && idle != 0xFE && spi_idle(*e) == idle, "idle=" + std::to_string(idle));
+    }
+    {   // XNEX-50
+        auto e = host_emu("host0.nex");
+        Z80Registers r1{}, r2{}, r3{};
+        const int h = e ? h_open(*e, "data/big.bin") : -1;
+        const bool c1 = h >= 0 && h_map(*e, h, 0x9500, 1, r1) && !carry(r1);
+        const uint32_t a1 = c1 ? m_addr(*e, 0x9500) : 0;
+        const uint32_t n1 = c1 ? m_blocks(*e, 0x9504) : 0;
+        const bool c2 = c1 && h_map(*e, h, 0x9600, 1, r2) && !carry(r2);
+        const uint32_t a2 = c2 ? m_addr(*e, 0x9600) : 0;
+        const uint32_t n2 = c2 ? m_blocks(*e, 0x9604) : 0;
+        const bool c3 = c2 && h_map(*e, h, 0x9700, 1, r3) && !carry(r3);
+        check("XNEX-50",
+              "DISK_FILEMAP continues from the previous call (DE=1 each): 65535 blocks, then the "
+              "remaining 16385 at base+65535, then no entries (DE unchanged, HL=IX) (API p.38)",
+              c3 && n1 == 65535 && a2 == a1 + 65535 && n2 == 81920 - 65535 &&
+              r1.DE == 0 && r2.DE == 0 && r3.DE == 1 && r3.HL == 0x9700,
+              "n1=" + std::to_string(n1) + " n2=" + std::to_string(n2) +
+              " a1=" + std::to_string(a1) + " a2=" + std::to_string(a2) +
+              " DE3=" + std::to_string(r3.DE) + " HL3=" + std::to_string(r3.HL));
+    }
+    {   // XNEX-51
+        auto e = host_emu("host0.nex");
+        Z80Registers rr{};
+        const uint32_t a = e ? map_first(*e, "data/s.bin") : 0;
+        const uint32_t b = e ? map_first(*e, "data/t.bin") : 0;
+        const bool sb = b != 0 && h_start(*e, b, 0x82, rr) && !carry(rr) && pin(*e) == 0xFE &&
+                        pin(*e) == tbyte(0) && pin(*e) == tbyte(1);
+        const bool sa = a != 0 && h_start(*e, a, 0x82, rr) && !carry(rr) && pin(*e) == 0xFE &&
+                        pin(*e) == sbyte(0) && pin(*e) == sbyte(1);
+        check("XNEX-51", "two mapped files get different first addresses; streaming each gives "
+              "its own bytes", a != 0 && b != 0 && a != b && sb && sa,
+              "a=" + std::to_string(a) + " b=" + std::to_string(b));
+    }
+    {   // XNEX-52
+        auto e = host_emu("host0.nex");
+        Z80Registers rr{};
+        int h = -1;
+        const uint32_t a = e ? map_first(*e, "data/s.bin", &h) : 0;
+        const bool closed = a != 0 && h_close(*e, h);
+        const bool started = closed && h_start(*e, a, 0x82, rr) && !carry(rr) &&
+                             pin(*e) == 0xFE && pin(*e) == sbyte(0) && pin(*e) == sbyte(1);
+        check("XNEX-52", "a mapped address still streams after F_CLOSE of the handle "
+              "(card addresses outlive the handle)", started);
+    }
+    {   // XNEX-53
+        auto e = host_emu("host0.nex");
+        Z80Registers rr{};
+        int h = -1;
+        const uint32_t a = e ? map_first(*e, "data/s.bin", &h) : 0;
+        const bool closed = a != 0 && h_close(*e, h);
+        int h2 = -1;
+        const uint32_t a2 = closed ? map_first(*e, "data/s.bin", &h2) : 0;
+        // a fresh open maps from the start; the same handle, mapped again, continues
+        const bool again = h2 >= 0 && h_map(*e, h2, 0x9600, 1, rr) && !carry(rr);
+        check("XNEX-53", "F_CLOSE + F_OPEN of a file: DISK_FILEMAP starts again at the first extent, "
+              "the same address (the cursor is per open handle, API p.38); a second call on the "
+              "same handle continues (no entry left)",
+              a != 0 && a2 == a && again && rr.DE == 1,
+              "a=" + std::to_string(a) + " a2=" + std::to_string(a2) + " DE=" + std::to_string(rr.DE));
+    }
+    {   // XNEX-54
+        auto e = host_emu("host0.nex");
+        Z80Registers rd{}, rc{}, ro{};
+        bool dir_bad = false;
+        if (e) {
+            write_zstr(*e, 0x9100, "data");
+            Z80Registers od{};
+            od.AF = static_cast<uint16_t>('*' << 8);
+            od.BC = 0x0000;
+            od.IX = 0x9100;
+            if (esx(*e, 0xA3, od) && !carry(od))
+                dir_bad = h_map(*e, reg_a(od), 0x9500, 1, rd) && carry(rd) && reg_a(rd) == 0x0D;
+        }
+        const int h = e ? h_open(*e, "data/t.bin") : -1;
+        const bool closed = h >= 0 && h_close(*e, h);
+        const bool closed_bad = closed && h_map(*e, h, 0x9500, 1, rc) && carry(rc) && reg_a(rc) == 0x0D;
+        const bool other = e && h_map(*e, 0x30, 0x9500, 1, ro) && carry(ro) && reg_a(ro) == 0x02;
+        check("XNEX-54", "DISK_FILEMAP of a directory handle or a closed file handle: Fc=1, A=$0D "
+              "(unmeasured on NextZXOS, as the extended path); a handle that is not ours: the "
+              "catch-all Fc=1, A=$02, unchanged", dir_bad && closed_bad && other);
+    }
+    {   // XNEX-55
+        auto e = host_emu("host1.nex");
+        Z80Registers rr{};
+        const uint8_t idle = e ? spi_idle(*e) : 0xAA;
+        // the kept-open NEX file (handle 2) maps at its own base and streams its own bytes
+        const bool kmap = e && h_map(*e, ExtendedNexHost::kHandle, 0x9500, 1, rr) && !carry(rr);
+        const uint32_t kaddr = kmap ? m_addr(*e, 0x9500) : 0;
+        const bool kstream = kmap && kaddr == ExtendedNexHost::kSyntheticFirstBlock &&
+                             h_start(*e, kaddr, 0x82, rr) && !carry(rr) && pin(*e) == 0xFE &&
+                             pin(*e) == 'N' && pin(*e) == 'e' && pin(*e) == 'x' && pin(*e) == 't';
+        // a host-directory file, with the extended bridge also active, maps in its own
+        // region; starting its stream ends the NEX file's (one card, one stream)
+        const uint32_t haddr = e ? map_first(*e, "data/t.bin") : 0;
+        const bool hstream = haddr != 0 && haddr != kaddr &&
+                             h_start(*e, haddr, 0x82, rr) && !carry(rr) && pin(*e) == 0xFE &&
+                             pin(*e) == tbyte(0) && pin(*e) == tbyte(1);
+        // and starting the kept-open file's stream again ends the host one
+        const bool kagain = hstream && h_start(*e, kaddr, 0x82, rr) && !carry(rr) &&
+                            pin(*e) == 0xFE && pin(*e) == 'N';
+        const bool kend = kagain && h_end(*e, rr) && !carry(rr);
+        check("XNEX-55", "extended NEX plus host directory: DISK_FILEMAP of the kept-open handle "
+              "still maps at kSyntheticFirstBlock and streams the NEX bytes; a host-directory file "
+              "maps in its own region and streams its own bytes; one stream at a time, so after "
+              "the last DISK_STRMEND port $EB is the SPI path",
+              kstream && hstream && kagain && kend && spi_idle(*e) == idle,
+              "kaddr=" + std::to_string(kaddr) + " haddr=" + std::to_string(haddr));
+    }
+    {   // XNEX-56
+        Emulator re;
+        EmulatorConfig rc = cfg;
+        rc.esxdos_stub_root = hroot.string();
+        rc.load_file.clear();
+        const bool ok = re.init(rc);
+        Z80Registers rr{};
+        const bool not_claimed = ok && !h_start(re, 0x00001000, 0x02, rr);
+        const bool end_not_claimed = ok && !h_end(re, rr);
+        check("XNEX-56", "DISK_STRMSTART at an address outside every host region, and DISK_STRMEND "
+              "with no host stream, are not claimed (bare --esxdos-stub-root, no direct NEX: "
+              "dispatched to $0008, so NextZXOS's own streaming works)",
+              not_claimed && end_not_claimed);
+    }
+    {   // XNEX-57
+        auto e = host_emu("host0.nex");
+        Z80Registers rr{};
+        const uint8_t idle = e ? spi_idle(*e) : 0xAA;
+        const uint32_t a = e ? map_first(*e, "data/s.bin") : 0;
+        const bool live = a != 0 && h_start(*e, a, 0x82, rr) && !carry(rr) && pin(*e) == 0xFE;
+        if (e) e->soft_reset();
+        const bool soft_gone = live && !h_start(*e, a, 0x82, rr) && spi_idle(*e) == idle;
+        // a new load starts a fresh table: the old address is not served
+        const bool reload = soft_gone && e->load_nex((hroot / "host0.nex").string());
+        const bool reload_gone = reload && h_start(*e, a, 0x82, rr) && carry(rr) &&
+                                 reg_a(rr) == 0x02 && spi_idle(*e) == idle;
+        // and a mapped stream does not survive the reload either
+        const uint32_t b = reload_gone ? map_first(*e, "data/s.bin") : 0;
+        const bool live2 = b != 0 && h_start(*e, b, 0x82, rr) && !carry(rr) && pin(*e) == 0xFE;
+        const bool reload2 = live2 && e->load_nex((hroot / "host0.nex").string());
+        check("XNEX-57", "soft reset and a new load_nex drop the host regions and any host stream: "
+              "the old address is not served and port $EB is the SPI path again",
+              soft_gone && reload_gone && reload2 && spi_idle(*e) == idle);
+    }
+    {   // XNEX-58: the whole game-style flow, as Z80 code
+        auto e = host_emu("host0.nex");
+        std::vector<uint8_t> code;
+        std::vector<std::size_t> fails;
+        auto b = [&](std::initializer_list<uint8_t> v) { code.insert(code.end(), v.begin(), v.end()); };
+        auto jr_c_fail = [&]() { b({0x38, 0x00}); fails.push_back(code.size() - 1); };
+        const uint16_t org = 0xC000, name_at = 0xC100;
+        b({0xF3});                                    // DI
+        b({0x3E, '*', 0x06, 0x01});                   // LD A,'*' : LD B,FA_READ
+        b({0xDD, 0x21, static_cast<uint8_t>(name_at), static_cast<uint8_t>(name_at >> 8)});
+        b({0xCF, 0x9A}); jr_c_fail();                 // F_OPEN
+        b({0xDD, 0x21, 0x00, 0x95, 0x11, 0x02, 0x00});// LD IX,$9500 : LD DE,2
+        b({0xCF, 0x85}); jr_c_fail();                 // DISK_FILEMAP
+        b({0xED, 0x53, 0x10, 0x90});                  // LD ($9010),DE  (entries left)
+        b({0xED, 0x5B, 0x00, 0x95});                  // LD DE,($9500)
+        b({0xDD, 0x2A, 0x02, 0x95});                  // LD IX,($9502)
+        b({0x3E, 0x02});                              // LD A,2
+        b({0xCF, 0x86}); jr_c_fail();                 // DISK_STRMSTART -> BC=$00EB
+        b({0x21, 0x00, 0xA0, 0x06, 0x00});            // LD HL,$A000 : LD B,0
+        b({0xED, 0xB2, 0xED, 0xB2});                  // INIR x2 = 512 bytes
+        b({0xED, 0x78, 0xED, 0x78});                  // IN A,(C) x2 = CRC
+        const std::size_t wait = code.size();
+        b({0xED, 0x78, 0xFE, 0xFE, 0x20, 0x00});      // wait: IN A,(C) : CP $FE : JR NZ,wait
+        code[code.size() - 1] = static_cast<uint8_t>(wait - code.size());
+        b({0xED, 0x78, 0x32, 0x04, 0x90});            // IN A,(C) : LD ($9004),A  (byte 512)
+        b({0x3E, 0x02, 0xCF, 0x87}); jr_c_fail();     // DISK_STRMEND
+        b({0x3E, 0x5A, 0x32, 0x00, 0x90, 0x76});      // marker, HALT
+        const std::size_t fail_at = code.size();
+        b({0x3E, 0xEE, 0x32, 0x01, 0x90, 0xF3, 0x76});// error marker : DI : HALT
+        for (std::size_t at : fails)
+            code[at] = static_cast<uint8_t>(fail_at - (at + 1));
+        bool ok = e && code.size() < 0x100;
+        if (ok) {
+            for (std::size_t i = 0; i < code.size(); ++i)
+                e->mmu().write(static_cast<uint16_t>(org + i), code[i]);
+            write_zstr(*e, name_at, "data/s.bin");
+            for (uint16_t a : {0x9000, 0x9001, 0x9004, 0x9010, 0x9011})
+                e->mmu().write(a, 0);
+            auto rg = e->cpu().get_registers();
+            rg.PC = org; rg.SP = 0xBFF0; rg.IFF1 = 0; rg.IFF2 = 0;
+            e->cpu().set_registers(rg);
+            for (int f = 0; f < 3; ++f) e->run_frame();
+        }
+        bool bytes = ok;
+        for (std::size_t k = 0; k < 512 && bytes; ++k)
+            bytes = e->mmu().read(static_cast<uint16_t>(0xA000 + k)) == sbyte(k);
+        check("XNEX-58", "end to end, as Z80 code: F_OPEN, DISK_FILEMAP (one entry), "
+              "DISK_STRMSTART, 2 x INIR + CRC + token wait on port $EB, DISK_STRMEND: the file's "
+              "bytes 0..511 and 512 arrive and the program ends on its success marker, not on "
+              "the error HALT (stream.asm flow; API pp.38-40)",
+              ok && e->mmu().read(0x9000) == 0x5A && e->mmu().read(0x9001) == 0 && bytes &&
+              e->mmu().read(0x9004) == sbyte(512) &&
+              e->mmu().read(0x9010) == 1 && e->mmu().read(0x9011) == 0,
+              ok ? "marker=" + std::to_string(e->mmu().read(0x9000)) +
+                   " err=" + std::to_string(e->mmu().read(0x9001)) +
+                   " b512=" + std::to_string(e->mmu().read(0x9004)) : "setup");
+    }
+
+    {   // XNEX-59 (review 1, N3)
+        auto e = host_emu("host1.nex");
+        Z80Registers rr{};
+        const uint8_t idle = e ? spi_idle(*e) : 0xAA;
+        const uint32_t a = e ? map_first(*e, "data/t.bin") : 0;
+        const bool live = a != 0 && h_start(*e, a, 0x82, rr) && !carry(rr) && pin(*e) == 0xFE &&
+                          pin(*e) == tbyte(0);
+        const bool ended = live && h_end(*e, rr) && !carry(rr);
+        check("XNEX-59", "extended NEX plus host directory: DISK_STRMEND while a HOST stream runs "
+              "falls through the bridge's case: Fc=0, and port $EB is the SPI path again "
+              "(API p.40)", ended && spi_idle(*e) == idle);
+    }
+    {   // XNEX-60 (review 1, N5)
+        auto e = host_emu("host0.nex");
+        Z80Registers rr{};
+        const uint8_t idle = e ? spi_idle(*e) : 0xAA;
+        const uint32_t a = e ? map_first(*e, "data/s.bin") : 0;   // region 0
+        const uint32_t b = e ? map_first(*e, "data/t.bin") : 0;   // region 1
+        const bool sa = a != 0 && b != 0 && h_start(*e, a, 0x82, rr) && !carry(rr) &&
+                        pin(*e) == 0xFE && pin(*e) == sbyte(0);
+        // no DISK_STRMEND between: starting the second ends the first (one card)
+        const bool sb = sa && h_start(*e, b, 0x82, rr) && !carry(rr) && pin(*e) == 0xFE &&
+                        pin(*e) == tbyte(0) && pin(*e) == tbyte(1);
+        const bool ended = sb && h_end(*e, rr) && !carry(rr);
+        check("XNEX-60", "a host stream started while another host stream runs replaces it "
+              "(region 1's bytes, not region 0's), and one DISK_STRMEND leaves port $EB on the "
+              "SPI path (stream.asm:174-200, :281-289; one CMD18 on a real card)",
+              ended && spi_idle(*e) == idle);
+    }
+    {   // XNEX-61 (review 1, N11/N34)
+        const auto many = hroot / "many";
+        std::filesystem::create_directories(many, ec);
+        constexpr int kFiles = 225;
+        for (int i = 0; i < kFiles; ++i) {
+            char nm[16];
+            std::snprintf(nm, sizeof nm, "f%03d.bin", i);
+            std::ofstream(many / nm, std::ios::binary).put('x');
+        }
+        auto e = host_emu("host0.nex");
+        auto name_of = [](int i) {
+            char nm[32];
+            std::snprintf(nm, sizeof nm, "many/f%03d.bin", i);
+            return std::string(nm);
+        };
+        bool ok = static_cast<bool>(e);
+        int bad = -1;
+        for (int i = 0; ok && i < 224; ++i) {
+            const uint32_t a = map_first(*e, name_of(i).c_str());
+            const uint32_t want = HostFileStreams::kFirstBlock +
+                                  static_cast<uint32_t>(i) * HostFileStreams::kRegionBlocks;
+            // closing frees the handle slot; the region stays
+            if (a != want || !h_close(*e, 4)) { ok = false; bad = i; }
+        }
+        Z80Registers rr{};
+        const int h = ok ? h_open(*e, name_of(224).c_str()) : -1;
+        const bool full = h >= 0 && h_map(*e, h, 0x9500, 1, rr) && carry(rr) && reg_a(rr) == 0x0C;
+        const bool closed = full && h_close(*e, h);
+        const uint32_t again = closed ? map_first(*e, name_of(7).c_str()) : 0;
+        check("XNEX-61", "224 distinct files map (regions 0..223 at 0x90000000 + i*0x00800000); the "
+              "225th gets Fc=1, A=$0C (esx_enfile) instead of wrapping onto real card "
+              "addresses; an already-mapped file still maps when the table is full",
+              ok && full && again == HostFileStreams::kFirstBlock +
+                                         7u * HostFileStreams::kRegionBlocks,
+              "bad=" + std::to_string(bad) + " full=" + std::to_string(full));
+    }
+    {   // XNEX-62 (review 1, N33)
+        auto e = std::make_unique<Emulator>();
+        EmulatorConfig bc = cfg;
+        bc.esxdos_stub = false;   // the bridge alone: no host directory
+        bc.load_file = (hroot / "host1.nex").string();
+        const bool ok = e->init(bc) && e->load_nex(bc.load_file);
+        Z80Registers rr{};
+        const bool bad = ok && h_map(*e, 0x04, 0x9500, 1, rr) && carry(rr) && reg_a(rr) == 0x0D;
+        check("XNEX-62", "bridge NEX with no host directory: DISK_FILEMAP of a handle in $04..$0B "
+              "is still the bridge's own esx_ebadf (Fc=1, A=$0D), not the catch-all", bad,
+              "A=" + std::to_string(reg_a(rr)));
+    }
+
     Log::emulator()->sinks().pop_back();
 
     std::filesystem::remove_all(root, ec);
