@@ -1,4 +1,4 @@
-// Browser rows WIDGET-01..23: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
+// Browser rows WIDGET-01..24: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
 // (make wasm-browser-test, spec widget.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // Server A is the page host (http://localhost:<port>, a secure context): it serves the files of the
@@ -553,18 +553,20 @@ window.pl = null; jnext.mount(document.getElementById('p'), { width: 640, height
 </script></body>`;
 };
 
+const probeCredit = (page) => page.evaluate(() => {
+  const box = document.querySelector('.jnext-player').getBoundingClientRect(), c = document.querySelector('.jnext-credit'), r = c.getBoundingClientRect(),
+        a = c.querySelector('a').getBoundingClientRect();
+  const mid = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+  const link = document.elementFromPoint(a.left + a.width / 2, a.top + a.height / 2);
+  return { overlap: !(r.top >= box.bottom - 0.5 || r.bottom <= box.top + 0.5 || r.left >= box.right - 0.5 || r.right <= box.left + 0.5),
+           midInPlayer: !!mid && !!mid.closest('.jnext-player'), linkHit: !!link && !!link.closest('.jnext-credit'),
+           right: r.right, boxRight: box.right, boxW: box.width, boxH: box.height, vis: getComputedStyle(c).visibility };
+});
+
 row('WIDGET-20', 'a flex-row and a grid host page: the credit never overlaps the player, hit-tests as a link beside the click target, its right edge is the player panel edge, and a click on the player starts it', async () => {
   layoutPage('flex.html', '<div style="display:flex"><div id="p"></div><aside style="width:200px">sidebar</aside></div>');
   layoutPage('grid.html', '<div style="display:grid;grid-template-columns:auto 200px"><div id="p"></div><aside>sidebar</aside></div>');
-  const probe = (page) => page.evaluate(() => {
-    const box = document.querySelector('.jnext-player').getBoundingClientRect(), c = document.querySelector('.jnext-credit'), r = c.getBoundingClientRect(),
-          a = c.querySelector('a').getBoundingClientRect();
-    const mid = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-    const link = document.elementFromPoint(a.left + a.width / 2, a.top + a.height / 2);
-    return { overlap: !(r.top >= box.bottom - 0.5 || r.bottom <= box.top + 0.5 || r.left >= box.right - 0.5 || r.right <= box.left + 0.5),
-             midInPlayer: !!mid && !!mid.closest('.jnext-player'), linkHit: !!link && !!link.closest('.jnext-credit'),
-             right: r.right, boxRight: box.right, boxW: box.width, boxH: box.height, vis: getComputedStyle(c).visibility };
-  });
+  const probe = probeCredit;
   const out = [];
   for (const name of ['flex.html', 'grid.html']) {
     const page = await ctxPage(`${AURL}/${name}`);
@@ -587,6 +589,18 @@ row('WIDGET-20', 'a flex-row and a grid host page: the credit never overlaps the
     must(msgs.length === 0, name + ': ' + msgs.join('; '));
   }
   must(out[0][1].started, 'the click did not start the player');
+});
+
+row('WIDGET-24', 'an absolutely positioned player whose container is smaller than the 640x512 box: the credit lies below the box, never over the picture, and its right edge is the box edge', async () => {
+  layoutPage('abs.html', '<div id="p" style="position:absolute;top:0;left:0;width:320px;height:256px"></div>');
+  const page = await ctxPage(`${AURL}/abs.html`);
+  await waitFor(page, () => window.pl && document.querySelector('.jnext-credit'), null, 120000);
+  const r = await probeCredit(page);
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'credit-abs.png') });
+  await page.context().close();
+  must(!r.overlap && r.midInPlayer && r.linkHit && r.vis === 'visible', 'abs: ' + JSON.stringify(r));
+  must(Math.abs(r.right - r.boxRight) <= 2 && r.boxW === 640 && r.boxH === 512, 'abs alignment: ' + JSON.stringify(r));
+  must(page.msgs.length === 0, page.msgs.join('; '));
 });
 
 row('WIDGET-21', 'itch-game.html (the shipped itch.io page) at the 640x512 frame: the credit is inside the viewport, below the canvas, not covered, right edge on the player edge', async () => {
