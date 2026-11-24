@@ -1613,8 +1613,8 @@ needed: nothing was above it.
   0.00 % on all eight (its first design, a separate `mix_divert_` byte, measured +0.10 to +0.32 % and was
   replaced by bit 15 of the existing mute mask).
 - **`.psg` (A3.1, A3.3)**, report of #538: unused-feature cost within 0.1 % on all eight workloads (a constant
-  of about +110000 instructions, start-up code, not per frame). The recorder is a consumer of the write tap, so
-  recording costs what the log costs, less the ring and the CSV text.
+  of about +110000 instructions, start-up code, not per frame). The cost with a recording running was not measured
+  separately: the recorder is a consumer of the same write tap (14.2, A1.7).
 - **A2.5, the Scopes view itself (host work per frame with the window open)**, measured on 2026-11-24 with a
   scratch driver (not committed) over `debugger_audio_panel_test`'s fixture (a Next with an AY1 square, the CPU
   parked, 3.5 MHz, offscreen Qt, `build/` RelWithDebInfo, so an indication, not a Release figure; the widgets are
