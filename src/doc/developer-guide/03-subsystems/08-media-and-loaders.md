@@ -2104,7 +2104,7 @@ naming the entry. `held_host_files()` lists every host file or folder the runnin
 its header and the guest's writes are lost), the tape-save target and a running tape, RZX or video recording, the loaded
 TAP, TZX and WAV, the NEX a read overlay serves and the esxDOS root. Each of them, and any folder holding one, is refused as
 a copy or move source, as a Replace target and as a delete target, by file identity, whichever slot the pane shows. The host side of a delete or a Replace goes to the trash through a
-hook; there is no permanent fallback. Rows: `SDMS-01..10`, `SDMT-01..20`, `SDMR-01..04` (`sdcard_manager_test`).
+hook; there is no permanent fallback. Rows: `SDMS-01..12`, `SDMT-01..28`, `SDMR-01..05` (`sdcard_manager_test`).
 
 `resolve_remembered()` is what the window opens on, and the emulator wins over the remembered state: the remembered
 card's slot if it is mounted, otherwise the first mounted slot; the remembered card directory only on the remembered card,
