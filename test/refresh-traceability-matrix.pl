@@ -130,6 +130,7 @@
 #     perl test/refresh-traceability-matrix.pl --planned-ids      # for the dup-ID gate
 #     perl test/refresh-traceability-matrix.pl --fails-from-logs=build/test-logs
 #                       # statuses from `make unit-test`'s own run (GH #547), no suite re-run
+#     perl test/refresh-traceability-matrix.pl --no-fails         # every suite taken as passing (GH #564)
 #
 # Exit status:
 #     0  clean
@@ -213,6 +214,11 @@ my $FPGA_SRC_OPT;
 # every traced suite itself, in parallel, and then asks this script for the
 # matrix; re-running them here one at a time was a second copy of the same run.
 my $FAILS_LOG_DIR;
+# --no-fails (GH #564). Every suite's FAIL set is empty: the matrix is generated as if every
+# suite passed, with no log and no run. `make test-affected` checks a changed matrix, generator or
+# manifest this way, because a subset run keeps no logs; whether a suite FAILS is the suite run's
+# verdict, and the full `make unit-test` still generates the matrix from the real logs.
+my $NO_FAILS;
 sub parse_args {
     for my $arg (@_) {
         if ($arg eq '--check-accounting') { $CHECK_ONLY = 1; next; }
@@ -241,6 +247,7 @@ sub parse_args {
         # Refused up front when it is not a directory: a typo'd path would
         # otherwise degrade silently into the unvalidated mode this exists to
         # make impossible.
+        if ($arg eq '--no-fails') { $NO_FAILS = 1; next; }
         if ($arg =~ /^--fails-from-logs=(.+)$/) {
             $FAILS_LOG_DIR = $1;
             fatal("--fails-from-logs='$1' is not a directory") unless -d $FAILS_LOG_DIR;
@@ -253,7 +260,7 @@ sub parse_args {
         }
         fatal("unknown option '$arg'\n"
             . "usage: refresh-traceability-matrix.pl [--check-accounting] "
-            . "[--planned-ids] [--dump-descriptions] [--fails-from-logs=DIR] "
+            . "[--planned-ids] [--dump-descriptions] [--fails-from-logs=DIR] [--no-fails] "
             . "[--fpga-src=PATH]");
     }
 }
@@ -1353,6 +1360,7 @@ sub fails_from_log {
 sub run_fails {
     my ($binary) = @_;
     return $FAILS_CACHE{$binary} if exists $FAILS_CACHE{$binary};
+    return $FAILS_CACHE{$binary} = {} if $NO_FAILS;
     return $FAILS_CACHE{$binary} = fails_from_log($binary) if defined $FAILS_LOG_DIR;
     my $abs = "$ROOT/$binary";
 

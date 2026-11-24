@@ -29,6 +29,7 @@
 
 ### Internal JNEXT Development
 - Remote-run hosts plan test-affected from the branch's local-main merge base, so remote review runs are no longer FULL while main is unpushed
+- `make test-affected` plans a changed test manifest, test CMake file or traceability matrix by what changed instead of FULL
 - Debugger backend gains `audio_state()`, the audio write log and the `AudioWrite` event, in a new core suite (`audio_debug_test`)
 - Remote runs: two lanes on the remote host, so two heavy runs share it at once
 - Faster test cycle: unit-test prerequisites and browser specs run in parallel
