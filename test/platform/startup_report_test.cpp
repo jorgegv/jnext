@@ -208,13 +208,32 @@ int main() {
             dest_alone = !classify(static_cast<int>(d.size()), d.data()).windowed;
             force_alone = !classify(static_cast<int>(f.size()), f.data()).windowed;
         }
-        for (const char* name : {"--headless", "--help", "-h", "--version", "-V", "--sdcard-file-add", "--sdcard-file-extract", "--sdcard-file-dest",
-                                 "--sdcard-file-force", "--sdcard-writes-flatten", "--sdcard-export-changes",
-                                 "--sdcard-import-changes", "--sdcard-go-back", "--sdcard-delete-backup"}) {
+        // The terminal set, spelled out: the copy-and-exit commands and their companions, the options that print
+        // and exit, --headless, and every option main.cpp refuses (exit 1) without --headless.
+        const std::vector<const char*> expected = {
+            "--headless", "--help", "-h", "--version", "-V", "--sdcard-file-add", "--sdcard-file-extract",
+            "--sdcard-file-dest", "--sdcard-file-force", "--sdcard-writes-flatten", "--sdcard-export-changes",
+            "--sdcard-export-base", "--sdcard-import-changes", "--sdcard-go-back", "--sdcard-delete-backup",
+            "--delayed-keypress", "--delayed-keypress-frames", "--delayed-nmi", "--delayed-nmi-frames",
+            "--delayed-sdcard-insert-frames", "--delayed-sdcard2-insert-frames", "--delayed-snapshot",
+            "--delayed-snapshot-frames", "--script-key", "--benchmark", "--benchmark-label"};
+        size_t marked = 0;
+        for (const char* name : expected) {
             const cli::Option* o = cli::find(name);
             table_ok = table_ok && o && o->terminal;
         }
-        check("STARTERR-13", "classify(): --sdcard-file-dest and --sdcard-file-force alone are not windowed (their refusal never opens a box), and every command of that kind is marked terminal in the table",
+        for (const cli::Option& o : cli::OPTIONS)
+            if (o.terminal) ++marked;
+        // and no other row is marked: the count of marked rows is exactly the expected set's
+        table_ok = table_ok && marked == expected.size();
+        {
+            // a headless-only option alone is refused (exit 1) and must never open a box
+            auto k = argv_of({"--delayed-keypress", "5", "a"});
+            auto bm = argv_of({"--benchmark-label", "x"});
+            table_ok = table_ok && !classify(static_cast<int>(k.size()), k.data()).windowed &&
+                       !classify(static_cast<int>(bm.size()), bm.data()).windowed;
+        }
+        check("STARTERR-13", "classify(): the companions of --sdcard-file-add and the options main.cpp refuses without --headless are not windowed alone (their refusal never opens a box); the terminal rows of the table are exactly the expected set",
               dest_alone && force_alone && table_ok);
     }
 

@@ -811,12 +811,12 @@ inline constexpr Option OPTIONS[] = {
       "Headless-only: run exactly N frames uncapped, then\n"
       "print one machine-parseable BENCH line (wall s, fps,\n"
       "T-states/s, T-states/frame, CPU speed, host core, build\n"
-      "type) plus a human summary to stdout, and exit" },
+      "type) plus a human summary to stdout, and exit", true },
     { "--benchmark-label", 1, Doc::Documented, OptId::BenchmarkLabel,
       "NAME",
       "Workload label printed verbatim in the BENCH line\n"
       "(default: loaded file's basename, or boot-<machine>).\n"
-      "No whitespace (the BENCH line is space-delimited)" },
+      "No whitespace (the BENCH line is space-delimited)", true },
     { "--delayed-screenshot", 1, Doc::Documented, OptId::DelayedScreenshot,
       "FILE",
       "Save a screenshot after a delay. The format comes from\n"
@@ -849,10 +849,10 @@ inline constexpr Option OPTIONS[] = {
       "FILE",
       "Headless-only: save a snapshot after a delay (frames);\n"
       "format chosen by FILE's extension\n"
-      "(.jns/.szx/.nex/other->.sna)" },
+      "(.jns/.szx/.nex/other->.sna)", true },
     { "--delayed-snapshot-frames", 1, Doc::Documented, OptId::DelayedSnapshotFrames,
       "N",
-      "Delay in frames for --delayed-snapshot (default 0)" },
+      "Delay in frames for --delayed-snapshot (default 0)", true },
     // GH #27 — the `.jns` flags. Five were designed (design §15.1); `--load`
     // and `--delayed-snapshot` take `.jns` through their EXISTING extension
     // dispatch and need no flag of their own, which is why the surface is
@@ -897,23 +897,23 @@ inline constexpr Option OPTIONS[] = {
       "repeatable).\n"
       "KEY (case-insensitive): single char (a-z 0-9 . , ; :),\n"
       "ENTER / RETURN / SPACE / UP / DOWN / LEFT / RIGHT, or a\n"
-      "compound sym+<char> / caps+<char> (e.g. sym+m = '.')" },
+      "compound sym+<char> / caps+<char> (e.g. sym+m = '.')", true },
     { "--delayed-keypress-frames", 2, Doc::Documented, OptId::DelayedKeypressFrames,
       "N KEY",
       "Press KEY after N emulated frames (frames-unit spelling\n"
       "of --delayed-keypress; both forms queue, not override).\n"
-      "KEY takes the same values as --delayed-keypress." },
+      "KEY takes the same values as --delayed-keypress.", true },
     { "--delayed-nmi", 2, Doc::Documented, OptId::DelayedNmi,
       "SECS BUTTON",
       "Press an NMI BUTTON after SECS emulated seconds (headless\n"
       "only, repeatable). BUTTON (case-insensitive) is the label on\n"
       "the real case: nmi (aliases mf, m1) = the NMI button,\n"
       "driven by the Multiface; drive (alias divmmc) = the DRIVE\n"
-      "button, driven by DivMMC. RESET is not an NMI button" },
+      "button, driven by DivMMC. RESET is not an NMI button", true },
     { "--delayed-nmi-frames", 2, Doc::Documented, OptId::DelayedNmiFrames,
       "N BUTTON",
       "Press BUTTON after N emulated frames (frames-unit spelling\n"
-      "of --delayed-nmi; both forms queue, not override)" },
+      "of --delayed-nmi; both forms queue, not override)", true },
     // GH #93 — the headless trigger for a live SD-card change, so NextZXOS's
     // REMOUNT can be driven end to end. Frames only: the swap has to land in
     // the window the guest opens ("Remove/insert SD and press Y").
@@ -922,7 +922,7 @@ inline constexpr Option OPTIONS[] = {
       "Insert SD-card image FILE after N emulated frames, as\n"
       "File > Insert SD Card Image does (headless only,\n"
       "repeatable). Keeps --sdcard-readonly. Refused while an\n"
-      "RZX records or plays; a refusal fails the run" },
+      "RZX records or plays; a refusal fails the run", true },
     // GH #505 - the same for the second SD card slot.
     { "--delayed-sdcard2-insert-frames", 2, Doc::Documented, OptId::DelayedSdcard2InsertFrames,
       "N FILE",
@@ -931,7 +931,7 @@ inline constexpr Option OPTIONS[] = {
       "does (headless only, repeatable). Keeps --sdcard2-readonly.\n"
       "Refused for the image in the first slot, and while an RZX\n"
       "records or plays; a refusal fails the run. NextZXOS finds\n"
-      "the card after a hard reset (JNEXT_DELAYED_RESET_FRAMES)" },
+      "the card after a hard reset (JNEXT_DELAYED_RESET_FRAMES)", true },
     // GH #381 (owner decision Q1, 2026-10-18) - a POK trainer file applied from the
     // command line, for the runs that have no Machine > POK Trainers... window: headless and
     // the SDL-only window. TWO rows because the arity is at most 2 (CLI-TBL-03) and because
@@ -1054,7 +1054,7 @@ inline constexpr Option OPTIONS[] = {
       "FRAME N",
       "Deliver script host key N (1-8) at emulated frame FRAME\n"
       "(headless only, repeatable): a `hostkey N` rule runs at\n"
-      "the end of frame FRAME." },
+      "the end of frame FRAME.", true },
     // GH #26 WP6 / #20 — the recorder (dsl-frontend.md §7, Appendix L).
     { "--record-script", 1, Doc::Documented, OptId::RecordScript,
       "FILE",
