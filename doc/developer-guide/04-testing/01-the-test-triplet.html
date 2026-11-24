@@ -3252,7 +3252,7 @@ target-level statement (<code>add_executable</code>, <code>target_*</code>, <cod
 <code>set_tests_properties</code>, <code>add_dependencies</code>) selects the declared suites it names; any other changed
 statement, a shared statement moved, or a suite's statement moved past a shared one, is FULL. So is a
 file the scanner cannot read with confidence (bracket arguments or comments, an unterminated
-statement or quote, unbalanced <code>end*()</code>). A change to either file, to <code>test/refresh-traceability-matrix.pl</code>
+statement or quote, unbalanced <code>end*()</code>). A child the planner reads that fails (<code>diff</code> with a status other than 0 or 1, or missing; a <code>git</code> call that reads the change) also makes the plan FULL, never an empty change list. A change to either file, to <code>test/refresh-traceability-matrix.pl</code>
 or to the matrix also plans <code>make traceability-check-subset</code> and <code>make traceability-selftest</code>:
 the first generates the matrix with <code>--no-fails</code> (every suite taken as passing, since a subset
 run keeps no logs) and fails if the committed copy differs, so a wrong or missing row, summary
@@ -3270,7 +3270,7 @@ with <code>main</code> (<code>origin/main</code> when there is no local <code>ma
 <code>TEST-AFFECTED MISS</code>, so the map or the conf is fixed on the same branch; with no such base, or in a
 platform tree (SDL-only, Windows, WebAssembly), the check is silent. A docs-only plan ran no suite, so
 every suite that fails is a miss. The planner's rows are
-<code>TAF-01..10</code> and <code>TAF-12..61</code> in <code>test/test-affected-selftest.sh</code> (<code>make test-affected-selftest</code>,
+<code>TAF-01..10</code> and <code>TAF-12..71</code> in <code>test/test-affected-selftest.sh</code> (<code>make test-affected-selftest</code>,
 part of <code>make unit-test</code>), on a hand-written fixture build tree, and <code>HS-194a..j</code> in the harness
 self-test.</p>
 <p>What <code>make test-affected</code> does not do: it runs the traceability check only when the manifest, the test
