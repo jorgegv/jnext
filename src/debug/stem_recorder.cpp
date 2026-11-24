@@ -28,7 +28,6 @@ bool StemRecorder::start(const std::string& dir, std::string& why)
 {
     namespace fs = std::filesystem;
     std::error_code ec;
-    const bool dir_existed = fs::is_directory(fs::path(dir), ec);
     fs::create_directories(fs::path(dir), ec);
     if (ec || !fs::is_directory(fs::path(dir), ec)) {
         why = "cannot create the directory '" + dir + "'";
@@ -44,10 +43,23 @@ bool StemRecorder::start(const std::string& dir, std::string& why)
         std::FILE* probe = fs::is_regular_file(p, ec) ? std::fopen(p.string().c_str(), "rb+") : nullptr;
         if (!probe) {
             why = "cannot write '" + p.string() + "'";
-            if (!dir_existed) fs::remove(fs::path(dir), ec);   // only an empty directory this call made
             return false;
         }
         std::fclose(probe);
+    }
+    // A name that is missing must be creatable (a read-only directory): probe with a scratch file, so a refused
+    // start has not truncated an existing file before the first create fails.
+    bool any_missing = false;
+    for (size_t i = 0; i < FILES; ++i) any_missing = any_missing || !existed[i];
+    if (any_missing) {
+        const fs::path scratch = fs::path(dir) / ".jnext-stems-probe";
+        std::FILE* f = std::fopen(scratch.string().c_str(), "wb");
+        if (!f) {
+            why = "cannot create files in '" + dir + "'";
+            return false;
+        }
+        std::fclose(f);
+        fs::remove(scratch, ec);
     }
     for (size_t i = 0; i < FILES; ++i) {
         const std::string path = (fs::path(dir) / NAMES[i]).string();

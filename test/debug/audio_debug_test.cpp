@@ -6099,7 +6099,7 @@ int main() {
                                  !dbg.stems_recording() && emu.audio_scope_tap() == nullptr;
         size_t entries = 0;
         for (const auto& e : std::filesystem::directory_iterator(base)) { (void)e; ++entries; }
-        // A directory named like the last file: the six before it are made, then the open fails, and the six are taken back; the directory in the way stays.
+        // A directory named like the last file: the probe refuses the start before any file is created; the directory in the way stays.
         const std::string half = (std::filesystem::path(base) / "half").string();
         std::filesystem::create_directories(std::filesystem::path(half) / "mix.wav");
         const bool half_refused = dbg.stems_record_start(cid, half) == Result::RefusedUnavailable && !dbg.stems_recording() &&
@@ -6131,14 +6131,29 @@ int main() {
                                  slurp((std::filesystem::path(ro) / "pi.wav").string()) == "precious user data" &&
                                  slurp((std::filesystem::path(ro) / "ay0.wav").string()) == "user ay0 data");
         std::filesystem::permissions(std::filesystem::path(ro) / "pi.wav", std::filesystem::perms::owner_write, std::filesystem::perm_options::add, pec);
+        // R2-N1: a directory that cannot take new files (mode 0555) with a user ay0.wav in it: ay1.wav cannot be created, so the start is refused
+        // BEFORE ay0.wav is truncated. Where the mode is not enforced (probed by creating a file) the leg has nothing to protect.
+        const std::string rod = (std::filesystem::path(base) / "rod").string();
+        std::filesystem::create_directories(rod);
+        put(std::filesystem::path(rod) / "ay0.wav", "user ay0 data");
+        std::filesystem::permissions(rod, std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec |
+                                     std::filesystem::perms::group_read | std::filesystem::perms::group_exec |
+                                     std::filesystem::perms::others_read | std::filesystem::perms::others_exec, pec);
+        std::FILE* cprobe = std::fopen((std::filesystem::path(rod) / ".probe").string().c_str(), "wb");
+        const bool rod_enforced = cprobe == nullptr;
+        if (cprobe) { std::fclose(cprobe); std::filesystem::remove(std::filesystem::path(rod) / ".probe", pec); }
+        const bool rod_refused = !rod_enforced ||
+                                 (dbg.stems_record_start(cid, rod) == Result::RefusedUnavailable && !dbg.stems_recording() &&
+                                  slurp((std::filesystem::path(rod) / "ay0.wav").string()) == "user ay0 data");
+        std::filesystem::permissions(rod, std::filesystem::perms::owner_write, std::filesystem::perm_options::add, pec);
         const std::string nested = (std::filesystem::path(base) / "a" / "b").string();
         const bool nested_ok = dbg.stems_record_start(cid, nested) == Result::Ok && dbg.stems_recording() &&
                                std::filesystem::exists(std::filesystem::path(nested) / "mix.wav");
         dbg.stems_record_stop(cid);
         std::error_code ec;
         std::filesystem::remove_all(base, ec);
-        check("STM-13", "refusals: under --silent the start is refused and creates nothing; a DIR under a regular file is refused and leaves nothing (only the file in its parent); a failed open of the last file takes back the six before it and spares a directory in the way; a refused start leaves pre-existing user files byte for byte (a directory or a write-protected file in the way, ay0.wav before it); a missing nested DIR is created",
-              silent_refused && bad_refused && half_refused && keep_refused && ro_refused && entries == 1 && nested_ok);
+        check("STM-13", "refusals: under --silent the start is refused and creates nothing; a DIR under a regular file is refused and leaves nothing (only the file in its parent); a refused start leaves pre-existing user files byte for byte (a directory or a write-protected file in the way, a directory that cannot take new files, ay0.wav before it); a directory in the way of the last file refuses before anything is created; a missing nested DIR is created",
+              silent_refused && bad_refused && half_refused && keep_refused && ro_refused && rod_refused && entries == 1 && nested_ok);
     }
     {
         // STM-14: the stems' sync rule (SCP-04's twin). 100 cycles reach the mixer alone (EAR high, the stems were not there), then the stem
