@@ -2324,14 +2324,19 @@ void MainWindow::card_file_changed(int slot, int kind, const QString& image, boo
     default:
         return;
     }
-    const bool deleted = static_cast<SdCardDevice::OutsideChange>(kind) == SdCardDevice::OutsideChange::Deleted;
-    const bool replaced = static_cast<SdCardDevice::OutsideChange>(kind) == SdCardDevice::OutsideChange::Replaced;
-    const QString text = (deleted ? tr("%1 image '%2' %3\n\nStop using this card.")
-                          : replaced ? tr("%1 image '%2' %3\n\nInsert the card again (File > Insert SD Card Image...) before changing "
-                                          "files on it: the file manager would work on the new file, not the one the machine reads.")
-                                  : tr("%1 image '%2' %3\n\nStop using this card, and change files on the card with File > SD Card File "
-                                       "Manager instead (see the user guide, \"Changing the card from outside JNEXT\")."))
-                             .arg(card, QDir::toNativeSeparators(image), what);
+    const auto k = static_cast<SdCardDevice::OutsideChange>(kind);
+    const QString shown = QDir::toNativeSeparators(image);
+    QString text;
+    if (k == SdCardDevice::OutsideChange::Deleted)
+        text = tr("%1 image '%2' %3\n\nStop using this card.").arg(card, shown, what);
+    else if (k == SdCardDevice::OutsideChange::Replaced)
+        text = tr("%1 image '%2' %3\n\nInsert the card again (File > %4) before changing files on it: the file manager would "
+                  "work on the new file, not the one the machine reads.")
+                   .arg(card, shown, what, slot == 1 ? tr("Insert Second SD Card Image...") : tr("Insert SD Card Image..."));
+    else
+        text = tr("%1 image '%2' %3\n\nStop using this card, and change files on the card with File > SD Card File Manager "
+                  "instead (see the user guide, \"Changing the card from outside JNEXT\").")
+                   .arg(card, shown, what);
     QTimer::singleShot(0, this, [this, text]() { QMessageBox::warning(this, tr("SD card image changed"), text); });
 }
 

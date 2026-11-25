@@ -468,10 +468,10 @@ int main(int argc, char** argv)
         // GH #558: the wording follows what the machine's writes do (a writes file takes them), and a deleted image is told too
         reset_set();
         Fixture f(card);
-        auto text = [&](int kind, bool wf) {
+        auto text = [&](int kind, bool wf, int slot = 0) {
             const int before = unexpected_dialogs;
             last_box_text.clear();
-            f.win.card_file_changed(0, kind, QStringLiteral("/some/dir/card.img"), wf);
+            f.win.card_file_changed(slot, kind, QStringLiteral("/some/dir/card.img"), wf);
             QElapsedTimer t;
             t.start();
             while (unexpected_dialogs == before && t.elapsed() < 1500) QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
@@ -481,12 +481,14 @@ int main(int argc, char** argv)
         auto has = [](const std::string& s, const char* w) { return s.find(w) != std::string::npos; };
         const std::string rp = text(static_cast<int>(OC::Replaced), false), rw = text(static_cast<int>(OC::Replaced), true);
         const std::string dp = text(static_cast<int>(OC::Deleted), false), dw = text(static_cast<int>(OC::Deleted), true);
+        const std::string r2 = text(static_cast<int>(OC::Replaced), false, 1);   // the second card: its own menu item
+        const bool second = has(r2, "Insert Second SD Card Image") && has(rp, "File > Insert SD Card Image") && !has(rp, "Second");
         check("SDMENU-21", "the warning for a replaced or deleted image says the machine's writes are lost on exit when there is no writes file, and that they go into the writes file (which no longer fits, or cannot be used without the image) when there is one",
               has(rp, "replaced by another file") && has(rp, "lost when JNEXT exits") && !has(rp, "SD-writes file") &&
                   has(rw, "replaced by another file") && has(rw, "no longer fits the new image") && !has(rw, "lost when JNEXT exits") &&
                   has(dp, "was deleted") && has(dp, "lost when JNEXT exits") && !has(dp, "SD-writes file") &&
                   has(dw, "was deleted") && has(dw, "cannot be used again without the image") && !has(dw, "lost when JNEXT exits") && !has(dw, "new image") &&
-                  !has(dp, "File Manager") && !has(dw, "File Manager") && !has(rp, "File Manager") && has(rp, "Insert SD Card Image") && has(rw, "Insert SD Card Image"),
+                  !has(dp, "File Manager") && !has(dw, "File Manager") && !has(rp, "File Manager") && has(rp, "Insert SD Card Image") && has(rw, "Insert SD Card Image") && second,
               rw + " | " + dw);
     }
     {
