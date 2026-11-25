@@ -286,7 +286,8 @@
       creditRaf = 0;
       if (!creditAlive || !creditAbs) return;
       if (creditGeometry() !== creditKey) placeCredit();
-      if (creditAbs && creditAlive) creditRaf = requestAnimationFrame(creditPoll);
+      // placeCredit() may have scheduled the next check itself: one chain per player.
+      if (creditAbs && creditAlive && !creditRaf) creditRaf = requestAnimationFrame(creditPoll);
     }
     var creditObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(placeCredit) : null;
     if (creditObserver) { creditObserver.observe(container); creditObserver.observe(box); }

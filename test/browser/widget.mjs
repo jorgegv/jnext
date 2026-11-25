@@ -1,4 +1,4 @@
-// Browser rows WIDGET-01..29: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
+// Browser rows WIDGET-01..31: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
 // (make wasm-browser-test, spec widget.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // Server A is the page host (http://localhost:<port>, a secure context): it serves the files of the
@@ -775,6 +775,37 @@ row('WIDGET-29', 'the rendered icon is the packaging SVG: same elements, nesting
   must(r.every((x) => x.same && x.refsOk && x.size.join() === '18,18,true' && x.nested === 13), 'icon structure: ' + JSON.stringify(r));
   must(r[0].id && r[1].id && r[0].id !== r[1].id, 'clip ids not unique per mount: ' + JSON.stringify(r.map((x) => x.id)));
   must(page.msgs.length === 0, page.msgs.join('; '));
+});
+
+row('WIDGET-30', 'the per-frame check is one chain per player: after several changes of the content above, it runs at most once per animation frame (no multiplying), and is still running', async () => {
+  layoutPage('chain.html', '<div id="s" style="height:10px"></div><div style="display:flex"><div id="p"></div><aside style="width:200px">sidebar</aside></div>');
+  const page = await ctxPage(`${AURL}/chain.html`, {}, { init: SPY });
+  await waitFor(page, () => window.pl && document.querySelector('.jnext-credit'), null, 120000);
+  for (const h of [100, 40, 220, 60, 300]) {
+    await page.evaluate((h) => { document.getElementById('s').style.height = h + 'px'; }, h);
+    await sleep(150);
+  }
+  const r = await page.evaluate(() => new Promise((res) => {
+    const s = window.__spy, p0 = s.poll; let frames = 0, t0 = performance.now();
+    const f = () => { frames++; if (performance.now() - t0 < 1500) requestAnimationFrame(f); else res({ polls: s.poll - p0, frames }); };
+    requestAnimationFrame(f);
+  }));
+  await page.context().close();
+  must(r.polls >= 1 && r.polls <= r.frames * 1.2 + 2, 'per-frame check ran ' + r.polls + ' times in ' + r.frames + ' frames');
+});
+
+row('WIDGET-31', 'in a block layout (the credit in the flow) nothing is polled: no frame is scheduled for the credit, while the observer and the resize listener exist', async () => {
+  layoutPage('flowspy.html', '<div><div id="p"></div></div><p>after</p>');
+  const page = await ctxPage(`${AURL}/flowspy.html`, {}, { init: SPY });
+  await waitFor(page, () => window.pl && document.querySelector('.jnext-credit'), null, 120000);
+  await sleep(300);
+  const r = await page.evaluate(async () => {
+    const s = window.__spy, p0 = s.poll;
+    await new Promise((res) => setTimeout(res, 800));
+    return { polls: s.poll - p0, total: s.poll, resize: s.resize.size, ro: s.ro.size };
+  });
+  await page.context().close();
+  must(r.polls === 0 && r.total === 0 && r.resize === 1 && r.ro === 1, 'flow layout: ' + JSON.stringify(r));
 });
 
 row('WIDGET-23', 'lifecycle: destroy() removes the credit, a failed mount leaves none, and two players have one credit each', async () => {
