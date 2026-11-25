@@ -9,6 +9,7 @@
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
+#include <QKeyEvent>
 #include <QFile>
 #include <QFileInfo>
 #include <QFileSystemModel>
@@ -48,6 +49,7 @@ class DropView : public QListView {
 public:
     std::function<bool(const QMimeData&)> accepts;
     std::function<void(const QMimeData&, bool shift)> dropped;
+    std::function<void(const QModelIndex&)> activate;   ///< Enter / Return on the current row
 
 public:
     /// What a test drives: the viewport's event path, which is how a real drop reaches dropEvent (a scroll area
@@ -55,6 +57,13 @@ public:
     bool deliver(QEvent* e) { return viewportEvent(e); }
 
 protected:
+    void keyPressEvent(QKeyEvent* e) override {
+        if ((e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) && activate && currentIndex().isValid()) {
+            activate(currentIndex());
+            return;
+        }
+        QListView::keyPressEvent(e);
+    }
     void dragEnterEvent(QDragEnterEvent* e) override { take(e); }
     void dragMoveEvent(QDragMoveEvent* e) override { take(e); }
     void dropEvent(QDropEvent* e) override {
@@ -82,8 +91,6 @@ struct WaitCursor {
     ~WaitCursor() { QApplication::restoreOverrideCursor(); }
 };
 
-QString slot_title(int slot) { return slot == 0 ? QObject::tr("SD card") : QObject::tr("Second SD card (D:)"); }
-
 }  // namespace
 
 SdManagerDialog::SdManagerDialog(Emulator& emu, sm::SdManagerSession& session, const sm::Remembered& remembered,
@@ -91,7 +98,7 @@ SdManagerDialog::SdManagerDialog(Emulator& emu, sm::SdManagerSession& session, c
     : QDialog(parent), emu_(emu), session_(session), host_fallback_(host_fallback) {
     setWindowTitle(tr("SD Card File Manager"));
     setObjectName(QStringLiteral("sdcard_manager_dialog"));
-    resize(900, 520);
+    resize(default_size());
 
     // ---- the card pane ----
     slot_combo_ = new QComboBox;
@@ -104,13 +111,9 @@ SdManagerDialog::SdManagerDialog(Emulator& emu, sm::SdManagerSession& session, c
     card_note_ = new QLabel;
     card_note_->setObjectName(QStringLiteral("card_note"));
     card_note_->setWordWrap(true);
-    auto* card_up = new QToolButton;
-    card_up->setObjectName(QStringLiteral("card_up"));
-    card_up->setText(tr("Up"));
-    auto* card_mode = new QToolButton;
-    card_mode->setObjectName(QStringLiteral("card_mode_button"));
-    card_mode->setText(tr("Icons"));
-    card_mode->setCheckable(true);
+    // A long path must never widen its pane: the panes are the same size whatever they show.
+    card_path_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    card_note_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
 
     card_model_ = new SdCardModel(this);
     auto* card_view = new DropView;
@@ -126,32 +129,20 @@ SdManagerDialog::SdManagerDialog(Emulator& emu, sm::SdManagerSession& session, c
     card_view->accepts = [](const QMimeData& m) { return m.hasUrls(); };
     card_view->dropped = [this](const QMimeData& m, bool shift) { drop_on_card(m, shift); };
 
+    // Each pane is its folder's path over its list, and nothing else: the selector, the Read-only box and the note
+    // are in the bottom row, so the two panes are the same size with their top and bottom edges aligned.
     auto* left = new QVBoxLayout;
-    auto* left_top = new QHBoxLayout;
-    left_top->addWidget(slot_combo_, 1);
-    left_top->addWidget(read_only_box_);
-    auto* left_nav = new QHBoxLayout;
-    left_nav->addWidget(card_up);
-    left_nav->addWidget(card_path_, 1);
-    left_nav->addWidget(card_mode);
-    left->addLayout(left_top);
-    left->addLayout(left_nav);
-    left->addWidget(card_note_);
+    left->addWidget(card_path_);
     left->addWidget(card_view_, 1);
 
     // ---- the host pane ----
-    host_model_ = new QFileSystemModel(this);
-    host_model_->setReadOnly(true);   // Qt's own drop and rename never act behind the manager's back
+    host_fs_ = new QFileSystemModel(this);
+    host_fs_->setReadOnly(true);   // Qt's own drop and rename never act behind the manager's back
+    host_model_ = new SdHostModel(host_fs_, this);
     host_path_ = new QLabel;
     host_path_->setObjectName(QStringLiteral("host_path"));
     host_path_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    auto* host_up = new QToolButton;
-    host_up->setObjectName(QStringLiteral("host_up"));
-    host_up->setText(tr("Up"));
-    auto* host_mode = new QToolButton;
-    host_mode->setObjectName(QStringLiteral("host_mode_button"));
-    host_mode->setText(tr("Icons"));
-    host_mode->setCheckable(true);
+    host_path_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     auto* host_view = new DropView;
     host_view_ = host_view;
     host_view_->setObjectName(QStringLiteral("host_view"));
@@ -166,11 +157,7 @@ SdManagerDialog::SdManagerDialog(Emulator& emu, sm::SdManagerSession& session, c
     host_view->dropped = [this](const QMimeData& m, bool shift) { drop_on_host(m, shift); };
 
     auto* right = new QVBoxLayout;
-    auto* right_nav = new QHBoxLayout;
-    right_nav->addWidget(host_up);
-    right_nav->addWidget(host_path_, 1);
-    right_nav->addWidget(host_mode);
-    right->addLayout(right_nav);
+    right->addWidget(host_path_);
     right->addWidget(host_view_, 1);
 
     // ---- between them ----
@@ -188,10 +175,14 @@ SdManagerDialog::SdManagerDialog(Emulator& emu, sm::SdManagerSession& session, c
     panes->addLayout(left, 1);
     panes->addLayout(middle);
     panes->addLayout(right, 1);
+    card_view_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    host_view_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     auto* close = new QPushButton(tr("Close"));
     close->setObjectName(QStringLiteral("close_button"));
     auto* bottom = new QHBoxLayout;
-    bottom->addStretch(1);
+    bottom->addWidget(slot_combo_);
+    bottom->addWidget(read_only_box_);
+    bottom->addWidget(card_note_, 1);
     bottom->addWidget(close);
     auto* outer = new QVBoxLayout(this);
     outer->addLayout(panes, 1);
@@ -235,20 +226,11 @@ SdManagerDialog::SdManagerDialog(Emulator& emu, sm::SdManagerSession& session, c
     connect(to_host_button_, &QPushButton::clicked, this, [this] { copy_to_host(); });
     connect(to_card_button_, &QPushButton::clicked, this, [this] { copy_to_card(); });
     connect(close, &QPushButton::clicked, this, &QDialog::accept);
-    connect(card_up, &QToolButton::clicked, this, [this] { navigate_card(SdCardModel::parent_path(card_dir_)); });
-    connect(host_up, &QToolButton::clicked, this, [this] {
-        const QString parent = QFileInfo(host_dir_).dir().absolutePath();
-        if (!parent.isEmpty() && parent != host_dir_) navigate_host(parent);
-    });
-    connect(card_mode, &QToolButton::toggled, this, [this](bool on) { set_view_mode(card_view_, on); });
-    connect(host_mode, &QToolButton::toggled, this, [this](bool on) { set_view_mode(host_view_, on); });
-    connect(card_view_, &QAbstractItemView::doubleClicked, this, [this](const QModelIndex& i) {
-        const QString p = card_model_->path_of(i.row());
-        if (!p.isEmpty() && card_model_->is_dir(i.row())) navigate_card(p);
-    });
-    connect(host_view_, &QAbstractItemView::doubleClicked, this, [this](const QModelIndex& i) {
-        if (host_model_->isDir(i)) navigate_host(host_model_->filePath(i));
-    });
+    // A double-click and Enter do the same: a folder is entered, the up row goes to the parent.
+    card_view->activate = [this](const QModelIndex& i) { activate_card(i); };
+    host_view->activate = [this](const QModelIndex& i) { activate_host(i); };
+    connect(card_view_, &QAbstractItemView::doubleClicked, this, [this](const QModelIndex& i) { activate_card(i); });
+    connect(host_view_, &QAbstractItemView::doubleClicked, this, [this](const QModelIndex& i) { activate_host(i); });
     connect(card_view_->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this] { update_actions(); });
     connect(host_view_->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this] { update_actions(); });
 
@@ -293,10 +275,11 @@ void SdManagerDialog::apply_slots() {
     slot_combo_->clear();
     for (int s = 0; s < 2; ++s) {
         const sm::SlotInfo& si = shown_slots_[static_cast<size_t>(s)];
-        QString text = slot_title(s);
-        if (si.mounted) text += QStringLiteral(" - ") + QFileInfo(QString::fromStdString(si.image)).fileName();
-        else text += QStringLiteral(" - ") + tr("empty");
-        slot_combo_->addItem(text, s);
+        // "SD Card 1: game.img" / "SD Card 2: <empty>"; the full path is the tooltip. The read-only state and its reason
+        // stay where they were: the Read-only box (forced, greyed, the reason as its tooltip) and the note beside it.
+        const QString name = si.mounted ? QFileInfo(QString::fromStdString(si.image)).fileName() : tr("<empty>");
+        slot_combo_->addItem(tr("SD Card %1: %2").arg(s + 1).arg(name), s);
+        if (si.mounted) slot_combo_->setItemData(s, QDir::toNativeSeparators(QString::fromStdString(si.image)), Qt::ToolTipRole);
         if (auto* m = qobject_cast<QStandardItemModel*>(slot_combo_->model()))
             if (QStandardItem* item = m->item(s)) item->setEnabled(si.mounted);
     }
@@ -333,14 +316,35 @@ void SdManagerDialog::navigate_card(const QString& dir) {
     show_slot(slot_, dir);
 }
 
+void SdManagerDialog::activate_card(const QModelIndex& i) {
+    if (!i.isValid()) return;
+    if (card_model_->is_up_row(i.row())) {
+        navigate_card(SdCardModel::parent_path(card_dir_));
+        return;
+    }
+    const QString p = card_model_->path_of(i.row());
+    if (!p.isEmpty() && card_model_->is_dir(i.row())) navigate_card(p);
+}
+
+void SdManagerDialog::activate_host(const QModelIndex& i) {
+    if (!i.isValid()) return;
+    if (host_model_->is_up_row(i.row())) {
+        const QString parent = QFileInfo(host_dir_).dir().absolutePath();
+        if (!parent.isEmpty() && parent != host_dir_) navigate_host(parent);
+        return;
+    }
+    if (host_model_->is_dir(i)) navigate_host(host_model_->file_path(i));
+}
+
+QSize SdManagerDialog::default_size() { return QSize(1080, 624); }
+
 void SdManagerDialog::navigate_host(const QString& dir) {
     host_dir_ = dir;
+    host_model_->set_dir(dir);
     if (dir.isEmpty()) {
         host_path_->setText(QString());
         return;
     }
-    host_model_->setRootPath(dir);
-    host_view_->setRootIndex(host_model_->index(dir));
     host_path_->setText(QDir::toNativeSeparators(dir));
     update_actions();
 }
@@ -379,14 +383,6 @@ bool SdManagerDialog::check_card_change() {
     return true;
 }
 
-void SdManagerDialog::set_view_mode(QListView* v, bool icons) {
-    v->setViewMode(icons ? QListView::IconMode : QListView::ListMode);
-    if (icons) {
-        v->setResizeMode(QListView::Adjust);
-        v->setMovement(QListView::Static);
-    }
-}
-
 QStringList SdManagerDialog::selected_card_paths() const {
     QStringList out;
     for (const QModelIndex& i : card_view_->selectionModel()->selectedIndexes()) {
@@ -399,7 +395,7 @@ QStringList SdManagerDialog::selected_card_paths() const {
 QStringList SdManagerDialog::selected_host_paths() const {
     QStringList out;
     for (const QModelIndex& i : host_view_->selectionModel()->selectedIndexes()) {
-        const QString p = host_model_->filePath(i);
+        const QString p = host_model_->file_path(i);   // "" = the up row, never acted on
         if (!p.isEmpty() && !out.contains(p)) out << p;
     }
     return out;

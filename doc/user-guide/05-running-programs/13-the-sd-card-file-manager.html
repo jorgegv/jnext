@@ -4649,7 +4649,11 @@ SD-card upgrade or go-back actions are working on the card.</p>
 <h2 id="the-two-panes">The two panes<a class="headerlink" href="#the-two-panes" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>The card pane</strong> (left) lists a folder of the card in the slot chosen in the box
-  above it: <strong>SD card</strong> or <strong>Second SD card (D:)</strong>. A slot with no card is greyed.
+  at the bottom of the window: <strong>SD Card 1: <em>file name</em></strong> or <strong>SD Card 2: <em>file name</em></strong>
+  (the image's file name; hover for its full path), and <code>SD Card 2: &lt;empty&gt;</code>
+  for a slot with no card, which is greyed. The two slots are the ones of <strong>File ▸ Insert
+  SD Card Image…</strong> (card 1) and <strong>Insert Second SD Card Image…</strong> (card 2), and the labels follow them
+  while the window is open.
   Names are shown as the card stores them, long names included. A name that holds a
   character outside plain ASCII (the card stores such names in code page 437, the
   DOS code page of FAT short names; an accented letter is one) is shown as <code>%XX</code>,
@@ -4660,9 +4664,13 @@ SD-card upgrade or go-back actions are working on the card.</p>
 <li><strong>The host pane</strong> (right) is an ordinary folder of your computer, with your
   desktop's own file icons.</li>
 </ul>
-<p>Each pane has its own <strong>Up</strong> button and its own <strong>Icons</strong> button, which switches that
-pane between a list and an icon view; the other pane is not touched. Double-click a
-folder to enter it. The panes show only the folder you are in, one level at a time.</p>
+<p>Both panes are lists, the same size, with their top and bottom edges aligned; the
+folder each shows is written above it. Double-click a folder, or select it and press
+<strong>Enter</strong>, to enter it. Every folder except the top one (the card's root, or the root
+of your computer's file system) starts with an <strong>up row</strong>, <code>..</code> with a left-and-up
+arrow: a double-click or <strong>Enter</strong> on it goes to the parent folder. It is not an entry:
+it cannot be selected, copied, dragged, renamed or deleted. The panes show only the
+folder you are in, one level at a time. The window opens at 1080 by 624 pixels.</p>
 <p>The card pane always shows what the machine has mounted. If the card in the slot is
 changed from outside the window while it is open, the pane notices, says so, and shows the new card's top folder.</p>
 <h2 id="what-you-can-do">What you can do<a class="headerlink" href="#what-you-can-do" title="Permanent link">&para;</a></h2>
@@ -4714,9 +4722,9 @@ changed from outside the window while it is open, the pane notices, says so, and
   attempted.</li>
 </ul>
 <h2 id="read-only-cards">Read-only cards<a class="headerlink" href="#read-only-cards" title="Permanent link">&para;</a></h2>
-<p>The card pane has a <strong>Read-only</strong> box. Tick it to browse and copy <em>off</em> the card
+<p>The <strong>Read-only</strong> box, next to the slot selector at the bottom of the window: tick it to browse and copy <em>off</em> the card
 with every card-writing action disabled. It is also ticked for you, and greyed, with
-the reason shown beside the card, when the card cannot be written:</p>
+the reason shown beside it, when the card cannot be written:</p>
 <ul>
 <li>the card is not FAT32 (JNEXT writes only the first FAT32 partition of a card; a FAT16 card is shown read-only);</li>
 <li>JNEXT was started with <code>--sdcard-readonly</code>;</li>

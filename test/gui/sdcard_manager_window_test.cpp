@@ -31,6 +31,7 @@
 #include <QElapsedTimer>
 #include <QFileSystemModel>
 #include <QItemSelectionModel>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QStatusBar>
 #include <QListView>
@@ -71,6 +72,7 @@ extern "C" {
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -275,11 +277,11 @@ template <class T> T* child(QObject& o, const char* name) { return o.findChild<T
 void select_host(SdManagerDialog& d, const std::vector<std::string>& paths)
 {
     auto* view = child<QListView>(d, "host_view");
-    auto* model = qobject_cast<QFileSystemModel*>(view->model());
-    pump_until([&] { return model->rowCount(view->rootIndex()) > 0; });
+    auto* model = qobject_cast<SdHostModel*>(view->model());
+    pump_until([&] { return model->rowCount() > (model->has_up_row() ? 1 : 0); });
     view->selectionModel()->clearSelection();
     for (const std::string& p : paths) {
-        const QModelIndex i = model->index(QString::fromStdString(p));
+        const QModelIndex i = model->index_of_path(QString::fromStdString(p));
         view->selectionModel()->select(i, QItemSelectionModel::Select | QItemSelectionModel::Rows);
     }
 }
@@ -302,6 +304,25 @@ std::vector<std::string> card_names(SdManagerDialog& d)
     std::vector<std::string> v;
     for (int r = 0; r < model->rowCount(); ++r) v.push_back(model->index(r, 0).data(Qt::DisplayRole).toString().toStdString());
     return v;
+}
+
+// Double-click the card pane's folder `name`, and its up row (row 0 of every folder but the root).
+void enter_card(SdManagerDialog& d, const char* name)
+{
+    auto* view = child<QListView>(d, "card_view");
+    auto* model = qobject_cast<SdCardModel*>(view->model());
+    for (int r = 0; r < model->rowCount(); ++r)
+        if (model->index(r, 0).data().toString() == name) { Q_EMIT view->doubleClicked(model->index(r, 0)); return; }
+}
+void up_card(SdManagerDialog& d)
+{
+    auto* view = child<QListView>(d, "card_view");
+    Q_EMIT view->doubleClicked(view->model()->index(0, 0));
+}
+void up_host(SdManagerDialog& d)
+{
+    auto* view = child<QListView>(d, "host_view");
+    Q_EMIT view->doubleClicked(view->model()->index(0, 0));
 }
 
 bool has(const std::vector<std::string>& v, const std::string& n) { return std::find(v.begin(), v.end(), n) != v.end(); }
@@ -362,21 +383,17 @@ int main(int argc, char** argv)
         d.show();
         auto* card = child<QListView>(d, "card_view");
         auto* hostv = child<QListView>(d, "host_view");
-        auto* cm = child<QToolButton>(d, "card_mode_button");
-        auto* hm = child<QToolButton>(d, "host_mode_button");
         const bool left = card && hostv && card->mapTo(&d, QPoint(0, 0)).x() < hostv->mapTo(&d, QPoint(0, 0)).x();
-        const bool models = card && hostv && qobject_cast<SdCardModel*>(card->model()) && qobject_cast<QFileSystemModel*>(hostv->model());
-        const bool start_list = card->viewMode() == QListView::ListMode && hostv->viewMode() == QListView::ListMode;
-        cm->setChecked(true);
-        const bool only_card = card->viewMode() == QListView::IconMode && hostv->viewMode() == QListView::ListMode;
-        cm->setChecked(false);
-        hm->setChecked(true);
-        const bool only_host = card->viewMode() == QListView::ListMode && hostv->viewMode() == QListView::IconMode;
+        const bool models = card && hostv && qobject_cast<SdCardModel*>(card->model()) && qobject_cast<SdHostModel*>(hostv->model());
+        // the icon view is gone: both panes are lists, and nothing offers another mode, and the old Up buttons are gone too
+        const bool list_only = card->viewMode() == QListView::ListMode && hostv->viewMode() == QListView::ListMode &&
+                               !d.findChild<QToolButton*>(QStringLiteral("card_mode_button")) && !d.findChild<QToolButton*>(QStringLiteral("host_mode_button")) &&
+                               !d.findChild<QToolButton*>(QStringLiteral("card_up")) && !d.findChild<QToolButton*>(QStringLiteral("host_up"));
         const char* names[] = {"card_copy", "card_rename", "card_delete", "card_new_folder", "host_copy", "host_rename", "host_delete", "host_new_folder"};
         bool actions = true;
         for (const char* n : names) actions = actions && d.findChild<QAction*>(QString::fromLatin1(n)) != nullptr;
-        check("SDMW-01", "two panes, the card left and the host right, each a native list view (SdCardModel, QFileSystemModel); the Icons toggle of one pane switches only its own view; each pane has Copy, Rename, Delete and New Folder actions",
-              left && models && start_list && only_card && only_host && actions, "left=" + std::to_string(left));
+        check("SDMW-01", "two panes, the card left and the host right, each a native list view (SdCardModel, SdHostModel over QFileSystemModel), list only (no icon view, no Up button); each pane has Copy, Rename, Delete and New Folder actions",
+              left && models && list_only && actions, "left=" + std::to_string(left));
         rig.session.close(rig.emu);
     }
     // SDMW-02
@@ -397,15 +414,16 @@ int main(int argc, char** argv)
         for (int r = 0; r < model->rowCount(); ++r) if (model->index(r, 0).data().toString() == "GAMES") games = r;
         Q_EMIT card->doubleClicked(model->index(games, 0));
         const bool entered = d.card_dir() == "/GAMES" && has(card_names(d), "WOTEF.NEX") && has(card_names(d), "SUB");
-        child<QToolButton>(d, "card_up")->click();
+        up_card(d);
         const bool up = d.card_dir() == "/";
         auto* hostv = child<QListView>(d, "host_view");
-        auto* hmodel = qobject_cast<QFileSystemModel*>(hostv->model());
-        pump_until([&] { return hmodel->rowCount(hostv->rootIndex()) >= 2; });
-        const bool host_ok = d.host_dir() == QString::fromStdString(host.string()) && hmodel->rowCount(hostv->rootIndex()) == 2 &&
-                             !hmodel->index(hmodel->rootPath()).data(Qt::DecorationRole).isNull();
+        auto* hmodel = qobject_cast<SdHostModel*>(hostv->model());
+        pump_until([&] { return hmodel->rowCount() >= 3; });
+        // the host folder holds two entries and the up row
+        const bool host_ok = d.host_dir() == QString::fromStdString(host.string()) && hmodel->rowCount() == 3 &&
+                             !hmodel->source()->index(hmodel->source()->rootPath()).data(Qt::DecorationRole).isNull();
         const bool icons = !model->index(games, 0).data(Qt::DecorationRole).value<QIcon>().isNull();
-        check("SDMW-02", "the card pane lists the fixture root (directories first, then by name), a double-click enters a folder and Up returns; the host pane is a QFileSystemModel at the resolved folder; entries carry the platform's generic icons",
+        check("SDMW-02", "the card pane lists the fixture root (directories first, then by name), a double-click enters a folder and the up row returns; the host pane is a QFileSystemModel at the resolved folder; entries carry the platform's generic icons",
               listed && entered && up && host_ok && icons, "root=" + std::to_string(root.size()));
         rig.session.close(rig.emu);
     }
@@ -434,6 +452,41 @@ int main(int argc, char** argv)
         const bool second = d.slot() == 1 && d.card_dir() == "/" && has(card_names(d), "GAMES") && card_names(d).size() == 1;
         check("SDMW-03", "the selector lists the two slots only (an empty one disabled, and the selector follows a card that appears or goes away); choosing the second slot lists the second card at its root",
               two && empty_disabled && enabled_now && disabled_again && second, "slot=" + std::to_string(d.slot()));
+        rig.session.close(rig.emu);
+    }
+    // SDMW-41, SDMW-42, SDMW-43 (owner change: the selector names the slots "SD Card 1: <file>" / "SD Card 2: <empty>")
+    {
+        Img a(G), c(F16), c2(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        rig.open();
+        Boxes b;
+        SdManagerDialog d(rig.emu, rig.session, none_remembered(), QString::fromStdString(host.string()));
+        wire(d, b);
+        auto* combo = child<QComboBox>(d, "slot_combo");
+        const QString name_a = QString::fromStdString(fs::path(a.p).filename().string());
+        const QString path_a = QDir::toNativeSeparators(QString::fromStdString(a.p));
+        check("SDMW-41", "a mounted slot reads 'SD Card N: <image file name>' (numbered from 1) and its tooltip is the image's full path",
+              combo->itemText(0) == QStringLiteral("SD Card 1: ") + name_a && combo->itemData(0, Qt::ToolTipRole).toString() == path_a,
+              combo->itemText(0).toStdString() + " | " + combo->itemData(0, Qt::ToolTipRole).toString().toStdString());
+        check("SDMW-42", "an empty slot reads 'SD Card 2: <empty>' and is disabled",
+              combo->itemText(1) == QStringLiteral("SD Card 2: <empty>") && combo->itemData(1, Qt::ToolTipRole).toString().isEmpty() &&
+                  !qobject_cast<QStandardItemModel*>(combo->model())->item(1)->isEnabled(),
+              combo->itemText(1).toStdString());
+        rig.emu.sd_card2().mount(c.p, false);
+        d.check_card_change();
+        const bool second = combo->itemText(1) == QStringLiteral("SD Card 2: ") + QString::fromStdString(fs::path(c.p).filename().string()) &&
+                            combo->itemData(1, Qt::ToolTipRole).toString() == QDir::toNativeSeparators(QString::fromStdString(c.p));
+        rig.emu.sd_card2().unmount();
+        d.check_card_change();
+        const bool gone = combo->itemText(1) == QStringLiteral("SD Card 2: <empty>");
+        rig.emu.sd_card().unmount();
+        rig.emu.sd_card().mount(c2.p, false);   // slot 1's card is replaced by another file
+        d.check_card_change();
+        const bool replaced = combo->itemText(0) == QStringLiteral("SD Card 1: ") + QString::fromStdString(fs::path(c2.p).filename().string()) &&
+                              combo->itemData(0, Qt::ToolTipRole).toString() == QDir::toNativeSeparators(QString::fromStdString(c2.p));
+        check("SDMW-43", "the labels follow the machine while the window is open: a card inserted in the other slot, ejected again, and the shown slot's image replaced by another file",
+              second && gone && replaced, std::to_string(second) + std::to_string(gone) + std::to_string(replaced));
         rig.session.close(rig.emu);
     }
     // SDMW-04
@@ -797,7 +850,7 @@ int main(int argc, char** argv)
         {
             SdManagerDialog d(rig.emu, rig.session, none_remembered(), QString::fromStdString(host.string()));
             wire(d, b);
-            child<QToolButton>(d, "card_up")->click();   // browsing only
+            enter_card(d, "GAMES");   // browsing only
         }
         const auto browse = rig.session.close(rig.emu);
         const bool resumed = browse == sm::SdManagerSession::CloseResult::Resumed && rig.boots == 0 && !rig.dbg->state().paused;
@@ -880,6 +933,7 @@ int main(int argc, char** argv)
         auto* model = qobject_cast<SdCardModel*>(child<QListView>(d, "card_view")->model());
         int addressable = 0, shown = 0;
         for (int r = 0; r < model->rowCount(); ++r) {
+            if (model->is_up_row(r)) continue;   // the up row is not an entry of the card
             ++shown;
             if (!model->path_of(r).isEmpty()) ++addressable;
         }
@@ -1000,10 +1054,10 @@ int main(int argc, char** argv)
         SdManagerDialog d(rig.emu, rig.session, none_remembered(), QString::fromStdString(host.string()));
         wire(d, b);
         auto* hostv = child<QListView>(d, "host_view");
-        auto* hmodel = qobject_cast<QFileSystemModel*>(hostv->model());
-        pump_until([&] { return hmodel->rowCount(hostv->rootIndex()) >= 2; });
-        const QModelIndex first = hmodel->index(0, 0, hostv->rootIndex());
-        const bool read_only = hmodel->isReadOnly() && !(hmodel->flags(first) & Qt::ItemIsEditable);
+        auto* hmodel = qobject_cast<SdHostModel*>(hostv->model());
+        pump_until([&] { return hmodel->rowCount() >= 3; });
+        const QModelIndex first = hmodel->index(1, 0);   // row 0 is the up row
+        const bool read_only = hmodel->source()->isReadOnly() && !(hmodel->flags(first) & Qt::ItemIsEditable);
         const bool no_edit = hostv->editTriggers() == QAbstractItemView::NoEditTriggers &&
                              child<QListView>(d, "card_view")->editTriggers() == QAbstractItemView::NoEditTriggers;
         check("SDMW-23", "the host pane's model is read-only with no editable item and neither view edits in place (Qt's inline rename would bypass the held-file check)",
@@ -1217,6 +1271,145 @@ int main(int argc, char** argv)
               ok && on_card(K, "/D\x82R/h2.bin") && !on_card(K, "/h2.bin"), b.texts.empty() ? std::string("no box") : b.texts.back());
         rig.session.close(rig.emu);
     }
+    // GH #558 (owner changes): the up row, the equal and aligned panes, the default size.
+    auto press_enter = [](QListView* v) {
+        QKeyEvent ev(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+        QApplication::sendEvent(v, &ev);
+    };
+    // SDMW-37
+    {
+        Img a(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        rig.open();
+        Boxes b;
+        SdManagerDialog d(rig.emu, rig.session, none_remembered(), QString::fromStdString(host.string()));
+        wire(d, b);
+        auto* view = child<QListView>(d, "card_view");
+        auto* model = qobject_cast<SdCardModel*>(view->model());
+        const bool root_none = !model->has_up_row() && card_names(d).front() == "EMPTYD";
+        enter_card(d, "GAMES");
+        const std::vector<std::string> in_games = card_names(d);
+        const QModelIndex up = model->index(0, 0);
+        const bool shown = d.card_dir() == "/GAMES" && model->has_up_row() && model->is_up_row(0) && in_games.front() == ".." &&
+                           !up.data(Qt::DecorationRole).value<QIcon>().isNull() && in_games.size() == 3;
+        // never a target: not selectable, not draggable, no path, and a forced selection stays empty
+        view->selectionModel()->select(up, QItemSelectionModel::Select);
+        const bool inert = !(model->flags(up) & Qt::ItemIsSelectable) && !(model->flags(up) & Qt::ItemIsDragEnabled) &&
+                           model->path_of(0).isEmpty() && view->selectionModel()->selectedIndexes().isEmpty() &&
+                           !d.findChild<QPushButton*>("copy_to_host")->isEnabled() && !d.findChild<QAction*>("card_delete")->isEnabled() &&
+                           !d.findChild<QAction*>("card_rename")->isEnabled() && model->mimeData({up}) == nullptr;
+        // keyboard: Enter on a folder enters it, Enter on the up row goes to the parent
+        view->setCurrentIndex(model->index(1, 0));   // SUB
+        press_enter(view);
+        const bool enter_dir = d.card_dir() == "/GAMES/SUB";
+        const bool sub_has_up = card_names(d).front() == ".." && card_names(d).size() == 1;
+        view->setCurrentIndex(model->index(0, 0));
+        press_enter(view);
+        const bool enter_up = d.card_dir() == "/GAMES";
+        up_card(d);   // a double-click on the up row
+        const bool dbl_up = d.card_dir() == "/";
+        check("SDMW-37", "the card pane: no up row at the root, an up row first (arrow icon, '..') in every other folder; it is not selectable, draggable or a target of any action; a double-click and Enter on it go to the parent, and Enter on a folder enters it",
+              root_none && shown && inert && enter_dir && sub_has_up && enter_up && dbl_up,
+              std::string("root=") + std::to_string(root_none) + " shown=" + std::to_string(shown) + " inert=" + std::to_string(inert) + " enter=" +
+                  std::to_string(enter_dir) + std::to_string(sub_has_up) + std::to_string(enter_up) + std::to_string(dbl_up));
+        rig.session.close(rig.emu);
+    }
+    // SDMW-38
+    {
+        Img a(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        rig.open();
+        Boxes b;
+        const fs::path hd = fresh_dir("up38");
+        fs::create_directories(hd / "inner");
+        write_host_file(hd / "x.bin", kX);
+        SdManagerDialog d(rig.emu, rig.session, sm::Remembered{{}, {}, (hd / "inner").string()}, QString::fromStdString(host.string()));
+        wire(d, b);
+        auto* view = child<QListView>(d, "host_view");
+        auto* model = qobject_cast<SdHostModel*>(view->model());
+        pump_until([&] { return model->has_up_row(); });
+        const bool shown = model->has_up_row() && model->rowCount() == 1 && model->index(0, 0).data().toString() == ".." &&
+                           !model->index(0, 0).data(Qt::DecorationRole).value<QIcon>().isNull();
+        const QModelIndex up = model->index(0, 0);
+        view->selectionModel()->select(up, QItemSelectionModel::Select);
+        const bool inert = !(model->flags(up) & Qt::ItemIsSelectable) && !(model->flags(up) & Qt::ItemIsDragEnabled) &&
+                           model->file_path(up).isEmpty() && view->selectionModel()->selectedIndexes().isEmpty() &&
+                           !d.findChild<QAction*>("host_delete")->isEnabled() && !d.findChild<QAction*>("host_rename")->isEnabled() &&
+                           !d.findChild<QAction*>("host_copy")->isEnabled() && model->mimeData({up}) == nullptr;
+        view->setCurrentIndex(model->index(0, 0));
+        press_enter(view);   // Enter on the up row: the parent, which lists inner and x.bin after the up row
+        pump_until([&] { return model->rowCount() >= 3; });
+        const bool kb_up = d.host_dir() == QString::fromStdString(hd.string()) && model->rowCount() == 3;
+        // a double-click on the folder, then on the up row again
+        const QModelIndex inner = model->index_of_path(QString::fromStdString((hd / "inner").string()));
+        Q_EMIT view->doubleClicked(inner);
+        const bool entered = d.host_dir() == QString::fromStdString((hd / "inner").string());
+        up_host(d);
+        const bool dbl_up = d.host_dir() == QString::fromStdString(hd.string());
+        // the filesystem root has no up row
+        SdManagerDialog dr(rig.emu, rig.session, sm::Remembered{{}, {}, QDir::rootPath().toStdString()}, QString::fromStdString(host.string()));
+        wire(dr, b);
+        auto* rmodel = qobject_cast<SdHostModel*>(child<QListView>(dr, "host_view")->model());
+        const bool root_none = dr.host_dir() == QDir::rootPath() && !rmodel->has_up_row();
+        check("SDMW-38", "the host pane: an up row first in every folder but the filesystem root (none there); it is not selectable, draggable or a target of any action; Enter and a double-click on it go to the parent, a double-click on a folder enters it",
+              shown && inert && kb_up && entered && dbl_up && root_none,
+              std::string("shown=") + std::to_string(shown) + " inert=" + std::to_string(inert) + " kb=" + std::to_string(kb_up) + " enter=" + std::to_string(entered) +
+                  " up=" + std::to_string(dbl_up) + " root=" + std::to_string(root_none));
+        rig.session.close(rig.emu);
+    }
+    // SDMW-39
+    {
+        Img a(G), c2(F16);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        rig.emu.sd_card2().mount(c2.p, false);
+        rig.open();
+        Boxes b;
+        SdManagerDialog d(rig.emu, rig.session, none_remembered(), QString::fromStdString(host.string()));
+        wire(d, b);
+        d.show();
+        auto* card = child<QListView>(d, "card_view");
+        auto* hostv = child<QListView>(d, "host_view");
+        auto* combo = child<QComboBox>(d, "slot_combo");
+        auto* ro = child<QCheckBox>(d, "read_only_box");
+        auto* close = child<QPushButton>(d, "close_button");
+        std::string detail;
+        bool all = true;
+        for (const QSize sz : {SdManagerDialog::default_size(), QSize(700, 400), QSize(1300, 800)}) {
+            d.resize(sz);
+            QCoreApplication::processEvents();
+            const QPoint cp = card->mapTo(&d, QPoint(0, 0)), hp = hostv->mapTo(&d, QPoint(0, 0));
+            const bool same_size = card->size() == hostv->size();
+            const bool aligned = cp.y() == hp.y() && cp.y() + card->height() == hp.y() + hostv->height();
+            // the selector and the Read-only box are in the bottom row, with Close (centres within 2 px), below the panes
+            auto cy = [&](QWidget* w) { return w->mapTo(&d, QPoint(0, 0)).y() + w->height() / 2; };
+            const bool bottom_row = std::abs(cy(combo) - cy(close)) <= 2 && std::abs(cy(ro) - cy(close)) <= 2 &&
+                                    combo->mapTo(&d, QPoint(0, 0)).y() >= cp.y() + card->height();
+            all = all && same_size && aligned && bottom_row;
+            detail += std::to_string(sz.width()) + "x" + std::to_string(sz.height()) + ":" + std::to_string(same_size) + std::to_string(aligned) +
+                      std::to_string(bottom_row) + " ";
+        }
+        check("SDMW-39", "the two panes are the same size with their top and bottom edges aligned at the default size and at a smaller and a larger one, and the slot selector and the Read-only box sit in the bottom row with Close",
+              all, detail);
+        rig.session.close(rig.emu);
+    }
+    // SDMW-40
+    {
+        Img a(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        rig.open();
+        Boxes b;
+        SdManagerDialog d(rig.emu, rig.session, none_remembered(), QString::fromStdString(host.string()));
+        wire(d, b);
+        const QSize def = SdManagerDialog::default_size();
+        check("SDMW-40", "the default window size is the earlier 900x520 plus 20% in each direction (1080x624), and a new window opens at it",
+              def == QSize(1080, 624) && def.width() * 5 == 900 * 6 && def.height() * 5 == 520 * 6 && d.size() == def,
+              std::to_string(d.width()) + "x" + std::to_string(d.height()));
+        rig.session.close(rig.emu);
+    }
     // The main window's integration (GH #558 S4): File > SD Card File Manager... and the toolbar button open the window
     // (application modal) over a paused machine; closing it with no change resumes the machine, a change ends in one hard
     // reset and says so on the status bar; what it closed on is saved to jnext.conf.
@@ -1249,8 +1442,7 @@ int main(int argc, char** argv)
         int dialogs = 0;
         for (QWidget* w : QApplication::topLevelWidgets()) if (qobject_cast<SdManagerDialog*>(w)) ++dialogs;
         if (d) {
-            auto* up = child<QToolButton>(*d, "host_up");
-            if (up) up->click();   // the folder it closes on is NOT the command line's: the GUI change takes over
+            up_host(*d);   // the folder it closes on is NOT the command line's: the GUI change takes over
             d->accept();
         }
         pump_until([&] { return !rig.dbg->state().paused; }, 3000);

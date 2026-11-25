@@ -2,6 +2,7 @@
 
 #include <QDialog>
 #include <QMessageBox>
+#include <QSize>
 #include <QString>
 
 #include <array>
@@ -22,6 +23,7 @@ class QPushButton;
 class QTimer;
 class QToolButton;
 class SdCardModel;
+class SdHostModel;
 
 /// GH #558 - the SD card file manager window: two panes, the card in a slot on the left and a host folder on the
 /// right, with Copy, Rename, Delete and New Folder between and inside them, and drag and drop (Shift = move).
@@ -58,6 +60,9 @@ public:
 
     /// Reload both panes.
     void refresh();
+
+    /// The window's default size: the earlier 900x520 plus 20% in each direction.
+    static QSize default_size();
 
     /// Has the card in the shown slot changed under the window? If so, show the first mounted card's root. Called by a
     /// timer while the window is open, and by every operation before it acts. True when the view was reset.
@@ -110,7 +115,8 @@ private:
     void navigate_card(const QString& dir);
     void navigate_host(const QString& dir);
     void update_actions();
-    void set_view_mode(QListView* v, bool icons);
+    void activate_card(const QModelIndex& i);   ///< a folder is entered, the up row goes to the parent
+    void activate_host(const QModelIndex& i);
     QStringList selected_card_paths() const;
     QStringList selected_host_paths() const;
     bool run_and_report(const sdmanager::TransferRequest& req);
@@ -132,7 +138,8 @@ private:
     QListView* card_view_ = nullptr;
     QListView* host_view_ = nullptr;
     SdCardModel* card_model_ = nullptr;
-    QFileSystemModel* host_model_ = nullptr;
+    QFileSystemModel* host_fs_ = nullptr;
+    SdHostModel* host_model_ = nullptr;
     QPushButton* to_host_button_ = nullptr;
     QPushButton* to_card_button_ = nullptr;
     QTimer* poll_ = nullptr;

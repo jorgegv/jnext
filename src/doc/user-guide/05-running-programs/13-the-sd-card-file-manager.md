@@ -23,7 +23,11 @@ SD-card upgrade or go-back actions are working on the card.
 ## The two panes
 
 - **The card pane** (left) lists a folder of the card in the slot chosen in the box
-  above it: **SD card** or **Second SD card (D:)**. A slot with no card is greyed.
+  at the bottom of the window: **SD Card 1: *file name*** or **SD Card 2: *file name***
+  (the image's file name; hover for its full path), and `SD Card 2: <empty>`
+  for a slot with no card, which is greyed. The two slots are the ones of **File ▸ Insert
+  SD Card Image…** (card 1) and **Insert Second SD Card Image…** (card 2), and the labels follow them
+  while the window is open.
   Names are shown as the card stores them, long names included. A name that holds a
   character outside plain ASCII (the card stores such names in code page 437, the
   DOS code page of FAT short names; an accented letter is one) is shown as `%XX`,
@@ -34,9 +38,13 @@ SD-card upgrade or go-back actions are working on the card.
 - **The host pane** (right) is an ordinary folder of your computer, with your
   desktop's own file icons.
 
-Each pane has its own **Up** button and its own **Icons** button, which switches that
-pane between a list and an icon view; the other pane is not touched. Double-click a
-folder to enter it. The panes show only the folder you are in, one level at a time.
+Both panes are lists, the same size, with their top and bottom edges aligned; the
+folder each shows is written above it. Double-click a folder, or select it and press
+**Enter**, to enter it. Every folder except the top one (the card's root, or the root
+of your computer's file system) starts with an **up row**, `..` with a left-and-up
+arrow: a double-click or **Enter** on it goes to the parent folder. It is not an entry:
+it cannot be selected, copied, dragged, renamed or deleted. The panes show only the
+folder you are in, one level at a time. The window opens at 1080 by 624 pixels.
 
 The card pane always shows what the machine has mounted. If the card in the slot is
 changed from outside the window while it is open, the pane notices, says so, and shows the new card's top folder.
@@ -67,9 +75,9 @@ The context menu (right-click) of each pane also offers **Copy**.
 
 ## Read-only cards
 
-The card pane has a **Read-only** box. Tick it to browse and copy *off* the card
+The **Read-only** box, next to the slot selector at the bottom of the window: tick it to browse and copy *off* the card
 with every card-writing action disabled. It is also ticked for you, and greyed, with
-the reason shown beside the card, when the card cannot be written:
+the reason shown beside it, when the card cannot be written:
 
 - the card is not FAT32 (JNEXT writes only the first FAT32 partition of a card; a FAT16 card is shown read-only);
 - JNEXT was started with `--sdcard-readonly`;
