@@ -3340,7 +3340,7 @@ and off stays within 0.1 % of one without them (the largest difference is a cons
 what the program does, not on the tap alone. The write log is per row: 7200 instructions per logged row on a DAC
 player writing 650 times a frame (+15.6 % over the run), nothing on a program that rarely writes. The source tap
 (Scopes) and the stems turn the HALT and raster-poll batches off while they run, so the cost is the unbatched
-path's: +3.9.5.7 % over a boot to the 48K ROM, +115 % on an idle <code>HALT</code> loop at 3.5 MHz, about 5 to 8 times the instructions
+path's: +7.7 % over a boot to the 48K ROM, +115 % on an idle <code>HALT</code> loop at 3.5 MHz, about 5 to 8 times the instructions
 on the batched demo programs and on the same loop at 28 MHz (Scopes), and +21.5 % on a boot and +525 % on a DAC
 player at 28 MHz (stems). The user guide gives a user the host-CPU figure for Scopes. A new tap or consumer repeats this A/B before it lands, and a
 difference over 0.1 % is bisected to its cause instead of accepted.</p>

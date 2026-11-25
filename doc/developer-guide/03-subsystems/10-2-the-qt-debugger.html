@@ -3454,7 +3454,7 @@ backend logs one <code>MUTATE</code> line and bumps <code>state_revision()</code
 register file, with no refresh path of the panel's own. The client is the window's (<code>set_panels_client()</code>). A
 parse error or a refusal (RZX recording or playback) is the panel's <code>message()</code> signal, which the window shows with
 <code>show_rewind_refusal()</code>: the one status message <code>update_rewind_ui()</code> does not rewrite. Rows: <code>REGED-01</code>..<code>08</code>,
-<code>QREG-01</code>..<code>11</code>, <code>QREGW-01</code>..<code>04</code>.</p>
+<code>QREG-01</code>..<code>13</code>, <code>QREGW-01</code>..<code>04</code>.</p>
 <p><strong>Navigation (Follow, Back, Forward).</strong> <code>disasm_hint::follow_target(r, at, code, data)</code> (<code>src/debug/disasm_hint.h</code>, Qt-free,
 beside <code>pc_hint()</code> and sharing its DD/FD prefix walk) says what Follow does on the instruction at <code>at</code>: a code address
 (JP, CALL, JR, DJNZ and RST targets, a conditional's whether or not it holds; <code>JP (HL)/(IX)/(IY)</code>; RET, RETI and RETN
@@ -3467,7 +3467,7 @@ Go to PC; the automatic re-centre on a stop, scrolling and the keys do not. The 
 bindable actions (<code>follow</code>, <code>go_back</code>, <code>go_forward</code>; F12, Alt+Left, Alt+Right) installed by <code>apply_keymap()</code>, listed in the Go menu
 (with Symbols, which raises the Symbols tab), acting on the Source tab when its text has the focus. A memory operand goes through
 <code>show_in_memory_requested()</code> to <code>MemoryPanel::show_address()</code>, which leaves a slot or page view first. Rows: <code>FOLW-01</code>..<code>09</code>,
-<code>NAVH-01</code>..<code>07</code>, <code>QNAV-*</code>, <code>QSRCN-*</code>, <code>QNAVW-*</code>.</p>
+<code>NAVH-01</code>..<code>08</code>, <code>QNAV-*</code>, <code>QSRCN-*</code>, <code>QNAVW-*</code>.</p>
 <p><strong>The Symbols tab</strong> (<code>symbols_panel.cpp</code>) lists <code>symbols().symbols()</code> and rebuilds its rows only when <code>state_revision()</code>
 moved; the greying of a paged label whose page is not what <code>source_page()</code> reports at its address is redone on every
 refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label (Show in Disassembly, Memory and Source are all disabled for one): the Disassembly and the
@@ -3492,13 +3492,15 @@ The stamp is:</p>
 <li>the whole CPU register file, compared field by field (a direct core write behind the backend, as the tests and
   host actions make);</li>
 <li>the master clock, <code>time().master_cycle</code> (steps, run-to, rewinds);</li>
-<li>the backend's <code>state_revision()</code>, a counter that <code>Impl::bump_revision()</code> advances (31 call sites in
-  <code>src/debug/</code>) for every MUTATE line of any client (<code>log_mutate()</code>, <code>log_mutate_range()</code>), a cold boot
+<li>the backend's <code>state_revision()</code>, a counter that <code>Impl::bump_revision()</code> advances (about forty call
+  sites in <code>src/debug/</code>: <code>git grep -n 'bump_revision()' -- src/debug</code>) for every MUTATE line of any client (<code>log_mutate()</code>, <code>log_mutate_range()</code>), a cold boot
   (<code>on_cold_boot_done()</code>), a landing <code>recheck()</code> applied, and the metadata verbs: <code>load_map()</code> and
   <code>clear_symbols()</code>, <code>load_source_map()</code>, <code>clear_source_map()</code> and <code>load_program_sidecars()</code>, every
   subscription verb (<code>subscribe</code>, <code>subscribe_source_line</code>, the group, enable and master switches), the
   trace, call-stack, coverage and rewind settings, attach and detach, and the magic and persistent
-  breakpoints. A map or SLD load needs no special call: it bumps the revision, so the tick redraws;</li>
+  breakpoints, the annotation verbs (<code>set_user_label</code>, <code>remove_user_label</code>, <code>set_user_comment</code>,
+  <code>replace_annotations</code>) and the audio verbs (<code>psg_record_start</code>/<code>stop</code>, <code>set_audio_log_enabled</code>,
+  <code>audio_log_resize</code>, <code>set_audio_scope_enabled</code>, <code>stems_record_start</code>/<code>stop</code>). A map or SLD load needs no special call: it bumps the revision, so the tick redraws;</li>
 <li>the host-input epoch (<code>input_epoch_</code>): <code>DebuggerManager::eventFilter()</code> (<code>debugger_manager.cpp:199</code>), installed on <code>qApp</code>
   while the debugger is enabled, counts key press and release, shortcut, mouse-button press, release and
   double-click, and wheel events anywhere in the application. It is the generic catch-all for host-side

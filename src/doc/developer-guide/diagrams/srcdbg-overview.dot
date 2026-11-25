@@ -1,4 +1,4 @@
-// The source-level debugger's data flow: chapter 7.
+// The source-level debugger's data flow: 3.9.5.
 //
 // Rendered by `make docs-devguide-diagrams` into ../img/srcdbg-overview.svg,
 // which is COMMITTED. Edit this file, never the SVG.

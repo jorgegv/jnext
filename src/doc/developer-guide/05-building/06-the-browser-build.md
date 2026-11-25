@@ -59,7 +59,7 @@ Source files carry the same two symbols. The list below is the output of
   page owns its size (window scale does nothing); `set_crt()` and the CRT draw (below).
 - `src/platform/browser_crt.cpp`, `browser_crt.h` and `crtemu_browser_impl.cpp`: the CRT
   effect, whole files.
-- `src/platform/debug_servers.cpp` and `debug_servers.h`: the three socket servers (`--dzrp-port`, `--gdb-port`, `--zrcp-port`) are neither declared nor started, so `esp::make_socket_listener` is never referenced from this file in the browser build (the symbol is still compiled in, through esp01 and `remote::Server::open(address, port)`); the three channel servers are built in every build; and `frame_loop_budget()` returns `PumpBudget{0, 0, 10}` for a paused machine with a client attached, where the native build waits 2 ms for the next command.
+- `src/platform/debug_servers.cpp` and `debug_servers.h`: the three socket servers (`--dzrp-port`, `--gdb-port`, `--zrcp-port`) are neither declared nor started, so `esp::make_socket_listener` is never referenced from this file in the browser build (the symbol is still compiled in, through esp01 and `remote::Server::open(address, port)`); the three channel servers are built in every build; and `frame_loop_budget()` returns `PumpBudget{0, 0, 10}` for a paused machine with a client attached, where the native build waits 2 ms for the next command ([3.9.3](../03-subsystems/09-3-sessions-the-pump-and-reconstruct.md)).
 - `src/platform/web/web_controller.cpp`: the exports of the page's debug channels, below.
 - `src/core/nextpi_provisioner.cpp`: compiled out.
 - `src/core/image_lock.cpp`: the cross-process lock file of an SD image (`lock_file_for()` and its
@@ -71,9 +71,6 @@ Source files carry the same two symbols. The list below is the output of
 - `src/platform/bug_report.cpp`: the report's `os` field is `emscripten`.
 - `src/platform/startup_error_sdl.cpp`: no native dialog (and no SDL include) for a startup error.
 - `src/platform/startup_report.cpp`: the startup layout is never `windowed`.
-- `src/platform/debug_servers.cpp` also carries the browser's pump budget: with a remote attached
-  and the machine paused `frame_loop_budget()` returns `PumpBudget{0, 0, 10}`
-  ([3.9.3](../03-subsystems/09-3-sessions-the-pump-and-reconstruct.md)).
 - `src/core/video_recorder.cpp`: no process to run ffmpeg, so the call fails as a
   missing ffmpeg does.
 - `src/core/sdcard_provisioner_net_web.cpp` and `sdcard_provisioner_net_curl.cpp`: the

@@ -20,9 +20,9 @@ digraph frame_slot {
     d1 [label="DMA holds the bus:\nburst of up to 16 bytes,\ncycles charged to the CPU"];
     d2 [label="CPU parked\n(load-only NEX, PC = 0):\nNOP-sized step, nothing executed"];
     d3 [label="NEX boot hold counting down:\nlikewise"];
-    d4 [label="otherwise:\nexecute one Z80 instruction", fillcolor="#f3e3e6"];
+    d4 [label="otherwise:\nexecute one Z80 instruction,\nthen trace entry, interrupt-tick inputs,\nRZX count, tape tick", fillcolor="#f3e3e6"];
 
-    tail [label="shared tail: trace entry, interrupt-tick inputs,\nRZX count, tape tick, master clock advance", fillcolor="#ecdfe0"];
+    tail [label="every choice then: master clock advance,\nFUSE counter (non-CPU slot), DMA burst prescaler", fillcolor="#ecdfe0"];
     drain [label="boundary drain of debug events\n(a Stop verdict pauses)", fillcolor="#ecdfe0"];
     brk  [label="data-breakpoint check\n(early return if one fired)", fillcolor="#f5dfe2"];
     dev  [label="tick_devices_after_instruction()", fillcolor="#e9d3d6"];

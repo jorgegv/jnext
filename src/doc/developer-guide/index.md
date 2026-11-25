@@ -43,8 +43,9 @@ like eccentricity:
   cannot tell drifted documentation from correct documentation.
 - **The test apparatus is larger than the emulator.** `src/` is around 134 000
   lines of C++; `test/` is around 281 000 lines of C++ tests and harness code,
-  and the shell, Python, Perl and build files around them (tools, CI,
-  packaging) add about 79 000 more. These are code lines, blanks and comments
+  and every other tracked code file (the test harness's shell, Python and
+  Perl, the build and CI files, the demo programs' Z80 and C) adds about 79 000
+  more. These are code lines, blanks and comments
   excluded, measured on 2026-11-25 at version 1.3.78 with `make kloc-count`
   (`tools/kloc-count.sh`: `git ls-files` only, `*.cpp` and `*.h` under `src/`
   and `test/`, third-party code and generated renders not counted; `make

@@ -201,7 +201,7 @@ backend logs one `MUTATE` line and bumps `state_revision()`, so the next paused 
 register file, with no refresh path of the panel's own. The client is the window's (`set_panels_client()`). A
 parse error or a refusal (RZX recording or playback) is the panel's `message()` signal, which the window shows with
 `show_rewind_refusal()`: the one status message `update_rewind_ui()` does not rewrite. Rows: `REGED-01`..`08`,
-`QREG-01`..`11`, `QREGW-01`..`04`.
+`QREG-01`..`13`, `QREGW-01`..`04`.
 
 **Navigation (Follow, Back, Forward).** `disasm_hint::follow_target(r, at, code, data)` (`src/debug/disasm_hint.h`, Qt-free,
 beside `pc_hint()` and sharing its DD/FD prefix walk) says what Follow does on the instruction at `at`: a code address
@@ -215,7 +215,7 @@ Go to PC; the automatic re-centre on a stop, scrolling and the keys do not. The 
 bindable actions (`follow`, `go_back`, `go_forward`; F12, Alt+Left, Alt+Right) installed by `apply_keymap()`, listed in the Go menu
 (with Symbols, which raises the Symbols tab), acting on the Source tab when its text has the focus. A memory operand goes through
 `show_in_memory_requested()` to `MemoryPanel::show_address()`, which leaves a slot or page view first. Rows: `FOLW-01`..`09`,
-`NAVH-01`..`07`, `QNAV-*`, `QSRCN-*`, `QNAVW-*`.
+`NAVH-01`..`08`, `QNAV-*`, `QSRCN-*`, `QNAVW-*`.
 
 **The Symbols tab** (`symbols_panel.cpp`) lists `symbols().symbols()` and rebuilds its rows only when `state_revision()`
 moved; the greying of a paged label whose page is not what `source_page()` reports at its address is redone on every
@@ -242,13 +242,15 @@ The stamp is:
 - the whole CPU register file, compared field by field (a direct core write behind the backend, as the tests and
   host actions make);
 - the master clock, `time().master_cycle` (steps, run-to, rewinds);
-- the backend's `state_revision()`, a counter that `Impl::bump_revision()` advances (31 call sites in
-  `src/debug/`) for every MUTATE line of any client (`log_mutate()`, `log_mutate_range()`), a cold boot
+- the backend's `state_revision()`, a counter that `Impl::bump_revision()` advances (about forty call
+  sites in `src/debug/`: `git grep -n 'bump_revision()' -- src/debug`) for every MUTATE line of any client (`log_mutate()`, `log_mutate_range()`), a cold boot
   (`on_cold_boot_done()`), a landing `recheck()` applied, and the metadata verbs: `load_map()` and
   `clear_symbols()`, `load_source_map()`, `clear_source_map()` and `load_program_sidecars()`, every
   subscription verb (`subscribe`, `subscribe_source_line`, the group, enable and master switches), the
   trace, call-stack, coverage and rewind settings, attach and detach, and the magic and persistent
-  breakpoints. A map or SLD load needs no special call: it bumps the revision, so the tick redraws;
+  breakpoints, the annotation verbs (`set_user_label`, `remove_user_label`, `set_user_comment`,
+  `replace_annotations`) and the audio verbs (`psg_record_start`/`stop`, `set_audio_log_enabled`,
+  `audio_log_resize`, `set_audio_scope_enabled`, `stems_record_start`/`stop`). A map or SLD load needs no special call: it bumps the revision, so the tick redraws;
 - the host-input epoch (`input_epoch_`): `DebuggerManager::eventFilter()` (`debugger_manager.cpp:199`), installed on `qApp`
   while the debugger is enabled, counts key press and release, shortcut, mouse-button press, release and
   double-click, and wheel events anywhere in the application. It is the generic catch-all for host-side

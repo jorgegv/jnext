@@ -309,10 +309,12 @@ by an edit of the registers or of memory. The fixed cost to every program is tha
 branch point on the bench workloads, under gcc and under clang, at 0.03 to 0.23 % of host instructions, so
 the optimisation is always on rather than a costly one (page 2.6).
 
-Around that choice it also records the trace entry, notes what the end-of-slot
+Around those choices, the CPU branch also records the trace entry, notes what the end-of-slot
 interrupt tick will need (the instruction's T-states, its first edge, its opcode
-fetches), counts RZX instructions, ticks real-time tape playback, and advances
-the master clock. All of that is shared verbatim with
+fetches), counts RZX instructions and ticks real-time tape playback. Whatever
+the choice, the slot then advances the master clock, moves the FUSE T-state
+counter along when no instruction did (a DMA, parked or boot-hold slot), and
+feeds the DMA prescaler timer. All of that is shared verbatim with
 `execute_single_instruction()`, and the sharing was not free: the debugger's
 single-step once kept its own copy of this cluster, silently lost the IM2 tick
 and both /INT polls, and so delivered no interrupts at all while you were

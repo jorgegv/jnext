@@ -10,8 +10,11 @@ All of it is under software control at scanline granularity, and through the
 Copper at a position *within* a scanline, which is what makes raster effects on
 this machine so much richer than on a 48K Spectrum.
 
-That makes video the largest single hardware subsystem in JNEXT — about 12 100
-lines (`wc -l`, 2026-11-25) across eight modules in `src/video/`, plus the part of `src/core/emulator.cpp` that
+That makes video the largest of the FPGA core's hardware subsystems except the
+peripheral devices taken together (`src/peripheral/` holds a dozen) — about 12 100
+lines across eight modules in `src/video/` (`wc -l` over its non-test `.cpp` and `.h`
+files, 2026-11-25; the same count gives 14 800 for `src/peripheral/` and under 6 600
+for each of `cpu`, `memory`, `audio`, `port` and `input`), plus the part of `src/core/emulator.cpp` that
 feeds it. It produces exactly one artefact: a 640×256 ARGB8888 framebuffer,
 built one scanline at a time by `Renderer::render_frame` at the end of every
 emulated frame (see

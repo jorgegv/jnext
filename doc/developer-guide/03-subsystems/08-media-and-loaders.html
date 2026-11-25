@@ -4965,7 +4965,7 @@ when nothing arrives (libcurl documents it; 1.00 s gaps measured through a 15 s
 stall), so the window repainted at about 1 Hz through a stall and nothing named the
 stall; <code>CURLOPT_LOW_SPEED_*</code> is gone because its moving average overshot (120 s set,
 126 s measured) and a second mechanism would be a second message. <code>curl_multi_poll</code> needs
-libcurl 3.9.5.66, which every packaged target exceeds. A <code>file://</code> URL (a test seam,
+libcurl 7.66, which every packaged target exceeds. A <code>file://</code> URL (a test seam,
 and the Flatpak build) is read inside one <code>curl_multi_perform</code> call and has no
 ticks. The WinHTTP twin is asynchronous (<code>WINHTTP_FLAG_ASYNC</code>) because the contract
 cannot be met synchronously: a synchronous <code>WinHttpReadData</code> blocks its thread until
