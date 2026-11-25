@@ -91,8 +91,9 @@ Hard rules per CLAUDE.md:
   matches the path above. Worktree isolation does NOT sandbox the shell: an
   absolute `cd` lands your commits on main.
 - Do NOT write to main. Commit only on branch <BRANCH>.
-- Never push, except your own issue branch <BRANCH> (never force) to share it with a
-  remote-run host (CLAUDE.md standing authorization). Never `main`, an epic branch, a tag or a PR.
+- Never push, except <BRANCH> when it is your own issue branch `gh<N>-<slug>` (never force),
+  to share it with a remote-run host (CLAUDE.md standing authorization). Any other branch name
+  is never pushed. Never `main`, an epic branch, a tag or a PR.
 - Use `git -C <worktree-path> <cmd>` for git ops (not `cd ... && git ...`).
 - When done, report:
   - List of commit SHAs on <BRANCH>
