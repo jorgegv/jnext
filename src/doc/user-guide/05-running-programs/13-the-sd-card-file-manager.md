@@ -39,8 +39,7 @@ pane between a list and an icon view; the other pane is not touched. Double-clic
 folder to enter it. The panes show only the folder you are in, one level at a time.
 
 The card pane always shows what the machine has mounted. If the card in the slot is
-changed from outside the window while it is open (a remote debugger client could
-do it), the pane notices, says so, and shows the new card's top folder.
+changed from outside the window while it is open, the pane notices, says so, and shows the new card's top folder.
 
 ## What you can do
 
