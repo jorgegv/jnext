@@ -39,6 +39,7 @@
 #include "core/sdcard_provisioner.h"
 #include "core/sdcard_upgrade.h"
 #include "gui/sdcard_download_dialog.h"
+#include "gui/sdcard_manager_dialog.h"   // GH #558
 #include "peripheral/sd_write_journal.h"
 #include "qt/menu_bar_alt_nav_qt.h"   // GH #268
 #include "toolbar_icons/toolbar_icons.h"
@@ -964,6 +965,9 @@ void MainWindow::create_menus() {
     connect(delete_backup_action_, &QAction::triggered, this, &MainWindow::on_delete_backup);
     connect(file_menu, &QMenu::aboutToShow, this, &MainWindow::refresh_card_set_actions);
     refresh_card_set_actions();
+    // GH #558 - browse and copy the card's files from the host. No mnemonic, no hotkey: nothing is free.
+    sd_manager_action_ = file_menu->addAction(tr("SD Card File Manager..."));
+    connect(sd_manager_action_, &QAction::triggered, this, &MainWindow::on_sd_manager);
 
     file_menu->addSeparator();
 
@@ -1534,6 +1538,12 @@ void MainWindow::create_toolbar() {
     QAction* load_btn = toolbar->addAction(tr("Load"));
     toolbar_icons::bind(load_btn, toolbar, QStringLiteral("load"));
     connect(load_btn, &QAction::triggered, this, &MainWindow::on_load_nex);
+
+    // GH #558 - the file manager, next to Load; the same action as File > SD Card File Manager...
+    // (no ellipsis in the button's text: its tooltip is the text, as for every other button)
+    QAction* sd_manager_btn = toolbar->addAction(tr("SD Card File Manager"));
+    toolbar_icons::bind(sd_manager_btn, toolbar, QStringLiteral("sd-manager"));
+    connect(sd_manager_btn, &QAction::triggered, sd_manager_action_, &QAction::trigger);
 
     toolbar->addSeparator();
 
@@ -2245,6 +2255,72 @@ void MainWindow::refresh_card_set_actions() {
     delete_backup_action_->setText(m.delete_enabled
         ? tr("Delete the Previous SD Card Backup (%1)...").arg(QString::fromStdString(sdcard::backup::size_label(m.backup_bytes)))
         : tr("Delete the Previous SD Card Backup..."));
+}
+
+// GH #558 - the SD card file manager. The machine is paused for as long as the window is open (an observer client of the
+// session's own) and a card change ends in a hard reset: both by sd_session_, opened here and closed from a zero-delay
+// timer after the window's `finished` (never inside the tick or a debugger event: Debugger::reset refuses there).
+void MainWindow::on_sd_manager() {
+    if (sd_session_.is_open()) return;   // the window is up (it is modal; this is a programmatic trigger)
+    if (card_op_ != CardOp::None) {
+        QMessageBox::information(this, tr("SD Card File Manager"),
+                                 tr("The SD card is being changed by another action. Try again when it is done."));
+        return;
+    }
+    if (!emulator_ || !debugger_) {
+        QMessageBox::information(this, tr("SD Card File Manager"),
+                                 tr("The SD card file manager is not available: the machine cannot be paused."));
+        return;
+    }
+    std::string why;
+    if (!sd_session_.open(*debugger_, why)) {
+        QMessageBox::warning(this, tr("SD Card File Manager"),
+                             tr("The SD card file manager cannot open: %1").arg(QString::fromStdString(why)));
+        return;
+    }
+    sync_pause_state();
+    sdmanager::Remembered rem;
+    rem.card_image = session_.sd_card.value_or(app_config_.data().sdmanager_card).toStdString();
+    rem.card_dir   = session_.sd_card_dir.value_or(app_config_.data().sdmanager_card_dir).toStdString();
+    rem.host_dir   = session_.sd_host_dir.value_or(app_config_.data().sdmanager_host_dir).toStdString();
+    auto* dlg = new SdManagerDialog(*emulator_, sd_session_, rem, load_dialog_seed(), this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    // Application modal, so the debugger window is blocked too. QDialog::open() would make it window modal (it
+    // blocks only this window), hence show() on a modal dialog.
+    dlg->setModal(true);
+    connect(dlg, &QDialog::finished, this, [this, dlg](int) {
+        remember_sd_manager(dlg->remembered());
+        QTimer::singleShot(0, this, [this]() { finish_sd_manager(); });
+    });
+    dlg->show();
+}
+
+void MainWindow::finish_sd_manager() {
+    if (!emulator_) return;
+    switch (sd_session_.close(*emulator_)) {
+    case sdmanager::SdManagerSession::CloseResult::ResetAndResumed:
+    case sdmanager::SdManagerSession::CloseResult::ResetStayedPaused:
+        statusBar()->showMessage(tr("SD card changed: the machine restarts"), 5000);
+        break;
+    case sdmanager::SdManagerSession::CloseResult::ResetDeferred:
+        statusBar()->showMessage(tr("SD card changed: the machine restarts paused, resume it afterwards"), 8000);
+        break;
+    default:
+        break;
+    }
+    sync_pause_state();
+}
+
+// What the window closed on is remembered and saved (the GUI change takes over from a command-line value), like
+// remember_load_dir().
+void MainWindow::remember_sd_manager(const sdmanager::Remembered& r) {
+    session_.sd_card.reset();
+    session_.sd_card_dir.reset();
+    session_.sd_host_dir.reset();
+    app_config_.data().sdmanager_card     = QString::fromStdString(r.card_image);
+    app_config_.data().sdmanager_card_dir = QString::fromStdString(r.card_dir);
+    app_config_.data().sdmanager_host_dir = QString::fromStdString(r.host_dir);
+    app_config_.save();
 }
 
 void MainWindow::on_upgrade_sd() {
@@ -3245,7 +3321,8 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg, bool program_cpu
     // saved file with the command line's values over it; from Preferences it is the
     // dialog's. Either way app_config_ (what is saved) is not touched here.
     session_ = { cfg.last_load_dir, cfg.screenshot_dir, cfg.quick_screenshot_dir,
-                 cfg.quick_screenshot_format };
+                 cfg.quick_screenshot_format, cfg.sdmanager_card, cfg.sdmanager_card_dir,
+                 cfg.sdmanager_host_dir };
     source_dirs_ = cfg.source_dirs;   // GH #420
     push_source_dirs();
     source_scheme_ = cfg.source_scheme;   // GH #422 stage 2

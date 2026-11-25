@@ -89,6 +89,14 @@ Run run_in(const std::string& img, const std::string& card_path, const fs::path&
     return r;
 }
 Run run(const std::string& img, const std::string& card_path) { return run_in(img, card_path, fresh_dest()); }
+// The same with the path as CP437 BYTES taken from a listing (the SD card file manager's entry point).
+std::string g_bytes_card;   // the card of the bytes-mode rows (SDFX-38/39 build it, 40/41 reuse it)
+Run run_bytes(const std::string& img, const std::string& card_path) {
+    Run r;
+    r.dest = fresh_dest();
+    r.st = sdcard::extract_from_image(img, card_path, r.dest.string(), r.err, &r.sum, true);
+    return r;
+}
 
 std::string info(const Run& r) {
     return std::string("status=") + std::to_string(static_cast<int>(r.st)) + " err=" + r.err;
@@ -178,6 +186,28 @@ bool populate_dup(FATFS& fsv, Pokes& pokes) {
               {u"abc", "ABC~1      ", 0x20, file_cluster("0:/DATA/D1.BIN"), static_cast<uint32_t>(kD1.size())}},
              pokes);
     return true;
+}
+
+// GH #558: /DUPS holds a short-only DER.BIN (D1) and a LONG entry "D<0x82> a long name.bin" (D2) whose short name is the SAME
+// DER.BIN (a damaged or foreign-written directory); /SFNO holds a short-only X<0x90>Y.BIN (no long name, a high byte in the
+// 8.3 name itself); /caf<0x82>.bin is a FatFs-made long name with a code page 437 byte.
+bool populate_bytes(FATFS& fsv, Pokes& pokes) {
+    if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/DUPS") != FR_OK || f_mkdir("0:/DUPX") != FR_OK || f_mkdir("0:/SFNO") != FR_OK || !fat_write("0:/DATA/D1.BIN", kD1) ||
+        !fat_write("0:/DATA/D2.BIN", kD2) || !fat_write("0:/caf\x82.bin", kLong))
+        return false;
+    const uint32_t c1 = file_cluster("0:/DATA/D1.BIN"), c2 = file_cluster("0:/DATA/D2.BIN");
+    hand_dir(fsv, dir_cluster("0:/DUPS"), 2,
+             {{u"", "DER     BIN", 0x20, c1, static_cast<uint32_t>(kD1.size())},
+              {u"D\u00E9 a long name.bin", "DER     BIN", 0x20, c2, static_cast<uint32_t>(kD2.size())}},
+             pokes);
+    // /DUPX: a short-only DER.BIN, then a long name D<e-acute>R.BIN
+    // whose 8.3 name is the SAME: FatFs resolves a typed "D<0x82>R.BIN" to the FIRST entry (the listing cannot address the long one)
+    hand_dir(fsv, dir_cluster("0:/DUPX"), 2,
+             {{u"", "DER     BIN", 0x20, c1, static_cast<uint32_t>(kD1.size())},
+              {u"D\u00E9R.BIN", "DER     BIN", 0x20, c2, static_cast<uint32_t>(kD2.size())}},
+             pokes);
+    hand_dir(fsv, dir_cluster("0:/SFNO"), 2, {{u"", std::string("X\x90Y     BIN"), 0x20, c2, static_cast<uint32_t>(kD2.size())}}, pokes);
+    return c1 != 0 && c2 != 0;
 }
 
 // FAT32: /LOOP/SUB points at /LOOP's own cluster; /LOOP0/SUB has start cluster 0 (the root on FAT32).
@@ -680,6 +710,47 @@ int main() {
               "status=" + std::to_string(static_cast<int>(st)) + " " + err + " skipped=" + std::to_string(rep.skipped.size()));
     }
 
+    // SDFX-38 / SDFX-39 (GH #558): the BYTES entry point (card_path_is_bytes) of the SD card file manager
+    {
+        const std::string p2 = tmp_name("bytes") + ".img";
+        const int bt = make_card(p2, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, populate_bytes);
+        g_bytes_card = p2;
+        const Run cli = run(p2, "/caf\x82.bin");                 // the command line still refuses it, with its advice
+        const Run by = run_bytes(p2, "/caf\x82.bin");
+        check("SDFX-38", "a path holding a CP437 byte is refused on the command line (unchanged: status 2, the 8.3 advice) and extracted with card_path_is_bytes, under its escaped host name and with its own bytes",
+              bt == FS_FAT32 && is(cli, FileAddStatus::SourceUnreadable) && cli.err.find("parent directory") != std::string::npos && empty_dest(cli) &&
+                  is(by, FileAddStatus::Ok) && tree_of(by.dest) == Tree{{"caf%82.bin", kLong}},
+              info(cli) + " | " + info(by));
+        // F1a: the long entry's short name duplicates an earlier entry's: the bytes path acts on THE ENTRY NAMED, never on the other
+        const Run dup = run_bytes(p2, "/DUPS/D\x82 a long name.bin");
+        const Run first = run_bytes(p2, "/DUPS/DER.BIN");
+        // F1b: a short-only name with a high byte (no ASCII alias exists)
+        const Run sfn = run_bytes(p2, "/SFNO/X\x90Y.BIN");
+        check("SDFX-39", "bytes path: a long entry whose 8.3 name duplicates an earlier entry's extracts ITS OWN bytes (the earlier entry keeps its own), and a short-only name with a high byte extracts",
+              is(dup, FileAddStatus::Ok) && tree_of(dup.dest) == Tree{{"D%82 a long name.bin", kD2}} && is(first, FileAddStatus::Ok) &&
+                  tree_of(first.dest) == Tree{{"DER.BIN", kD1}} && is(sfn, FileAddStatus::Ok) && tree_of(sfn.dest) == Tree{{"X%90Y.BIN", kD2}},
+              info(dup) + " | " + info(first) + " | " + info(sfn));
+    }
+    // SDFX-40 (GH #558 K2): bytes mode refuses DEL (0x7F) in a component, as it does a control byte; a byte above 0x7E is not refused
+    {
+        const Run del = run_bytes(g_bytes_card, "/caf\x7F.bin");
+        const Run ctl = run_bytes(g_bytes_card, "/caf\x01.bin");
+        const Run hi = run_bytes(g_bytes_card, "/caf\x82.bin");
+        check("SDFX-40", "bytes mode: a component holding DEL (0x7F) or a control byte is refused (status 2, nothing written); a byte above 0x7E is accepted",
+              is(del, FileAddStatus::SourceUnreadable) && del.err.find("outside printable ASCII") != std::string::npos && empty_dest(del) &&
+                  is(ctl, FileAddStatus::SourceUnreadable) && empty_dest(ctl) && is(hi, FileAddStatus::Ok),
+              info(del) + " | " + info(ctl) + " | " + info(hi));
+    }
+    // SDFX-41 (GH #558 N1): bytes mode, a path the listing cannot address (a long entry behind an earlier entry with the SAME 8.3 name)
+    // is refused at the engine, not extracted as the earlier entry under this name; the earlier entry itself still extracts
+    {
+        const Run un = run_bytes(g_bytes_card, "/DUPX/D\x82R.BIN");
+        const Run first = run_bytes(g_bytes_card, "/DUPX/DER.BIN");
+        check("SDFX-41", "bytes mode: a path FatFs resolves to a different entry than the one named (duplicate 8.3 name behind an earlier entry) is refused, nothing written; the earlier entry extracts under its own name",
+              is(un, FileAddStatus::SourceUnreadable) && empty_dest(un) && un.err.find("different one") != std::string::npos &&
+                  is(first, FileAddStatus::Ok) && tree_of(first.dest) == Tree{{"DER.BIN", kD1}},
+              info(un) + " | " + info(first));
+    }
     // SDFX-37: a writes file that does not exist yet is not "read through"
     {
         const std::string p = tmp_name("nojf") + ".img";

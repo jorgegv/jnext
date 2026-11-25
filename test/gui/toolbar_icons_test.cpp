@@ -257,6 +257,7 @@ struct Expect { const char* text; const char* icon; const char* on_icon; };
 const std::vector<Expect> MAIN_EXPECT{
     {"Power Reset", "power", ""},     {"Soft Reset", "soft-reset", ""},
     {"P&ause", "pause", "resume"},    {"Load", "load", ""},
+    {"SD Card File Manager", "sd-manager", ""},
     {"Screenshot", "screenshot", ""}, {"NMI", "nmi", ""}};
 const std::vector<Expect> DEBUG_EXPECT{{"Debug", "debug", ""}};
 
@@ -435,7 +436,7 @@ void test_toolbars() {
                     ok = false;
             }
         }
-        check("TBI-10", "the Main toolbar is Power Reset, Soft Reset, Pause, Load, Screenshot, NMI and the "
+        check("TBI-10", "the Main toolbar is Power Reset, Soft Reset, Pause, Load, SD Card File Manager, Screenshot, NMI and the "
                         "Debug toolbar is Debug, each bound to its SVG (design 3)", ok, got);
     }
 

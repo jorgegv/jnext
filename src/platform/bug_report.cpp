@@ -382,6 +382,9 @@ ValueRule config_value_rule(config_keys::KeyId id)
         case K::PathsScreenshotDir:
         case K::PathsSourceDirs:
         case K::RecentFiles:
+        case K::SdManagerCard:
+        case K::SdManagerCardDir:
+        case K::SdManagerHostDir:
         case K::ScreenshotQuickDir:
         case K::InputJoy1Device:
         case K::InputJoy2Device:

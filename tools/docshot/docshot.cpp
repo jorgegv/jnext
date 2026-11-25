@@ -124,6 +124,7 @@
 #include "audio/turbosound.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/fat32_image.h"
 #include "core/sdcard_provisioner.h"
 #include "debug/breakpoints.h"
 #include "debug/debug_state.h"
@@ -145,7 +146,9 @@
 #include "gui/main_window.h"
 #include "gui/desktop_color_scheme.h"
 #include "gui/preferences_dialog.h"
+#include "gui/sdcard_manager_dialog.h"
 #include "platform/emulator_boot.h"
+#include "platform/sdcard_manager.h"
 #include "platform/source_scheme.h"
 #include "port/nextreg.h"
 #include "script/script_host.h"
@@ -176,6 +179,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -722,6 +726,97 @@ void capture_gui_shots(Emulator& emu, jnext::dbg::Debugger& backend, const Optio
     }
 }
 
+/// sdcard-manager.png (GH #558): the SD card file manager on a FIXTURE card and a FIXTURE host folder. Neither is the
+/// NextZXOS card the other images boot: that card's contents are not ours to publish, so this window gets a small FAT32
+/// card made here (generic names, deterministic bytes) in a machine of its own, and a host folder with a few made-up
+/// files. Both live in a temporary directory that is removed on the way out.
+void capture_sdcard_manager(const Options& opt) {
+    QTemporaryDir tmp;
+    if (!tmp.isValid()) {
+        note("  FAIL sdcard-manager.png: no scratch directory\n");
+        ++g_failed;
+        return;
+    }
+    const auto bytes = [](size_t n, unsigned seed) {
+        std::vector<uint8_t> v(n);
+        uint32_t x = seed * 2654435761u + 1u;
+        for (auto& b : v) { x = x * 1103515245u + 12345u; b = static_cast<uint8_t>(x >> 16); }
+        return v;
+    };
+    const auto file = [&](const char* name, size_t n, unsigned seed) {
+        Fat32Node f;
+        f.name = name;
+        f.data = bytes(n, seed);
+        return f;
+    };
+    const auto dir = [](const char* name, std::vector<Fat32Node> kids) {
+        Fat32Node d;
+        d.name = name;
+        d.is_dir = true;
+        d.children = std::move(kids);
+        return d;
+    };
+    Fat32Tree tree;
+    tree.root = {dir("GAMES", {file("platformer.nex", 12000, 1), file("puzzle.nex", 6500, 2), dir("saves", {})}),
+                 dir("DEMOS", {file("plasma.nex", 3100, 3), file("scroller.nex", 4700, 4)}),
+                 dir("TOOLS", {file("viewer.bin", 1800, 5)}),
+                 file("readme.txt", 420, 6), file("notes.txt", 1300, 7)};
+    const QString card = tmp.filePath(QStringLiteral("fixture-card.img"));
+    constexpr uint32_t kLba = 2048, kSectors = 68000;   // 512-byte clusters: just over FAT32's 65525-cluster minimum
+    {
+        std::ofstream c(card.toStdString(), std::ios::binary | std::ios::trunc);
+        std::vector<char> mbr(512, 0);
+        mbr[446 + 4] = 0x0C;
+        for (int i = 0; i < 4; ++i) {
+            mbr[static_cast<size_t>(446 + 8 + i)] = static_cast<char>(kLba >> (8 * i));
+            mbr[static_cast<size_t>(446 + 12 + i)] = static_cast<char>(kSectors >> (8 * i));
+        }
+        mbr[510] = static_cast<char>(0x55);
+        mbr[511] = static_cast<char>(0xAA);
+        c.write(mbr.data(), 512);
+        c.seekp(static_cast<std::streamoff>(static_cast<uint64_t>(kLba + kSectors) * 512 - 1));
+        c.put('\0');
+    }
+    std::string err;
+    Fat32WriteOptions wo;
+    wo.au_size = 512;
+    if (!fat32_format_and_populate(card.toStdString(), kLba, kSectors, tree, err, wo)) {
+        note("  FAIL sdcard-manager.png: cannot make the fixture card: %s\n", err.c_str());
+        ++g_failed;
+        return;
+    }
+    // A FIXED, short host path: the picture shows it, and a random temporary name would differ in every capture.
+    const QString host_root = QDir::tempPath() + QStringLiteral("/jnext-docs");
+    const QString host = host_root + QStringLiteral("/my-files");
+    QDir(host_root).removeRecursively();
+    QDir().mkpath(host + QStringLiteral("/screenshots"));
+    for (const char* n : {"my-game.nex", "notes.txt", "tape-image.tap", "level-editor.zip"}) {
+        QFile f(host + QStringLiteral("/") + QString::fromLatin1(n));
+        if (f.open(QIODevice::WriteOnly)) f.write(QByteArray(2000, 'x'));
+    }
+
+    Emulator emu;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZX48K;
+    if (!emu.init(cfg) || !emu.sd_card().mount(card.toStdString(), false)) {
+        note("  FAIL sdcard-manager.png: the fixture machine did not come up\n");
+        ++g_failed;
+        return;
+    }
+    sdmanager::SdManagerSession session;   // not opened: this window only displays
+    sdmanager::Remembered rem;
+    rem.card_image = card.toStdString();
+    rem.card_dir = "/";
+    rem.host_dir = host.toStdString();
+    SdManagerDialog dlg(emu, session, rem, host);
+    dlg.resize(820, 440);
+    dlg.show();
+    settle(400);   // the host folder is read on a worker thread
+    save_crop(&dlg, &dlg, opt.out_dir + QStringLiteral("/sdcard-manager.png"));
+    dlg.close();
+    QDir(host_root).removeRecursively();
+}
+
 // ── Group 4: a z88dk program under the Source tab (GH #426) ───────────
 
 /// Copy the files of a committed z88dk fixture (the build's outputs) and the
@@ -929,6 +1024,11 @@ int main(int argc, char** argv)
     if (wanted(opt, "gui-main-window") || wanted(opt, "preferences-startup")) {
         note("capturing (main window / Preferences):\n");
         capture_gui_shots(emu, backend, opt);
+    }
+
+    if (wanted(opt, "sdcard-manager")) {
+        note("capturing (SD card file manager):\n");
+        capture_sdcard_manager(opt);
     }
 
     // ── Debugger, through the production path ─────────────────────────

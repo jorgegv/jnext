@@ -116,3 +116,6 @@ An image you name yourself is never upgraded for you. To move your files to a ne
 A file the new card already has is replaced by yours: that is the opposite of the automatic upgrade,
 where the new NextZXOS's version wins. The report says which files were written and which replaced.
 Files you deleted are not moved. See [3.7](07-upgrading-nextzxos.md) for the other rescue commands.
+
+To copy files onto the card, or off it, with the mouse while JNEXT runs, use
+**File ▸ SD Card File Manager…** ([5.13](../05-running-programs/13-the-sd-card-file-manager.md)).

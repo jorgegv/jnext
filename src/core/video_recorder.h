@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/held_files.h"
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -181,6 +182,9 @@ private:
     std::string output_path_;
     std::string video_tmp_;
     std::string audio_tmp_;
+    // The output, and the two raw temp files that stay in its folder until stop() has encoded them: all held
+    // (held_files) from start() to the end of stop(), so the SD card file manager never trashes one.
+    std::vector<held_files::Hold> holds_;
     FILE* video_file_ = nullptr;
     FILE* audio_file_ = nullptr;
     int frame_width_ = 0;

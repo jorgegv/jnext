@@ -6,6 +6,7 @@
 // helper defined in the suite's own source.
 #pragma once
 
+#include "core/sdcard_card_ops.h"
 #include "core/sdcard_file_add.h"
 
 #include "core/fat32_image.h"

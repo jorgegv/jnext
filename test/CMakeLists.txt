@@ -574,6 +574,29 @@ if(NOT WIN32 AND NOT EMSCRIPTEN)
     target_include_directories(sdcard_file_extract_posix_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME sdcard_file_extract_posix_tests COMMAND sdcard_file_extract_posix_test)
 endif()
+# GH #558: the SD card file manager's card operations (probe, list, rename, make directory, remove). os native
+# (the Windows share-mode question of SDOPS-24 runs under wine). Fixtures are built at run time with FatFs.
+if(NOT EMSCRIPTEN)
+    add_executable(sdcard_card_ops_test sdcard_card_ops/sdcard_card_ops_test.cpp)
+    target_link_libraries(sdcard_card_ops_test PRIVATE jnext_core)
+    target_include_directories(sdcard_card_ops_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_card_ops_tests COMMAND sdcard_card_ops_test)
+endif()
+# GH #558 S2: the SD card file manager's logic (src/platform/sdcard_manager.*): the session's pause/reset contract
+# on a real Emulator and Debugger, the transfers, the remembered view. No Qt. os native, like the card ops it drives.
+if(NOT EMSCRIPTEN)
+    add_executable(sdcard_manager_test platform/sdcard_manager_test.cpp)
+    target_link_libraries(sdcard_manager_test PRIVATE
+        jnext_platform
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(sdcard_manager_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    if(WIN32)
+        target_link_options(sdcard_manager_test PRIVATE -Wl,--stack,16777216)
+    endif()
+    add_test(NAME sdcard_manager_tests COMMAND sdcard_manager_test)
+endif()
 # GH #555 S5: the upgrade flow (provision_sd_card carrying the user's files over; 600 MB sparse fixtures).
 # GH #555 S6: the backup an upgrade leaves, go back, delete, the menu state.
 if(NOT EMSCRIPTEN)
@@ -2205,6 +2228,14 @@ if(ENABLE_QT_UI)
     target_link_libraries(sdcard_menu_test PRIVATE jnext_gui)
     target_include_directories(sdcard_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME sdcard_menu_tests COMMAND sdcard_menu_test)
+
+    # GH #558 S3 - the SD card file manager window (src/gui/sdcard_manager_dialog.*): offscreen, a real Emulator,
+    # Debugger and session, fixture cards built at run time with FatFs.
+    add_executable(sdcard_manager_window_test gui/sdcard_manager_window_test.cpp)
+    set_target_properties(sdcard_manager_window_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(sdcard_manager_window_test PRIVATE jnext_gui)
+    target_include_directories(sdcard_manager_window_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME sdcard_manager_window_tests COMMAND sdcard_manager_window_test)
 
     # GH #492 stage 2 - File > Save Bug Report...: the menu entry, the real file dialog, the report the Qt
     # frontend writes (settings file included).

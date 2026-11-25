@@ -83,6 +83,11 @@ const char* file_add_status_name(FileAddStatus s);
 bool normalize_dest_path(const std::string& dest_path,
                          std::string& fatfs_path_out,
                          std::string& err);
+/// The same, with `card_bytes`: the components are CP437 BYTES taken from a listing of the card (the SD card file
+/// manager), so a byte above 0x7E is accepted (control bytes, the FAT-forbidden characters and the rest are still refused).
+bool normalize_dest_path(const std::string& dest_path,
+                         std::string& fatfs_path_out,
+                         std::string& err, bool card_bytes);
 
 /// Do `a` and `b` name the same image file?
 ///
@@ -112,12 +117,17 @@ bool same_image_file(const std::string& a, const std::string& b);
 /// partial file is removed — a truncated `DRV-A.DSK` is worse than no
 /// `DRV-A.DSK` — and so are the directories this call made for it.
 ///
-/// `err` always receives a one-sentence explanation on failure.
+/// `err` always receives a one-sentence explanation on failure.///
+/// `dest_is_bytes` (default false, the command line's behaviour): the destination path is CP437 BYTES the caller took
+/// from a listing of this card (the SD card file manager). PRECONDITION: every existing component of it is the
+/// `open_name` its listing gives for that entry (the spelling FatFs resolves to THAT entry); a component that
+/// FatFs resolves to a different entry than the one carrying that name is refused (DestInvalid), never written through.
+/// Control bytes and DEL are refused; bytes above 0x7E are accepted. The command line leaves it false and refuses them.
 FileAddStatus add_file_to_image(const std::string& image_path,
                                 const std::string& host_file,
                                 const std::string& dest_path,
                                 bool overwrite,
-                                std::string& err);
+                                std::string& err, bool dest_is_bytes = false);
 
 /// The `--sdcard-file-add` / `--sdcard-file-dest` pairing rule (GH #292).
 ///
@@ -201,13 +211,20 @@ struct AddSummary {
 /// partial copy is never reported as success. A single file has the same
 /// contract (add_file_to_image()).
 ///
+///
+/// `dest_is_bytes` (default false, the command line's behaviour): the destination path is CP437 BYTES the caller took
+/// from a listing of this card (the SD card file manager). PRECONDITION: every existing component of it is the
+/// `open_name` its listing gives for that entry (the spelling FatFs resolves to THAT entry); a component that
+/// FatFs resolves to a different entry than the one carrying that name is refused (DestInvalid), never written through.
+/// Control bytes and DEL are refused; bytes above 0x7E are accepted. The command line leaves it false and refuses them.
+///
 /// `summary` (optional) is filled on success.
 FileAddStatus add_to_image(const std::string& image_path,
                            const std::string& host_path,
                            const std::string& dest_path,
                            bool overwrite,
                            std::string& err,
-                           AddSummary* summary = nullptr);
+                           AddSummary* summary = nullptr, bool dest_is_bytes = false);
 
 /// The partition geometry FatFs needs to present `image_path`'s volume: the first FAT32-LBA
 /// partition's start sector and its sector count. False, with a one-sentence `err`, for a

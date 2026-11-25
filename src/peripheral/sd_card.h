@@ -1,4 +1,5 @@
 #pragma once
+#include "core/held_files.h"
 #include <atomic>
 #include <memory>
 #include <cstddef>
@@ -125,6 +126,11 @@ public:
 
     /// Returns true if an image is mounted.
     bool mounted() const { return file_.is_open(); }
+
+    /// True when the guest cannot write the mounted card: `--sdcard-readonly`, or a read-write
+    /// open that fell back to read-only. False when nothing is mounted. The SD card file manager
+    /// (GH #558) shows such a card read-only.
+    bool write_protected() const { return mounted() && read_only_; }
 
     /// The mounted image's path ("" when nothing is mounted).
     const std::string& image_path() const { return path_; }
@@ -346,6 +352,7 @@ private:
     // The image has a write journal (--sdcard-writes): the file is opened
     // read-only, reads see the journal over it and CMD24 appends to it.
     std::shared_ptr<sd_write_journal::Journal> journal_;
+    held_files::Hold hold_image_;   // the image file, while mounted (the SD-writes file is the Journal's hold)
     std::string path_;            // mounted image, for the stream reopen
     std::uint64_t stream_write_attempts_ = 0;
 

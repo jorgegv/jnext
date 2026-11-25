@@ -366,12 +366,15 @@ bool PiQemu::start(const Spec& spec, std::string& error) {
     wait_exited(1000, 50);
     if (exited_) return fail(spec.qemu_binary + " exited at once; see " + log_path);
 
+    holds_.clear();
+    holds_.emplace_back(overlay.string());   // all of NextPi's writes go here
     Log::uart()->info("NextPi: QEMU raspi0 started (pid {}) from {}; log {}", pid_, spec.dir,
                       log_path);
     return true;
 }
 
 void PiQemu::stop() {
+    holds_.clear();
     stopping_ = true;
     if (process_) {
         // `quit` on the monitor on stdin is the orderly stop, the same path

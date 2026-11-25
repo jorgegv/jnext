@@ -1,4 +1,5 @@
 #pragma once
+#include "core/held_files.h"
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -375,6 +376,7 @@ private:
     int         held_fd_ = -1;
     /// Non-empty only for the FIFO form; the path `open_tx_if_needed` retries.
     std::string tx_path_;
+    held_files::Hold hold_rx_, hold_tx_;   // the FIFO pair, while the endpoint lives (held_files)
     std::string description_;
     std::size_t faults_ = 0;
     std::string last_error_;

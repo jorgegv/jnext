@@ -12,10 +12,13 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QTimer>
+#include <QMenu>
 #include <QMenuBar>
+#include <QToolBar>
 #include <QTemporaryDir>
 
 #include <cstdio>
+#include <functional>
 #include <filesystem>
 #include <fstream>
 #include <cstring>
@@ -32,6 +35,7 @@
 #include "core/sdcard_provisioner.h"
 #include "debug/debugger.h"
 #include "gui/main_window.h"
+#include "gui/sdcard_manager_dialog.h"
 #include "../row_id.h"
 
 namespace fs = std::filesystem;
@@ -46,10 +50,10 @@ void check(const char* id, const char* desc, bool ok, const std::string& detail 
     ++g_total;
     if (ok) {
         ++g_pass;
-        std::printf("[PASS] %-12s %s\n", id, desc);
+        std::printf("  PASS %s: %s\n", id, desc);
     } else {
         ++g_fail;
-        std::printf("[FAIL] %-12s %s%s%s\n", id, desc, detail.empty() ? "" : " -- ", detail.c_str());
+        std::printf("  FAIL %s: %s%s%s%s\n", id, desc, detail.empty() ? "" : " [", detail.c_str(), detail.empty() ? "" : "]");
     }
 }
 
@@ -94,7 +98,7 @@ int main(int argc, char** argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QTemporaryDir cfg_dir;
-    if (!cfg_dir.isValid()) { std::printf("[FAIL] no scratch directory\nTotal:    0  Passed:    0  Failed:    1  Skipped:    0\n"); return 1; }
+    if (!cfg_dir.isValid()) { std::printf("  FAIL SDMENU-00: no scratch directory\nTotal:    0  Passed:    0  Failed:    1  Skipped:    0\n"); return 1; }
     qputenv("JNEXT_CONFIG_DIR", cfg_dir.path().toUtf8());
     qputenv("JNEXT_SDCARD_DISTRO_URL", "http://127.0.0.1:1/sn-emulator-99.99.zip");
     QApplication app(argc, argv);
@@ -167,6 +171,7 @@ int main(int argc, char** argv)
                 if (QAbstractButton* ok = mb->button(QMessageBox::Ok)) ok->click();
         });
     };
+    std::function<void()> in_work;   // run while the card is out of the machine (card_op_ set), when a row sets it
     auto live_run = [&](QAction* act, Fixture& f, Live& L) {
         EmulatorConfig frontend_cfg = f.emu.config();
         bool cfg_set = false;
@@ -180,6 +185,7 @@ int main(int argc, char** argv)
         };
         f.win.card_op_before_work_for_test = [&] {
             L.seq.push_back("work");
+            if (in_work) in_work();
             L.ejected_at_work = f.emu.sd_card().image_path().empty();
             L.journal_at_work = sd_write_journal::for_image(sdcard::default_sdcard_image_path()) != nullptr;
             auto pending = f.emu.take_sd_card_change_request();
@@ -335,6 +341,58 @@ int main(int argc, char** argv)
         check("SDMENU-11", "delete, live: previous/ is gone, the card is still in the machine, and nothing was ejected or reset",
               !fs::exists(dir + "/previous") && fs::exists(card) && !f.emu.sd_card().image_path().empty() &&
                   !f.emu.take_sd_card_change_request().has_value() && !f.emu.take_hard_reset_request());
+    }
+
+    {
+        // GH #558: File > SD Card File Manager..., and its Main toolbar button right after Load
+        reset_set();
+        Fixture f(card);
+        QMenu* file = nullptr;
+        for (QMenu* m : f.win.menuBar()->findChildren<QMenu*>())
+            if (m->title().remove('&') == QStringLiteral("File")) file = m;
+        QAction* sd = f.win.sd_manager_action();
+        const QList<QAction*> acts = file ? file->actions() : QList<QAction*>();
+        const int at = acts.indexOf(sd);
+        const bool after_card_set = at > 0 && acts[at - 1] == f.win.delete_backup_action();
+        QAction* load_btn = nullptr;
+        QAction* sd_btn = nullptr;
+        for (QToolBar* tb : f.win.findChildren<QToolBar*>()) {
+            const QList<QAction*> a = tb->actions();
+            for (int i = 0; i + 1 < a.size(); ++i)
+                if (a[i]->text() == QStringLiteral("Load")) { load_btn = a[i]; sd_btn = a[i + 1]; }
+        }
+        check("SDMENU-16", "File has 'SD Card File Manager...' right after the card-set entries, with no hotkey and no mnemonic; the Main toolbar has a button right after Load, bound to the sd-manager icon, with the tooltip 'SD Card File Manager'",
+              sd && sd->text() == QStringLiteral("SD Card File Manager...") && sd->shortcut().isEmpty() && !sd->text().contains('&') && after_card_set &&
+                  load_btn && sd_btn && sd_btn->property("jnext_icon").toString() == QStringLiteral("sd-manager") &&
+                  sd_btn->toolTip() == QStringLiteral("SD Card File Manager"),
+              sd ? sd->text().toStdString() : "no action");
+    }
+    {
+        // while a card operation has the card out (card_op_ set), the manager refuses with a box and opens nothing
+        reset_set();
+        Fixture f(card);
+        Live L;
+        bool window_opened = false, paused = false;
+        in_work = [&] {
+            f.win.sd_manager_action()->trigger();   // the watchdog counts and closes the box
+            for (QWidget* w : QApplication::topLevelWidgets())
+                if (qobject_cast<SdManagerDialog*>(w)) window_opened = true;
+            paused = f.backend->state().paused;
+        };
+        f.win.card_op_upgrade_work_for_test = [&](std::string&) { put(card, (1 << 16) + 4096); return true; };
+        live_run(f.win.upgrade_sd_action(), f, L);
+        in_work = nullptr;
+        check("SDMENU-17", "File > SD Card File Manager... during a card operation shows one refusing box, opens no window and does not pause the machine",
+              L.dialogs == 1 && !window_opened && !paused && !f.backend->state().paused, "boxes=" + std::to_string(L.dialogs));
+        // a window with no machine behind it cannot pause one: refused with a box as well
+        MainWindow bare;
+        const int before = unexpected_dialogs;
+        bare.sd_manager_action()->trigger();
+        bool bare_opened = false;
+        for (QWidget* w : QApplication::topLevelWidgets())
+            if (qobject_cast<SdManagerDialog*>(w)) bare_opened = true;
+        check("SDMENU-18", "File > SD Card File Manager... in a window with no machine shows one refusing box and opens nothing",
+              unexpected_dialogs - before == 1 && !bare_opened, "boxes=" + std::to_string(unexpected_dialogs - before));
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

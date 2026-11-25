@@ -2054,6 +2054,25 @@ Given on the command line, the list REPLACES the saved one for that run.
 A relative directory is taken from the working directory.
 The Qt window with the debugger.
 .TP
+\f[CR]sdcard_manager.card\f[R] \f[I]FILE\f[R]
+The SD card image the SD card file manager last showed.
+On opening, the window shows that card if it is in a slot, and otherwise
+the first card that is.
+The Qt window.
+.TP
+\f[CR]sdcard_manager.card_dir\f[R] \f[I]PATH\f[R]
+The folder of that card the manager last showed, with every byte outside
+printable ASCII and every \f[CR]%\f[R] written as \f[CR]%XX\f[R].
+The window opens in it only on the remembered card and only if it exists
+on the card now; otherwise it opens at the card\(cqs root.
+The Qt window.
+.TP
+\f[CR]sdcard_manager.host_dir\f[R] \f[I]PATH\f[R]
+The host folder the manager\(cqs right\-hand pane last showed.
+If it no longer exists, the nearest existing parent is used, then the
+Load directory, then the home directory.
+The Qt window.
+.TP
 \f[CR]screenshot.quick_dir\f[R] \f[I]PATH\f[R]
 The Quick Screenshot directory; empty means
 \f[CR]\(ti/.jnext/screenshots\f[R].
@@ -2410,7 +2429,10 @@ Refused, before anything is written: a device, FIFO or socket; a file or
 directory that cannot be read; a file of 4 GiB or more; a name FAT
 cannot hold (non\-ASCII, or one of \f[CR]\(dq * : < > ? \(rs |\f[R], or
 ending in a dot or a space); and two names in one directory that differ
-only in case, which FAT would make one file.
+only in case, which FAT would make one file; and a destination that is
+another entry\(cqs 8.3 alias (\f[CR]/LONGFI\(ti1.TXT\f[R] for a file
+stored as \f[CR]Long File Name.txt\f[R]), which would write into that
+entry.
 Nothing is renamed or silently skipped \(em hidden files included.
 .PP
 A file or a directory, the copy is \f[B]all or nothing\f[R].
@@ -2543,8 +2565,9 @@ device name\(cqs first letter (\f[CR]CON.TXT\f[R] becomes
 \f[B]\-\-sdcard\-export\-changes\f[R] writes them; each such name is
 listed on standard output.
 A \f[CR].\f[R] or \f[CR]..\f[R] component, a trailing dot or space and a
-character outside printable ASCII in the card path are refused (give the
-8.3 name, or extract the parent directory).
+character outside printable ASCII in the card path are refused: give the
+8.3 name, or extract the parent directory (the only way left when the
+8.3 name itself holds such a character).
 A file or directory of that name that already exists in the current
 directory, a symbolic link included, is refused and never touched:
 nothing is overwritten, and nothing is merged into an existing
@@ -5314,6 +5337,8 @@ destination that already exists as a directory (for a file) or as a file
 (for a directory).
 For a directory this includes a host name inside it that FAT cannot
 hold, and two names that differ only in case.
+A destination that is the 8.3 alias of a different entry on the card is
+refused the same way.
 For \f[B]\-\-sdcard\-writes\-flatten\f[R] and
 \f[B]\-\-sdcard\-export\-changes\f[R] it also covers: nothing to compare
 against (the card was not made by jnext in a way that can be rebuilt and

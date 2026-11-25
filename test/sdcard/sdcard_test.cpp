@@ -38,6 +38,7 @@
 // so the Makefile aggregator picks it up.
 
 #include "peripheral/sd_card.h"
+#include "peripheral/sd_write_journal.h"
 #include "core/log.h"
 #include "core/saveable.h"
 #include "save/state_desc_defaults.h"
@@ -950,6 +951,59 @@ static void test_readonly_mount() {
           before == after && !before.empty(),
           "identical=" + std::string(before == after ? "1" : "0") +
           " len=" + std::to_string(before.size()));
+}
+
+// ─── GH #558: write_protected() ──────────────────────────────────────────
+//
+// Oracle: the contract of mount() above (GH #77): `read_only` or a failed read-write open makes the
+// card write-protected; a journal-bound mount follows the caller's `read_only`; unmount clears it.
+static void test_write_protected() {
+    const std::string img = make_image(8);
+    bool rw_false = false, ro_true = false, jr_true = false, jrw_false = false, after_unmount = false,
+         unmounted_false = false, remount_false = false;
+    {
+        SdCardDevice d;
+        unmounted_false = !d.write_protected();
+        d.mount(img);
+        rw_false = !d.write_protected();
+        d.unmount();
+        after_unmount = !d.write_protected();
+        d.mount(img, true);
+        ro_true = d.write_protected();
+        d.unmount();
+        d.mount(img);
+        remount_false = !d.write_protected();
+        d.unmount();
+    }
+    {
+        const std::string jf = img + ".sdw";
+        std::remove(jf.c_str());
+        sd_write_journal::forget_all_for_test();
+        sd_write_journal::Binding b;
+        b.bytes = std::filesystem::file_size(img);
+        b.sha256.fill(0x5C);
+        std::string why;
+        const bool bound = sd_write_journal::bind(img, jf, b, false, why);
+        SdCardDevice d;
+        d.mount(img, true);
+        jr_true = bound && d.write_protected();
+        d.unmount();
+        d.mount(img, false);
+        jrw_false = bound && !d.write_protected();
+        d.unmount();
+        sd_write_journal::forget_all_for_test();
+        std::remove(jf.c_str());
+    }
+    std::remove(img.c_str());
+    check("SDWP-01",
+          "write_protected(): false unmounted and for a read-write mount, true for mount(path, true), "
+          "true for a journal-bound read-only mount and false for a journal-bound read-write one, false "
+          "after unmount and after a read-write remount",
+          unmounted_false && rw_false && after_unmount && ro_true && jr_true && jrw_false && remount_false,
+          std::string("unm=") + (unmounted_false ? "1" : "0") + " rw=" + (rw_false ? "1" : "0") +
+              " aft=" + (after_unmount ? "1" : "0") + " ro=" + (ro_true ? "1" : "0") +
+              " jr=" + (jr_true ? "1" : "0") + " jrw=" + (jrw_false ? "1" : "0") +
+              " re=" + (remount_false ? "1" : "0"));
 }
 
 // ─── GH #455: a read-only card refuses the block before the host stream ──
@@ -4325,6 +4379,7 @@ int main() {
     test_write_busy_not_after_reject();  // SD-BUSY-04 (GH #177)
     test_write_busy_cs_deassert(sd);      // SD-BUSY-05 (GH #177 review)
     test_readonly_mount();
+    test_write_protected();          // SDWP-01 (GH #558)
     test_readonly_guard();           // SD-RO-03..08 (GH #455)
     test_mmc_cmd1_init(sd);
 

@@ -76,6 +76,9 @@ enum class KeyId : uint8_t {
     PathsScreenshotDir,
     PathsSourceDirs,
     RecentFiles,
+    SdManagerCard,
+    SdManagerCardDir,
+    SdManagerHostDir,
     ScreenshotQuickDir,
     ScreenshotQuickFormat,
     SnapshotQuickKeep,
@@ -199,6 +202,18 @@ inline constexpr Key KEYS[] = {
     { KeyId::RecentFiles, "recent", "files", Type::Text, 0, 0,
       "", nullptr, QT, false, Owner::AppConfig,
       "it is File > Recent Files, a history the program keeps", "Recent files" },
+    // GH #558: what the SD card file manager window opens on. REMEMBERED state, of the same class as
+    // paths.last_load_dir, so settable like it. card_dir is stored as carry::escape_name(path), so the file
+    // stays ASCII and CP437 bytes survive.
+    { KeyId::SdManagerCard, "sdcard_manager", "card", Type::Path, 0, 0,
+      "FILE", nullptr, QT, false, Owner::AppConfig, nullptr,
+      "SD card image the SD card file manager last showed" },
+    { KeyId::SdManagerCardDir, "sdcard_manager", "card_dir", Type::Text, 0, 0,
+      "PATH", nullptr, QT, false, Owner::AppConfig, nullptr,
+      "Folder of that card the SD card file manager last showed (%XX-escaped)" },
+    { KeyId::SdManagerHostDir, "sdcard_manager", "host_dir", Type::Path, 0, 0,
+      "PATH", nullptr, QT, false, Owner::AppConfig, nullptr,
+      "Host folder the SD card file manager last showed" },
     { KeyId::ScreenshotQuickDir, "screenshot", "quick_dir", Type::Path, 0, 0,
       "PATH", nullptr, QT, false, Owner::AppConfig, nullptr,
       "Quick Screenshot directory (empty = ~/.jnext/screenshots)" },

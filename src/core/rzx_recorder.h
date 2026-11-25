@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "core/held_files.h"
 #include "core/rzx.h"
 
 /// Records RZX input data: captures every port read the machine makes, per
@@ -56,6 +57,7 @@ public:
 private:
     RzxRecording rec_;
     std::string output_path_;
+    held_files::Hold hold_;   // the output file, from start() to stop() (it is rewritten by path)
     std::vector<uint8_t> current_in_values_;
     bool recording_ = false;
     bool frame_started_ = false;

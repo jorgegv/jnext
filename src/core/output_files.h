@@ -10,7 +10,11 @@
 // passed on exactly as the writer has it: the page canonicalises it with its own file system.
 // An empty path (an option that was not given) sends nothing.
 
+#include <mutex>
+#include <set>
 #include <string>
+
+#include "core/held_files.h"
 
 namespace output_files {
 
@@ -20,8 +24,28 @@ inline Sink g_sink = nullptr;   // set only by the browser build
 
 inline void set_sink(Sink s) { g_sink = s; }
 
-inline void begin(const std::string& path)   { if (g_sink && !path.empty()) g_sink(path.c_str(), false); }
-inline void end(const std::string& path)     { if (g_sink && !path.empty()) g_sink(path.c_str(), true); }
+// The paths begun and not yet ended are HELD (held_files): a writer that has the file open, or appends to
+// it again by path, must not have it taken from under it by the SD card file manager. begin() twice for
+// one path is still one hold; end() releases it.
+inline std::mutex& active_mu() { static std::mutex* m = new std::mutex; return *m; }   // never destroyed, as held_files'
+inline std::set<std::string>& active_set() { static auto* s = new std::set<std::string>; return *s; }
+
+inline void begin(const std::string& path) {
+    if (path.empty()) return;
+    {
+        std::lock_guard<std::mutex> g(active_mu());
+        if (active_set().insert(path).second) held_files::add(path);
+    }
+    if (g_sink) g_sink(path.c_str(), false);
+}
+inline void end(const std::string& path) {
+    if (path.empty()) return;
+    {
+        std::lock_guard<std::mutex> g(active_mu());
+        if (active_set().erase(path)) held_files::remove(path);
+    }
+    if (g_sink) g_sink(path.c_str(), true);
+}
 inline void written(const std::string& path) { end(path); }
 
 }  // namespace output_files

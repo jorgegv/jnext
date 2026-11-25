@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><!-- jnext toolbar icon. Original work, dedicated to the public domain: CC0-1.0 -->
+<path d="M6 3H15L19 7V20A1 1 0 0 1 18 21H6A1 1 0 0 1 5 20V4A1 1 0 0 1 6 3Z"/>
+<path d="M8 5V7.5M10.5 5V7.5M13 5V7.5" stroke-width="1.5"/>
+<path d="M10.2 11.8C9.9 11.3 9.4 11.1 8.9 11.1C8.1 11.1 7.6 11.6 7.6 12.3C7.6 14 10.4 13.2 10.4 14.9C10.4 15.6 9.8 16.1 9 16.1C8.4 16.1 7.9 15.9 7.6 15.4" stroke-width="1.2"/>
+<path d="M12.2 11.1V16.1H13.4A2.5 2.5 0 0 0 13.4 11.1Z" stroke-width="1.2"/>
+</svg>

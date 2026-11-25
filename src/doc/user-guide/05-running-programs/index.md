@@ -129,8 +129,8 @@ beside it: `game.sld` (an sjasmplus source map) and, for a `.nex`,
 ![JNEXT running, with NextZXOS booted](../img/gui-main-window.png)
 
 The toolbar buttons are, from the left: **Power Reset**, **Soft Reset**,
-**Pause**, **Load**, **Screenshot**, **NMI** (the Multiface button) and, on its
-own, **Debug**. Hovering a button shows its name. The icons are drawn in the
+**Pause**, **Load**, **SD Card File Manager** ([5.13](13-the-sd-card-file-manager.md)),
+**Screenshot**, **NMI** (the Multiface button) and, on its own, **Debug**. Hovering a button shows its name. The icons are drawn in the
 window's text colour, so they follow a light or a dark desktop theme, including
 a switch made while JNEXT is running.
 

@@ -1749,6 +1749,22 @@ use the key: the Qt window, the SDL-only build (both interactive) or
     the saved one for that run. A relative directory is taken from the
     working directory. The Qt window with the debugger.
 
+`sdcard_manager.card` *FILE*
+:   The SD card image the SD card file manager last showed. On opening,
+    the window shows that card if it is in a slot, and otherwise the
+    first card that is. The Qt window.
+
+`sdcard_manager.card_dir` *PATH*
+:   The folder of that card the manager last showed, with every byte
+    outside printable ASCII and every `%` written as `%XX`. The window
+    opens in it only on the remembered card and only if it exists on the
+    card now; otherwise it opens at the card’s root. The Qt window.
+
+`sdcard_manager.host_dir` *PATH*
+:   The host folder the manager’s right-hand pane last showed. If it no
+    longer exists, the nearest existing parent is used, then the Load
+    directory, then the home directory. The Qt window.
+
 `screenshot.quick_dir` *PATH*
 :   The Quick Screenshot directory; empty means `~/.jnext/screenshots`.
     The Qt window.

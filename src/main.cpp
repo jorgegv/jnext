@@ -653,6 +653,9 @@ static int run_main(int argc, char* argv[]) {
         case KeyId::StartupCrtShaderStyle:
         case KeyId::PathsLastLoadDir:
         case KeyId::PathsScreenshotDir:
+        case KeyId::SdManagerCard:
+        case KeyId::SdManagerCardDir:
+        case KeyId::SdManagerHostDir:
         case KeyId::ScreenshotQuickDir:
         case KeyId::ScreenshotQuickFormat:
         case KeyId::SourceColourScheme:

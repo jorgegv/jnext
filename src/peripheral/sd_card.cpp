@@ -105,6 +105,7 @@ bool SdCardDevice::mount(const std::string& path, bool read_only) {
         }
     }
     path_ = path;
+    hold_image_ = held_files::Hold(path);
 
     file_.seekg(0, std::ios::end);
     file_size_ = static_cast<uint64_t>(file_.tellg());
@@ -151,6 +152,7 @@ void SdCardDevice::unmount() {
     read_only_ = false;
     journal_.reset();
     path_.clear();
+    hold_image_.reset();
 }
 
 // A failed host write leaves the failed block in the filebuf's put area on

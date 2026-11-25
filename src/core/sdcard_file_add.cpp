@@ -74,7 +74,7 @@ bool is_forbidden_name_char(char c) {
 // a message ("name 'x' in the destination path", "host name 'x'") and
 // `container` says where a bad character was found.
 bool check_fat_name(const std::string& c, const std::string& subject,
-                    const std::string& container, std::string& err) {
+                    const std::string& container, std::string& err, bool allow_high = false) {
     // FF_MAX_LFN is 255; a longer component cannot be stored at all.
     if (c.size() > FF_MAX_LFN) {
         err = subject + " is longer than " +
@@ -83,7 +83,8 @@ bool check_fat_name(const std::string& c, const std::string& subject,
     }
     for (char ch : c) {
         const unsigned char u = static_cast<unsigned char>(ch);
-        if (u < 0x20 || u > 0x7E) {
+        // allow_high: a component the caller took from a listing of this card (CP437 bytes, FatFs matches them natively).
+        if (allow_high ? (u < 0x20 || u == 0x7F) : (u < 0x20 || u > 0x7E)) {
             err = subject + " is not printable ASCII; jnext writes ASCII names only";
             return false;
         }
@@ -230,6 +231,12 @@ bool same_image_file(const std::string& a, const std::string& b) {
 bool normalize_dest_path(const std::string& dest_path,
                          std::string& fatfs_path_out,
                          std::string& err) {
+    return normalize_dest_path(dest_path, fatfs_path_out, err, false);
+}
+
+bool normalize_dest_path(const std::string& dest_path,
+                         std::string& fatfs_path_out,
+                         std::string& err, bool card_bytes) {
     fatfs_path_out.clear();
     const std::vector<std::string> parts = split_slash(dest_path);
     if (parts.empty()) {
@@ -244,7 +251,7 @@ bool normalize_dest_path(const std::string& dest_path,
             return false;
         }
         if (!check_fat_name(c, "name '" + c + "' in the destination path",
-                            "the destination path", err))
+                            "the destination path", err, card_bytes))
             return false;
         out += "/";
         out += c;
@@ -370,11 +377,14 @@ FileAddStatus card_free_space(const std::string& image_path,
 // Make sure the directory `fat_dir` exists on the card, creating it when it
 // does not. `name` is its last component and `dest_display` the user's whole
 // destination, both for messages. `created` says whether this call made it.
+bool resolves_elsewhere(const std::string& fat_path, const FILINFO& stat_fno);
+std::string resolves_elsewhere_message(const std::string& path);
+
 FileAddStatus ensure_card_dir(MountedCard& card,
                               const std::string& fat_dir,
                               const std::string& name,
                               const std::string& dest_display,
-                              bool& created, std::string& err) {
+                              bool& created, std::string& err, bool bytes = false) {
     created = false;
     // Asked BEFORE f_mkdir, so an existing directory costs a read and leaves
     // the volume unmodified (and unflushed) — the clash refusal of a file in
@@ -382,6 +392,10 @@ FileAddStatus ensure_card_dir(MountedCard& card,
     FILINFO fno{};
     const FRESULT st = f_stat(fat_dir.c_str(), &fno);
     if (st == FR_OK) {
+        if (bytes && resolves_elsewhere(fat_dir, fno)) {
+            err = resolves_elsewhere_message(dest_display);
+            return FileAddStatus::DestInvalid;
+        }
         // Something is already there — it has to be a DIRECTORY, or the rest
         // of the path cannot exist.
         if ((fno.fattrib & AM_DIR) == 0) {
@@ -410,6 +424,81 @@ FileAddStatus ensure_card_dir(MountedCard& card,
     return FileAddStatus::DestInvalid;
 }
 
+// Does `fat_path` name another entry's 8.3 ALIAS? FatFs resolves a typed `LONGFI~1.TXT` to the entry
+// `Long File Name.txt`, so a write "replacing" it would overwrite a file the caller never named. f_stat
+// cannot tell (it answers the typed spelling either way), so the parent directory is READ: an entry whose
+// stored name differs from the leaf but whose 8.3 alias equals it is the clash, reported by stored name.
+// It is refused even when another entry also carries the exact name: FatFs takes the first in directory
+// order, and which one a write would hit is not knowable here. Names are printable ASCII
+// (normalize_dest_path), so an ASCII fold is the FAT comparison.
+bool alias_clash(const std::string& fat_path, std::string& stored, bool& stored_is_dir) {
+    auto fold = [](std::string v) {
+        for (char& c : v)
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        return v;
+    };
+    const std::size_t slash = fat_path.rfind('/');
+    if (slash == std::string::npos) return false;
+    std::string parent = fat_path.substr(0, slash);
+    if (parent.size() <= 2) parent = "0:/";   // "0:" is the volume's current directory; the root is "0:/"
+    const std::string leaf = fold(fat_path.substr(slash + 1));
+    DIR dj{};
+    if (f_opendir(&dj, parent.c_str()) != FR_OK) return false;
+    bool found = false;
+    for (;;) {
+        FILINFO e{};
+        if (f_readdir(&dj, &e) != FR_OK || e.fname[0] == 0) break;
+        if (fold(e.fname) != leaf && e.altname[0] && fold(e.altname) == leaf) {
+            stored = e.fname;
+            stored_is_dir = (e.fattrib & AM_DIR) != 0;
+            found = true;
+            break;
+        }
+    }
+    f_closedir(&dj);
+    return found;
+}
+
+// Bytes mode (the caller's path is the open_name path of a listing, GH #558): does FatFs resolve `fat_path` to a DIFFERENT
+// directory entry than the one the listing named? `stat_fno` is what f_stat answered; the parent is read and the first
+// entry whose long or 8.3 name equals the leaf is the one a write would hit. A typed name of an entry that FatFs cannot
+// address (a duplicate 8.3 name behind an earlier entry) resolves to the earlier one: refuse instead of writing there.
+bool resolves_elsewhere(const std::string& fat_path, const FILINFO& stat_fno) {
+    auto fold = [](std::string v) {
+        for (char& c : v)
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        return v;
+    };
+    const std::size_t slash = fat_path.rfind('/');
+    if (slash == std::string::npos) return false;
+    std::string parent = fat_path.substr(0, slash);
+    if (parent.size() <= 2) parent = "0:/";
+    const std::string leaf = fold(fat_path.substr(slash + 1));
+    DIR dj{};
+    if (f_opendir(&dj, parent.c_str()) != FR_OK) return false;
+    bool other = false;
+    for (;;) {
+        FILINFO e{};
+        if (f_readdir(&dj, &e) != FR_OK || e.fname[0] == 0) break;
+        if (fold(e.fname) == leaf || (e.altname[0] && fold(e.altname) == leaf)) {
+            other = e.dir_sect != stat_fno.dir_sect || e.dir_ofs != stat_fno.dir_ofs;
+            break;
+        }
+    }
+    f_closedir(&dj);
+    return other;
+}
+
+std::string resolves_elsewhere_message(const std::string& path) {
+    return "'" + path + "' names a card entry FatFs cannot address by that name (another entry in the directory has the same "
+           "8.3 name and comes first); nothing is written there";
+}
+
+std::string alias_clash_message(const std::string& stored, bool stored_is_dir, const std::string& path) {
+    return "'" + path + "' is the 8.3 name of the " + (stored_is_dir ? "folder" : "file") + " '" + stored +
+           "' on the card; copying under it would " + (stored_is_dir ? "merge into that folder" : "overwrite that file");
+}
+
 // Write `src_size` bytes of `src` to the card file `fat_path`, whose parent
 // directory exists. `replaced` (passed in false) is set when a file was
 // already there.
@@ -421,7 +510,7 @@ FileAddStatus write_card_file(MountedCard& card,
                               std::ifstream& src, uint64_t src_size,
                               bool overwrite, bool& replaced,
                               std::string& err,
-                              bool replace_readonly = false) {
+                              bool replace_readonly = false, bool bytes = false) {
     // ---- what is already at the destination ---------------------------------
     // Only the two things f_open cannot answer are decided here — whether the
     // destination is a directory, and whether it is marked read-only. Whether
@@ -433,6 +522,16 @@ FileAddStatus write_card_file(MountedCard& card,
         FILINFO fno{};
         FRESULT st = f_stat(fat_path.c_str(), &fno);
         if (st == FR_OK) {
+            std::string alias_stored;
+            bool alias_dir = false;
+            if (alias_clash(fat_path, alias_stored, alias_dir)) {
+                err = alias_clash_message(alias_stored, alias_dir, dest_path);
+                return FileAddStatus::DestInvalid;
+            }
+            if (bytes && resolves_elsewhere(fat_path, fno)) {
+                err = resolves_elsewhere_message(dest_path);
+                return FileAddStatus::DestInvalid;
+            }
             if (fno.fattrib & AM_DIR) {
                 err = "'" + dest_path +
                       "' already exists on the card as a directory";
@@ -687,7 +786,7 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
                                const std::string& host_dir,
                                const std::string& dest_path,
                                bool overwrite, std::string& err,
-                               AddSummary* summary) {
+                               AddSummary* summary, bool dest_is_bytes = false) {
     namespace fs = std::filesystem;
 
     // ---- 1. the destination: a path, or "/" for the card root ---------------
@@ -696,7 +795,7 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
     const std::vector<std::string> dest_parts = split_slash(dest_path);
     if (!dest_parts.empty()) {
         std::string unused;
-        if (!normalize_dest_path(dest_path, unused, err))
+        if (!normalize_dest_path(dest_path, unused, err, dest_is_bytes))
             return FileAddStatus::DestInvalid;
     }
 
@@ -742,6 +841,12 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
         if (fr != FR_OK) {
             err = "cannot inspect '" + card_path + "' on the card (" +
                   fr_str(fr) + ")";
+            return FileAddStatus::DestInvalid;
+        }
+        std::string alias_stored;
+        bool alias_dir = false;
+        if (alias_clash(fat_path, alias_stored, alias_dir)) {
+            err = alias_clash_message(alias_stored, alias_dir, card_path);
             return FileAddStatus::DestInvalid;
         }
         const bool card_is_dir = (fno.fattrib & AM_DIR) != 0;
@@ -830,7 +935,7 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
         const std::string fat_path  = "0:" + card_path;
         if (n.is_dir) {
             bool made = false;
-            st = ensure_card_dir(card, fat_path, n.rel.back(), card_path, made, err);
+            st = ensure_card_dir(card, fat_path, n.rel.back(), card_path, made, err, dest_is_bytes);
             if (st != FileAddStatus::Ok) return rollback(st);
             if (made) { created.push_back(fat_path); ++dirs_created; }
             continue;
@@ -842,7 +947,7 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
         }
         bool replaced = false;
         st = write_card_file(card, image_path, fat_path, card_path, n.host.u8string(),
-                             src, n.size, overwrite, replaced, err);
+                             src, n.size, overwrite, replaced, err, false, dest_is_bytes);
         if (st != FileAddStatus::Ok) {
             // write_card_file already removed its own partial file; a file it
             // was REPLACING is gone with it.
@@ -1032,7 +1137,7 @@ FileAddStatus add_file_to_image(const std::string& image_path,
                                 const std::string& host_file,
                                 const std::string& dest_path,
                                 bool overwrite,
-                                std::string& err) {
+                                std::string& err, bool dest_is_bytes) {
     err.clear();
 
     // ---- 1. the source -----------------------------------------------------
@@ -1082,7 +1187,7 @@ FileAddStatus add_file_to_image(const std::string& image_path,
 
     // ---- 2. the destination path ------------------------------------------
     std::string fat_path;
-    if (!normalize_dest_path(dest_path, fat_path, err))
+    if (!normalize_dest_path(dest_path, fat_path, err, dest_is_bytes))
         return FileAddStatus::DestInvalid;
 
     // ---- 3. the image ------------------------------------------------------
@@ -1147,7 +1252,7 @@ FileAddStatus add_file_to_image(const std::string& image_path,
             prefix += "/";
             prefix += parts[i];
             bool created = false;
-            st = ensure_card_dir(card, prefix, parts[i], dest_path, created, err);
+            st = ensure_card_dir(card, prefix, parts[i], dest_path, created, err, dest_is_bytes);
             if (st != FileAddStatus::Ok) return unmake(st);
             if (created) made.push_back(prefix);
         }
@@ -1156,7 +1261,7 @@ FileAddStatus add_file_to_image(const std::string& image_path,
     // ---- 6 + 7. what is already there, and the copy -------------------------
     bool replaced = false;
     st = write_card_file(card, image_path, fat_path, dest_path, host_file, src,
-                         src_size, overwrite, replaced, err);
+                         src_size, overwrite, replaced, err, false, dest_is_bytes);
     return st == FileAddStatus::Ok ? st : unmake(st);
 }
 
@@ -1221,7 +1326,7 @@ FileAddStatus add_to_image(const std::string& image_path,
                            const std::string& dest_path,
                            bool overwrite,
                            std::string& err,
-                           AddSummary* summary) {
+                           AddSummary* summary, bool dest_is_bytes) {
     namespace fs = std::filesystem;
     err.clear();
 
@@ -1250,7 +1355,7 @@ FileAddStatus add_to_image(const std::string& image_path,
             return FileAddStatus::SourceUnreadable;
         }
         const FileAddStatus st =
-            add_file_to_image(image_path, host_path, dest, overwrite, err);
+            add_file_to_image(image_path, host_path, dest, overwrite, err, dest_is_bytes);
         if (st == FileAddStatus::Ok && summary) {
             *summary = AddSummary{};
             summary->dest  = dest;
@@ -1260,7 +1365,7 @@ FileAddStatus add_to_image(const std::string& image_path,
         return st;
     }
     return add_dir_to_image(image_path, host_path, dest, overwrite, err,
-                            summary);
+                            summary, dest_is_bytes);
 }
 
 }  // namespace sdcard

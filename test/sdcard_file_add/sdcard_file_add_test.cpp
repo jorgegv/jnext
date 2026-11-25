@@ -82,6 +82,7 @@ void check(const char* id, const char* desc, bool cond,
 
 }  // namespace
 
+#include <functional>
 #include "sdcard_file_add_helpers.h"
 
 namespace {
@@ -259,6 +260,105 @@ void test_writes() {
           fixture_tree_intact(img));
     check("SDFA-W21", "both FAT copies still agree after all of them",
           fats_agree(img, fat_detail) && free_counts_agree(img), fat_detail);
+
+    // ---- a name that is another entry's 8.3 alias (GH #558) -------------------
+    // FatFs resolves `ALONGD~1.NEX` to `A Long Demo Name.nex`: "replacing" it would overwrite a file the
+    // caller never named. Oracle: the card as FatFs listed it (the alias is read back, not assumed), and
+    // the image digest, which must not move on a refusal.
+    {
+        std::string alias;
+        {
+            std::vector<sdcard::cardops::CardEntry> ents;
+            std::string lerr;
+            sdcard::cardops::list_dir(img.string(), "/", ents, lerr);
+            for (const auto& e : ents)
+                if (e.name == "A Long Demo Name.nex") alias = e.altname;
+        }
+        const uint64_t before = file_digest(img);
+        write_host_file(src, small);
+        std::string aerr;
+        const FileAddStatus ast =
+            sdcard::add_file_to_image(img.string(), src.string(), "/" + alias, true, aerr);
+        check("SDFA-W73", "a single file whose name is another entry's 8.3 alias is refused even with overwrite, naming that entry, the image untouched",
+              !alias.empty() && ast == FileAddStatus::DestInvalid && aerr.find("A Long Demo Name.nex") != std::string::npos &&
+                  file_digest(img) == before && tree_has(img, "", "A Long Demo Name.nex", lfn_data.size()),
+              alias + " | " + aerr);
+        // the same name inside a folder merge, with overwrite: all or nothing
+        const fs::path hd = g_scratch / "aliasdir";
+        std::error_code mec;
+        fs::remove_all(hd, mec);
+        fs::create_directories(hd);
+        write_host_file(hd / "FRESH.BIN", small);
+        write_host_file(hd / alias, small);
+        const FileAddStatus mst = sdcard::add_to_image(img.string(), hd.string(), "/", true, aerr);
+        check("SDFA-W74", "a folder merge holding a file named like another entry's 8.3 alias is refused with overwrite, naming that entry, the image untouched (nothing of the folder is copied)",
+              mst == FileAddStatus::DestInvalid && aerr.find("A Long Demo Name.nex") != std::string::npos &&
+                  file_digest(img) == before && !card_has(img, "/FRESH.BIN"),
+              aerr);
+        // a case variant of the stored name is still a plain replace
+        write_host_file(src, small);
+        const FileAddStatus cst =
+            sdcard::add_file_to_image(img.string(), src.string(), "/a long demo name.NEX", true, aerr);
+        check("SDFA-W75", "a case variant of the stored long name is a normal replace, not an alias refusal",
+              cst == FileAddStatus::Ok && tree_has(img, "", "A Long Demo Name.nex", small.size()), aerr);
+
+        // The merge plan's alias check is what stops a refusal HALFWAY: a file that sorts before the
+        // alias-named one is written (or replaced, irreversibly) first unless the plan refuses up front, and a
+        // folder reached through its alias is merged into without any file-level refusal at all. So three
+        // merges, each with overwrite, whose image digest must not move.
+        // Card /AD: Long Name One.txt (alias read back), D1.BIN, and the folder Long Folder Name.
+        write_host_file(src, small);
+        std::string ferr;
+        sdcard::add_file_to_image(img.string(), src.string(), "/AD/Long Name One.txt", false, ferr);
+        sdcard::add_file_to_image(img.string(), src.string(), "/AD/D1.BIN", false, ferr);
+        sdcard::add_file_to_image(img.string(), src.string(), "/AD/Long Folder Name/x0.bin", false, ferr);
+        std::string file_alias, dir_alias;
+        {
+            std::vector<sdcard::cardops::CardEntry> ents;
+            std::string lerr;
+            sdcard::cardops::list_dir(img.string(), "/AD", ents, lerr);
+            for (const auto& e : ents) {
+                if (e.name == "Long Name One.txt") file_alias = e.altname;
+                if (e.name == "Long Folder Name") dir_alias = e.altname;
+            }
+        }
+        const uint64_t before_merge = file_digest(img);
+        auto merge = [&](const char* tag, const std::function<void(const fs::path&)>& fill, std::string& e) {
+            const fs::path d = g_scratch / (std::string("merge-") + tag);
+            std::error_code mec2;
+            fs::remove_all(d, mec2);
+            fs::create_directories(d);
+            fill(d);
+            return sdcard::add_to_image(img.string(), d.string(), "/AD", true, e);
+        };
+        std::string e1, e2, e3;
+        // E1: D1.BIN (exists, will be REPLACED) sorts before the alias-named file
+        const FileAddStatus s1 = merge("e1", [&](const fs::path& d) {
+            write_host_file(d / "D1.BIN", payload(900, 61));
+            write_host_file(d / file_alias, small);
+        }, e1);
+        // E3: A_NEW.BIN (new) sorts before the alias-named file
+        const FileAddStatus s3 = merge("e3", [&](const fs::path& d) {
+            write_host_file(d / "A_NEW.BIN", small);
+            write_host_file(d / file_alias, small);
+        }, e3);
+        // E2: a FOLDER named like another folder's alias, with a file in it
+        const FileAddStatus s2 = merge("e2", [&](const fs::path& d) {
+            fs::create_directories(d / dir_alias);
+            write_host_file(d / dir_alias / "y.bin", small);
+        }, e2);
+        const bool same = file_digest(img) == before_merge;
+        check("SDFA-W76", "a folder merge with overwrite where an existing file that will be replaced sorts BEFORE an alias-named file is refused up front (naming the entry): the image is byte-identical and that file keeps its bytes",
+              !file_alias.empty() && s1 == FileAddStatus::DestInvalid && e1.find("Long Name One.txt") != std::string::npos && same,
+              file_alias + " | " + e1);
+        check("SDFA-W77", "a folder merge where a NEW file sorts before an alias-named file is refused up front: nothing is created and the image is byte-identical (a rolled-back write would leave its deleted entry)",
+              s3 == FileAddStatus::DestInvalid && e3.find("Long Name One.txt") != std::string::npos && same && !card_has(img, "/AD/A_NEW.BIN"),
+              e3);
+        check("SDFA-W78", "a folder merge whose folder is named like another folder's 8.3 alias is refused naming a FOLDER, nothing is merged into that folder, the image byte-identical",
+              !dir_alias.empty() && s2 == FileAddStatus::DestInvalid && e2.find("folder 'Long Folder Name'") != std::string::npos &&
+                  e2.find("merge into that folder") != std::string::npos && same && !card_has(img, "/AD/Long Folder Name/y.bin"),
+              dir_alias + " | " + e2);
+    }
 
     // ---- destination conflicts ---------------------------------------------
     write_host_file(src, small);
