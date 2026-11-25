@@ -384,6 +384,15 @@ int main(int argc, char** argv)
         in_work = nullptr;
         check("SDMENU-17", "File > SD Card File Manager... during a card operation shows one refusing box, opens no window and does not pause the machine",
               L.dialogs == 1 && !window_opened && !paused && !f.backend->state().paused, "boxes=" + std::to_string(L.dialogs));
+        // a window with no machine behind it cannot pause one: refused with a box as well
+        MainWindow bare;
+        const int before = unexpected_dialogs;
+        bare.sd_manager_action()->trigger();
+        bool bare_opened = false;
+        for (QWidget* w : QApplication::topLevelWidgets())
+            if (qobject_cast<SdManagerDialog*>(w)) bare_opened = true;
+        check("SDMENU-18", "File > SD Card File Manager... in a window with no machine shows one refusing box and opens nothing",
+              unexpected_dialogs - before == 1 && !bare_opened, "boxes=" + std::to_string(unexpected_dialogs - before));
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

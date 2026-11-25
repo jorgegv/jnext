@@ -1236,25 +1236,38 @@ int main(int argc, char** argv)
         const fs::path hd = fresh_dir("mw33");
         AppConfigData want;
         want.sdmanager_host_dir = QString::fromStdString(hd.string());   // as --set sdcard_manager.host_dir=... would
+        want.sdmanager_card = QString::fromStdString(a.p);
+        want.sdmanager_card_dir = QString::fromStdString(sm::encode_card_dir("/GAMES"));
         win.apply_startup_config(want, false);
         win.sd_manager_action()->trigger();
         SdManagerDialog* d = find_dialog();
         const bool opened = d && d->isVisible() && d->windowModality() == Qt::ApplicationModal;
         const bool paused = rig.dbg->state().paused;
-        const bool on_cmdline_dir = d && d->host_dir() == QString::fromStdString(hd.string());
+        const bool on_cmdline_dir = d && d->host_dir() == QString::fromStdString(hd.string()) && d->card_dir() == QStringLiteral("/GAMES");
         if (d) wire(*d, b);
         win.sd_manager_action()->trigger();   // a second trigger while it is up opens nothing more
         int dialogs = 0;
         for (QWidget* w : QApplication::topLevelWidgets()) if (qobject_cast<SdManagerDialog*>(w)) ++dialogs;
-        if (d) d->accept();
+        if (d) {
+            auto* up = child<QToolButton>(*d, "host_up");
+            if (up) up->click();   // the folder it closes on is NOT the command line's: the GUI change takes over
+            d->accept();
+        }
         pump_until([&] { return !rig.dbg->state().paused; }, 3000);
         QCoreApplication::processEvents();
         AppConfig saved(AppConfig::default_config_path());
         saved.load();
-        check("SDMW-33", "File > SD Card File Manager... opens the window, application modal and over a PAUSED machine, once; closing it with no change resumes the machine with no cold boot and saves the card and host folder it closed on",
+        // a second visit opens on what the first closed on, not on the command line's value
+        win.sd_manager_action()->trigger();
+        SdManagerDialog* d2 = find_dialog();
+        const bool reopened_on_parent = d2 && d2->host_dir() == QString::fromStdString(hd.parent_path().string());
+        if (d2) { wire(*d2, b); d2->accept(); }
+        pump_until([&] { return !rig.dbg->state().paused; }, 3000);
+        check("SDMW-33", "File > SD Card File Manager... opens the window, application modal and over a PAUSED machine, once; closing it with no change resumes the machine with no cold boot and saves the card and host folder it closed on, which the next visit opens on instead of a command-line value",
               opened && paused && on_cmdline_dir && dialogs == 1 && !rig.dbg->state().paused && rig.boots == 0 && !find_dialog() &&
-                  saved.data().sdmanager_card == QString::fromStdString(a.p) && saved.data().sdmanager_host_dir == QString::fromStdString(hd.string()) &&
-                  saved.data().sdmanager_card_dir == QStringLiteral("/"),
+                  saved.data().sdmanager_card == QString::fromStdString(a.p) && saved.data().sdmanager_host_dir == QString::fromStdString(hd.parent_path().string()) &&
+                  reopened_on_parent &&
+                  saved.data().sdmanager_card_dir == QString::fromStdString(sm::encode_card_dir("/GAMES")),
               std::string("opened=") + (opened ? "y" : "n") + " paused=" + (paused ? "y" : "n") + " boots=" + std::to_string(rig.boots) + " card=" +
                   saved.data().sdmanager_card.toStdString() + " host=" + saved.data().sdmanager_host_dir.toStdString());
     }
@@ -1279,6 +1292,31 @@ int main(int argc, char** argv)
         check("SDMW-34", "closing the window after a card change ends in exactly one hard reset and a running machine, and the status bar says the machine restarts",
               d && on_card(a.p, "/NEWDIR") && rig.boots == 1 && !rig.dbg->state().paused && msg.find("the machine restarts") != std::string::npos,
               "boots=" + std::to_string(rig.boots) + " msg=" + msg + " warn=" + std::to_string(b.count("")));
+    }
+    {
+        // a change when the loop cannot reset at once (no loop driver): the reset is requested for the next tick and the
+        // machine is left PAUSED, and the status bar says so
+        Img a(G);
+        Rig rig;
+        rig.dbg->set_loop_driver(jnext::dbg::LoopDriver{});
+        rig.emu.sd_card().mount(a.p, false);
+        MainWindow win;
+        win.set_debugger(rig.dbg.get());
+        win.set_emulator(&rig.emu);
+        Boxes b;
+        win.sd_manager_action()->trigger();
+        SdManagerDialog* d = find_dialog();
+        if (d) {
+            wire(*d, b);
+            b.say(QStringLiteral("NEWDIR"));
+            d->findChild<QAction*>("card_new_folder")->trigger();
+            d->accept();
+        }
+        pump_until([&] { return !find_dialog() && win.statusBar()->currentMessage().size() > 0; }, 3000);
+        const std::string msg = win.statusBar()->currentMessage().toStdString();
+        check("SDMW-35", "a card change when the machine cannot be reset at once leaves it paused with the reset requested, and the status bar says it restarts paused",
+              d && rig.dbg->state().paused && rig.emu.take_hard_reset_request() && rig.boots == 0 && msg.find("restarts paused") != std::string::npos,
+              "boots=" + std::to_string(rig.boots) + " msg=" + msg);
     }
     check("SDMW-18", "the fixture cards are real volumes of the types the rows claim (FAT32 partitioned, FAT16 partitioned)", gt == FS_FAT32 && t16 == FS_FAT16);
     sd_write_journal::forget_all_for_test();
