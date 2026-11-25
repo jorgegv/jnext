@@ -9046,9 +9046,14 @@ std::vector<Emulator::CardFileEvent> Emulator::check_card_files() {
         SdCardDevice& dev = slot == 0 ? sd_card() : sd_card2();
         const SdCardDevice::OutsideChange k = dev.outside_change();
         if (k == SdCardDevice::OutsideChange::None) continue;
-        out.push_back({slot, k, dev.image_path()});
+        out.push_back({slot, k, dev.image_path(), dev.has_writes_file()});
+        const bool wf = dev.has_writes_file();
         const char* what = k == SdCardDevice::OutsideChange::Replaced
-                               ? "was replaced by another file: the machine keeps using the old one, and what it writes is lost when jnext exits"
+                               ? (wf ? "was replaced by another file: the machine keeps using the old one, and what it writes goes into the SD-writes file, which no longer fits the new image"
+                                     : "was replaced by another file: the machine keeps using the old one, and what it writes is lost when jnext exits")
+                           : k == SdCardDevice::OutsideChange::Deleted
+                               ? (wf ? "was deleted: the machine keeps using the open file, and what it writes goes into the SD-writes file, which cannot be used again without the image"
+                                     : "was deleted: the machine keeps using the open file, and what it writes is lost when jnext exits")
                            : k == SdCardDevice::OutsideChange::Resized
                                ? "was resized: the card keeps its old size"
                                : "was changed by another program while it has an SD-writes file: the writes file no longer fits it, and the card the machine sees may be damaged";

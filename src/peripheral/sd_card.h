@@ -194,8 +194,11 @@ public:
     ///              fit the image as it was. Without a writes file the guest and the manager move the time
     ///              themselves, so it is not looked at.
     /// The mtime is not a hash: a change that keeps the time (touch -r, cp -p) is not seen.
-    enum class OutsideChange { None, Replaced, Resized, Rewritten };
+    ///   Deleted    the path names no file any more (the image was unlinked); the device keeps reading the open file.
+    enum class OutsideChange { None, Replaced, Resized, Rewritten, Deleted };
     OutsideChange outside_change();
+    /// A writes file is bound (the card's changes go into it, not into the image).
+    bool has_writes_file() const { return journal_ != nullptr; }
 
     /// The two restored cursors whose only observable fault is an
     /// out-of-bounds ACCESS, which no behavioural assertion can see on a
@@ -366,7 +369,7 @@ private:
     // What the image looked like at mount, for outside_change().
     std::int64_t mount_mtime_ = 0;
     std::uint64_t mount_dev_ = 0, mount_ino_ = 0;
-    bool latched_replaced_ = false, latched_resized_ = false, latched_rewritten_ = false;
+    bool latched_replaced_ = false, latched_resized_ = false, latched_rewritten_ = false, latched_deleted_ = false;
     // Mount properties (not protocol state: not in describe_state()).
     bool read_only_ = false;      // write-protected: CMD24 never touches file_
     // The image has a write journal (--sdcard-writes): the file is opened

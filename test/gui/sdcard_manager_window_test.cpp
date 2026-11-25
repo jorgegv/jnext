@@ -21,6 +21,7 @@
 // disabled (QT_NO_KEYWORDS would break that header).
 #include <QAbstractItemView>
 #include <QAction>
+#include <QScrollBar>
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
@@ -1662,6 +1663,85 @@ int main(int argc, char** argv)
         check("SDMW-48", "while a card operation owns the card the window makes no card call over three poll intervals and every action, whatever it is aimed at, does nothing (no FatFs attach, no box), the card actions and the selector are disabled and the note says so; when it ends the pane resolves again, at the root if the card changed",
               no_calls && off && says && resolved,
               std::string(no_calls ? "1" : "0") + (off ? "1" : "0") + (says ? "1" : "0") + (resolved ? "1" : "0"));
+    }
+    // SDMW-53: a drag carries the stamps of what was listed, so a drop of a stale entry is refused (the drag twin of SDMW-46)
+    {
+        Img a(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        Boxes b;
+        const fs::path out = fresh_dir("drag-stale");
+        SdManagerDialog d(rig.emu, sm::Remembered{{}, {}, out.string()}, QString::fromStdString(host.string()));
+        wire(d, b);
+        auto* model = qobject_cast<SdCardModel*>(child<QListView>(d, "card_view")->model());
+        int row = -1;
+        for (int r = 0; r < model->rowCount(); ++r) if (model->index(r, 0).data().toString() == "FILE.BIN") row = r;
+        std::unique_ptr<QMimeData> m(row >= 0 ? model->mimeData({model->index(row, 0)}) : nullptr);
+        QString img;
+        QStringList paths, stamps;
+        const bool carries = m && SdCardModel::decode_items(m->data(QString::fromLatin1(SdCardModel::kMime)), img, paths, &stamps) &&
+                             stamps.size() == 1 && !stamps[0].isEmpty();
+        // after the drag started, the guest renames it away and creates another FILE.BIN of another size
+        std::string err;
+        const bool renamed = sdcard::cardops::rename(a.p, "/FILE.BIN", "OLD.BIN", err) == sdcard::FileAddStatus::Ok;
+        const bool made = sdcard::add_to_image(a.p, (host / "h2.bin").string(), "/FILE.BIN", false, err, nullptr, true) == sdcard::FileAddStatus::Ok;
+        const std::string sha = sha_file(a.p);
+        const bool copy_refused = m && !d.drop_on_host(*m, false);
+        const bool move_refused = m && !d.drop_on_host(*m, true);
+        const bool message = !b.texts.empty() && b.texts.back().find("changed on the card since it was listed") != std::string::npos;
+        const bool nothing = tree_of(out).empty() && sha_file(a.p) == sha && on_card(a.p, "/FILE.BIN") && on_card(a.p, "/OLD.BIN");
+        check("SDMW-53", "a drag payload carries the stamp of each listed entry; dropping it on the host pane after the entry changed (renamed away and re-created under its name) is refused with 'changed on the card since it was listed', copy and move, and nothing is extracted or removed",
+              carries && renamed && made && copy_refused && move_refused && message && nothing, b.texts.empty() ? std::string("no box") : b.texts.back());
+    }
+    // SDMW-54 / 55 / 56: the pane keeps its scroll position on a re-list, re-lists when the window is activated, and Refresh is F5
+    {
+        Img a(G);
+        std::string err;
+        for (int i = 0; i < 70; ++i) {
+            char nm[32];
+            std::snprintf(nm, sizeof nm, "/F%02d.BIN", i);
+            sdcard::add_to_image(a.p, (host / "h2.bin").string(), nm, false, err, nullptr, true);
+        }
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        Boxes b;
+        SdManagerDialog d(rig.emu, none_remembered(), QString::fromStdString(host.string()));
+        wire(d, b);
+        d.resize(700, 400);
+        d.show();
+        QCoreApplication::processEvents();
+        auto* sb = child<QListView>(d, "card_view")->verticalScrollBar();
+        sb->setValue(sb->maximum() / 2);
+        const int scrolled = sb->value();
+        // another program changes the image (size and time move, no write generation): the poll re-lists it
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        const bool added = sdcard::add_to_image(a.p, (host / "h2.bin").string(), "/NEW.BIN", false, err, nullptr, true) == sdcard::FileAddStatus::Ok;
+        const int r0 = d.card_reloads_for_test();
+        d.check_card_change();
+        const bool relisted = d.card_reloads_for_test() == r0 + 1 && has(card_names(d), "NEW.BIN");
+        check("SDMW-54", "a re-list of a long folder keeps the card pane's scroll position",
+              scrolled > 0 && added && relisted && sb->value() == scrolled,
+              "scrolled=" + std::to_string(scrolled) + " now=" + std::to_string(sb->value()) + " max=" + std::to_string(sb->maximum()));
+        // bringing the window to the front lists the folder again, whatever the poll saw
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        const bool added2 = sdcard::add_to_image(a.p, (host / "h2.bin").string(), "/LATE.BIN", false, err, nullptr, true) == sdcard::FileAddStatus::Ok;
+        const int r1 = d.card_reloads_for_test();
+        d.activateWindow();
+        QEvent ev(QEvent::ActivationChange);
+        QCoreApplication::sendEvent(&d, &ev);
+        const bool active = d.isActiveWindow();
+        check("SDMW-55", "bringing the window to the front lists the card folder again at once (the activation re-list)",
+              added2 && active && d.card_reloads_for_test() > r1 && has(card_names(d), "LATE.BIN"),
+              std::string(active ? "active " : "inactive ") + "reloads " + std::to_string(r1) + "->" + std::to_string(d.card_reloads_for_test()));
+        // Refresh is F5 in both panes, and it lists the folder again
+        QAction* cr = d.findChild<QAction*>("card_refresh");
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        sdcard::add_to_image(a.p, (host / "h2.bin").string(), "/F5.BIN", false, err, nullptr, true);
+        const int r2 = d.card_reloads_for_test();
+        if (cr) cr->trigger();
+        check("SDMW-56", "the card pane's Refresh action is bound to F5 and lists the folder again",
+              cr && cr->shortcut() == QKeySequence(Qt::Key_F5) && d.card_reloads_for_test() > r2 && has(card_names(d), "F5.BIN"),
+              cr ? cr->shortcut().toString().toStdString() : "no action");
     }
     // SDMW-52: a title over each pane says what it is, and the panes stay equal and aligned
     {

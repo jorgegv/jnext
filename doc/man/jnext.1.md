@@ -190,7 +190,7 @@ naming the option and the value, and exits with status 1.
     copy over it): *FILE* would no longer fit the image, and the card the machine
     sees would be damaged. Use the SD card file manager (File menu), which writes
     into *FILE*. JNEXT warns once, with a message box and in its log, when the
-    image of a card with a writes file changes (or is replaced or resized) while
+    image of a card with a writes file changes (or is replaced, deleted or resized) while
     it runs, and it refuses *FILE* at the next start ("was made for another
     image, or the image was changed by another program since"). The same applies
     to **\--sdcard2-writes**. A recording of
@@ -1877,11 +1877,12 @@ reading something else). Do not change a file a running program has open or is
 writing. With **\--sdcard-writes** the changes go into *FILE* and the image is not
 touched. The window is modeless, there is one of it, and it is inert while an upgrade
 or a go back works on the card. A card item that changed since the window listed it
-(the machine can change the card meanwhile) is skipped, not touched.
+(the machine can change the card meanwhile, also while a question is open) is not touched: that item
+fails, the run stops there and the items after it are not attempted.
 
 Other programs that write an image while jnext runs it behave as the window does
 when the card has no writes file, under the same rules; with a writes file they
-must never be used (see **\--sdcard-writes**). Replacing or resizing the image
+must never be used (see **\--sdcard-writes**). Replacing, deleting or resizing the image
 file while it is mounted is never safe: the machine keeps the old file, and jnext
 warns once when it sees it.
 

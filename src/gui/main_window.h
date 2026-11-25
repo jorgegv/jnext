@@ -500,7 +500,9 @@ public:
     /// GH #558: a card image changed under a mounted card from outside JNEXT (Emulator::check_card_files, called by the
     /// status tick): one warning box per kind, posted to the event loop, never acting on the card. `kind` is an
     /// SdCardDevice::OutsideChange. An unattended window only logs (the emulator already did).
-    void card_file_changed(int slot, int kind, const QString& image);
+    void card_file_changed(int slot, int kind, const QString& image, bool writes_file = false);
+    /// Asks the emulator whether a card image changed from outside and shows the warning for each report (the status tick).
+    void poll_card_files();
 private:
     void remember_sd_manager(const sdmanager::Remembered& r);
     void on_go_back_sd();

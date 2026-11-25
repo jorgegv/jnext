@@ -2291,14 +2291,28 @@ void MainWindow::on_sd_manager() {
     dlg->show();
 }
 
-void MainWindow::card_file_changed(int slot, int kind, const QString& image) {
+void MainWindow::poll_card_files() {
+    if (!emulator_) return;
+    for (const auto& ev : emulator_->check_card_files())
+        card_file_changed(ev.slot, static_cast<int>(ev.kind), QString::fromStdString(ev.image), ev.writes_file);
+}
+
+void MainWindow::card_file_changed(int slot, int kind, const QString& image, bool writes_file) {
     if (unattended_) return;
     const QString card = slot == 1 ? tr("The second SD card") : tr("The SD card");
     QString what;
     switch (static_cast<SdCardDevice::OutsideChange>(kind)) {
     case SdCardDevice::OutsideChange::Replaced:
-        what = tr("was replaced by another file while JNEXT is running. The machine keeps using the old file, and what it "
-                  "writes is lost when JNEXT exits.");
+        what = writes_file ? tr("was replaced by another file while JNEXT is running. The machine keeps using the old file, and what "
+                                "it writes goes into the SD-writes file, which no longer fits the new image.")
+                           : tr("was replaced by another file while JNEXT is running. The machine keeps using the old file, and what it "
+                                "writes is lost when JNEXT exits.");
+        break;
+    case SdCardDevice::OutsideChange::Deleted:
+        what = writes_file ? tr("was deleted while JNEXT is running. The machine keeps using the open file, and what it writes goes "
+                                "into the SD-writes file, which cannot be used again without the image.")
+                           : tr("was deleted while JNEXT is running. The machine keeps using the open file, and what it writes is "
+                                "lost when JNEXT exits.");
         break;
     case SdCardDevice::OutsideChange::Resized:
         what = tr("was resized while JNEXT is running. The card keeps its old size.");

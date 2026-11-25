@@ -125,7 +125,7 @@ bool SdCardDevice::mount(const std::string& path, bool read_only) {
             mount_ino_ = static_cast<std::uint64_t>(st.st_ino);
         }
 #endif
-        latched_replaced_ = latched_resized_ = latched_rewritten_ = false;
+        latched_replaced_ = latched_resized_ = latched_rewritten_ = latched_deleted_ = false;
     }
 
     // Pass-5 verify-audit fix (2026-05-09): full SPI-protocol state reset
@@ -148,6 +148,13 @@ bool SdCardDevice::mount(const std::string& path, bool read_only) {
 
 SdCardDevice::OutsideChange SdCardDevice::outside_change() {
     if (!mounted() || path_.empty()) return OutsideChange::None;
+    if (!latched_deleted_) {
+        std::error_code dec;
+        if (!std::filesystem::exists(path_, dec) && !dec) {
+            latched_deleted_ = true;
+            return OutsideChange::Deleted;
+        }
+    }
 #ifndef _WIN32
     struct stat st {};
     if (!latched_replaced_ && mount_ino_ != 0 && ::stat(path_.c_str(), &st) == 0 &&

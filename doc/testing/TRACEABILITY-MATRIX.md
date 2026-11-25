@@ -44,7 +44,7 @@ mentions them, so a test can no longer be absent from this document.
 | Contention                                 |   178 |  178 |    0 |    0 |       0 |          0 |
 | LoRes                                      |   101 |  101 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    97 |   97 |    0 |    0 |       0 |          0 |
-| Companion: sdcard_posix_test               |     8 |    8 |    0 |    0 |       0 |          0 |
+| Companion: sdcard_posix_test               |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: sdcard_writes_test              |    30 |   30 |    0 |    0 |       0 |          0 |
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
@@ -71,9 +71,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   103 |  103 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6698 | 6698 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6699 | 6699 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6698**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6169**. Rows the 258 suites declared in `test/unit-tests.conf` run live: **18444**.
+Rows the sections above carry: **6699**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6170**. Rows the 258 suites declared in `test/unit-tests.conf` run live: **18453**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 205 suites (12359 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 205 suites (12367 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -116,7 +116,7 @@ These 205 suites (12359 live rows) have no VHDL-derived plan row to map, so they
 | `sdcard_swap_lock_test` | 6 | the live SD card change takes and drops the image lock (GH #555): the design in the issue as oracle (host feature, no core counterpart) |
 | `sdcard_file_extract_test` | 41 | FatFs R0.15b and the FAT specification as oracle, with the issue and its plan (GH #557): host copy OUT of an SD card image, a host feature with no core counterpart; the core never reads a filesystem, only SPI blocks, which `## SD Card` traces |
 | `sdcard_card_ops_test` | 59 | FatFs R0.15b and the FAT specification as oracle, with the issue and its plan (GH #558): host-side file operations on an SD card image for the SD card file manager, a host feature with no core counterpart; the core never reads a filesystem, only SPI blocks, which `## SD Card` traces |
-| `sdcard_manager_test` | 46 | the issue and its decision comments (GH #558) and the guest's SPI view of the card and the FAT32 layout (SD Physical Layer spec, fatgen103) as oracle: the SD card file manager's host-side logic (the copy, move and delete runs, the listed-identity check, what the window opens on, the machine seeing the manager's changes and the manager the machine's), a host feature with no core counterpart |
+| `sdcard_manager_test` | 47 | the issue and its decision comments (GH #558) and the guest's SPI view of the card and the FAT32 layout (SD Physical Layer spec, fatgen103) as oracle: the SD card file manager's host-side logic (the copy, move and delete runs, the listed-identity check, what the window opens on, the machine seeing the manager's changes and the manager the machine's), a host feature with no core counterpart |
 | `image_lock_posix_test` | 2 | SD card image lock, symlink and hard-link rows (POSIX, GH #555); same oracle (host feature, no core counterpart) |
 | `sdcard_file_extract_posix_test` | 1 | SDFX-P01 moved out of sdcard_file_extract_test (a symbolic link needs POSIX, GH #557); same oracle |
 | `sdcard_provisioner_test` | 189 | jnext SD-image download/patch policy (host side) |
@@ -250,8 +250,8 @@ These 205 suites (12359 live rows) have no VHDL-derived plan row to map, so they
 | `frame_timer_test` | 6 | host GUI frame-timer contract (Qt timer, not core timing) |
 | `esp_status_test` | 15 | host status-bar ESP indicator (GUI), no core counterpart |
 | `no_sdcard_ui_test` | 4 | --no-sdcard in the window: Insert / Eject SD Card disabled, "SD: none" (host GUI, GH #540) |
-| `sdcard_menu_test` | 15 | File menu card-set actions and their enablement (GH #555): the design in the issue as oracle (host UI, no core counterpart) |
-| `sdcard_manager_window_test` | 49 | the issue and its decision comments (GH #558) as oracle: the SD card file manager window (two panes, read-only forcing, copy, move, rename, delete, New Folder, drops, what it opens on, the card pane following the card, the window staying modeless and inert during a card operation and the emulator winning), a host GUI feature with no core counterpart |
+| `sdcard_menu_test` | 18 | File menu card-set actions and their enablement (GH #555): the design in the issue as oracle (host UI, no core counterpart) |
+| `sdcard_manager_window_test` | 53 | the issue and its decision comments (GH #558) as oracle: the SD card file manager window (two panes, read-only forcing, copy, move, rename, delete, New Folder, drops, what it opens on, the card pane following the card, the window staying modeless and inert during a card operation and the emulator winning), a host GUI feature with no core counterpart |
 | `bug_report_ui_test` | 6 | File > Save Bug Report... in the Qt window (host GUI, GH #492): the menu, the real dialog, the report written |
 | `nex_v13_dialog_test` | 4 | experimental NEX V1.3 warning dialog (GUI), no core counterpart |
 | `desktop_open_test` | 14 | files the desktop (macOS Finder) opens with JNext (host GUI), no core counterpart |
@@ -5098,6 +5098,7 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | SDP-SDW-01 | a journal append that really fails (RLIMIT_FSIZE) answers 0x0D, the file keeps its last whole length and the sector still reads its earlier content (SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:383 |
 | SDP-SDW-02 | a kept-file append that really fails (RLIMIT_FSIZE) returns false, FILE keeps its last whole length (no torn tail) and the earlier kept file is still the kept one | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:416 |
 | SDCOH-08 | a file renamed over the mounted image is reported as Replaced exactly once, and the card keeps reading the old file | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:449 |
+| SDCOH-11 | an image deleted while mounted is reported as Deleted exactly once, and the card keeps reading the open file | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:469 |
 
 ### Companion write-journal suite — `test/sdcard/sdcard_writes_test.cpp`
 

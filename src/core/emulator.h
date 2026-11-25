@@ -300,6 +300,7 @@ public:
         int slot = 0;
         SdCardDevice::OutsideChange kind = SdCardDevice::OutsideChange::None;
         std::string image;
+        bool writes_file = false;   // the slot has an SD-writes file bound (the message differs)
     };
     std::vector<CardFileEvent> check_card_files();
 

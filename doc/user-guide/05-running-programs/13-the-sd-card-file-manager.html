@@ -4756,12 +4756,13 @@ window is open, the selector and the pane show the new card's top folder (or the
 <li>A file JNEXT is itself using cannot be deleted, renamed or overwritten from this window: the card image of a slot, a writes
   file, a recording being made, a loaded tape. The message names the reason and
   nothing is touched.</li>
-<li><strong>A card item that changed since the pane listed it is skipped.</strong> The machine runs
+<li><strong>A card item that changed since the pane listed it is not touched.</strong> The machine runs
   while you choose, so it can rename, delete or re-create a file between the moment the
-  pane showed it and the moment you act. Before each card item is touched, its folder is
-  read again; an item that is no longer the entry you saw is not touched, and the
-  message says "changed on the card since it was listed". The pane then shows the card as
-  it is now.</li>
+  pane showed it and the moment you act (also while a question is open). Before each card
+  item is touched, its folder is read again; an item that is no longer the entry you saw
+  fails, with the message "changed on the card since it was listed", and the run stops
+  there: the items after it are reported as not attempted. The pane then shows the card
+  as it is now.</li>
 <li>A copy that fails part way says what was done, what failed and what was not
   attempted.</li>
 </ul>
@@ -4836,10 +4837,11 @@ lists the folder again in the card pane. It cannot tell what a running program h
 that point here are about this: a card started with <code>--sdcard-writes FILE</code> keeps every
 change in <em>FILE</em>, and an image changed underneath it no longer fits <em>FILE</em> (see
 <a href="#cards-with-a-writes-file">Cards with a writes file</a>). Use this window for such a card.</p>
-<p>Never <strong>replace</strong> or <strong>resize</strong> the image file while it is in use (some tools write a new
+<p>Never <strong>replace</strong>, <strong>delete</strong> or <strong>resize</strong> the image file while it is in use (some tools write a new
 file and rename it over the old one; some change the card's size). The machine keeps
-the old file, and what it writes is lost when JNEXT exits; a resized image keeps its old
-size. JNEXT warns once when it sees either, in any mode.</p>
+the old file, and what it writes is lost when JNEXT exits (with a writes file, it goes into
+that file, which no longer fits the new image); a resized image keeps its old
+size. JNEXT warns once when it sees any of these, in any mode.</p>
 <h2 id="what-it-remembers">What it remembers<a class="headerlink" href="#what-it-remembers" title="Permanent link">&para;</a></h2>
 <p>The window opens on the card, the card folder and the host folder it was closed on,
 also after JNEXT is restarted. The machine wins: if the card it remembers is no longer

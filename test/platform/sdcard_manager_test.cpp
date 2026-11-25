@@ -1758,6 +1758,63 @@ int main() {
                   rok.done.size() == 1 && rok.error.empty() && tree_of(out) == Tree{{"B.BIN", kB}},
               rep_str(rc) + " | " + rep_str(rm) + " | " + rep_str(rd) + " | " + rep_str(rr));
     }
+    // SDMT-38
+    {
+        // the overwrite question is a modal box and the guest runs while it is open: the item is verified again after it
+        auto stale_msg = [](const sm::TransferReport& r) {
+            return r.error.find("changed on the card since it was listed") != std::string::npos && !r.failed.empty() && r.done.empty();
+        };
+        // the guest renames /MYDIR/A.BIN away and creates another A.BIN (another size) under its name
+        auto change = [&](const std::string& img) {
+            std::string e;
+            ops::rename(img, "/MYDIR/A.BIN", "OLD.BIN", e);
+            sdcard::add_to_image(img, (host / "two.bin").string(), "/MYDIR/A.BIN", false, e, nullptr, true);
+        };
+        std::string diag;
+        // card to host: the host already holds an A.BIN, so the question is asked
+        auto c2h = [&](bool move, bool changed) {
+            Img c(G);
+            std::string st;
+            for (const auto& e : ls(c.p, "/MYDIR")) if (e.name == "A.BIN") st = sm::entry_stamp(e);
+            const fs::path out = fresh_dir("q2h");
+            write_host_file(out / "A.BIN", kX);
+            Hk hk;
+            hk.answers = {sm::OverwriteAnswer::Replace};
+            sm::TransferHooks h = hk.hooks();
+            const auto inner = h.ask_overwrite;
+            h.ask_overwrite = [&](const std::string& d, bool dd) { if (changed) change(c.p); return inner(d, dd); };
+            sm::TransferRequest rq = card_req(c.p, out.string(), {"/MYDIR/A.BIN"}, move);
+            rq.items[0].stamp = st;
+            const sm::TransferReport r = sm::run_transfer(rq, h);
+            diag += "c2h:" + rep_str(r) + " | ";
+            if (changed)
+                return stale_msg(r) && hk.count("trash:") == 0 && tree_of(out) == Tree{{"A.BIN", kX}} &&
+                       extracted(c.p, "/MYDIR/A.BIN") == Tree{{"A.BIN", kTwo}} && on_card(c.p, "/MYDIR/OLD.BIN");
+            return r.done.size() == 1 && r.error.empty() && tree_of(out) == Tree{{"A.BIN", kA}} && move == !on_card(c.p, "/MYDIR/A.BIN");
+        };
+        // host to card: the card already holds /MYDIR/A.BIN, so the question is asked
+        auto h2c = [&](bool move, bool changed) {
+            Img c(G);
+            const fs::path src = fresh_dir("q2c") / "A.BIN";
+            write_host_file(src, kX);
+            Hk hk;
+            hk.answers = {sm::OverwriteAnswer::Replace};
+            sm::TransferHooks h = hk.hooks();
+            const auto inner = h.ask_overwrite;
+            h.ask_overwrite = [&](const std::string& d, bool dd) { if (changed) change(c.p); return inner(d, dd); };
+            const sm::TransferReport r = sm::run_transfer(host_req(c.p, "/MYDIR", {src}, move), h);
+            diag += "h2c:" + rep_str(r) + " | ";
+            if (changed)
+                return stale_msg(r) && fs::exists(src) && hk.count("trash:") == 0 &&
+                       extracted(c.p, "/MYDIR/A.BIN") == Tree{{"A.BIN", kTwo}} && on_card(c.p, "/MYDIR/OLD.BIN");
+            return r.done.size() == 1 && r.error.empty() && extracted(c.p, "/MYDIR/A.BIN") == Tree{{"A.BIN", kX}} && move == !fs::exists(src);
+        };
+        const bool ctl = c2h(false, false) && c2h(true, false) && h2c(false, false) && h2c(true, false);
+        const bool c2h_stale = c2h(false, true) && c2h(true, true);
+        const bool h2c_stale = h2c(false, true) && h2c(true, true);
+        check("SDMT-38", "a card entry that changes while the overwrite question is open (renamed away and re-created under its name) is refused after the answer with 'changed on the card since it was listed', copy and move, in both directions: nothing is trashed, extracted or replaced; with no change the same answer proceeds",
+              ctl && c2h_stale && h2c_stale, std::string(ctl ? "ctl=1 " : "ctl=0 ") + (c2h_stale ? "c2h=1 " : "c2h=0 ") + (h2c_stale ? "h2c=1 " : "h2c=0 ") + diag);
+    }
 
     std::error_code ec;
     fs::permissions(g_dir, fs::perms::owner_all, fs::perm_options::add, ec);

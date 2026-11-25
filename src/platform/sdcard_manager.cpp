@@ -447,6 +447,17 @@ ItemOutcome host_to_card(Ctx& c, const TransferItem& it, const std::string& labe
             case OverwriteAnswer::Cancel: return ItemOutcome::Cancelled;
             default: overwrite = true; break;
         }
+        // The question is a modal box and the guest runs while it is open: verify the entry the user agreed to
+        // replace is still the one listed, before the engine replaces whatever now carries that name.
+        std::vector<ops::CardEntry> again;
+        const ops::CardEntry* now = nullptr;
+        if (ops::list_dir(c.r.image, c.card_dest_dir, again, err) == FileAddStatus::Ok)
+            for (const ops::CardEntry& e : again)
+                if (folded(e.name) == want) now = &e;
+        if (!now || entry_stamp(*now) != entry_stamp(*same)) {
+            fail(c, label, "'" + dest + "' " + kChangedSinceListed + "; it is not replaced");
+            return ItemOutcome::Failed;
+        }
     }
     if (!gate(c.h, c.rep)) return ItemOutcome::Cancelled;
     const FileAddStatus st = sdcard::add_to_image(c.r.image, it.source, dest, overwrite, err, nullptr, true);
@@ -500,6 +511,15 @@ ItemOutcome card_to_host(Ctx& c, const TransferItem& it, const std::string& labe
             case OverwriteAnswer::Skip: return ItemOutcome::Skipped;
             case OverwriteAnswer::Cancel: return ItemOutcome::Cancelled;
             default: break;
+        }
+        // The question lets the guest run: the card entry must still be the one listed, before anything is
+        // trashed or extracted.
+        ops::CardEntry again;
+        std::string aerr, acanon;
+        if (find_card_entry(c.r.image, it.source, again, acanon, aerr) != FileAddStatus::Ok ||
+            (!it.stamp.empty() && entry_stamp(again) != it.stamp)) {
+            fail(c, label, "'" + ops::display_name(entry) + "' " + kChangedSinceListed + "; it is not copied");
+            return ItemOutcome::Failed;
         }
         std::string terr;
         if (!c.h.trash_host || !c.h.trash_host(target.string(), terr)) {

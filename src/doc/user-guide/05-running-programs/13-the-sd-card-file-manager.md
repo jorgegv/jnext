@@ -85,12 +85,13 @@ The context menu (right-click) of each pane also offers **Copy**.
 - A file JNEXT is itself using cannot be deleted, renamed or overwritten from this window: the card image of a slot, a writes
   file, a recording being made, a loaded tape. The message names the reason and
   nothing is touched.
-- **A card item that changed since the pane listed it is skipped.** The machine runs
+- **A card item that changed since the pane listed it is not touched.** The machine runs
   while you choose, so it can rename, delete or re-create a file between the moment the
-  pane showed it and the moment you act. Before each card item is touched, its folder is
-  read again; an item that is no longer the entry you saw is not touched, and the
-  message says "changed on the card since it was listed". The pane then shows the card as
-  it is now.
+  pane showed it and the moment you act (also while a question is open). Before each card
+  item is touched, its folder is read again; an item that is no longer the entry you saw
+  fails, with the message "changed on the card since it was listed", and the run stops
+  there: the items after it are reported as not attempted. The pane then shows the card
+  as it is now.
 - A copy that fails part way says what was done, what failed and what was not
   attempted.
 
@@ -179,10 +180,11 @@ that point here are about this: a card started with `--sdcard-writes FILE` keeps
 change in *FILE*, and an image changed underneath it no longer fits *FILE* (see
 [Cards with a writes file](#cards-with-a-writes-file)). Use this window for such a card.
 
-Never **replace** or **resize** the image file while it is in use (some tools write a new
+Never **replace**, **delete** or **resize** the image file while it is in use (some tools write a new
 file and rename it over the old one; some change the card's size). The machine keeps
-the old file, and what it writes is lost when JNEXT exits; a resized image keeps its old
-size. JNEXT warns once when it sees either, in any mode.
+the old file, and what it writes is lost when JNEXT exits (with a writes file, it goes into
+that file, which no longer fits the new image); a resized image keeps its old
+size. JNEXT warns once when it sees any of these, in any mode.
 
 ## What it remembers
 

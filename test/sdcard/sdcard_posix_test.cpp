@@ -452,6 +452,26 @@ int main() {
               std::to_string(static_cast<int>(first)) + std::to_string(static_cast<int>(again)) + (still_old ? "o" : "N"));
     }
 
+    // SDCOH-11 (GH #558): the image unlinked while mounted. The card keeps reading the open file, so what the machine
+    // writes is lost when jnext exits; Deleted is reported once.
+    {
+        const std::string img = make_image(8);
+        SdCardDevice sd;
+        sd.mount(img, false);
+        init_card(sd);
+        const auto fresh = sd.outside_change();
+        std::error_code ec;
+        std::filesystem::remove(img, ec);
+        const auto first = sd.outside_change();
+        const auto again = sd.outside_change();
+        const bool still_old = reads_original(sd, 0);   // the descriptor still names the unlinked file
+        sd.unmount();
+        check("SDCOH-11", "an image deleted while mounted is reported as Deleted exactly once, and the card keeps reading the open file",
+              !ec && fresh == SdCardDevice::OutsideChange::None && first == SdCardDevice::OutsideChange::Deleted &&
+                  again == SdCardDevice::OutsideChange::None && still_old,
+              std::to_string(static_cast<int>(first)) + std::to_string(static_cast<int>(again)) + (still_old ? "o" : "N"));
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total + g_skip, g_pass, g_fail, g_skip);
     return g_fail ? 1 : 0;
