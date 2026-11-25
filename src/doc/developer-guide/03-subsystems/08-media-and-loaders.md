@@ -2089,7 +2089,7 @@ That is safe because of how the card is built, each point checked in the code:
   FatFs window), so a change shows when the guest reads the folder again after reading something else. SDCOH-06 runs a
   real NextZXOS (a probe NEX under `.nexload`): its F_OPEN of a file the engine added mid-run succeeds once another
   folder was read in between; an immediate second F_OPEN of the same folder answers from the window and does not see
-  it. The guide gives the user the WiFi-card rule: do not change files a running program has open or is writing.
+  it. The guide gives the user the rule: do not change files a running program has open or is writing.
 - Outside programs. Without a writes file another program that writes the image is what the manager is, at jnext's
   level. With a writes file the image must not change: the journal holds sectors that fit it as it was. At mount
   `SdCardDevice` records the image's size, time and (POSIX) device and inode, and `outside_change()` reports
