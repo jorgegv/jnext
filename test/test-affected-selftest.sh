@@ -29,6 +29,14 @@
 #           its row, a removed _WIN32 arm still flags windows; --explain-miss (the stateless MISS, also for a docs-only plan)
 #   TAF-32  test/ci-gate.sh and test/regression-package.sh plan package-contract-test, not FULL
 #   TAF-31  Qt's QT_TESTCASE_* test-data define counts only for a suite that calls QFINDTESTDATA
+#   TAF-33..74 GH #564, in a git fixture: a changed pin, a new or removed suite line, a changed ? marker
+#           or directive, a pin plus another suite's source, and a line of no known shape (FULL);
+#           test/CMakeLists.txt statements (a new block, a changed link, an if() context, a statement
+#           naming no suite = FULL); the matrix and its generator plan the traceability check
+#   TAF-78..79 GH #564 review: UNIT_TEST_LINTS names lint-test-scripts; the target fails when a lint does
+#   TAF-77  each of ci-gate.sh and regression-package.sh alone plans both makes
+#   TAF-75..76 GH #564: a changed test shell script plans make lint-test-scripts (the preflight lints
+#           a branch never runs); that target runs the four test-script lints
 #   TAF-13  a fixture file is selected by the suite whose sources name its directory, and is FULL
 #           when nothing names it
 # (The MISS line of run-unit-tests.sh is TAF-11's subject; its rows are HS-194d/e in
@@ -121,6 +129,7 @@ run() {  # run <files...>: the plan file in $W/plan, the report in $OUT
 }
 plan_suites() { sed -n 's/^suites=//p' "$W/plan"; }
 plan_get()    { sed -n "s/^$1=//p" "$W/plan"; }
+sedi()        { sed "$1" "$2" >"$2.new" && mv "$2.new" "$2"; }   # sedi <script> <file>: edit in place without sed -i (BSD sed)
 
 run src/a/x.h
 row TAF-01 $([[ $RC -eq 0 && "$(plan_suites)" == "s1_test,s3_test,smoke_test" ]] && echo 1 || echo 0) \
@@ -290,10 +299,328 @@ row TAF-30 $([[ $RC -eq 0 && "$OUT" == *"TEST-AFFECTED MISS: s1_test was not sel
     "--explain-miss: s1 (not pulled y) is named, s2 (selected) is not, a FULL plan names nothing, a docs-only plan (no suite ran) names the failing suite"
 
 run test/ci-gate.sh test/regression-package.sh
-row TAF-32 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_get makes)" == package-contract-test ]] && echo 1 || echo 0) \
+row TAF-32 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_get makes)" == "lint-test-scripts package-contract-test" ]] && echo 1 || echo 0) \
     "test/ci-gate.sh and test/regression-package.sh plan package-contract-test, not FULL (makes: $(plan_get makes), mode $(plan_get mode))"
+
+# ---- GH #564: test/unit-tests.conf and test/CMakeLists.txt are planned by what changed (git mode)
+G reset -q --hard HEAD
+defs s8_test "QT_TESTCASE_SOURCEDIR=$R/weird"   # a Qt suite whose data root is test/ would be selected by every file there
+mkdir -p "$R/test"
+cp "$W/unit-tests.conf" "$R/test/unit-tests.conf"
+cat >"$R/test/CMakeLists.txt" <<'EOF'
+# fixture
+if(NOT EMSCRIPTEN)
+    add_executable(s1_test s1_test.cpp)
+    target_link_libraries(s1_test PRIVATE liba)
+    add_test(NAME s1_tests COMMAND s1_test)
+endif()
+add_executable(s2_test s2_test.cpp)
+add_executable(s3_test s3_test.cpp) # trailing comment
+add_test(NAME s3_tests COMMAND s3_test)
+set(SHARED "a;b")
+EOF
+G add -A; G commit -q -m "conf fixtures"
+TOK=(--smoke smoke_test --plan "$W/plan" --root "$R" --build "$B" --conf "$CONF" --manifest "$R/test/unit-tests.conf")
+trun() { OUT=$(perl "$TOOL" "${TOK[@]}" --base HEAD 2>&1); RC=$?; }   # the planner in git mode, manifest = the fixture's own
+reset_fx() { G checkout -q -- test/unit-tests.conf test/CMakeLists.txt; }
+both_makes() { [[ "$(plan_get makes)" == *traceability-check-subset* && "$(plan_get makes)" == *traceability-selftest* ]] && echo 1 || echo 0; }
+
+sedi 's/^s2_test 1 /s2_test 2 /' "$R/test/unit-tests.conf"
+trun
+row TAF-33 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s2_test,smoke_test" && $(both_makes) == 1 ]] && echo 1 || echo 0) \
+    "a changed row-count pin in unit-tests.conf plans that suite, the smoke set and the traceability checks, not FULL (got $(plan_get mode) $(plan_suites) / $(plan_get makes))"
+reset_fx
+
+sedi 's/^# expect: 5$/# expect: 6/; s/^s9_test 1$/s9_test 1\ns10_test 1/' "$R/test/unit-tests.conf"
+trun
+row TAF-34 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s10_test,smoke_test" && "$OUT" == *"# expect: total changed"* ]] && echo 1 || echo 0) \
+    "a new suite line (and the bumped # expect: total) plans the new suite only and says the total is proven by the manifest checks (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+sedi '/^s9_test 1$/d' "$R/test/unit-tests.conf"
+trun
+row TAF-35 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == smoke_test ]] && echo 1 || echo 0) \
+    "a removed suite line is not FULL (the manifest checks prove the registry both ways) (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+sedi 's/^s3_test 1$/?s3_test 1/' "$R/test/unit-tests.conf"
+sedi '1a # gate: qt\n# os: native' "$R/test/unit-tests.conf"
+trun
+row TAF-36 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s3_test,smoke_test" && "$OUT" == *"directive"* && "$OUT" == *"unit-test-wasm NEEDED"* ]] && echo 1 || echo 0) \
+    "a changed ? marker plans its suite, a changed # gate:/# os: directive adds no suite, says so, and still names the platform runs (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+sedi 's/^s2_test 1 /s2_test 2 /' "$R/test/unit-tests.conf"
+echo '// s1 changed' >>"$R/test/s1_test.cpp"
+trun
+row TAF-37 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,s2_test,smoke_test" ]] && echo 1 || echo 0) \
+    "a pin change of one suite and a source change of another are both planned, the union (got $(plan_get mode) $(plan_suites))"
+reset_fx; G checkout -q -- test/s1_test.cpp
+
+echo 'bogus line without a count' >>"$R/test/unit-tests.conf"
+trun
+row TAF-38 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not read which suites changed"* ]] && echo 1 || echo 0) \
+    "a changed manifest line of no known shape is FULL, saying so (got $(plan_get mode))"
+reset_fx
+
+cat >>"$R/test/CMakeLists.txt" <<'EOF'
+if(NOT EMSCRIPTEN)
+    add_executable(s10_test s10_test.cpp)
+    add_test(NAME s10_tests COMMAND s10_test)
+endif()
+EOF
+echo 's10_test 1' >>"$R/test/unit-tests.conf"
+trun
+row TAF-39 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s10_test,smoke_test" && $(both_makes) == 1 ]] && echo 1 || echo 0) \
+    "a new add_executable/add_test block (and its manifest line) plans the new suite, not FULL (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+sedi 's/target_link_libraries(s1_test PRIVATE liba)/target_link_libraries(s1_test PRIVATE liba libb)/' "$R/test/CMakeLists.txt"
+trun
+row TAF-40 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,smoke_test" && $(both_makes) == 1 ]] && echo 1 || echo 0) \
+    "a changed target_link_libraries of one suite plans that suite only, and the traceability checks (the matrix reads CMake) (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+echo 'include_directories(/x)' >>"$R/test/CMakeLists.txt"
+trun
+row TAF-41 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"names no declared suite: include_directories(/x)"* ]] && echo 1 || echo 0) \
+    "a changed CMake statement that names no suite is FULL and is quoted (got $(plan_get mode))"
+reset_fx
+sedi 's/^set(SHARED "a;b")$/set(SHARED "a;b;c")/' "$R/test/CMakeLists.txt"
+trun
+row TAF-42 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"names no declared suite: set(SHARED"* ]] && echo 1 || echo 0) \
+    "a changed shared variable is FULL (got $(plan_get mode))"
+reset_fx
+
+sedi 's/^if(NOT EMSCRIPTEN)$/if(NOT WIN32)/' "$R/test/CMakeLists.txt"
+trun
+row TAF-43 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,smoke_test" ]] && echo 1 || echo 0) \
+    "a changed if() condition plans the suites inside that block (their context changed), not FULL (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+sedi 's/^add_executable(s2_test s2_test.cpp)$/if(WIN32)\nadd_executable(s2_test s2_test.cpp)\nendif()/' "$R/test/CMakeLists.txt"
+trun
+row TAF-44 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s2_test,smoke_test" ]] && echo 1 || echo 0) \
+    "wrapping an existing suite in a new if() plans that suite (context is part of the statement's identity) (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+sedi 's/^add_executable(s2_test s2_test.cpp)$/add_executable(s2_test s2_test.cpp)\nadd_executable(s2_test s2_test.cpp)/' "$R/test/CMakeLists.txt"
+trun
+row TAF-47 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s2_test,smoke_test" ]] && echo 1 || echo 0) \
+    "a statement repeated in the same context (its count changed) plans the suite it names (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+# ---- GH #564 round 2: order, quoting, parse anomalies, else arms, removed suites, non-target commands
+cmk="$R/test/CMakeLists.txt"
+variant() {  # variant: commit the CMakeLists.txt currently in the tree as the new base (undone by unvariant)
+    G commit -q -am "variant"
+}
+unvariant() { G reset -q --hard HEAD~1; }
+
+sedi '/^set(SHARED "a;b")$/d' "$cmk"; sedi '1a set(SHARED "a;b")' "$cmk"
+trun
+row TAF-48 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"names no declared suite: set(SHARED"* ]] && echo 1 || echo 0) \
+    "a shared statement moved to another place in test/CMakeLists.txt is FULL (CMake is order-dependent) (got $(plan_get mode))"
+reset_fx
+
+sedi '/^add_executable(s2_test s2_test.cpp)$/d' "$cmk"; sedi 's/^add_test(NAME s3_tests COMMAND s3_test)$/add_test(NAME s3_tests COMMAND s3_test)\nadd_executable(s2_test s2_test.cpp)/' "$cmk"
+trun
+row TAF-49 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == *s2_test* ]] && echo 1 || echo 0) \
+    "a suite's statement moved past other suites' statements plans that suite, not FULL (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+sedi '/^add_executable(s3_test s3_test.cpp)/d; /^add_test(NAME s3_tests COMMAND s3_test)$/d' "$cmk"
+sedi 's/^set(SHARED "a;b")$/set(SHARED "a;b")\nadd_executable(s3_test s3_test.cpp)\nadd_test(NAME s3_tests COMMAND s3_test)/' "$cmk"
+trun
+row TAF-50 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"moved past shared statements"* ]] && echo 1 || echo 0) \
+    "a suite's statements moved past a shared statement are FULL (directory options reach later targets only) (got $(plan_get mode))"
+reset_fx
+
+cat >>"$cmk" <<'EOF'
+target_compile_definitions(s1_test PRIVATE RX="^#" Y=1)
+target_link_libraries(s2_test PRIVATE
+    liba # note one
+    libb)
+if(WIN32)
+    target_link_libraries(s1_test PRIVATE liba)
+else()
+    target_link_libraries(s2_test PRIVATE libb)
+endif()
+set(SHARED2 "a)" b)
+set(SHARED3 s1_test)
+EOF
+variant
+sedi 's/Y=1)/Y=2)/' "$cmk"
+trun
+row TAF-51 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,smoke_test" ]] && echo 1 || echo 0) \
+    "a change after a quoted # in an argument is seen, and selects the suite (got $(plan_get mode) $(plan_suites))"
+reset_fx
+sedi 's/# note one/# note two/' "$cmk"
+trun
+row TAF-52 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == smoke_test ]] && echo 1 || echo 0) \
+    "a comment-only change inside a multi-line statement selects no suite and is not FULL (got $(plan_get mode) $(plan_suites))"
+reset_fx
+sedi '/^if(WIN32)$/,/^endif()$/c if(WIN32)\n    target_link_libraries(s1_test PRIVATE liba)\n    target_link_libraries(s2_test PRIVATE libb)\nendif()' "$cmk"
+trun
+row TAF-53 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == *s2_test* ]] && echo 1 || echo 0) \
+    "a statement moved from the else() arm into the if() arm plans its suite (the arm is part of the context) (got $(plan_get mode) $(plan_suites))"
+reset_fx
+sedi 's/^set(SHARED2 "a)" b)$/set(SHARED2 "a)" c)/' "$cmk"
+trun
+row TAF-54 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"set(SHARED2"* ]] && echo 1 || echo 0) \
+    "a changed shared statement holding a quoted ) is FULL (quotes are respected when the statement ends) (got $(plan_get mode))"
+reset_fx
+sedi 's/^set(SHARED3 s1_test)$/set(SHARED3 s1_test s2_test)/' "$cmk"
+trun
+row TAF-55 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"set(SHARED3"* ]] && echo 1 || echo 0) \
+    "a changed non-target command that merely holds a suite name is FULL, not that suite (got $(plan_get mode))"
+reset_fx
+unvariant
+
+cat >>"$cmk" <<'EOF'
+target_compile_definitions(s1_test PRIVATE Q=\"x\")
+find_package(Foo QUIET)
+EOF
+variant
+sedi 's/^find_package(Foo QUIET)$/find_package(Foo REQUIRED)/' "$cmk"
+trun
+row TAF-56 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"find_package(Foo"* ]] && echo 1 || echo 0) \
+    "an escaped quote outside quotes does not swallow later statements: a shared change after it is FULL (got $(plan_get mode))"
+reset_fx
+unvariant
+
+printf '#[[ a bracket comment (unbalanced\n]]\n' >>"$cmk"
+trun
+row TAF-57 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"cannot read with confidence"* ]] && echo 1 || echo 0) \
+    "bracket syntax in test/CMakeLists.txt is a parse anomaly: FULL (got $(plan_get mode))"
+reset_fx
+printf '#[[ a one-line bracket comment ]]\n' >>"$cmk"
+trun
+row TAF-60 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"cannot read with confidence"* ]] && echo 1 || echo 0) \
+    "a one-line bracket comment is a parse anomaly: FULL (got $(plan_get mode))"
+reset_fx
+printf 'set(BR [[x]])\n' >>"$cmk"
+trun
+row TAF-61 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"cannot read with confidence"* ]] && echo 1 || echo 0) \
+    "a bracket argument is a parse anomaly: FULL (got $(plan_get mode))"
+reset_fx
+printf 'add_executable(s9x s9x.cpp\n' >>"$cmk"
+trun
+row TAF-58 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"cannot read with confidence"* ]] && echo 1 || echo 0) \
+    "a statement left unterminated at the end of the file is a parse anomaly: FULL (got $(plan_get mode))"
+reset_fx
+
+sedi '/^add_executable(s3_test s3_test.cpp)/d; /^add_test(NAME s3_tests COMMAND s3_test)$/d' "$cmk"
+sedi '/^s3_test 1$/d' "$R/test/unit-tests.conf"
+trun
+row TAF-59 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == smoke_test ]] && echo 1 || echo 0) \
+    "removing a suite from the manifest and from CMake together is not FULL (the base manifest names it) (got $(plan_get mode) $(plan_suites))"
+reset_fx
+
+# ---- GH #564 round 3: a failing child the planner reads is FULL; every parse-anomaly arm has its row
+STUB="$W/stub"; mkdir -p "$STUB"
+printf '#!/bin/sh\nexit 2\n' >"$STUB/diff"; chmod +x "$STUB/diff"
+sedi 's/^set(SHARED "a;b")$/set(SHARED "a;b;c")/' "$cmk"
+OUT=$(PATH="$STUB:$PATH" perl "$TOOL" "${TOK[@]}" --base HEAD 2>&1); RC=$?
+row TAF-62 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not diff"* ]] && echo 1 || echo 0) \
+    "a diff that exits 2 makes a CMake change FULL, never an empty change list (got $(plan_get mode))"
+NOD="$W/nodiff"; mkdir -p "$NOD"; for t in perl git env; do ln -sf "$(command -v $t)" "$NOD/$t"; done
+OUT=$(PATH="$NOD" "$(command -v perl)" "$TOOL" "${TOK[@]}" --base HEAD 2>&1); RC=$?
+row TAF-63 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not diff"* ]] && echo 1 || echo 0) \
+    "with no diff on PATH a CMake change is FULL (got $(plan_get mode))"
+reset_fx
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = diff ] && exit 128; done\nexec %s "$@"\n' "$(command -v git)" >"$STUB/git"; chmod +x "$STUB/git"; rm -f "$STUB/diff"
+sedi 's/^set(SHARED "a;b")$/set(SHARED "a;b;c")/' "$cmk"
+OUT=$(PATH="$STUB:$PATH" perl "$TOOL" "${TOK[@]}" --base HEAD 2>&1); RC=$?
+row TAF-64 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"git command that reads the change failed"* ]] && echo 1 || echo 0) \
+    "a failing git diff makes the plan FULL, not an empty change set (got $(plan_get mode))"
+reset_fx; rm -f "$STUB/git"
+
+sedi '/^set(SHARED "a;b")$/d' "$cmk"
+trun
+row TAF-65 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"names no declared suite: set(SHARED"* ]] && echo 1 || echo 0) \
+    "deleting a shared statement is FULL (the old side is attributed too) (got $(plan_get mode))"
+reset_fx
+
+anomaly() {  # anomaly ID TEXT-TO-APPEND DESCRIPTION: appended text only, so the sole reason for FULL is the parse
+    printf '%b' "$2" >>"$cmk"
+    trun
+    row "$1" $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"cannot read with confidence"* ]] && echo 1 || echo 0) "$3 (got $(plan_get mode))"
+    reset_fx
+}
+anomaly TAF-66 ']\n' "a stray top-level token is a parse anomaly: FULL"
+anomaly TAF-67 'word\n' "an identifier not followed by ( is a parse anomaly: FULL"
+anomaly TAF-68 'endif()\n' "an end*() with nothing open is a parse anomaly: FULL"
+anomaly TAF-69 'if(WIN32)\n' "an if() still open at the end of the file is a parse anomaly: FULL"
+anomaly TAF-70 'target_link_libraries(s2_test PRIVATE liba #[[ note ]]\n    libb)\n' "a bracket comment inside a statement is a parse anomaly: FULL"
+
+anomaly TAF-72 'else()\n' "an else() with nothing open is a parse anomaly: FULL"
+anomaly TAF-73 'elseif(WIN32)\n' "an elseif() with nothing open is a parse anomaly: FULL"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = -s ] && exit 128; done\nexec %s "$@"\n' "$(command -v git)" >"$STUB/git"; chmod +x "$STUB/git"
+sedi 's/^s2_test 1 /s2_test 2 /' "$R/test/unit-tests.conf"
+OUT=$(PATH="$STUB:$PATH" perl "$TOOL" "${TOK[@]}" --base HEAD 2>&1); RC=$?
+row TAF-74 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"git command that reads the change failed"* ]] && echo 1 || echo 0) \
+    "a failing git ls-files -s (the submodule pointer probe) makes the plan FULL, not a skipped probe (got $(plan_get mode))"
+reset_fx; rm -f "$STUB/git"
+
+echo 'target_compile_definitions(s1_test PRIVATE X="a\")" Y=1)' >>"$cmk"
+variant
+sedi 's/Y=1)/Y=2)/' "$cmk"
+trun
+row TAF-71 $([[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == "s1_test,smoke_test" ]] && echo 1 || echo 0) \
+    "an escaped quote inside a quoted argument does not end it: a change after \")\" selects only the suite (got $(plan_get mode) $(plan_suites))"
+reset_fx
+unvariant
+
+r45=1
+for tf in doc/testing/TRACEABILITY-MATRIX.md test/refresh-traceability-matrix.pl; do
+    printf '%s\n' "$tf" >"$W/files"
+    OUT=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf" --conf "$CONF" --files "$W/files" --smoke smoke_test --plan "$W/plan" 2>&1); RC=$?
+    [[ $RC -eq 0 && "$(plan_get mode)" == subset && "$(plan_suites)" == smoke_test && $(both_makes) == 1 ]] || { r45=0; echo "  (TAF-45: $tf gave $(plan_get mode) $(plan_suites) / $(plan_get makes))"; }
+done
+row TAF-45 $r45 "the traceability matrix, and its generator, each alone plan the traceability check and its self-test, not FULL"
+
+printf 'test/unit-tests.conf\n' >"$W/files"
+OUT=$(perl "$TOOL" --root "$R" --build "$B" --manifest "$W/unit-tests.conf" --conf "$CONF" --files "$W/files" --smoke smoke_test --plan "$W/plan" 2>&1); RC=$?
+row TAF-46 $([[ $RC -eq 0 && "$(plan_get mode)" == full && "$OUT" == *"could not read which suites changed"* ]] && echo 1 || echo 0) \
+    "with no git diff to read (--files) a manifest change stays FULL (got $(plan_get mode))"
+
+r75=1
+for tf in test/zz-helper.sh test/00regression/lint-zz.sh test/packaging/zz.sh test/test-affected-selftest.sh test/00regression/scripts/foo-func.sh; do
+    run "$tf"
+    [[ "$(plan_get makes)" == *lint-test-scripts* ]] || { r75=0; echo "  (TAF-75: $tf plans makes=[$(plan_get makes)])"; }
+done
+run test/zz-helper.sh
+[[ "$(plan_get mode)" == full ]] || r75=0
+run test/00regression/scripts/foo-func.sh
+[[ "$(plan_get rows)" == foo-func ]] || r75=0
+row TAF-75 $r75 "a changed test shell script (generic, harness dir, packaging, the selftest, a row script) plans make lint-test-scripts, the preflight lints a branch otherwise never runs (GH #564)"
+
+r77=1
+for tf in test/ci-gate.sh test/regression-package.sh; do
+    run "$tf"
+    [[ "$(plan_get makes)" == "lint-test-scripts package-contract-test" ]] || { r77=0; echo "  (TAF-77: $tf plans makes=[$(plan_get makes)])"; }
+done
+row TAF-77 $r77 "test/ci-gate.sh and test/regression-package.sh EACH plan package-contract-test and lint-test-scripts (TAF-32 runs them together, which hides a rule that lost one)"
+
+lts=$(awk '/^lint-test-scripts:/{f=1} f&&/^$/{exit} f' "$HERE/../Makefile")
+r76=1
+for l in test/00regression/lint-traps.sh test/lint-timeouts.sh test/lint-pipe-grepq.sh test/lint-sed-inplace.sh; do
+    [[ "$lts" == *"$l"* ]] || { r76=0; echo "  (TAF-76: lint-test-scripts does not run $l)"; }
+    [[ -f "$HERE/../$l" ]] || r76=0
+done
+row TAF-76 $r76 "the lint-test-scripts recipe runs all four test-script lints (traps, timeouts, quiet pipe grep, bare sed -i), each an existing script"
+
+ul=$(sed -n 's/^UNIT_TEST_LINTS *:= *//p' "$HERE/../Makefile")
+row TAF-78 $([[ " $ul " == *" lint-test-scripts "* ]] && echo 1 || echo 0) \
+    "UNIT_TEST_LINTS names lint-test-scripts, so make unit-test and make test-affected lint every tracked test script whatever the plan (GH #564 review: 7 scripts no conf rule reached)"
+
+PL=$(mktemp -d "$W/plant.XXXXXX"); printf '#!/bin/bash\ntimeout 5 true\n' >"$PL/bad.sh"
+LTS_OUT=$(JNEXT_LINT_TIMEOUTS_DIR="$PL" LANG=C make -C "$HERE/.." --no-print-directory lint-test-scripts 2>&1); LTS_RC=$?
+row TAF-79 $([[ $LTS_RC -ne 0 && "$LTS_OUT" == *"[lint-timeouts]"*"offenders: 1"* && "$LTS_OUT" == *"[lint-pipe-grepq] scanned"* && "$LTS_OUT" == *"[lint-sed-i] scanned"* ]] && echo 1 || echo 0) \
+    "make lint-test-scripts exits non-zero when one lint finds a planted offender, and the lints after it still ran (rc=$LTS_RC)"
 
 echo ""
 echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
-[[ "$total" -eq 31 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 31"; exit 1; }
+[[ "$total" -eq 78 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 78"; exit 1; }
 [[ "$failed" -eq 0 ]]

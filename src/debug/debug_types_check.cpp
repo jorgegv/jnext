@@ -267,6 +267,10 @@ static_assert(DAC_CHANNEL_COUNT == 4, "the Soundrive DAC has four channels");
 static_assert(std::tuple_size<decltype(AudioState::chips)>::value == AY_CHIP_COUNT, "");
 static_assert(static_cast<int>(EnvelopeMotion::Holding) == 2, "Falling, Rising, Holding");
 
+// INS-25 (GH #537): the CTC has four channels (zxnext.vhd:4581 NUM_CTC => 4).
+static_assert(CTC_CHANNEL_COUNT == 4, "the CTC has four channels");
+static_assert(std::tuple_size<decltype(std::declval<const Debugger&>().ctc_state())>::value == CTC_CHANNEL_COUNT, "");
+
 // GH #530: the dropped-write reasons are the eight of DEBUGGER-MUSIC-SOUND-PLAN.md
 // §3.5 plus the unused slot 0; the panel rows and the counters index by them.
 static_assert(AUDIO_DROP_REASON_COUNT == 9, "None + eight reasons");
@@ -284,6 +288,12 @@ static_assert(std::is_trivially_copyable<AudioLogEntry>::value, "the tap copies 
 // GH #532: the AudioWrite event's target mask.
 static_assert(audio_target_bit(AudioTarget::Beeper) == 0x10 && sizeof(AudioTargetMask) == 1 &&
               AUDIO_TARGETS_ANY == 0xFF, "one bit per AudioTarget in a byte");
+
+// GH #536 INS-24: nine AY channels, four DAC channels, the beeper and the two mix sides.
+static_assert(AUDIO_SOURCE_COUNT == 16, "9 AY + 4 DAC + beeper + MixLeft + MixRight");
+static_assert(size_t(AudioSource::DacA) == 9, "the DAC follows the 3 x 3 AY channels");
+static_assert(size_t(AudioSource::MixRight) == 15, "MixRight is the last source");
+static_assert(std::tuple_size<decltype(AudioScopeBlock::samples)>::value == AUDIO_SOURCE_COUNT, "");
 
 // INS-01 enumerates 12 pairs, 20 eight-bit halves and 5 singletons. From
 // `RegId::Count`, so an appended register fires it.

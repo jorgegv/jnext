@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.73</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.76</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.73</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.76</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3111,7 +3111,9 @@ which runs after the suites and reads their own logs
 (<code>build/test-logs/&lt;suite&gt;.log</code>, <code>refresh-traceability-matrix.pl --fails-from-logs=DIR</code>)
 instead of running every traced suite a second time; a missing log, or one with
 no <code>Total:</code> line, is a refusal, never an empty FAIL set. The standalone
-<code>make traceability-check</code> still runs the suites itself.</p>
+<code>make traceability-check</code> still runs the suites itself. <code>make test-affected</code> runs
+<code>make traceability-check-subset</code> when the manifest, the test CMake file, the generator or the matrix
+changed: it passes <code>--no-fails</code> (every suite taken as passing), because a subset run keeps no logs.</p>
 <h2 id="where-each-column-comes-from">Where each column comes from<a class="headerlink" href="#where-each-column-comes-from" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Test ID and description</strong> come from the row's own

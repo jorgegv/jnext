@@ -106,6 +106,8 @@ Result Debugger::Impl::refuse_inside_delivery(const char* verb) const {
 
 Debugger::Impl::PreBoot Debugger::Impl::prepare_rebuild() {
     sync_notifications();
+    // GH #538: a recording keeps the silent frames that played before the rebuild.
+    if (psg) psg->note_time(frame_tag(emu));
     return capture_pre_boot();
 }
 
@@ -229,6 +231,7 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     //     (GH #434); and the per-client arm bit and live-raster OR, which
     //     `clients_changed()` re-derives from the list.
     sync_call_stack(/*force=*/true);   // GH #434 F-B: the clients' requests and the source map, not a stored bool
+    sync_audio_scope(/*force=*/true);  // GH #536: the new machine holds no tap; the clients' requests say whether it gets one
     sync_audio_log(/*force=*/true);    // GH #531: the new Emulator holds no sink; the clients' requests re-install it
     if (want_trace)      emu.trace_log().set_enabled(*want_trace);
     if (want_persistent) ds().set_persistent_breakpoints(*want_persistent);

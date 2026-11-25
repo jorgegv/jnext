@@ -129,8 +129,10 @@ enum class OptId {
     MagicPortMode,
     Record,
     WavRecord,
+    WavRecordStems,
     DacTrace,
     AudioLog,
+    PsgRecord,
     AudioGainDb,
     AudioGainBeeperDb,
     AudioGainAy0Db,
@@ -758,6 +760,10 @@ inline constexpr Option OPTIONS[] = {
       "FILE",
       "Record mixed stereo audio to a 44.1 kHz PCM WAV;\n"
       "works headless and does not require ffmpeg" },
+    { "--wav-record-stems", 1, Doc::Documented, OptId::WavRecordStems,
+      "DIR",
+      "Record per-source WAV stems in DIR (ay0-2, dac, beeper, pi, mix),\n"
+      "before host gain and mutes; they sum to mix.wav" },
     { "--dac-trace", 1, Doc::Documented, OptId::DacTrace,
       "FILE",
       "Record timestamped physical DAC writes to CSV" },
@@ -765,6 +771,10 @@ inline constexpr Option OPTIONS[] = {
       "FILE",
       "Record decoded audio writes (AY, DAC, NR 0x2C-0x2E mirrors, beeper)\n"
       "to CSV" },
+    { "--psg-record", 1, Doc::Documented, OptId::PsgRecord,
+      "FILE",
+      "Record each AY chip's register stream as .psg: FILE for AY#0,\n"
+      "FILE-ay1 / FILE-ay2 for AY#1 / AY#2 (created at their first write)" },
     { "--audio-gain-db", 1, Doc::Documented, OptId::AudioGainDb,
       "DB",
       "Host audio gain in dB (-24..+24, default 0);\n"

@@ -12,6 +12,7 @@
 // period about 23 cents higher.
 // ---------------------------------------------------------------------------
 
+#include <cstddef>
 #include <cstdint>
 
 /// Tone frequency in Hz of a 12-bit tone period. The tone counter toggles every
@@ -45,3 +46,25 @@ PsgNote psg_note(double hz);
 /// `ym2149.vhd:371-391` (`\` falling, `/` rising, `'` held high, `_` held
 /// low). The low 4 bits of `shape` are used.
 const char* psg_envelope_glyph(uint8_t shape);
+
+/// The result of `scope_trigger()`.
+struct ScopeTrigger {
+    bool triggered = false;  ///< a rising edge through `level` was found
+    size_t start = 0;        ///< index of the first sample to show
+    int level = 0;           ///< the trigger level used
+};
+
+/// The Scopes view's edge trigger over a block of `n` samples, showing `window` of them.
+/// level = (min + max + 1) / 2 over s[0, n): the midpoint of the block's own range, so a
+/// quiet channel triggers as well as a loud one. start = the LARGEST i in [1, n - window]
+/// with s[i-1] < level and s[i] >= level (the latest rising crossing that still has a
+/// whole window after it). No such i, or min == max: free-run, start = n - window and
+/// not triggered. n < window: start 0, not triggered.
+ScopeTrigger scope_trigger(const int16_t* s, size_t n, size_t window);
+
+/// A meter reading over `n` samples around a resting level.
+struct ScopeMeter {
+    int peak = 0;      ///< max |s - rest|
+    double rms = 0.0;  ///< sqrt(mean((s - rest)^2))
+};
+ScopeMeter scope_meter(const int16_t* s, size_t n, int rest);

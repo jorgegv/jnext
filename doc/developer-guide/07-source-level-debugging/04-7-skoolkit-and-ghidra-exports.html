@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.73</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.76</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.73</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.76</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3304,12 +3304,12 @@ in the writers' files:</p>
 <code>export_menu</code> (<code>debugger_window.cpp:1113</code>), each with
 <code>&amp;skoolkit Control Files...</code> and <code>&amp;Ghidra Symbols...</code> (<code>I</code> and <code>E</code> are free in the Map popup, <code>S</code> and <code>G</code>
 are unique in each submenu; <code>DACC-05</code> pins the new popups and mnemonics). The slots are
-<code>on_import_skoolkit</code> (<code>debugger_manager.cpp:998</code>),
-<code>on_import_ghidra</code> (<code>debugger_manager.cpp:999</code>),
-<code>on_export_skoolkit</code> (<code>debugger_manager.cpp:1000</code>) and
-<code>on_export_ghidra</code> (<code>debugger_manager.cpp:1001</code>), which share
-<code>import_re_files</code> (<code>debugger_manager.cpp:958</code>) and
-<code>export_re_files</code> (<code>debugger_manager.cpp:981</code>):</p>
+<code>on_import_skoolkit</code> (<code>debugger_manager.cpp:1011</code>),
+<code>on_import_ghidra</code> (<code>debugger_manager.cpp:1012</code>),
+<code>on_export_skoolkit</code> (<code>debugger_manager.cpp:1013</code>) and
+<code>on_export_ghidra</code> (<code>debugger_manager.cpp:1014</code>), which share
+<code>import_re_files</code> (<code>debugger_manager.cpp:971</code>) and
+<code>export_re_files</code> (<code>debugger_manager.cpp:994</code>):</p>
 <ul>
 <li><strong>Import</strong> asks for one or more files with <code>QFileDialog::getOpenFileNames</code> (<code>*.ctl</code> or <code>*.txt</code>), calls
   the backend verb once with all of them, and shows the report (counts, then each note) in an
@@ -3326,7 +3326,7 @@ are unique in each submenu; <code>DACC-05</code> pins the new popups and mnemoni
 <h2 id="4-the-frontends">4. The frontends<a class="headerlink" href="#4-the-frontends" title="Permanent link">&para;</a></h2>
 <p><code>write_re_exports_at_exit()</code> (<code>re_export_at_exit.h:41</code>)
 is called from the three loop owners' <code>shutdown()</code>:
-<code>write_re_exports_at_exit()</code> (<code>headless_app.cpp:1134</code>),
+<code>write_re_exports_at_exit()</code> (<code>headless_app.cpp:1140</code>),
 <code>write_re_exports_at_exit()</code> (<code>src/platform/sdl_app.cpp:953</code>) and
 <code>write_re_exports_at_exit()</code> (<code>qt_app.cpp:561</code>).
 A failure logs and sets the exit code to 1. <code>--export-skoolkit</code>, <code>--export-ghidra</code>, <code>--import-skoolkit</code>

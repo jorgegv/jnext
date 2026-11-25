@@ -15,6 +15,11 @@
 - Audio write log with timestamps, writer PC and source, filters and CSV export; `--audio-log FILE` streams it, also headless
 - Per-channel mute and solo for the nine AY and four DAC channels; Audio Write breakpoints; `.jds` `ay_write`, `audio_write`, `ay[chip, reg]`, `AUDIO_CHANNEL_MUTE`
 - `--debugger` and `--break-at`: a program loaded from the command line stops at its start (tape loads included) and waits for a debugger
+- Audio panel Tracker: the AY tune one frame per row for three chips, with each frame's write timing and jitter
+- Scopes tab: edge-triggered traces and level meters for sixteen audio sources, taken before mutes and gains
+- DAC & Beeper view: CTC and DMA pacing rates, each DAC writer's sample rate, jitter and gaps
+- .psg export of each AY chip's register writes from the Audio panel and --psg-record FILE, in Fuse's AY log layout
+- Per-source WAV stems (each AY chip, DAC, beeper, Pi, mix) that add up to the mix, from the Scopes tab or --wav-record-stems DIR
 
 ### Bug Fixes
 - The test suites no longer touch your own SD card; a second jnext on the same card is refused
@@ -22,6 +27,7 @@
 - `--load` and File > Open accept NEX files NextZXOS loads although their first bytes are not "Next"
 - SD cards formatted FAT16 or without a partition table now work for the 48K, 128K and +3 machines and snapshots
 - AY envelope takes its first step on the R13 write, as the hardware does
+- Debugger AY channel mutes no longer change saved snapshots and rewind slots
 - Two emulated machines in one process no longer share CPU timing state (28 MHz waits, warm-start recorder)
 - Tape loading sound plays at the hardware level, mixed through the beeper EAR/MIC term as the FPGA does
 - Browser build: --joy-uart-pty and --joy-uart-fifo are refused with a clear reason instead of failing obscurely
@@ -29,7 +35,8 @@
 
 ### Internal JNEXT Development
 - Remote-run hosts plan test-affected from the branch's local-main merge base, so remote review runs are no longer FULL while main is unpushed
-- Debugger backend gains `audio_state()`, the audio write log and the `AudioWrite` event, in a new core suite (`audio_debug_test`)
+- `make test-affected` plans a changed test manifest, test CMake file or traceability matrix by what changed instead of FULL
+- Debugger backend gains `audio_state()`, the audio write log, `AudioWrite` events, a mixer source tap and CTC/DMA queries (`audio_debug_test`)
 - Remote runs: two lanes on the remote host, so two heavy runs share it at once
 - Faster test cycle: unit-test prerequisites and browser specs run in parallel
 - Build slots: heavy runs go to a free remote host first (several hosts, re-checked while queued) and run locally only when every remote lane is busy
@@ -39,7 +46,7 @@
 - Slow suites: a sector cache in the SD-image code cuts the card tests by up to 5x; the tape suite is split in two
 
 ### Contributors in this release
-- @janko-jj, @lordheavy, @derekfountain, @koseid72
+- @janko-jj, @lordheavy, @derekfountain, @koseid72, @Stu042
 
 ## v1.3.47 (2026-11-21)
 

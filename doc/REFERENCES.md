@@ -85,6 +85,7 @@ Cited by tool, version and file path in [SOURCE-LEVEL-DEBUGGING.md](design/SOURC
 |-------------------------------------------------------------------|------------------------------------------|
 | FUSE — Z80 core (vendored, GPLv2-or-later) and behavioural oracle | <https://fuse-emulator.sourceforge.net/> |
 | FUSE source, `pokefinder/pokemem.c` (POK banked-poke behaviour, read only; GH #381) | <https://sourceforge.net/p/fuse-emulator/fuse/ci/master/tree/> |
+| FUSE source, `psg.c` and `peripherals/ay.c` (the `.psg` AY log layout, read only; GH #538) | <https://sourceforge.net/p/fuse-emulator/fuse/ci/master/tree/> |
 | ZEsarUX source, `src/utils.c` `util_poke` (POK banked-poke behaviour, read only; GH #381) | <https://github.com/chernandezba/zesarux> |
 | ESPeccy source, `src/Cheat.cpp` (POK banked-poke behaviour, read only; GH #381) | <https://github.com/SplinterGU/ESPeccy> |
 

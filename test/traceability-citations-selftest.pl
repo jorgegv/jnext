@@ -3886,6 +3886,44 @@ check('SELF-239', 'a marked call is REFUSED when another call of the row has a f
     check('SELF-245', 'a log with no Total: line is a refusal (exit 3) that names the suite',
           scalar($rc_nt == 3 && $out_nt =~ /the log of suite uart_test has no 'Total:' line/),
           "rc=$rc_nt out=[$out_nt]");
+
+    # ── GH #564: --no-fails, and `make traceability-check-subset` on top of it ──
+    # `make test-affected` runs a subset, which keeps no logs, so it checks the matrix as if every
+    # suite passed: every structural cell still has to match, and a stale matrix still fails.
+    $stub->($_, undef) for ('mmu_test', 'uart_test');
+    for my $s ('mmu_test', 'uart_test') {
+        system("sh '$TR/build/test/$s' > '$TR/logs/$s.log'") == 0 or die "logs547: relog $s";
+    }
+    # From here the mmu_test BINARY fails MMU-09 (its log, read by --fails-from-logs, stays green): a
+    # generator or a make target that runs the suites shows MMU-09 as fail and differs from the
+    # all-pass matrix, so "no run" is asserted, not claimed.
+    $stub->('mmu_test', 'MMU-09');
+    my ($rc_nf, undef) = $gen->("--emit-to='$TR/no-fails.md'", "--no-fails");
+    my ($rc_ok, undef) = $gen->("--emit-to='$TR/all-pass.md'", "--fails-from-logs='$TR/logs'");
+    my ($nf_md, $ok_md) = ($slurp->("$TR/no-fails.md"), $slurp->("$TR/all-pass.md"));
+    check('SELF-246', '--no-fails generates the matrix of an all-passing run with no log and no run (every suite taken as passing)',
+          scalar($rc_nf == 0 && $rc_ok == 0 && length($nf_md) > 1000 && $nf_md eq $ok_md && $nf_md =~ /^\| MMU-09 [^\n]*\| pass \|/m),
+          "rc_nf=$rc_nf rc_ok=$rc_ok same=" . ($nf_md eq $ok_md ? 'yes' : 'NO'));
+    system('cp', "$REAL_ROOT/Makefile", "$TR/Makefile") == 0 or die "logs547: cp Makefile: $?";
+    system('cp', "$TR/no-fails.md", "$TR/doc/testing/TRACEABILITY-MATRIX.md") == 0 or die "logs547: matrix: $?";
+    # The prerequisite sdcard-image only probes the SD master; a stub probe says "current" (exit 0).
+    system('mkdir', '-p', "$TR/tools") == 0 or die "logs547: mkdir tools: $?";
+    open(my $ph, '>', "$TR/tools/sd-master-ensure.sh") or die "logs547: probe: $!";
+    print $ph "#!/bin/sh\nexit 0\n"; close $ph;
+    chmod 0755, "$TR/tools/sd-master-ensure.sh";
+    my $mk = sub { my $o = `cd '$TR' && LANG=C make traceability-check-subset 2>&1`; return ($? >> 8, $o); };
+    my ($rc_fresh, $out_fresh) = $mk->();
+    check('SELF-247', 'make traceability-check-subset passes on a matrix freshly generated for the fixture tree',
+          scalar($rc_fresh == 0 && $out_fresh =~ /traceability matrix is up to date/),
+          "rc=$rc_fresh out=[$out_fresh]");
+    my $stale = $nf_md;
+    $stale =~ s/^(\| MMU-0[0-9] [^\n]*)$/$1 STALE/m or die "logs547: no MMU row to stale";
+    open(my $sh, '>', "$TR/doc/testing/TRACEABILITY-MATRIX.md") or die "logs547: stale: $!";
+    print $sh $stale; close $sh;
+    my ($rc_stale, $out_stale) = $mk->();
+    check('SELF-248', 'make traceability-check-subset FAILS on a stale matrix (a hand-edited row) and says it is stale',
+          scalar($rc_stale != 0 && $out_stale =~ /TRACEABILITY-MATRIX\.md is stale/),
+          "rc=$rc_stale out=[$out_stale]");
 }
 
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
@@ -3910,7 +3948,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 245;
+my $EXPECTED_ROWS = 248;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"

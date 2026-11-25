@@ -16,6 +16,7 @@
 using jnext::dbg::AudioLogEntry;
 using jnext::dbg::AudioMarker;
 using jnext::dbg::AudioTarget;
+using jnext::dbg::Debugger;
 using jnext::dbg::EventSource;
 
 QString audio_drop_reason_text(jnext::dbg::AudioDropReason r)
@@ -292,37 +293,46 @@ void AudioLogView::row_activated(const QModelIndex& proxy_index)
     emit show_in_disassembly_requested(e.pc);
 }
 
+AudioLogFetch fetch_audio_log(const Debugger& dbg, uint64_t have, std::vector<AudioLogEntry>& out)
+{
+    out.clear();
+    auto r = dbg.audio_log_entries(have > 0 ? have - 1 : 0);
+    if (!r) return AudioLogFetch::Off;
+    std::vector<AudioLogEntry>& v = r.value;
+    bool resync = false;
+    if (have > 0) {
+        if (v.empty() || v.front().seq != have) resync = true;
+        else v.erase(v.begin());
+    }
+    if (resync) {
+        auto all = dbg.audio_log_entries(0);
+        if (all) out = std::move(all.value);
+        return AudioLogFetch::Resync;
+    }
+    out = std::move(v);
+    return AudioLogFetch::Append;
+}
+
 void AudioLogView::refresh()
 {
     if (!dbg_) return;
     status_->setText(dbg_->audio_log_enabled() ? tr("Recording") : tr("Not recording"));
-    // From the newest row the view holds (it must still be there), so a ring that was freed and
-    // rebuilt, or that overflowed past it, is seen even when the seq numbers happen to continue.
-    const uint64_t have = model_->last_seq();
-    auto r = dbg_->audio_log_entries(have > 0 ? have - 1 : 0);
-    if (!r) {                               // the log is off: nothing is on show any more
+    std::vector<AudioLogEntry> rows;
+    switch (fetch_audio_log(*dbg_, model_->last_seq(), rows)) {
+    case AudioLogFetch::Off:                // the log is off: nothing is on show any more
         if (model_->rowCount() > 0) model_->replace({});
         return;
-    }
-    std::vector<AudioLogEntry>& v = r.value;
-    bool resync = false;
-    size_t first = 0;
-    if (have > 0) {
-        if (v.empty() || v.front().seq != have) resync = true;
-        else first = 1;
-    }
-    if (resync) {
-        auto all = dbg_->audio_log_entries(0);
-        std::vector<AudioLogEntry> rows = all ? std::move(all.value) : std::vector<AudioLogEntry>{};
+    case AudioLogFetch::Resync:
         if (rows.size() > row_cap_) rows.erase(rows.begin(), rows.end() - std::ptrdiff_t(row_cap_));
         model_->replace(std::move(rows));
         return;
+    case AudioLogFetch::Append:
+        model_->append(rows);
+        // The ring overwrites its oldest writes; the rows for them go too, so the view stays bounded
+        // however long the tab is open. The newest row (the resync key) is never the one dropped.
+        model_->trim_front(row_cap_);
+        return;
     }
-    if (first > 0) v.erase(v.begin());
-    model_->append(v);
-    // The ring overwrites its oldest writes; the rows for them go too, so the view stays bounded
-    // however long the tab is open. The newest row (the resync key above) is never the one dropped.
-    model_->trim_front(row_cap_);
 }
 
 bool AudioLogView::export_to(const QString& path)

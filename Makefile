@@ -58,7 +58,7 @@ JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev
 # docs-check and sdcard-image stay prerequisites of unit-test itself, sdcard-image last: sdcard-ensure-func greps for
 # that, and HS-102 needs the cite check in `make -n unit-test`, which a prerequisite that fails under the self-test's
 # scratch HOME (sdcard-image) would cut off before the recipe if docs-check were in it.
-UNIT_TEST_LINTS      := lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text traceability-accounting-check wasm-function-size-selftest traceability-dup-check
+UNIT_TEST_LINTS      := lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-test-scripts traceability-accounting-check wasm-function-size-selftest traceability-dup-check
 UNIT_TEST_CHECKS     := lint-user-docs-card-selftest docs-tree-same-selftest traceability-selftest cmake-guard-selftest test-affected-selftest
 UNIT_TEST_POST       := schema-check snapshot-zip-check minimal-image-test package-contract-test test-affected-check
 UNIT_TEST_CHECK_JOBS ?= 6
@@ -230,11 +230,11 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
-       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check ci-gate-check ccache-stats fuse-pgo unit-test test-affected test-affected-check test-affected-selftest lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card lint-user-docs-card-selftest docs-tree-same-selftest harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
+       kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check ci-gate-check ccache-stats fuse-pgo unit-test test-affected test-affected-check test-affected-selftest lint-test-scripts lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card lint-user-docs-card-selftest docs-tree-same-selftest harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-cites-check docs-devguide-diagrams read-devguide \
-       docs-schema schema-check snapshot-zip-check traceability-check-run \
+       docs-schema schema-check snapshot-zip-check traceability-check-run traceability-check-subset \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release win-release-non-pgo package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
@@ -932,6 +932,13 @@ traceability-check: $(UNIT_TEST_BUILD_DEP) sdcard-image
 	 [ $$rc -eq 0 ] && printf "$(BADGE_PASS) OK $(RESET) traceability matrix is up to date\n"; \
 	 rm -rf $$tmp; exit $$rc
 
+# Fail when the committed traceability matrix is stale vs one generated with every suite taken as passing (test-affected)
+traceability-check-subset:
+	@# GH #564. A branch round runs a subset, which keeps no logs, so the matrix is generated with
+	@# --no-fails: every structural cell (rows, descriptions, citations, summary counts) is checked,
+	@# a suite's FAIL set is the suite run's verdict. Same recipe as traceability-check.
+	@$(MAKE) --no-print-directory traceability-check UNIT_TEST_BUILD_DEP= TRACE_GEN_ARGS=--no-fails
+
 # Fail when the committed traceability matrix is stale vs one generated from the last unit run's own suite logs
 traceability-check-run:
 	@# GH #547. `make unit-test` calls this after run-unit-tests.sh: the suites ran once, in parallel, and
@@ -1338,6 +1345,16 @@ test-affected: $(UNIT_TEST_LINTS) unit-test-build sdcard-image
 # Every tracked file is in a depfile of the build tree or classified in test/test-affected.conf (GH #547)
 test-affected-check: $(UNIT_TEST_BUILD_DEP)
 	@perl test/test-affected.pl --check
+
+# Run the regression preflight's test-script lints (traps, timeouts, pipe-grep, bare sed -i) on their own
+lint-test-scripts:
+	@# The same four scripts scripts/00-preflight-lint.sh runs, without `make regression`: a branch runs
+	@# no full regression, so a test script that breaks one (GH #564: bare `sed -i`, which BSD sed on
+	@# macOS misreads) was only found by the batch gate. It is in UNIT_TEST_LINTS, so `make unit-test` and
+	@# `make test-affected` run it whatever changed (~7 s; the lints scan every tracked test script, so no
+	@# per-file planning can miss one). All four run; the target fails if any did.
+	@rc=0; for l in test/00regression/lint-traps.sh test/lint-timeouts.sh test/lint-pipe-grepq.sh test/lint-sed-inplace.sh; do \
+	   bash $$l || rc=1; done; exit $$rc
 
 # Self-test of test/test-affected.pl on fixture build trees (TAF rows, GH #547)
 test-affected-selftest:

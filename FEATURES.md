@@ -163,6 +163,11 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Audio write log: a bounded log of every AY, TurboSound select, DAC, NextREG DAC mirror and beeper write with frame, scanline, T-state, writer PC and source (CPU, DMA, Copper), chip, register, new and previous value, envelope restarts flagged, reset, state-load and rewind markers; filters, Disassembly jump, CSV export in the Audio panel or streamed with `--audio-log FILE` (also headless)
 - Audio Write breakpoints: stop on an AY register write (chip, register, value/mask), an AY chip select, a DAC or beeper write, or a dropped write; in the Breakpoints Add dialog and in scripts (`on ay_write`, `on audio_write`, the `ay[chip, reg]` accessor)
 - Per-channel mute and solo: M and S buttons for the nine AY channels and four DAC channels, output stage only and invisible to the Z80; scriptable with `AUDIO_CHANNEL_MUTE`
+- Audio panel Tracker: the AY tune one frame per row for the three chips side by side (note, volume, noise, envelope period and shape, in the order of a tracker), empty and double-written frames marked, a double-click rewinds to the frame; a player timing strip shows the line and T-state of each frame's first and last AY write, writes per frame and the frames the player missed, with a jitter plot
+- Audio panel Scopes: an oscilloscope trace and level meter for each of 16 sources (nine AY channels, four DAC channels, beeper, left and right mix) taken before any mute or gain, edge-triggered with a trig/free lamp
+- Audio panel DAC & Beeper: the CTC channels' and DMA's computed pacing rates, and a sample-stream view per DAC writer (measured rate, interval min/avg/max, jitter, gaps) matched to the engine that paces it
+- `.psg` export: record each AY chip's register writes in the layout Fuse writes for its AY log, one file per chip, from the Audio panel (Record PSG...) or `--psg-record FILE`; checked byte for byte against a Fuse recording
+- Per-source WAV stems: seven 44.1 kHz stereo files (each AY chip, DAC, beeper, Pi and the mix) taken before host gain and mutes, adding up to the mix, from the Scopes tab (Record stems...) or `--wav-record-stems DIR`
 - Disassembly navigation: Follow (F12) jumps, calls, returns and memory operands, Back/Forward history (Alt+Left/Right), a Symbols tab, and register-click shortcuts to the Disassembly, Memory and Source
 - CPU panel: edit registers, flags, IFF and IM in place while paused (double-click a value, click a flag), with symbols accepted for 16-bit values
 - PC/data/read/write breakpoints with watchpoints
@@ -239,7 +244,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--warm-start-regenerate` (force a fresh warm-start recording)
 - `--nex-args "LINE"` (argument line for a NEX V1.3 program)
 - `--inject` raw binary with `--inject-org`, `--inject-pc`, `--inject-delay`
-- `--rewind-buffer-size`, `--speed`, `--record`, `--wav-record`, `--dac-trace`, `--audio-log`, `--rzx-play`, `--rzx-record`
+- `--rewind-buffer-size`, `--speed`, `--record`, `--wav-record`, `--dac-trace`, `--audio-log`, `--psg-record`, `--wav-record-stems`, `--rzx-play`, `--rzx-record`
 - `--audio-gain-db` master gain and per-subsystem `--audio-gain-beeper-db`/`--audio-gain-ay0-db`/`--audio-gain-ay1-db`/`--audio-gain-ay2-db`/`--audio-gain-dac-db`
 - `--when-slow-prefer audio|video` (what to sacrifice when the host cannot keep real time)
 - `--magic-breakpoint`, `--magic-port`, `--magic-port-mode`

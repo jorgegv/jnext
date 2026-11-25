@@ -696,7 +696,7 @@ VHDL ref: `zxnext.vhd` lines 2775-2778
 Suite `test/debug/audio_debug_test.cpp` (`audio_debug_test`, GH #529). It tests what the debugger
 backend reports about the audio chain, not the chain itself (sections 1-7 do that). The rows of this
 section are the ones this suite asserts today: `ANO` (the note helper), `AIZ` (the debugger's audio
-features are invisible to the Z80) and `ADS` (`Debugger::audio_state()`). Later sub-issues of the
+features are invisible to the Z80) and `ADS` (`Debugger::audio_state()`), `ACT` (`ctc_state()` and `dma_state()`). Later sub-issues of the
 same epic add rows to the same suite under their own prefixes, each documented here with the work
 that implements it.
 
@@ -745,6 +745,10 @@ the DAC and beeper making sound, written through real ports and NextREGs.
 | AIZ-08 | A parked CPU looping over every audio write site (as AIZ-07); an AudioWrite subscription on ANY with a Log action on in one run, off in the other | State bytes and framebuffer hash are equal over 50 frames: the event only reads. Positive control: the run with it on delivered all five targets and a dropped write |
 | AIZ-09 | Each of the 13 channel mute bits, and ALL, for 50 frames, on versus off (14 runs) | State bytes and framebuffer hash are equal in every run (the hardware sums every channel: `turbosound.vhd:186-334`, `soundrive.vhd:112-113`) |
 | AIZ-10 | A parked CPU looping `OUT (C),A` to port 0x00B3 with NR 0x84 bit 6 off (thousands of dropped writes a frame); `clear_audio_drops()` in one run only | State bytes and framebuffer hash are equal: the dropped-write counters are outside `describe_state()`. The counters do move (a probe machine counts more than 1000) |
+| AIZ-11 | A CTC timer (P16, TC 109) and an auto-restarting DMA burst to port 0x00DF (prescaler 55); 20 `ctc_state()` and 20 `dma_state()` calls after each of 50 frames in one run only | State bytes and framebuffer hash are equal. Both engines were seen moving; a real AY register write between the runs makes them differ |
+| AIZ-13 | `build()` machine, a stem recording (`stems_record_start()`) on in one run and stopped in the other (GH #539), 50 frames | State bytes and framebuffer hash are equal: the stems and the per-chip latch are outside `describe_state()`. Run A's recording wrote more than 1000 frames |
+| AIZ-12 | A parked CPU looping over every audio write site (as AIZ-07); `psg_record_start()` on in one run, `psg_record_stop()` in the other | State bytes and framebuffer hash are equal over 50 frames: the `.psg` recording only reads (section 8.13). Positive control: the AY#1 file of the run that recorded holds the program's R13 pair |
+| AIZ-14 | `build()` machine, the source tap requested through a client and dropped in the other run (GH #536), 50 frames | State bytes and framebuffer hash are equal: the tap and its ring are outside `describe_state()`. Run A's tap pushed more than 1000 samples |
 
 ### 8.3 `Debugger::audio_state()`
 
@@ -962,6 +966,278 @@ An `AudioWrite` event kind: a subscription on the decoded audio writes, filtered
 | AEV-38 | Subscriptions with Dropped required and a channel: DAC and DAC|mirror (chip 1), DAC (0), mirror (3); then chip Any, an AY register target with chip 1, an AY chip-select target with chip 2, ANY with chip 1 | The first three are `RefusedUnavailable` (a dropped DAC write has chip 0xFF); the other four are accepted |
 | AEV-39 | ANY subscription, log off; a soft reset and a state save and load, a frame after each | No AudioWrite event and no stop: the tap's Reset and StateLoad markers are not writes |
 | AEV-40 | Mirror subscription with regs {0x2D}; `NEXTREG 0x2C,0x11`, `NEXTREG 0x2D,0x66`, `NOP` | Stops one instruction after NR 0x2D only (0x8009); two events, chips 0 and 3, reg 0x2D; none for 0x2C (`soundrive.vhd:85-101`) |
+
+### 8.8 Frame grouping (`src/debug/audio_frames.h`)
+
+The audio write log grouped into one record per frame (GH #534): the helper behind the Audio panel's
+Tracker. Pure: hand-built entry lists, no machine. Oracles: the grouping rules of the issue (a counted
+write is an applied `AyRegister` entry, any non-marker entry of a later frame ends the open one, a marker
+forgets the timeline) and the AY register file, which keeps the whole written byte (`ym2149.vhd:190-205`),
+so a log entry's `prev` is the register's value at the start of the frame; the register meanings at
+`ym2149.vhd:283,306,334,469-471,483-487` and the R13 restart at `:207-210`.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| AFG-01 | f10: R8 = 0x05 (prev 0), R8 = 0x0A; f11: R0 | The frame f11 completes: final R8 0x0A (last wins), before R8 0 (the first write's prev), every other final -1 |
+| AFG-02 | The same plus R0 = 0x10 once; a frame of single writes | double_mask is exactly bit 8; 0 for the single-write frame |
+| AFG-03 | f10: R14 = 0x55, R15 = 0xAA only | One frame: writes 2, written_mask 0xC000, no final or before slot set |
+| AFG-04 | Writes in f10, f13, f14 | empty_before 0, 2, 0 |
+| AFG-05 | f10 AY write; f11 DAC, DAC mirror, beeper and chip-select entries; f12 AY write | The DAC entry already completes f10; f11 has no frame; f12 empty_before 1 |
+| AFG-06 | f10: two Dropped AyRegister entries | No frame opens: flush returns nothing, open() null |
+| AFG-07 | f10: writes stamped (1,10,40), (5,20,1150), (9,4,2050); a one-write frame | first and last are the first and last write, writes 3; one write: first == last |
+| AFG-08 | f10: CPU writes at pc 0x8123, 0x8100, 0x8150, a DMA and a Debugger write; f11: DMA only | pc_min 0x8100, pc_max 0x8150, writes 5; f11 pc_min 0xFFFF, pc_max 0, writes 1 |
+| AFG-09 | f10 R7 = 0x38; a Reset marker; f12 R8 | The marker completes f10 and nothing stays open; f12 empty_before 0, before R7 unknown (-1) |
+| AFG-10 | f10: chip 1 R0 = 0x11, chip 2 R13 = 0x08 | written_mask {0, bit 0, bit 13}, each final on its chip, chip 0 untouched |
+| AFG-11 | f10 R7 = 0x38 (prev 0xFF); f11 R8 only | f10 changed(R7); f11 carries R7: before 0x38, no final, after 0x38, not changed |
+| AFG-12 | The same f11 | R9 never seen: before -1, after -1, not changed |
+| AFG-13 | f10 R8 = 0x05; f12 R8 = 0x09 (prev 0x07) | f12 before R8 is the prev 0x07, not the carried 0x05 |
+| AFG-14 | f10 R0 = 0xFC (prev 0xFC) | written_mask bit 0 set, not changed |
+| AFG-15 | f10: two writes | No frame returned, open() is f10 with writes 2; flush returns it and open() is null |
+| AFG-16 | f20 R7 write; f15 R8 write (no marker) | The f15 write returns f20; f15 has empty_before 0 and an unknown before R7 |
+| AFG-17 | f10: a Debugger-source R8 write | Counted (writes 1, final set), no pc range |
+| AFG-18 | A write, a StateLoad marker, a write, a Rewind marker (frame 8), a write at f9 | Each marker returns the open frame (writes 1 each, markers never counted); f9 empty_before 0 |
+
+The Tracker's own rows live in `debugger_audio_panel_test` (the grid cell for cell, the live grouping of
+real writes, the rewind double-click and why a row is greyed) and `debugger_panel_data_test` (what the
+window asks of the backend, and the landing on a frame).
+
+### 8.9 CTC and DMA pacing (INS-25)
+
+`Debugger::ctc_state()` and `dma_state()` (GH #537), on a bare Next, with the CTC programmed through
+the real ports `0x183B + (n << 8)` and NR 0xC5, the DMA through port 0x6B. Oracles: `ctc_chan.vhd`
+(`:117,132-170,223,263-285`), `zxnext.vhd:4581-4607` and `dma.vhd` (`:230-236,250-255,287-361,424`). Rates are
+in milli-hertz, written as literals computed by hand from 28 MHz / (prescaler x TC) and 28 MHz / (32 x
+prescaler), rounded half up. "After the TC write, one edge leaves S_TRIGGER, then each count step falls 16 (or 256)
+edges later."
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| ACT-01 | Ch0 timer, P16, TC 1, 1 edge                     | Timer, prescaler 16, TC 1, running, interrupt off, 1 750 000 000 (`ctc_chan.vhd:146,150,282`) |
+| ACT-02 | Ch0 timer P16, TC 100                            | 17 500 000                                                 |
+| ACT-03 | Ch0 timer P16, TC 0                              | TC reads 256; 6 835 938 (6 835 937.5 rounded half up, `:153`) |
+| ACT-04 | Ch0 control 0x25 (P256), TC 1                    | Prescaler 256; 109 375 000 (`:146`)                        |
+| ACT-05 | Ch0 timer P256, TC 100                           | 1 093 750                                                  |
+| ACT-06 | Ch0 timer P256, TC 0                             | 427 246                                                    |
+| ACT-07 | Ch0 timer P16 TC 100; ch1 counter TC 10          | Ch1 counter, running, 1 750 000 (`:150`, `zxnext.vhd:4598`) |
+| ACT-08 | Ch3 timer P256 TC 50; ch0 counter TC 7           | Ch0 312 500 (channel 0 is clocked by channel 3)            |
+| ACT-09 | Ch0 timer P16 TC 100; ch1 counter TC 10; ch2 counter TC 5 | Ch2 350 000 (every hop divides exactly; ACT-16 pins the rounding) |
+| ACT-10 | A counter behind a never-programmed channel; a ring of four counters; a timer waiting for its trigger; a fresh machine | Rate 0 in each; running false for the last two; TC 256 and count 0 on a fresh machine (`:117,223,282`) |
+| ACT-11 | Ch0 timer P16 TC 100; 1, then 17, then 81 edges  | Count 100, 99, 95, each equal to the port read (`:155-168`) |
+| ACT-12 | Ch0 control 0x85; NR 0xC5 = 0x02; NR 0xC5 = 0x00 | Interrupt enable on ch0; then ch1 only; then none, each equal to `get_int_enable()` (`:263-276`, `zxnext.vhd:4592-4593`) |
+| ACT-13 | Ch0 timer running 161 edges, then control 0x03 (soft reset) | Not running, rate 0, count 100 (`:117,158-159`)  |
+| ACT-14 | Ch0 timer running; control 0x05 (TC follows), TC 50 | Running throughout, TC 50, 35 000 000 (`:228-239`)      |
+| ACT-15 | Ch0 timer P16 TC 100, 4000 edges, `on_zc_to` timestamps | Two ZC/TO edges 1600 apart; rate x 1600 = 28e9 (`:132-170`) |
+| ACT-16 | Ch0 timer P16 TC 0 (6 835 937.5 mHz); ch1 counter TC 4 | Ch1 1 708 984: 28e9 / (16 x 256 x 4) = 1 708 984.375 rounded once at the end (a per-hop rounding gives 1 708 985; mutation: round after each hop) |
+| ACT-20 | A fresh DMA                                      | Idle, mode 1, prescaler 0, rate 0, counter 0, no I/O port (`dma.vhd:230-236`) |
+| ACT-21 | CPU speed 3.5 MHz; a burst mem->mem, prescaler 55; the first byte, then clocks until the gate opens | Rate 15 909 091; 1760 master cycles to the gate right after the byte; it opens after 220 CPU clocks (+8 each, `:250-251,424`) |
+| ACT-22 | The same at 7 MHz                                | 15 909 091; 440 clocks (+4 each, `:252`)                   |
+| ACT-23 | The same at 14 MHz                               | 15 909 091; 880 clocks (+2 each, `:253`)                   |
+| ACT-24 | The same at 28 MHz                               | 15 909 091; 1760 clocks (+1 each, `:254`)                  |
+| ACT-25 | Burst A->B, port A memory 0x8000 increment, port B I/O 0x00DF fixed, length 100, prescaler 55; 3 bytes | Active, mode 2, prescaler 55, src 0x8003, dst 0x00DF, length 100, counter 3, src memory, dst I/O (`:287,290,346,351,361,381`) |
+| ACT-26 | The same with direction B->A                     | src 0x00DF (I/O), dst 0x8003 (memory)                      |
+| ACT-27 | ACT-25 run to the end of the block               | Not active, counter 100                                    |
+| ACT-28 | Prescaler 1, then 255                            | 875 000 000, then 3 431 373 (3 431 372.55 rounded)  |
+
+### 8.10 DAC sample stream (`src/debug/dac_stream.h`)
+
+`dac_stream_stats()` and `nearest_pacing()` (GH #537) over hand-built log entries (the first twelve rows) and over
+real machines (the last three). The rules are those of the header (a sample is one port write, a writer is (source,
+PC) for the CPU and the source alone otherwise, the median is the lower one, the jitter a population
+standard deviation, a gap an interval strictly above 1.5 x the median; the epic plan's 2x was replaced
+because one skipped sample is exactly 2 periods, so 2x would decide the epic's own acceptance by
+interrupt-acceptance jitter). The fixture of DSS-13 and DSS-14 is `demo/halt_bench/halt_bench.asm` CTCDAC, hand-placed
+at 28 MHz; its bound is derived: each OUT follows its interrupt by a fixed ISR path plus the acceptance delay
+d in 0..4 (the HALT M1 at 28 MHz, `zxnext.vhd:3171-3181`), so an interval is 1744 + d(k+1) - d(k).
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| DSS-01 | 1000 samples, chip A, every 1792 cycles from 100000 | One CPU writer: rate 15 625 000 mHz, every interval 1792, no jitter, no gap, 64.0 us |
+| DSS-02 | DSS-01 without sample 500                        | 999 samples, one gap (3584), median 1792, rate 15 609 359 mHz |
+| DSS-03 | Intervals 1000 except one of 1500 and one of 1501 | One gap: 1500 is not above 1.5 x the median, 1501 is        |
+| DSS-04 | Two PCs, every 1792 and every 3584, interleaved  | Two writers, the busier first, 15 625 000 and 7 812 500 mHz |
+| DSS-05 | DMA entries with three different PCs; one CPU entry at one of them | One DMA writer (PC 0) with every DMA sample; the CPU entry its own writer |
+| DSS-06 | 0xDF pairs (A and D at one cycle); Copper NR 0x2D mirror pairs | 10 samples each, channels 0x09 (a fan-out is one sample) |
+| DSS-07 | Dropped DAC and mirror writes, AY register and chip-select, beeper | No writer                                       |
+| DSS-08 | 10 samples, a Reset (or Rewind) marker, 5 samples | 5 samples, starting after the marker                       |
+| DSS-09 | Samples at 1000..20000, end 20000, window 5000; window 0; a young clock; an entry after the end; end == window | Start 15000 and 5 samples ((start, end]); all 20; a clock strictly younger than the window has no start (samples at 0..4000, end 4000, window 5000: all 5); an entry after the end is not counted (samples at 1000..5000, end 3000: 3 of 5); at end == window the window is (0, end] and cycle 0 is outside it (samples at 0..4000, end 5000, window 5000: 4) |
+| DSS-10 | 7 intervals (1790 x4, 1794 x3); 6 intervals (3 and 3) | Lower median 1790, mean 1791.714, population sd 1.9795; mean 1792.0, sd 2.0 |
+| DSS-11 | One sample; an empty log                         | Rate 0 and every interval field 0; no writer               |
+| DSS-12 | Pacing matches: a CPU writer near CTC 0, a DMA writer, a Copper writer, a stopped channel, a tie | CTC 0 with its rel_diff; the DMA; none; none; the lower channel |
+| DSS-13 | The CTC player at 28 MHz (TC 109, 1744 cycles), 20 frames | One CPU writer at the OUT, channels A and D, >= 6000 samples, every interval 1744 +- 4, no gap, rate within the bound of the CTC's 16 055 046 mHz, nearest engine CTC 0 |
+| DSS-14 | The same with the OUT skipped when the tick wraps | Gaps >= 1, each of 2 x 1744 +- 4, the rest 1744 +- 4, gaps = intervals above 2616 |
+| DSS-15 | A DMA burst to port 0x00DF, prescaler 55, 10 frames | One DMA writer, every interval >= 1760 (`dma.vhd:309,424,451`), rate <= the nominal 15 909 091 mHz, nearest engine the DMA |
+| DSS-16 | Hand-built entries: one cycle and one CPU PC on ports 0x1F and 0x0F; one cycle with a CPU and a DMA entry at the same PC and port | 2 samples, channels A and B (the sample key is (cycle, source, PC, port), every term); two writers with one sample each; no writer without a sample |
+
+The Qt rows (`debugger_audio_panel_test` DAP-76 to DAP-80, `debugger_panel_data_test` QLAZY-25 and QLAZY-26) drive the Pacing and
+Sample stream groups of DAC & Beeper against the same machines: DAP-76 the group's shape and the Pacing values
+(timer, counter, idle and a burst DMA), DAP-77 the CTC-paced player's one CPU row (rate, gaps and the window label's covered time) against the helper's own
+numbers, DAP-78 the DMA and Copper rows and the double-click (CPU row only), DAP-79 the data rules (no fetch
+off show, "Not recording", a reset marker, a ring overflow), DAP-80 the Gaps cell with the 1.5 x factor named;
+QLAZY-25 the log request while DAC & Beeper is on show, QLAZY-26 that Log and DAC & Beeper share the request.
+
+### 8.11 Source tap and scopes (GH #536)
+
+`Debugger::set_audio_scope_enabled()` / `audio_scope_samples()` and `Mixer::integrate_span_tapped()`. Mixer-level
+rows use a standalone Mixer, TurboSound (YM), Dac and Beeper with no I2S wired (its term is `I2S_REST_LEVEL` 512) and a
+Bresenham threshold of 44100 x 635, so one output sample is exactly 635 master cycles. A sample is the mixer's
+`rounded_average_x4` of the source's hardware level over that period. Oracles: `audio_mixer.vhd:80-100`,
+`ym2149.vhd:157-162,467-536`, `soundrive.vhd:74-77,111-112`, `turbosound.vhd:184-337`.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| SCP-01 | `audio_source_scale()` for all 16 sources | AY {0,0,1020}, DAC {0,512,1020}, Beeper {0,0,2560}, Mix {0,6144,32764} |
+| SCP-02 | Distinct DC on every source (AY volumes 1-9, DAC 0x11..0x44, EAR and MIC), one sample; then the speaker-exclusive gate | AY 4 x {2,3,4,7,10,14,19,27,37}, DAC 4 x byte, Beeper 2560, MixL 5696, MixR 6892; gated: Beeper 0, MixL 3136, MixR 4332 |
+| SCP-03 | EAR high for 100 of 635 cycles | Beeper 323 (round of 322.52, not 322), MixL 6467, AY 0, DAC 512 |
+| SCP-04 | The sync rule: 100 cycles reach the mixer alone, the tapped span ends that sample, then one whole sample | The partial one is not pushed; written 1, Beeper 0, MixL = the mixer's 2nd sample + 6144 |
+| SCP-05 | Emulator with an AY0 tone (period 100, volume 15), tap on, 2 frames | Ay0A holds 0 and 1020, all within range, at most one in-between sample per edge; the other AY sources 0, DAC 512, Beeper 0 |
+| SCP-06 | The all-sources fixture at 0 dB, no mute | Left/Right - 6144 equal the mixer's own output, sample for sample |
+| SCP-07 | The same machine with every source muted and every host gain at -6 dB | The 16 traces are identical; the audible output differs (control) |
+| SCP-08 | An IM 2 HALT loop with sound, 8 frames; untapped and tapped, batching on and off | HALT batching engages untapped and is refused while a tap is installed; the tapped run's tap and mixer output equal the batch-off run's, sample for sample |
+| SCP-09 | A raster-poll loop with sound, 8 frames, the same four runs (machines built over a fixed fill, GH #551) | The poll batch engages untapped and is refused while a tap is installed; tapped equals batch-off, sample for sample |
+| SCP-10 | Rewind on, tap on and off, `step_back(1)` | A replay mixes nothing and `written` does not move; samples again afterwards |
+| SCP-11 | Backend lifecycle | Off before a request; on after it with 16 equal vectors at 44100, first_sample 0; revision +1 per accepted set; refused after the drop; a re-request starts afresh; an unknown client is refused |
+| SCP-12 | Two clients and an observer | On while any live client asks (a second request keeps the first's tap); off after the last drops or detaches; an observer alone turns it on; a client attached later that never asks leaves it on |
+| SCP-13 | Soft reset, in-place `init()`, hard reset, state load | The same tap stays installed and its sample count keeps rising from where it was |
+| SCP-14 | `--silent` | The request is refused; the tap stays off and uninstalled |
+| SCP-15 | 12 frames (more than the ring holds) | 8192 samples; `first_sample = written - 8192`; the mix traces are the newest mixer outputs in order; a short count gives the newest; count 0 an empty Ok |
+| SCP-16 | `scope_trigger()` on a square, a flat block, a short block, a falling edge and a sample equal to the level | Latest rising edge with a whole window after it; free-run; start 0; free-run; the equal sample crosses |
+| SCP-17 | `scope_meter()` on a square, DC and a mixed block, rest 512 | Peak and RMS about the rest |
+| SCP-18 | A live Pi stream consumed, tap on and off | The audible output is bit-identical, and the Left/Right traces equal the mixer's output + 6144 for every sample |
+| SCP-19 | A HALT loop with a tap installed, then the tap dropped | Nothing batches while tapped; the HALT batch engages again afterwards |
+| SCP-20 | `beep_mic_final` high with the raw tape level high (standalone mixer); then the raw level high with `beep_mic_final` low; then EAR with `beep_mic_final`; then the speaker-exclusive gate | Beeper 512 and MixL = MixR = 6656; Beeper 0 (the raw tape level is no term); Beeper 2560; Beeper 0; the mix traces equal the mixer's output + 6144 (audio_mixer.vhd:64,80-81,99-100; zxnext.vhd:7113,7126) |
+| SCP-22 | A TAP plays in real time on a bare Next, the CPU parked, tap on: issue 3 port 0xFE 0x00, 0x10, 0x08; issue 2 0x08; the speaker-exclusive gate with 0x18; each at the tape's high and low level | Beeper 512/0, 2560/2048, 0/512, 512/0, 0/0; Left = Right = 6144 + Beeper every time (zxnext.vhd:7113: tape xor (mic and issue2) xor mic; audio_mixer.vhd:80-81) |
+| SCP-23 | Pi audio routed to EAR (NR 0xA2 = 0xC1), a full-scale sample, two output samples after the route | Beeper 512 (the MIC term, inside the ear_relax hold), Left 6144 + 512 (zxnext.vhd:7113; zxnext_top_issue2.vhd:663-677) |
+| SCP-21 | A Debugger destroyed while the tap is on | The machine's tap pointer is retired and the HALT batch engages again |
+
+### 8.12 Player timing (`audio_timing_stats`, `src/debug/audio_frames.h`)
+
+The statistics behind the Audio panel's timing strip (GH #535): where in the frame the AY player writes,
+over the last N frame numbers. Pure, over hand-built `AudioFrame` values; the expected numbers are worked
+by hand from the stamps, never through the helper. Oracles: the rules of the issue (window of frame
+numbers ending at the newest completed frame; a frame with no counted write is an empty frame number;
+min / average / max of the first and last write's line and T-state and of the write count; union of the
+CPU PC ranges), and the grouping of 8.8 for what `empty_before` and a backward frame number mean.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| AFG-19 | f200 first (1,300) last (1,340) 2 writes PC 0x9300-0x9310; f201 (1,302)/(3,700) 3, 0x9300-0x9320; f202 (15,3600)/(15,3640) 2; f204 (1,304)/(1,304) 1, no PC, empty_before 1; window 50 | frames 4, window 200-204, empty 1; first line 1/4.5/15, T-state 300/1126.5/3600; last line 1/5.0/15, T-state 304/1246.0/3640; writes 1/2.0/3; PC 0x9300-0x9320 |
+| AFG-20 | f100..f109, first line = f - 100; windows 3, 10, 11 | 3: frames 3, 107-109, first line 7/8.0/9; 10: frames 10, from 100; 11: clamped to the oldest frame, from 100, empty 0 |
+| AFG-21 | f100, f101, f104 (empty_before 2), window 10; f120 (empty_before 25), f121, windows 50 and 10 | 100-104, 3 frames, 2 empty; window 50: from 95, 25 empty; window 10: from 112, 8 empty |
+| AFG-22 | PC ranges 0x8100-0x8150, 0x8000-0x8120, none (0xFFFF-0) and an inverted pair 0x9000-0x8FFF (min > max); then three frames with none | union 0x8000-0x8150 (a frame with min > max adds nothing, whatever its values); none: pc_min 0xFFFF, pc_max 0 |
+| AFG-23 | f50, f51, f10, f11, window 100; then two frames both numbered 10 (first lines 5 and 7) | The break at f10: frames 2, 10-11, first line 2/2.5/3; an equal number is a break too: frames 1, 10-10, empty 0, first line 7 |
+| AFG-24 | no frames; f5 with window 0; f3 alone, window 50; f7 alone, window 1 | default (frames 0); window 0: frames 0; f3: from 3 (the nominal start saturates at 0), empty 0; f7: min == avg == max on every range, 7-7 |
+
+The strip itself (its labels, the dot plot, the window box, the per-row details and a real IM2 player
+whose steady frames write on the interrupt line and whose late and missed frames show) is DAP-81..87 in
+`debugger_audio_panel_test`.
+
+### 8.13 `.psg` export (`src/audio/psg_writer.h`, `src/debug/psg_recorder.h`)
+
+`Debugger::psg_record_start()` / `psg_record_stop()` and `--psg-record` (GH #538): each AY chip's register
+stream in the layout of Fuse 1.6.0's AY log. Oracles: Fuse 1.6.0 `psg.c` (`psg_start_recording`, `psg_frame`,
+`write_frame_separator`, `psg_stop_recording`, `psg_write_register`) for the layout, and for PSF the committed
+`test/audio/fixtures/psg_fixture.fuse.psg`, recorded from the packaged Fuse 1.6.0 by `tools/fuse-psg-reference.sh`
+(maintainer tool; CI compares against the committed file). The one deliberate difference from `psg.c`: jnext keeps the
+LAST value written to a register in a frame, Fuse the first (PSG-14). Every expected byte string is a literal in the
+test with its derivation from `psg.c`: with L the last frame that wrote a block (start frame - 1 at the start), a
+block in frame F follows F - L separator frames, the end S + 1 - L, and n separator frames are `FE k` for every
+4k <= n (k <= 255), then one `FF` each. `H` is the 16-byte header `50 53 47 1A` and 12 zero bytes.
+
+The writer rows drive `PsgWriter` directly (`begin(100)` unless said).
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| PSG-01 | `begin(100)`                                     | Exactly `H`                                                |
+| PSG-02 | R8 = 0x0F in f100, `end(100)`                    | `H FF 08 0F FF`                                            |
+| PSG-03 | R8 = 0x01 in f100, `end(101)`                    | `H FF 08 01 FF FF`                                         |
+| PSG-04 | R0 in f100 and f103, `end(103)`                  | `H FF 00 01 FF FF FF 00 02 FF`                             |
+| PSG-05 | Blocks in f100 and f104                          | `H FF 00 01 FE 01 00 02 FF`                                |
+| PSG-06 | Blocks in f100 and f107                          | `H FF 00 01 FE 01 FF FF FF 00 02 FF`                       |
+| PSG-07 | Blocks 1021 frames apart                         | `... FE FF FF ...` (the 255 clamp, then one `FF`)          |
+| PSG-08 | Blocks 2043 frames apart (2 x 1020 + 3)          | `... FE FF FE FF FF FF FF ...`                             |
+| PSG-09 | Nothing in the start frame, a block in f101      | `H FF FF 00 01 FF`                                         |
+| PSG-10 | `end(100)`, no block                             | `H FF FF`                                                  |
+| PSG-11 | `end(1119)`, no block (1021 frames)              | `H FE FF FF`                                               |
+| PSG-12 | R13 = 0xFF, R0 = 0xFE, R7 = 0x3F in one frame    | `H FF 00 FE 07 3F 0D FF FF`: register order, 0xFE/0xFF values raw |
+| PSG-13 | R0 in f100, R14 and R15 only in f102, R0 in f104 | `H FF 00 01 FE 01 00 02 FF`: R14/R15 only is an empty frame (4 frames apart) |
+
+The recorder rows feed `PsgRecorder` hand-built `AudioLogEntry` lists (chip 0, CPU source unless said, `start(path, 100)`).
+The frame mapping (epic decision D3) is PSG-20 to PSG-24, 28 to 30.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| PSG-14 | f100: R8 = 1 then R8 = 2                         | `H FF 08 02 FF` (last value wins; Fuse would write 01)     |
+| PSG-15 | f100: R13, R0, R7 in that order                  | `H FF 00 FE 07 38 0D 0E FF`                                |
+| PSG-16 | f100: R14, R15; f101: R0                         | `H FF FF 00 01 FF`                                         |
+| PSG-17 | f100: a Dropped R8, a chip select, a DAC, a mirror and a beeper entry; f102 R0 | `H FF FF FF 00 01 FF`: only applied AY registers count |
+| PSG-18 | f100 chip 0 R0; f102 chip 1 R1; `stop(103)`      | FILE `H FF 00 01 FE 01`; FILE-ay1 `H FF FF FF 01 02 FF FF` (begun at the start frame); no FILE-ay2 |
+| PSG-19 | `chip_path` on `d/tune.psg`, `tune`, `a.b/tune`, `.psg`, `x.tar.psg` | `-ayN` before the last component's extension; chip 0 unchanged |
+| PSG-20 | f100 R8; a DAC entry in f103; a Rewind marker (frame 50); f50, f52 writes | Blocks at 100, 104, 106: `H FF 08 01 FE 01 08 02 FF FF 08 03 FF` |
+| PSG-21 | f100 R8; a Reset marker at f105; f107 R8         | Numbering kept: `H FF 08 01 FE 01 FF FF FF 08 02 FF`      |
+| PSG-22 | f100 R8; a Reset marker at f100; f100 R8         | The reset splits the frame: `H FF 08 01 FF 08 02 FF`       |
+| PSG-23 | f100 R8; f90 R8, no marker                       | `H FF 08 01 FF 08 02 FF`                                   |
+| PSG-24 | f100 R8; a StateLoad marker at f5000; f5000 R8   | Continues right after: `H FF 08 01 FF 08 02 FF`            |
+| PSG-25 | `psg_record_start` on an uncreatable path, a valid one, a second start; `psg_record_stop` twice | RefusedUnavailable, Ok, RefusedUnavailable; Ok, RefusedUnavailable; `psg_recording()` follows |
+| PSG-26 | `audio_tap_active()` before, during and after a recording; with the log on | Off, on, off; the stop leaves it on while a client asks for the log |
+| PSG-27 | TurboSound on, log off; AY#0 R0 and AY#1 R8 through real port writes, a plain select, a select of 0x1D and a (dropped) data write | FILE `H FF 00 10 FF FF FF`, FILE-ay1 `H FF FF 08 0A FF FF`, no FILE-ay2 |
+| PSG-28 | Log off; R8, a soft reset, R8 in one frame       | `H FF 08 01 FF 08 02 FF`: the marker reached the recorder  |
+| PSG-29 | Ten frames each writing R8 = its index, a rewind landing 4 frames back, R8 = 0x55 | The ten blocks stay, then one `FF 08 55`, one trailing `FF` |
+| PSG-30 | R8, a hard reset (machine rebuilt), R8 in the new frame 0, log off | `H FF 08 01 FF 08 02 FF`: the rebuild's Reset marker splits them |
+| PSG-31 | Writer: blocks in f100, f100 and f90 (frames not above the last) | One `FF` each, no runaway: `H FF 00 01 FF 00 02 FF 00 03 FF` |
+| PSG-32 | Recorder: 100000 consecutive single-write frames | 16 + 3 x 100000 + 1 bytes, `FF 00 v` per frame, one trailing `FF` |
+| PSG-33 | As PSG-29, then a landing, 3 silent frames and R8 = 0x56 | The landing's marker keeps the numbering offset: the write 2 frame readings after the landing is 3 file frames after the last block, `... 08 09 FF FF FF 08 56 FF` |
+| PSG-34 | A Debugger destroyed mid-recording: AY#0 R0 and AY#1 R8 in f0, a DAC write 3 frames later | Both files finish up to the last frame seen: FILE `H FF 00 10 FE 01`, FILE-ay1 `H FF 08 0A FE 01` |
+| PSG-35 | `FILE-ay1` exists as a directory; AY#1 blocks follow, the directory is removed after the first | `psg_record_stop` RefusedUnavailable; FILE complete (`H FF 00 10 FF FF FF`); AY#1 opened once, the file is never created |
+| PSG-36 | R8 = 1, 100 silent frames, a hard reset, R8 = 2 | Elapsed time kept: `H FF 08 01 FE 19 FF 08 02 FF` |
+| PSG-37 | R8 = 1, 100 silent frames, `load_state_bytes` of an earlier state, R8 = 2 | Elapsed time kept: `H FF 08 01 FE 19 FF 08 02 FF` |
+
+The Fuse rows run the program of `psg_fixture.asm` (a gate on a key, a sentinel frame writing R7 = 0x3F, 8 empty frames,
+300 frames of descending-order register sets with gaps of 1, 3, 4, 5, 9 and 1100 frames, an R14-only frame and an
+R15 + R0 frame) and compare from the sentinel on (`psg_normalise()`, `tools/psg-normalise.py`).
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| PSF-01 | The program in process on a 128K machine, the space key held, 1500 frames, recorded | The header and the normalised body equal the committed Fuse recording's, byte for byte; no AY#1/#2 file |
+| PSF-02 | `psg_normalise()` on hand-built files            | Equal after the sentinel whatever precedes and trails it; a changed value after it differs; `00 FF` before it is a pair; no sentinel, two sentinels, and `(07,3F)` followed by 8 or 10 frames are errors |
+| PSF-03 | The committed Fuse file alone                    | Header, one sentinel, 299 song blocks, the separator runs 9, 2, 4, 2, 5, 6, 10, 1101 where the program's design puts them (numbers from the `.asm`), block shapes of k = 0, 1, 101, ascending registers below 14, a 0xFF and a 0xFE value, a repeated R13, normalised length == 4728 (the pin the `psg-record-func` row shares) |
+
+The panel's rows (`DAP-88` to `DAP-92`, `debugger_audio_panel_test`) cover the Record PSG... row of the Chips tab: its
+widgets, a recording through the panel and one started elsewhere, a refused path, and the panel's bytes against the
+backend verb's. The regression row `psg-record-func` runs `--psg-record` headless on a 128K machine and compares with the
+Fuse file, with and without `--silent`, refuses an unwritable FILE and exits 1 on a write error.
+
+### 8.14 Per-source WAV stems (GH #539)
+
+`Mixer::integrate_span_tapped()`'s stem terms, `TurboSound::hw_chip_pcm()` and the `Debugger::stems_record_start()` /
+`stems_record_stop()` verbs. A stem is the mixer's `rounded_average_x4` of one source's hardware term over an output
+sample, less the source's rest level (AY 0, DAC 4096, beeper 0, Pi 2048; they sum to `MIX_REST_LEVEL x 4` = 6144).
+The six source stems add up to the mix stem within 3 counts (seven roundings in [-1/2, 1/2): the integer error is
+below 3.5) and exactly when every term is steady within the sample. Mixer-level rows use the standalone rig of 8.11
+(no I2S: the Pi stem is 0). Oracles: `audio_mixer.vhd:80-100`, `turbosound.vhd:186-202,323-335`,
+`soundrive.vhd:112-113`, `zxnext.vhd:2674,7113,7124-7126`; each row shows its arithmetic.
+
+| ID     | Drive                                            | Expected                                                   |
+|--------|--------------------------------------------------|------------------------------------------------------------|
+| STM-01 | DC on every source (SCP-02's), one sample, then the speaker-exclusive gate | ay0 (20,28), ay1 (68,96), ay2 (184,256), dac (-3280,-2192), beeper 2560, pi 0, mix (-448,748), exact sum; gated: beeper 0, mix (-3008,-1812) |
+| STM-02 | ACB with chip 0 mono, chip 1 pan 10, chip 2 pan 01; TurboSound off with AY#0 selected; MIC with the issue-2 keyboard bit and no tape | ay0 (36,36), ay1 (84,0), ay2 (0,256); chips 1 and 2 (0,0) while the scope's Ay1A reads 28; beeper stem 0 (`zxnext.vhd:7113`); the stems sum to the mix |
+| STM-03 | EAR high for 100 of 635 cycles | beeper 323 (round of 322.52, not 322), mix 323 |
+| STM-04 | EAR and DAC A 0x81 for 100 cycles (and DAC B 0x81 in a second run) | beeper 323, dac 3, mix 325, sum 326 (error +1); then dac 5 (not 3 + 3) and mix 328 |
+| STM-05 | A pan write 10 cycles before its PSG tick; then a latch turned off, a hot-path change and the latch turned on again; a mute set and cleared; `reset_ay_only()` with chip 0 loud | ay0 (32, 16) (the latched old pan), not 0; then ay0 (0,0), not the stale latch; the latch still works after a mute set and cleared and `channel_mute_mask()` hides its bit; after `reset_ay_only()` ay0 is (0,0) in the next slice; the stems sum to the mix |
+| STM-06 | A TurboSound state loaded after a different state was latched; one sample before any tick | The stems are the loaded state's breakdown (ay1 2040, ay0 0) and sum to the loaded mix; after the first recompute the latch is used |
+| STM-07 | 20 frames at 28 MHz, a Pi ramp, three sounding chips, a pan change every frame | |sum of six - mix| <= 3 on every sample with an error of at least 1 seen; the mix stem equals the mixer output sample for sample, in equal numbers |
+| STM-08 | Two machines, one with every mute and channel mute set and every host gain -6 dB | The stem frames are identical (pre-mute, pre-gain); the audible output differs |
+| STM-09 | A fixed write sequence on a standalone TurboSound, with and without a channel mute, latch off and on | The audible pair, hardware pair and per-chip audible pairs after every write, and the mixer output, are identical latch on and off |
+| STM-10 | An IM 2 HALT loop and a raster-poll loop, stems on, batching enabled, versus stems on with batching off, versus untapped | No batch runs with stems on (the untapped control batches); the stem frames equal the batch-off run's; the audible output equals the untapped run's |
+| STM-11 | Stems recording across `reset(Soft)`, `init()`, `reset(Hard)`, a state load, an in-place `Debugger::load()` and a rewind replay | The files hold exactly the mixer's emitted count; the six sum to the mix within 3 on every sample; the latch is on after the cold boot; the replay moves neither count |
+| STM-12 | Backend lifecycle with the files read back | Refused when idle; start makes seven files and installs the tap with no scope asked; stop removes it; valid 44100/2/16, equal lengths, the mix file equals the mixer output; nothing written after the stop; with a scope asked first the tap is the same one across start and stop; revision +1 per accepted verb |
+| STM-13 | Refusals | `--silent` refused and nothing created; a DIR under a regular file refused and nothing left; a directory in the way of the last file refuses the start before anything is created; a refused start leaves user files byte for byte (a directory or a write-protected file in the way, a directory that cannot take new files, ay0.wav before it); a start into a fresh directory leaves exactly the seven files and nothing else; all seven present in a directory that takes no new files starts Ok; a missing nested DIR created |
+| STM-14 | 100 cycles reach the mixer alone, then the stems start and end that sample | No stem frame for the partial sample; the next whole one is pushed, every stem 0 |
+
+The Scopes row of the Audio panel is DAP-93..98 (the controls, a start and stop, a recording started elsewhere, an
+unwritable path, `--silent`, and byte-identical files through the panel and the verb) and QLAZY-27 (a tab switch or a closed
+window does not stop the recording). The regression rows are `wav-stems-func` (the seven files across a selector cold boot,
+`mix.wav` equal to `--wav-record`, the sum bound, `--silent` refused) and `wav-stems-stop-func` (SIGTERM finalises, a
+write error and an uncreatable DIR exit non-zero).
 
 ## Test Implementation Strategy
 

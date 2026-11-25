@@ -39,6 +39,7 @@ use warnings;
 use File::Basename qw(dirname basename);
 use File::Spec;
 use Cwd qw(abs_path);
+use File::Temp;
 
 my $here = abs_path(dirname($0));
 my %o = (root => abs_path("$here/.."));
@@ -237,11 +238,14 @@ my @rules;
 sub classify { my $f = shift; for my $r (@rules) { return $r->[1] if $f =~ $r->[0] } return undef }
 
 # ---------------------------------------------------------------- --check
+my ($GIT_RC, $git_bad) = (0, 0);   # exit status of the last git(); gitc() latches a failure into the plan (FULL)
+sub gitc { my @l = git(@_); $git_bad = 1 if $GIT_RC != 0; return @l }
 sub git {   # stderr is silenced: a root that is not a git checkout (a fixture) just yields no lines
     my @c = ('git', '-C', $root, @_);
     open(my $olderr, '>&', \*STDERR); open(STDERR, '>', '/dev/null');
     my $ok = open(my $p, '-|', @c);
     my @l = $ok ? <$p> : (); close $p if $ok;
+    $GIT_RC = $ok ? $? : -1;
     open(STDERR, '>&', $olderr);
     chomp @l; return @l;
 }
@@ -274,9 +278,9 @@ if ($o{files}) {
     $base = $o{base} // (git('merge-base', 'HEAD', 'main'))[0] // (git('merge-base', 'HEAD', 'origin/main'))[0];
     refuse("no base: pass --base REF (no `main` or `origin/main` to take a merge-base with)") unless $base;
     my %s;
-    $s{$_} = 1 for git('diff', '--name-only', '--no-renames', $base);
-    $s{$_} = 1 for git('diff', '--name-only', '--no-renames', $base, 'HEAD');   # a gitlink with no checkout shows only here
-    $s{$_} = 1 for git('ls-files', '--others', '--exclude-standard');
+    $s{$_} = 1 for gitc('diff', '--name-only', '--no-renames', $base);
+    $s{$_} = 1 for gitc('diff', '--name-only', '--no-renames', $base, 'HEAD');   # a gitlink with no checkout shows only here
+    $s{$_} = 1 for gitc('ls-files', '--others', '--exclude-standard');
     @changed = sort keys %s;
 }
 
@@ -369,13 +373,90 @@ sub grep_refs {   # suites and rows whose sources/args/row scripts name path $p 
     return (\%ss, \%rr);
 }
 
+sub slurp { my $f = shift; open(my $fh, '<', "$root/$f") or return ''; local $/; my $t = <$fh>; close $fh; $t }
+
+# The statements of a CMake file as an ORDERED list (CMake is order-dependent: directory options
+# apply to later targets only, a GLOB precedes its foreach). Each entry is [context, text]: the
+# enclosing if()/foreach() chain (else/elseif included) and the statement, comments stripped
+# quote-aware. Returns undef when the text uses anything this scanner cannot read with confidence
+# (bracket arguments or comments, an unterminated statement or quote, a stray token, unbalanced
+# end*()): the caller then plans FULL.
+sub cmake_statements {
+    my $t = shift;
+    my (@out, @stack);
+    my $i = 0; my $n = length $t;
+    while ($i < $n) {
+        my $c = substr($t, $i, 1);
+        if ($c =~ /\s/) { $i++; next }
+        if ($c eq '#') {
+            return undef if substr($t, $i, 2) eq '#[';
+            $i++ while $i < $n && substr($t, $i, 1) ne "\n"; next;
+        }
+        return undef unless $c =~ /[A-Za-z_]/;
+        my $s = $i;
+        $i++ while $i < $n && substr($t, $i, 1) =~ /[A-Za-z0-9_]/;
+        my $cmd = lc substr($t, $s, $i - $s);
+        my $j = $i; $j++ while $j < $n && substr($t, $j, 1) =~ /[ \t]/;
+        return undef unless $j < $n && substr($t, $j, 1) eq '(';
+        my ($depth, $q, $body) = (0, 0, '');
+        my $k = $j; my $closed = 0;
+        for (; $k < $n; $k++) {
+            my $ch = substr($t, $k, 1);
+            if ($q) {
+                if ($ch eq '\\') { $body .= $ch . substr($t, ++$k, 1); next }
+                $q = 0 if $ch eq '"';
+                $body .= $ch; next;
+            }
+            if    ($ch eq '\\') { $body .= $ch . substr($t, ++$k, 1); next }
+            elsif ($ch eq '"')  { $q = 1 }
+            elsif ($ch eq '#')  { return undef if substr($t, $k, 2) eq '#['; $k++ while $k < $n && substr($t, $k, 1) ne "\n"; $body .= ' '; next }
+            elsif ($ch eq '[')  { return undef if substr($t, $k) =~ /^\[=*\[/ }
+            elsif ($ch eq '(')  { $depth++ }
+            elsif ($ch eq ')')  { if (--$depth == 0) { $body .= $ch; $closed = 1; last } }
+            $body .= $ch;
+        }
+        return undef unless $closed && !$q;
+        $body =~ s/\s+/ /g;
+        my $st = "$cmd$body";
+        $i = $k + 1;
+        if    ($cmd =~ /^(if|foreach|while|function|macro|block)$/) { push @stack, [$st] }
+        elsif ($cmd eq 'elseif' || $cmd eq 'else') { return undef unless @stack; push @{ $stack[-1] }, $st }
+        elsif ($cmd =~ /^end(if|foreach|while|function|macro|block)$/) { return undef unless @stack; pop @stack }
+        else { push @out, [join(' >> ', map { join(' | ', @$_) } @stack), $st] }
+    }
+    return undef if @stack;
+    return \@out;
+}
+
+# Commands whose statement belongs to the suite(s) it names; any other command is shared.
+my $TARGET_CMD = qr/^(add_executable|add_test|add_dependencies|set_target_properties|set_tests_properties|target_\w+)\(/;
+
+sub diff_lines {   # normal diff of two line lists -> [ [type, old_from, old_to, new_from, new_to], ... ]
+    my ($x, $y) = @_;
+    my $d = File::Temp->newdir();
+    for my $p (['x', $x], ['y', $y]) { open(my $fh, '>', "$d/$p->[0]") or return undef; print $fh "$_\n" for @{ $p->[1] }; close $fh }
+    open(my $ph, '-|', 'env', 'LANG=C', 'diff', "$d/x", "$d/y") or return undef;
+    my @h;
+    while (<$ph>) {
+        chomp;
+        next unless /^([\d,]+)([acd])([\d,]+)$/;
+        my ($o, $ty, $nw) = ($1, $2, $3);
+        my ($of, $ot) = split /,/, $o; $ot //= $of;
+        my ($nf, $nt) = split /,/, $nw; $nt //= $nf;
+        push @h, [$ty, $of, $ot, $nf, $nt];
+    }
+    close $ph;
+    return undef unless !($? & 127) && ($? >> 8) <= 1;   # only diff's 0 (same) and 1 (differ) are success
+    return \@h;
+}
+
 my $have_git = -e "$root/.git";
 for my $f (@changed) {
     my $edges = edge_suites($f, ($file_suites{$f} || $any_mapped{$f}) ? 1 : 0);
     $suites{$_} = 1 for keys %$edges;
     # A submodule pointer (gitlink) changes every object that includes the submodule.
     if ($have_git) {
-        my ($ls) = git('ls-files', '-s', '--', $f);
+        my ($ls) = gitc('ls-files', '-s', '--', $f);
         if (defined $ls && $ls =~ /^160000\b/) { $full = 1; $full_why{"$f (a submodule pointer)"} = 1; next }
     }
     if ($file_suites{$f}) {
@@ -403,7 +484,7 @@ for my $f (@changed) {
         if ($declared_rows->{$row}) { $rows{$row} = 1 } else { $full = 1; $full_why{"$f (names no declared row)"} = 1 }
     }
     elsif ($act eq 'row-conf') {
-        my @d = $o{files} ? () : git('diff', '-U0', $base, '--', $f);
+        my @d = $o{files} ? () : gitc('diff', '-U0', $base, '--', $f);
         my $n = 0;
         for my $l (@d) {
             next unless $l =~ /^[+-]\s*([A-Za-z0-9][A-Za-z0-9._-]*)(\s|$)/ && $l !~ /^(\+\+\+|---)/;
@@ -412,6 +493,75 @@ for my $f (@changed) {
             $rows{$r} = 1 if $declared_rows->{$r}; $n++;
         }
         if (!$n) { $full = 1; $full_why{"$f (could not read which rows changed)"} = 1 }
+    }
+    elsif ($act eq 'suite-conf') {
+        # test/unit-tests.conf (GH #564): the suites whose lines the change added, removed or
+        # re-pinned. A directive (# gate:, # os:) or the # expect: total is proven by the whole
+        # manifest checks every --only run still makes (registry, gate, os, total); a line this
+        # cannot read makes the plan FULL.
+        my @d = ($have_git && !$o{files}) ? gitc('diff', '-U0', '--no-renames', $base, '--', $f) : ();
+        my $n = 0;
+        for my $l (@d) {
+            next unless $l =~ /^[+-]/ && $l !~ /^(\+\+\+|---)/;
+            (my $b = $l) =~ s/^.//;
+            next if $b =~ /^\s*$/;
+            if ($b =~ /^\s*#/) {
+                $notes{"$f: a directive or the # expect: total changed; run-unit-tests.sh checks the whole manifest on every --only run"} = 1 if $b =~ /^\s*#\s*(gate|os|expect):/;
+                next;
+            }
+            if ($b =~ /^\s*\??(\S+)\s+\d+(\s|$)/) { $suites{$1} = 1; $n++; next }
+            $n = -1_000_000;   # a line of no known shape
+        }
+        if ($n < 0 || !@d) { $full = 1; $full_why{"$f (could not read which suites changed)"} = 1 }
+    }
+    elsif ($act eq 'cmake-suites') {
+        # test/CMakeLists.txt (GH #564): the suites whose statements the change added, removed or
+        # moved into another if()/foreach() context. A changed statement that names no declared
+        # suite (a shared setting, a library, a variable) makes the plan FULL.
+        my ($old) = ($have_git && !$o{files}) ? join("\n", gitc('show', "$base:$f")) : '';
+        my %names = %is_declared;
+        for my $l ($have_git && !$o{files} ? git('show', "$base:test/unit-tests.conf") : ()) {
+            $names{$1} = 1 if $l =~ /^\s*\??(\S+)\s+\d+/ && $l !~ /^\s*#/;
+        }
+        if (!length $old) { $full = 1; $full_why{"$f (could not read the base version)"} = 1; next }
+        my $new = slurp($f);
+        my ($os, $ns) = (cmake_statements($old), cmake_statements($new));
+        if (!$os || !$ns) { $full = 1; $full_why{"$f (the CMake text uses syntax the planner cannot read with confidence)"} = 1; next }
+        my $key = sub { "$_[0][0]\x01$_[0][1]" };
+        my $suite_of = sub {   # suites a statement names, or () when it is shared
+            my $st = $_[0][1];
+            return () unless $st =~ $TARGET_CMD;
+            return grep { $names{$_} } $st =~ /([A-Za-z_][A-Za-z0-9_]*)/g;
+        };
+        my $attribute = sub {
+            my ($e) = @_;
+            my @hit = $suite_of->($e);
+            if (@hit) { $suites{$_} = 1 for @hit; return }
+            (my $st = $e->[1]) =~ s/\s+/ /g; $st = substr($st, 0, 60) . '...' if length $st > 63;
+            $full = 1; $full_why{"$f (a changed statement names no declared suite: $st)"} = 1;
+        };
+        # The statements, in order, as lines: a changed line is a statement added, removed or moved.
+        my $dl = diff_lines([ map { $key->($_) } @$os ], [ map { $key->($_) } @$ns ]);
+        if (!$dl) { $full = 1; $full_why{"$f (could not diff the statements)"} = 1; next }
+        for my $h (@$dl) {
+            my ($type, $of, $ot, $nf, $nt) = @$h;
+            $attribute->($os->[$_ - 1]) for ($type ne 'a' ? ($of .. $ot) : ());
+            $attribute->($ns->[$_ - 1]) for ($type ne 'd' ? ($nf .. $nt) : ());
+        }
+        # The same diff with every suite's statement made one placeholder: what is left is the
+        # position of suite statements among shared ones. A statement deleted in one place and
+        # added in another is a move across shared statements (options apply to later targets).
+        my $ph = sub { $suite_of->($_[0]) ? "<S>" : $key->($_[0]) };
+        my $pl = diff_lines([ map { $ph->($_) } @$os ], [ map { $ph->($_) } @$ns ]);
+        if (!$pl) { $full = 1; $full_why{"$f (could not diff the statements)"} = 1; next }
+        my (%del, %add);
+        for my $h (@$pl) {
+            my ($type, $of, $ot, $nf, $nt) = @$h;
+            $del{ $key->($os->[$_ - 1]) }++ for ($type ne 'a' ? ($of .. $ot) : ());
+            $add{ $key->($ns->[$_ - 1]) }++ for ($type ne 'd' ? ($nf .. $nt) : ());
+        }
+        my @moved = grep { $add{$_} } keys %del;
+        if (@moved) { $full = 1; $full_why{"$f (a statement moved past shared statements)"} = 1 }
     }
     elsif ($act eq 'fixture') {
         my ($ss, $rr) = grep_refs($f);
@@ -422,6 +572,7 @@ for my $f (@changed) {
     else { refuse("$confile: unknown action '$act' (glob matched $f)") }
     }
 }
+if ($git_bad) { $full = 1; $full_why{"(a git command that reads the change failed: the change set cannot be trusted)"} = 1 }
 if (@unmapped) { $full = 1; $full_why{"$_ (UNMAPPED: in no depfile, matches no glob)"} = 1 for @unmapped }
 my $only_docs = $docs && !$full && !%suites && !%rows && !%makes;
 $suites{$_} = 1 for @smoke;
@@ -429,12 +580,11 @@ for my $s (keys %suites) { delete $suites{$s} unless $is_declared{$s} }
 
 # ---------------------------------------------------------------- platform check
 my (%plat);
-sub slurp { my $f = shift; open(my $fh, '<', "$root/$f") or return ''; local $/; my $t = <$fh>; close $fh; $t }
 my $harness_re = qr{^test/(run-unit-tests\.sh|unit-tests\.conf|row_id\.h)$};
 for my $f (@changed) {
     my $t = ($f =~ m{\.(cpp|h|hpp|c|cc|mm|cmake|sh|txt|mjs|js|in)$} || $f =~ /CMakeLists\.txt$|^Makefile$/) ? slurp($f) : '';
     # What the change REMOVED counts too: deleting the last _WIN32 arm still changes that tree.
-    $t .= "\n" . join("\n", map { substr($_, 1) } grep { /^-[^-]/ } git('diff', '-U0', $base, '--', $f)) if $have_git && !$o{files};
+    $t .= "\n" . join("\n", map { substr($_, 1) } grep { /^-[^-]/ } gitc('diff', '-U0', $base, '--', $f)) if $have_git && !$o{files};
     my $browser_only = $f =~ m{^src/platform/(browser_frontend\.|web/)};
     my $iscmake = $f =~ /(^|\/)CMakeLists\.txt$|\.cmake$/;
     # sdl

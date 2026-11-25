@@ -63,7 +63,7 @@ Three facts the table does not show:
   past `DivMmc::kRamPages` is `InvalidPage` (`debugger_inspect.cpp:310-317`), and
   `poke` of it stays `Unsupported`. Every other kind is *identity-only*: the arbiter
   names it, and `peek` and `poke` refuse it with `Result::Unsupported`
-  (`identity_only()`, `debugger_inspect.cpp:98`, one total `switch` with no
+  (`identity_only()`, `debugger_inspect.cpp:100`, one total `switch` with no
   `default`, so a new kind is a compile error there). `Rom` is read-only
   (`RefusedReadOnly`). Coverage is the exception: `mem_coverage()` accepts the
   identity-only kinds.
@@ -173,7 +173,7 @@ memory go through it ([7.7](07-frontends.md)).
   `memory_text.h:20`).
 
 The instruction at the PC is a special read. `Debugger::memory_reader()`
-(`debugger_inspect.cpp:940`) returns the bytes the CPU *will fetch* for that one instruction
+(`debugger_inspect.cpp:1002`) returns the bytes the CPU *will fetch* for that one instruction
 (`Emulator::predict_instruction_bytes()`, at most four) and `Mmu::peek()` for everything else,
 because at a DivMMC instant entry the M1 itself maps DivMMC. That is the prediction half of this
 page applied to the bytes instead of the identity.
