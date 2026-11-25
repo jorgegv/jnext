@@ -16,8 +16,9 @@
 // Fixtures are built at run time (FatFs f_mkfs); never a NextZXOS image, in any form. Qt is required, a display is not.
 //
 //   Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d
-// Qt's `slots` keyword would swallow the FAT helper's local named slots: this test uses none of Qt's keywords.
-#define QT_NO_KEYWORDS
+// Qt's `slots` keyword would swallow the FAT helper's local named slots: this test uses none of Qt's keywords. The
+// main window's header needs them while it is read, so they are undefined after the last include instead of
+// disabled (QT_NO_KEYWORDS would break that header).
 #include <QAbstractItemView>
 #include <QAction>
 #include <QApplication>
@@ -108,6 +109,9 @@ void check(const char* id, const char* desc, bool ok, const std::string& detail 
 
 }  // namespace
 
+#undef signals
+#undef slots
+#undef emit
 #include "../sdcard_file_extract/sdfx_helpers.h"
 
 namespace {
