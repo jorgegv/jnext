@@ -68,14 +68,14 @@ APPROVE | REJECT
 
 ## Test-suite expectations
 
-Before approving, run (or confirm the author ran) on the changed branch / worktree:
+Run the suites and the regression rows the change touches, in each configuration it can affect:
 
-- `LANG=C make unit-test`
-- `LANG=C make unit-test-sdl`
-- `./build/test/fuse_z80_test build/test/fuse`
+- `LANG=C make unit-test` only when the author's run is stale for the tip you review.
+- No `unit-test-sdl`, `unit-test-win`, FUSE or `make harness-selftest` unless the change reaches them (`harness-selftest` depends on `gui-release` and builds PGO). Exception: a change to the harness, or one that adds or removes a regression row script (HS-89 pins their count; `make test-affected` does not select it), runs `make harness-selftest` or `LANG=C make regression-rows ROWS=harness-selftest-func`.
+- A re-review checks your earlier findings plus `git diff <last-reviewed>..<tip>`.
 - the regression: do NOT run the full suite (GH #295). Run the TARGETED rows the change touches, `LANG=C make regression-rows ROWS="<row> ..."` (it builds the binaries the rows run; the Qt `jnext` is the non-PGO Release build, `ROWS_PGO=1` for the PGO one). Mutations and diagnosis use targeted rows only. A branch has no full-run stamp: the full gate is the batch gate on `main` (CLAUDE.md merge protocol step 2), not the author's or yours.
 
-unit N/N, sdl N/N where the change can affect the SDL-only build, FUSE 1356/1356, and the targeted rows green. Totals come from the conf files, not from this text. Any new FAIL = REJECT.
+The suites you ran and the targeted rows green. Totals come from the conf files, not from this text. Any new FAIL = REJECT.
 
 ## What to escalate to the user (not approve unilaterally)
 

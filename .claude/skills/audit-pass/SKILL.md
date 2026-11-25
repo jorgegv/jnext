@@ -70,7 +70,7 @@ JNEXT_ALLOW_MAIN_WRITE=1 git -C /home/jorgegv/src/spectrum/jnext merge --no-ff a
 JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n   # from the repo root (session cwd), so the settings.json allow rule matches
 ```
 
-Each audit branch is gated as CLAUDE.md merge protocol step 2 says: its touched suites and rows, and `make unit-test` before its review. The full gate is the batch gate on `main`. Merge one branch at a time and bump after each merge.
+Each audit branch is gated as CLAUDE.md merge protocol step 2 says: its touched suites and rows, `make test-affected` before each review round, and `make unit-test` once, just before landing. The full gate is the batch gate on `main`. Merge one branch at a time and bump after each merge.
 
 ## Final report to user
 
