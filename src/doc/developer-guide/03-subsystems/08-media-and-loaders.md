@@ -679,7 +679,7 @@ they do under the real `nexload`.
 **The cost.** A miss costs a boot of about 760 frames. A hit costs one
 `stat` of the SD image plus inflating the ~100 KB cache. The key is the image's
 (size, mtime) read after the recording, plus a process-wide write generation
-(`SdCardDevice::host_write_generation()`, bumped by every CMD24 jnext commits):
+(`SdCardDevice::host_write_generation()`, bumped by every CMD24 jnext commits and, since GH #558, by every successful `disk_write` of the card engines: the SD card file manager, the file-add and the upgrade):
 an own write drops the in-memory state, and a memo of the last validation
 catches an own write that left the mtime unchanged. The (size, mtime, generation) key replaces the whole-image SHA-256, which cost 0.6-1.2 s per GB on the UI
 thread at every cold boot that loads a program. **Accepted residual:** an
@@ -2069,24 +2069,36 @@ overlay), when `SdCardDevice::write_protected()` (`--sdcard-readonly`), or when 
 jnext cannot write. The card operations themselves would write a write-protected slot, so `card_slots()` is the only
 place that enforces the first three.
 
-`SdManagerSession` is the contract with the machine. `open()` attaches its own OBSERVER client to the hosted
-`Debugger` (it arms nothing, so the window costs no per-instruction tracking) and pauses the machine unless
-something already had. Every card write goes through `before_card_write()`: the warning before the first change of
-a session must be accepted (a declined one allows nothing and is asked again), the machine is paused again if a
-remote debugger client resumed it, and the write is noted as a change BEFORE the engine runs, whatever its
-outcome, because a rollback is not byte-identical (replaced files and a directory's grown cluster stay). `close()`
-with no change runs the machine again if it was running at `open()` and leaves a machine that was paused paused.
-After a change it calls `Debugger::reset(Hard)`, which is synchronous and keeps the pause, so no frame runs on the
-old machine over the changed card, and then runs the machine if it was running at `open()`. The hard reset is the
-card change's whole invalidation: NextZXOS keeps its FAT and directories in RAM and the emulator keeps a warm start,
-and a cold boot drops both. `Emulator::request_hard_reset()` is used only as the fallback when `reset()` is refused
-(no `LoopDriver`, or an unacknowledged corruption); it is performed by the loop owner at its next tick whether or
-not frames run, and the machine is left paused, because a request followed by a resume would let a tick of frames
-run on the old machine first. A remote client can still resume the machine while the window is open; the re-pause
-before each write bounds the frames that run over an unchanged card, and the reset on close happens anyway. A
-changed `close()` pauses the machine again first, so the reset really runs on a paused machine, and the result reports
-what the machine is doing afterwards (a pause whose owner detached, or a resume by another client, is not reported as
-the other state).
+**Changing a card under a running machine.** The manager does not touch the machine: no pause, no reset, no question.
+That is safe because of how the card is built, each point checked in the code:
+
+- The emulated card keeps no cache. `SdCardDevice::load_read_block()` reads each block from the file (an absolute
+  `seekg` drops the `filebuf`'s get area), or from the writes table first when a writes file is bound; each guest
+  write is flushed, or committed to the writes file, at its CMD24. Anything that changes the file or the table is seen
+  by the next block the guest reads. SDCOH-01..03 read the root directory sector through the real SPI port pair before
+  and after a manager copy (plain, writes file, second card); SDCOH-04 is the reverse direction.
+- The engines mount per call and their sector cache lives for one attach (`fatfs_glue::attach()` to `detach()`). With
+  a writes file the engines write through the SAME shared journal registry as the device
+  (`sd_write_journal::for_image()`), and the image is opened read-only (SDOPS-20, SDCOH-02).
+- Emulation and the manager share the GUI thread (the machine runs from a Qt timer), so an engine call is atomic to
+  the guest: no emulated instruction runs during it.
+- Every write through the glue counts as a jnext write: `disk_write()` calls `SdCardDevice::note_host_write()` once per
+  successful call, on both arms, never for a refused or failed write (SDCOH-05, with the glue's own counter). The warm
+  start and the digest baseline compare that generation. The hard reset the manager used to make hid its absence.
+- What is left to the user, and why: NextZXOS is closed source, and it keeps the part of the folder it last read (the
+  FatFs window), so a change shows when the guest reads the folder again after reading something else. SDCOH-06 runs a
+  real NextZXOS (a probe NEX under `.nexload`): its F_OPEN of a file the engine added mid-run succeeds once another
+  folder was read in between; an immediate second F_OPEN of the same folder answers from the window and does not see
+  it. The guide gives the user the WiFi-card rule: do not change files a running program has open or is writing.
+- Outside programs. Without a writes file another program that writes the image is what the manager is, at jnext's
+  level. With a writes file the image must not change: the journal holds sectors that fit it as it was. At mount
+  `SdCardDevice` records the image's size, time and (POSIX) device and inode, and `outside_change()` reports
+  `Replaced` (the path names another file; the device keeps the old one), `Resized` (any mode) and `Rewritten` (the time
+  moved, only when a writes file is bound: otherwise the guest and the manager move the time), each once per mount.
+  `Emulator::check_card_files()` runs it for both slots; the Qt status tick shows one warning box per kind
+  (`MainWindow::card_file_changed()`), the SDL loop logs. It never refuses, ejects or resets. A change that keeps the
+  time (`touch -r`, `cp -p`) is not seen: hashing a gigabyte is the cost the warm start already rejected. The
+  start-up refusal of a writes file says "was made for another image, or the image was changed by another program since".
 
 `run_transfer()`, `delete_items()` and `make_folder()` are the operations, with hooks for the questions, the trash
 and the gate. Each item is all-or-nothing (the engines roll back), a run stops at the first failure or Cancel and
@@ -2111,7 +2123,7 @@ anything that opens a host file and keeps it open, or appends to it again by pat
 the manager adds what only the configuration knows: each slot's configured image (an ejected card 0 keeps its path), the NEX
 a read overlay serves, the loaded TAP, TZX and WAV and the esxDOS root. Each of them, and any folder holding one, is refused as
 a copy or move source, as a Replace target and as a delete target, by file identity, whichever slot the pane shows. The host side of a delete or a Replace goes to the trash through a
-hook; there is no permanent fallback. Rows: `SDMS-01..12`, `SDMT-01..36`, `SDMR-01..05` (`sdcard_manager_test`).
+hook; there is no permanent fallback. Rows: `SDMT-01..37`, `SDMR-01..05`, `SDCOH-01..04` (`sdcard_manager_test`).
 
 `resolve_remembered()` is what the window opens on, and the emulator wins over the remembered state: the remembered
 card's slot if it is mounted, otherwise the first mounted slot; the remembered card directory only on the remembered card,
@@ -2125,25 +2137,34 @@ directory, then home, and ignores a value that is relative, holds a NUL or (Wind
 an entry's `open_name` (an entry without one is shown and never acted on), and a drag payload whose lines are `%XX`-escaped
 so a name with a newline, a percent or a high byte survives. Both panes are plain lists. The host pane is a `QListView` on `SdHostModel`, a flat list over a `QFileSystemModel` (which keeps the listing, the sort, the icons and the watching; `SdHostModel` forwards its row changes, so a selection survives a re-sort). Every folder but the root (the card's `/`, the filesystem root) has an "up" row first in both models: the `up-dir.svg` icon (a list-row icon, listed in the toolbar icon set but shown by no toolbar button), the text `..`, `ItemIsEnabled` only, so it can never be selected, dragged or be the target of an action; a double-click and Enter (`DropView::activate`) on it go to the parent, on a folder they enter it. The slot selector, the Read-only box and the note are in the bottom row beside Close, so the two panes are the same size with aligned edges; the selector entries read `SD Card N: <file name>` (the full path as tooltip) or `SD Card N: <empty>` and are rebuilt whenever a slot's image changes. The default size is `SdManagerDialog::default_size()` (1080x624, the earlier 900x520 plus 20%). A card path is BYTES (code page 437) and a `QString` is Unicode, so every card path that crosses into Qt is carried as Latin-1 (`SdCardModel::card_text` / `card_bytes`, one code point per byte, lossless both ways) and the stored `card_dir` is the `%XX` escape of those bytes; host paths are UTF-8 and display strings are escaped ASCII. The copy engines take that verified path as bytes (`card_path_is_bytes` of `extract_from_image`, `dest_is_bytes` of `add_to_image`; FatFs matches CP437 bytes natively), so no 8.3 alias is ever substituted: an alias can resolve to ANOTHER entry on a card with a duplicate short name. The command line keeps refusing a byte above 0x7E. That mode has a precondition, stated in both engine headers: every component of the path is the `open_name` its listing gives for that entry. The engines enforce what they can see: a control byte or DEL is refused, and a component that FatFs resolves to a different directory slot than the entry carrying that name (`resolves_elsewhere()` in `add_to_image`, the slot comparison in `extract_from_image`) is refused with `DestInvalid` / `SourceUnreadable` instead of writing through to, or reading, the other entry. The host pane is a `QListView` on a read-only `QFileSystemModel`. Every operation first re-reads
 `card_slots()` and `held_host_files()`: the card in the slot may have changed under the window, a recording may have started.
-A change while the window is open (polled by a timer, and checked before each operation) resets the card pane to the new
-card's ROOT, because the emulator wins over any remembered or shown state. The three remembered values are
+A change of the CARD while the window is open (polled by a timer every 500 ms, and checked before each operation)
+resets the card pane to the new card's ROOT, because the emulator wins over any remembered or shown state. A change of
+the card's CONTENT (the write generation moved: the guest or any engine wrote; or the image's size or time moved: another
+program wrote it) re-lists the folder (`relist_card()`), keeping the selection by path and the scroll position; F5 and
+window activation re-list too, and a poll that finds nothing changed lists nothing (`card_reloads_for_test()`). Every
+card item an action acts on is checked against the identity the pane listed (`sdmanager::entry_stamp`: stored name, 8.3
+alias, kind, size, attributes, date, time), taken BEFORE `card_now()` or a question can re-list: `run_transfer`,
+`delete_items` and `rename_card_item` list the item's folder again and fail an item that is not the entry listed
+("changed on the card since it was listed"), writing nothing for it; the drag payload carries the stamps too. The
+window is inert while `set_card_busy()`'s predicate holds (MainWindow: `card_op_ != None`, because an upgrade or a go
+back runs FatFs on a worker thread under `processEvents`, and FatFs is not reentrant): the poll makes no card call and
+every card action is disabled. The slot selector, the Read-only box and the one-line note (the permanent rule, the
+read-only reason, or the writes file) are under the panes, so the two panes are equal and aligned. The three remembered values are
 `sdcard_manager.card`, `sdcard_manager.card_dir` (stored `%XX`-escaped) and `sdcard_manager.host_dir`, plain `AppConfig`
 fields, settable with `--set` like `paths.last_load_dir`; they are read back only through `resolve_remembered()`, which checks
 them. The message boxes, the text prompts and the trash go through hooks the tests replace (`set_box_hook_for_test`,
-`set_text_hook_for_test`, `set_trash_hook_for_test`); a headless session has no trash. Rows: `SDMW-01..43`
+`set_text_hook_for_test`, `set_trash_hook_for_test`); a headless session has no trash. Rows: `SDMW-01..50`
 (`sdcard_manager_window_test`, offscreen), `AC-104..106` (`app_config_test`).
 
-**The manager in the main window.** `MainWindow` (`src/gui/main_window.cpp`) owns the `SdManagerSession` as a member, so the
-session's observer client lives as long as the window and is detached with it; the `Debugger` it was opened on belongs to the
-loop owner and outlives the window. `on_sd_manager()` (File ▸ SD Card File Manager..., and the Main toolbar button after
-Load, both without a hotkey) refuses with a box while `card_op_` is set (the eject-work-insert actions own the card then) or
-when there is no `Debugger`, otherwise opens the session (which pauses), builds the dialog with the remembered values
-(`SessionPaths` first, `AppConfig` second, the same order as the Load directory) and shows it with `setModal(true)` and `show()`, application
-modal: `QDialog::open()` would make it window modal when the dialog has a parent, which blocks only the main window and leaves the debugger window live over a paused machine. The window's `finished` saves what it closed on (`remember_sd_manager()`) and posts `finish_sd_manager()` through a
-zero-delay timer: `SdManagerSession::close()` may reset the machine and must not run inside the dialog's own event delivery or
-a tick. Its result decides the status-bar line (a restart, or a restart that is still paused). Rows: `SDMW-33..36`
-(`sdcard_manager_window_test`: a browse-only visit and a visit that changed the card, through the real action), `SDMENU-16..18`
-(`sdcard_menu_test`: the menu entry and the toolbar button, and the refusal during a card operation), `TBI-10`.
+**The manager in the main window.** `MainWindow::on_sd_manager()` (File ▸ SD Card File Manager..., and the Main toolbar
+button after Load, both without a hotkey) raises the open window if there is one (`sd_dialog_`, a `QPointer`: one
+instance); refuses with a box while `card_op_` is set (the eject-work-insert actions own the card then) or with no machine;
+otherwise builds the dialog with the remembered values (`SessionPaths` first, `AppConfig` second, the same order as the
+Load directory) and shows it MODELESS, with `set_card_busy()` bound to `card_op_`. There is no session, no pause and no
+zero-delay close: the window's `finished` only saves what it closed on (`remember_sd_manager()`). Rows: `SDMW-33`,
+`SDMW-36`, `SDMW-47`, `SDMW-49` (`sdcard_manager_window_test`, through the real action), `SDMENU-16..19`
+(`sdcard_menu_test`: the entry, the button, the refusal during a card operation, the outside-change warning), `MWP-19`
+(`main_window_pause_test`: opening neither pauses the machine nor opens the debugger window), `TBI-10`.
 
 **The glue caches sectors.** FatFs keeps one sector window per volume, so every path lookup
 re-reads its directory, and an uncached `disk_read` costs an `lseek` plus an 8 KiB stream-buffer

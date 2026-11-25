@@ -6,19 +6,25 @@ of your computer, with the mouse. The card is on the left, a folder of your comp
 on the right. It needs no command line, and it works on the card that NextZXOS is
 using, however it was made.
 
+The machine keeps running while you use the window, and it sees your changes the way
+a Next sees a WiFi SD card's: the files are on the card at once, and NextZXOS finds
+them when it next reads the folder. Read [Changing the card while the machine
+runs](#changing-the-card-while-the-machine-runs) before you change files a program may
+be using.
+
 ![The SD card file manager](../img/sdcard-manager.png)
 
 ## Opening it
 
-The machine is **paused** while the window is open, so that nothing in the guest
-changes the card under your hands, and the status bar shows the paused indicator
-(this is the same pause as **Machine ▸ Pause**). The window is modal: neither the main window
-nor the debugger window takes keys until you close it. Closing it gives the machine back as it was:
-running if it was running, paused if you had paused it yourself. The one exception
-is a change to the card, described under [Changing the card](#changing-the-card).
+The window does not pause, restart or otherwise touch the machine. It stays open
+beside the main window: switch between the two as you like, and use the machine while
+the window is open. Opening it a second time brings the same window forward. The menu
+entry has no keyboard shortcut.
 
-The menu entry has no keyboard shortcut. It is refused, with a message, while the
-SD-card upgrade or go-back actions are working on the card.
+While an SD-card upgrade or go-back is working on the card, the window will not open
+(it says why), and one that is already open goes **inert**: it makes no access to the
+card and greys every card action, with a note, until the work is done. It then looks
+at the card again.
 
 ## The two panes
 
@@ -35,19 +41,26 @@ SD-card upgrade or go-back actions are working on the card.
   with every action. An entry the card cannot address by any name (a short name
   repeated behind an earlier entry, or a name holding the byte 7F) is listed but
   cannot be acted on, and its tooltip says so.
-- **The host pane** (right) is an ordinary folder of your computer, with your
-  desktop's own file icons.
+- **The host pane** (right) is an ordinary folder of your computer.
 
 Both panes are lists, the same size, with their top and bottom edges aligned; the
-folder each shows is written above it. Double-click a folder, or select it and press
-**Enter**, to enter it. Every folder except the top one (the card's root, or the root
-of your computer's file system) starts with an **up row**, `..` with a left-and-up
-arrow: a double-click or **Enter** on it goes to the parent folder. It is not an entry:
-it cannot be selected, copied, dragged, renamed or deleted. The panes show only the
-folder you are in, one level at a time. The window opens at 1080 by 624 pixels.
+folder each shows is written above it. The slot selector and the **Read-only** box are
+in the bottom row, with **Close**, and one line under the panes tells you the rule for
+changing the card (or why it is read-only).
 
-The card pane always shows what the machine has mounted. If the card in the slot is
-changed from outside the window while it is open, the pane notices, says so, and shows the new card's top folder.
+Double-click a folder, or select it and press **Enter**, to enter it. Every folder
+except the top one (the card's root, or the root of your computer's file system) starts
+with an **up row**, `..` with a left-and-up arrow: a double-click or **Enter** on it
+goes to the parent folder. It is not an entry: it cannot be selected, copied, dragged,
+renamed or deleted. The panes show only the folder you are in, one level at a time. The
+window opens at 1080 by 624 pixels.
+
+**The card pane re-reads the folder by itself.** When the machine writes to the card, or
+another program changes the image, the pane lists the folder again within half a second,
+keeping your selection and your place in the list. **F5** (or **Refresh** in the pane's
+menu) lists it again at once, and so does bringing the window to the front. The pane
+always shows what the machine has mounted; if the card in the slot is swapped while the
+window is open, it says so and shows the new card's top folder.
 
 ## What you can do
 
@@ -59,6 +72,7 @@ changed from outside the window while it is open, the pane notices, says so, and
 | Rename | Select one item and press **F2**, or use the pane's context menu |
 | Delete | Select items and press **Delete**, or use the context menu |
 | Make a folder | **New Folder** in the pane's context menu |
+| List the card folder again | **F5**, or **Refresh** in the card pane's context menu |
 
 The context menu (right-click) of each pane also offers **Copy**.
 
@@ -70,14 +84,23 @@ The context menu (right-click) of each pane also offers **Copy**.
 - A file JNEXT is itself using cannot be deleted, renamed or overwritten from this window: the card image of a slot, a writes
   file, a recording being made, a loaded tape. The message names the reason and
   nothing is touched.
+- **A card item that changed since the pane listed it is skipped.** The machine runs
+  while you choose, so it can rename, delete or re-create a file between the moment the
+  pane showed it and the moment you act. Before each card item is touched, its folder is
+  read again; an item that is no longer the entry you saw is not touched, and the
+  message says "changed on the card since it was listed". The pane then shows the card as
+  it is now.
 - A copy that fails part way says what was done, what failed and what was not
   attempted.
+
+There is no question before a change: the card is changed as soon as you copy, move,
+rename, delete or make a folder (the overwrite and delete confirmations above remain).
 
 ## Read-only cards
 
 The **Read-only** box, next to the slot selector at the bottom of the window: tick it to browse and copy *off* the card
 with every card-writing action disabled. It is also ticked for you, and greyed, with
-the reason shown beside it, when the card cannot be written:
+the reason shown in the line under the panes, when the card cannot be written:
 
 - the card is not FAT32 (JNEXT writes only the first FAT32 partition of a card; a FAT16 card is shown read-only);
 - JNEXT was started with `--sdcard-readonly`;
@@ -87,23 +110,72 @@ the reason shown beside it, when the card cannot be written:
 
 Copying *off* a read-only card always works.
 
-## Changing the card
+## Changing the card while the machine runs
 
-NextZXOS keeps its idea of the card (the directories and the file system state) in the
-memory of the machine. A change made behind its back would leave that stale, so a
-card change ends in a **hard reset**.
+**What happens.** The change goes onto the card at once, and nothing restarts. JNEXT keeps
+no copy of the card: every block NextZXOS reads is read from the image (or from its writes
+file) at that moment. So NextZXOS sees your change **when it next reads that folder**.
 
-The first time you change the card in a visit (a copy to it, a move, a rename, a
-delete or a new folder on the card), the window asks **Change the SD card?** and tells
-you the machine will restart when the window closes. If you say *No*, nothing
-happens. When you close the window the machine is reset and runs again, and the
-status bar says so. Browsing, and copying *to* your computer, never restart anything.
+**The folder is read again, not watched.** NextZXOS, like every FAT driver, keeps the
+part of the folder it last read in its memory, and brings it up to date when it reads
+the folder again after reading something else. So a change shows up the next time the
+program goes to look:
 
-If the machine could not be reset at once, it restarts as soon as it can and stays
-paused: press **Pause** again to run it.
+- in the Browser: enter a folder and come back, or leave it and open it again;
+- in NextBASIC: type `dir` or `cat` again;
+- a dot command you have just copied: found the next time you type it;
+- a program that reads a file: finds it the next time it opens that file.
 
-If a card is mounted with `--sdcard-writes FILE`, the changes go to that file, as
-every other write of the machine does ([3.3 Using your own image](../03-first-run/03-using-your-own-image.md)).
+In a test, a program that asked for a new file again straight away, with nothing else
+read in between, still got the old answer; as soon as it had read another folder it saw
+the file. If something does not show up, look at another folder and come back.
+
+**Your part**, exactly as with a WiFi SD card in a real Next:
+
+- Do not change, rename or delete a file a running program has open or is writing, and
+  do not change the card while the machine itself is saving to it. NextZXOS may hold the
+  place of that file in its memory, and a write it makes afterwards can overwrite your
+  change. When in doubt, let the machine sit idle in the Browser or at the command line.
+- Files the machine reads only at start-up (the ROMs under `/MACHINES/NEXT`, `TBBLUE.FW`,
+  NextZXOS itself) take effect at the next restart. To restart the machine fresh, use the
+  **Power Reset** button or **Machine ▸ Power Reset**.
+- A running program that refers to a file by its short (8.3) name will not find it after
+  you rename the file.
+- Rewinding the machine (the debugger) does not undo changes made to the card, by the
+  machine or by this window.
+
+## Cards with a writes file
+
+With `--sdcard-writes FILE`, everything the machine writes, and everything this window
+changes, goes into *FILE*, and the image is not touched. The line under the panes names
+the file.
+
+**Never change the image itself with other programs while it has a writes file** (hdfmonkey,
+mtools, a loop mount, copying a new image over it). *FILE* holds pieces of the card's tables
+(which clusters are used, what each folder holds) that fit the image *as it was*. Change
+the image underneath and the two no longer fit: the machine sees a mixture, and the
+files on the card get damaged. Use this window instead: it writes into *FILE*, which is
+the supported way.
+
+JNEXT warns, once, with a message box and in its log, when it notices the image of a card
+with a writes file changing while it runs, and it refuses *FILE* at the next start (the
+message offers `--sdcard-writes-reset`, which discards the changes in *FILE*). It cannot
+notice a change that keeps the image's modification time (`touch -r`, `cp -p`): that is
+not a safe thing to do either.
+
+To get a plain image with your changes in it, use `--sdcard-writes-flatten OUT`.
+
+## Changing the card from outside JNEXT
+
+The supported way is this window. Without a writes file, another program that writes the
+image while JNEXT runs writes the same file the machine reads, and works as this window
+does, under the same rules (above). JNEXT cannot tell when a program changes the image; it
+notices within half a second and shows it in the card pane.
+
+Never **replace** or **resize** the image file while it is in use (some tools write a new
+file and rename it over the old one; some change the card's size). The machine keeps
+the old file, and what it writes is lost when JNEXT exits; a resized image keeps its old
+size. JNEXT warns once when it sees either, in any mode.
 
 ## What it remembers
 

@@ -276,11 +276,20 @@ stored when the program closes it and handed back to the stand-in at the
 next start, whatever the program: it belongs to the card, not to the NEX
 that wrote it. Excludes **--sdcard-readonly**; with
 **--sdcard-file-add** the copy goes into *FILE* and the image is not
-written. A recording of the warm start is keyed on the image and on
-*FILE*’s sectors, so it is taken again after the machine has written
-one; the stand-in’s file is not card state and does not change it. Files
-read from the image by the host (the ROMs, a snapshot’s card identity)
-do not see the writes. See **SD CARD AND ROMS**.
+written. Do not change the image with another program while *FILE* has
+writes for it (hdfmonkey, mtools, a loop mount, a copy over it): *FILE*
+would no longer fit the image, and the card the machine sees would be
+damaged. Use the SD card file manager (File menu), which writes into
+*FILE*. JNEXT warns once, with a message box and in its log, when the
+image of a card with a writes file changes (or is replaced or resized)
+while it runs, and it refuses *FILE* at the next start (“was made for
+another image, or the image was changed by another program since”). The
+same applies to **--sdcard2-writes**. A recording of the warm start is
+keyed on the image and on *FILE*’s sectors, so it is taken again after
+the machine has written one; the stand-in’s file is not card state and
+does not change it. Files read from the image by the host (the ROMs, a
+snapshot’s card identity) do not see the writes. See **SD CARD AND
+ROMS**.
 
 **--sdcard-writes-reset**  
 Discard the writes kept in the **--sdcard-writes** *FILE* before the
@@ -2017,6 +2026,26 @@ menu items have no keyboard mnemonic.
   original card again, or pass **--snapshot-mode** `force`. The second
   SD card, when one was mounted, is recorded and checked the same way
   (see **JNEXT SNAPSHOTS**).
+
+**File \> SD Card File Manager…** (and the SD card button on the
+toolbar) opens a window that copies, moves, renames and deletes files
+and folders on the card of the running machine, with a folder of the
+host beside it. It does not pause or reset the machine and asks no
+question before a change: the change is on the card at once and the
+machine sees it when it next reads that folder (NextZXOS keeps the part
+of the folder it last read in memory and brings it up to date when it
+reads the folder again after reading something else). Do not change a
+file a running program has open or is writing. With **--sdcard-writes**
+the changes go into *FILE* and the image is not touched. The window is
+modeless, there is one of it, and it is inert while an upgrade or a go
+back works on the card. A card item that changed since the window listed
+it (the machine can change the card meanwhile) is skipped, not touched.
+
+Other programs that write an image while jnext runs it behave as the
+window does when the card has no writes file, under the same rules; with
+a writes file they must never be used (see **--sdcard-writes**).
+Replacing or resizing the image file while it is mounted is never safe:
+the machine keeps the old file, and jnext warns once when it sees it.
 
 ### PUTTING A FILE ON THE CARD
 

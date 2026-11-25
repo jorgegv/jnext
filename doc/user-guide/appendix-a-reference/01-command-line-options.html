@@ -4812,12 +4812,21 @@ directly loaded NEX</strong>), stored when the program closes it and handed
 back to the stand-in at the next start, whatever the program: it
 belongs to the card, not to the NEX that wrote it. Excludes
 <strong>--sdcard-readonly</strong>; with <strong>--sdcard-file-add</strong> the copy goes into
-<em>FILE</em> and the image is not written. A recording of the warm start
-is keyed on the image and on <em>FILE</em>’s sectors, so it is taken again
-after the machine has written one; the stand-in’s file is not card
-state and does not change it. Files read from the image by the host
-(the ROMs, a snapshot’s card identity) do not see the writes. See
-<a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an SD-card
+<em>FILE</em> and the image is not written. Do not change the image with
+another program while <em>FILE</em> has writes for it (hdfmonkey, mtools, a
+loop mount, a copy over it): <em>FILE</em> would no longer fit the image,
+and the card the machine sees would be damaged. Use the SD card file
+manager (File menu), which writes into <em>FILE</em>. JNEXT warns once,
+with a message box and in its log, when the image of a card with a
+writes file changes (or is replaced or resized) while it runs, and
+it refuses <em>FILE</em> at the next start (“was made for another image, or
+the image was changed by another program since”). The same applies
+to <strong>--sdcard2-writes</strong>. A recording of the warm start is keyed on
+the image and on <em>FILE</em>’s sectors, so it is taken again after the
+machine has written one; the stand-in’s file is not card state and
+does not change it. Files read from the image by the host (the ROMs,
+a snapshot’s card identity) do not see the writes. See <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT
+needs an SD-card
 image</a>.</dd>
 <dt><strong>--sdcard-writes-reset</strong></dt>
 <dd>Discard the writes kept in the <strong>--sdcard-writes</strong> <em>FILE</em> before the

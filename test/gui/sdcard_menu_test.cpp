@@ -15,6 +15,8 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QToolBar>
+#include <QElapsedTimer>
+#include "peripheral/sd_card.h"
 #include <QTemporaryDir>
 
 #include <cstdio>
@@ -159,10 +161,15 @@ int main(int argc, char** argv)
     // Any box that is still up 40 ms after it appeared is one nobody answers (the confirm is clicked at 0 ms): it is
     // counted and closed, so a defect that raises an unexpected warning fails a row instead of hanging the suite.
     int unexpected_dialogs = 0;
+    std::string last_box_text;
     QTimer watchdog;
     watchdog.setInterval(40);
     QObject::connect(&watchdog, &QTimer::timeout, [&] {
-        if (QWidget* m = QApplication::activeModalWidget()) { ++unexpected_dialogs; m->close(); }
+        if (QWidget* m = QApplication::activeModalWidget()) {
+            ++unexpected_dialogs;
+            if (auto* mb = qobject_cast<QMessageBox*>(m)) last_box_text = mb->text().toStdString();
+            m->close();
+        }
     });
     watchdog.start();
     auto answer_ok = [] {
@@ -393,6 +400,33 @@ int main(int argc, char** argv)
             if (qobject_cast<SdManagerDialog*>(w)) bare_opened = true;
         check("SDMENU-18", "File > SD Card File Manager... in a window with no machine shows one refusing box and opens nothing",
               unexpected_dialogs - before == 1 && !bare_opened, "boxes=" + std::to_string(unexpected_dialogs - before));
+    }
+
+    {
+        // GH #558: an image changed from outside JNEXT is warned about, one box per kind, naming the card and the way out
+        reset_set();
+        Fixture f(card);
+        auto warn = [&](int slot, int kind) {
+            const int before = unexpected_dialogs;
+            last_box_text.clear();
+            f.win.card_file_changed(slot, kind, QStringLiteral("/some/dir/card.img"));
+            QElapsedTimer t;
+            t.start();
+            while (unexpected_dialogs == before && t.elapsed() < 1500) QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            return unexpected_dialogs - before;
+        };
+        using OC = SdCardDevice::OutsideChange;
+        const int n1 = warn(0, static_cast<int>(OC::Replaced));
+        const bool t1 = last_box_text.find("replaced by another file") != std::string::npos && last_box_text.find("The SD card image") != std::string::npos &&
+                        last_box_text.find("File Manager") != std::string::npos;
+        const int n2 = warn(1, static_cast<int>(OC::Resized));
+        const bool t2 = last_box_text.find("was resized") != std::string::npos && last_box_text.find("The second SD card image") != std::string::npos;
+        const int n3 = warn(0, static_cast<int>(OC::Rewritten));
+        const bool t3 = last_box_text.find("SD-writes file") != std::string::npos && last_box_text.find("may be damaged") != std::string::npos;
+        const int n0 = warn(0, static_cast<int>(OC::None));   // nothing to say: no box (the call returns after the timeout)
+        check("SDMENU-19", "an image replaced, resized or rewritten under a writes file from outside JNEXT raises exactly one warning box per report, naming the card and pointing to the file manager; no report, no box",
+              n1 == 1 && t1 && n2 == 1 && t2 && n3 == 1 && t3 && n0 == 0,
+              std::to_string(n1) + std::to_string(n2) + std::to_string(n3) + std::to_string(n0));
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

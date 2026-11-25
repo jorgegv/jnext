@@ -4624,7 +4624,15 @@ machine wrote, so it stays small, plus the one file that JNEXT's esxDOS stand-in
 for a NEX loaded directly (see "Running programs"): that file is stored when the
 program closes it and is there at the next run. <code>--sdcard-file-add</code> works with it too:
 the file you add goes into <em>FILE</em> and the image stays untouched.</p>
+<p><strong>Never change the image with another program while it has a writes file</strong> (hdfmonkey,
+mtools, a loop mount, a copy over it): <em>FILE</em> holds pieces of the card's tables that fit
+the image only as it was, so the machine would see a mixture and the card would be
+damaged. JNEXT warns when it sees it happen and refuses <em>FILE</em> at the next start. To
+change files on such a card while it runs, use <strong>File ▸ SD Card File Manager…</strong>, which
+writes into <em>FILE</em> (<a href="../05-running-programs/13-the-sd-card-file-manager.html">5.13</a>).</p>
 <h2 id="changing-the-card-while-jnext-runs">Changing the card while JNEXT runs<a class="headerlink" href="#changing-the-card-while-jnext-runs" title="Permanent link">&para;</a></h2>
+<p>This section is about swapping the whole card. To change the <em>files</em> on the running
+card, with no restart, see <a href="../05-running-programs/13-the-sd-card-file-manager.html">5.13</a>.</p>
 <p><strong>File &gt; Insert SD Card Image</strong> puts a different card in the running machine,
 and <strong>File &gt; Eject SD Card</strong> takes it out. Nothing is reset, so you keep what
 you were doing — a RAMdisk, say, while you copy files from one card to another.</p>

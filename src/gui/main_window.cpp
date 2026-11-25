@@ -40,6 +40,7 @@
 #include "core/sdcard_upgrade.h"
 #include "gui/sdcard_download_dialog.h"
 #include "gui/sdcard_manager_dialog.h"   // GH #558
+#include "peripheral/sd_card.h"
 #include "peripheral/sd_write_journal.h"
 #include "qt/menu_bar_alt_nav_qt.h"   // GH #268
 #include "toolbar_icons/toolbar_icons.h"
@@ -2288,6 +2289,31 @@ void MainWindow::on_sd_manager() {
     sd_dialog_ = dlg;
     connect(dlg, &QDialog::finished, this, [this, dlg](int) { remember_sd_manager(dlg->remembered()); });
     dlg->show();
+}
+
+void MainWindow::card_file_changed(int slot, int kind, const QString& image) {
+    if (unattended_) return;
+    const QString card = slot == 1 ? tr("The second SD card") : tr("The SD card");
+    QString what;
+    switch (static_cast<SdCardDevice::OutsideChange>(kind)) {
+    case SdCardDevice::OutsideChange::Replaced:
+        what = tr("was replaced by another file while JNEXT is running. The machine keeps using the old file, and what it "
+                  "writes is lost when JNEXT exits.");
+        break;
+    case SdCardDevice::OutsideChange::Resized:
+        what = tr("was resized while JNEXT is running. The card keeps its old size.");
+        break;
+    case SdCardDevice::OutsideChange::Rewritten:
+        what = tr("was changed by another program while it has an SD-writes file. The writes file no longer fits the image, "
+                  "and the card the machine sees may be damaged.");
+        break;
+    default:
+        return;
+    }
+    const QString text = tr("%1 image '%2' %3\n\nStop using this card, and change files on the card with File > SD Card File "
+                            "Manager instead (see the user guide, \"Changing the card from outside JNEXT\").")
+                             .arg(card, QDir::toNativeSeparators(image), what);
+    QTimer::singleShot(0, this, [this, text]() { QMessageBox::warning(this, tr("SD card image changed"), text); });
 }
 
 // What the window closed on is remembered and saved (the GUI change takes over from a command-line value), like

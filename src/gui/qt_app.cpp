@@ -1062,6 +1062,10 @@ void QtApp::TickEffects::set_timer_interval(int ms) {
 void QtApp::on_status_tick() {
     if (!main_window_) return;
 
+    // GH #558: an SD card image changed from outside JNEXT (replaced, resized, rewritten under a writes file): warn once per kind.
+    for (const auto& ev : emulator_.check_card_files())
+        main_window_->card_file_changed(ev.slot, static_cast<int>(ev.kind), QString::fromStdString(ev.image));
+
     double fps = static_cast<double>(frame_count_);
     frame_count_ = 0;
 
