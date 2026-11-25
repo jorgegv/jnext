@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.74</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.76</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.74</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.76</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3270,9 +3270,14 @@ with <code>main</code> (<code>origin/main</code> when there is no local <code>ma
 <code>TEST-AFFECTED MISS</code>, so the map or the conf is fixed on the same branch; with no such base, or in a
 platform tree (SDL-only, Windows, WebAssembly), the check is silent. A docs-only plan ran no suite, so
 every suite that fails is a miss. The planner's rows are
-<code>TAF-01..10</code> and <code>TAF-12..74</code> in <code>test/test-affected-selftest.sh</code> (<code>make test-affected-selftest</code>,
-part of <code>make unit-test</code>), on a hand-written fixture build tree, and <code>HS-194a..j</code> in the harness
+<code>TAF-01..10</code> and <code>TAF-12..79</code> in <code>test/test-affected-selftest.sh</code> (<code>make test-affected-selftest</code>,
+part of <code>make unit-test</code>), on a hand-written fixture build tree, and <code>HS-194a..m</code> in the harness
 self-test.</p>
+<p>A FULL plan runs <code>make unit-test</code> and then every make target the plan names. <code>make lint-test-scripts</code> (the
+regression preflight's four test-script lints: traps, timeouts, quiet pipe grep and bare in-place <code>sed</code>,
+which BSD sed on macOS rejects) is a prerequisite of both <code>make unit-test</code> and <code>make test-affected</code>, so a
+branch round lints every tracked test script and a bad one no longer waits for the batch gate's
+regression run.</p>
 <p>What <code>make test-affected</code> does not do: it runs the traceability check only when the manifest, the test
 CMake file, the generator or the matrix changed, so a new <code>check()</code> row alone leaves the committed
 matrix stale until the full <code>make unit-test</code>, which also takes each suite's real FAIL set from its

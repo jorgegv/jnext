@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.74</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.76</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.74</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.76</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3158,8 +3158,8 @@ fills a third store, <code>UserAnnotations</code>, which sits beside the toolcha
 <code>SymbolTable</code> and wins over it when the two disagree.</p>
 <h2 id="1-the-producer">1. The producer<a class="headerlink" href="#1-the-producer" title="Permanent link">&para;</a></h2>
 <p>JNEXT. The Qt Map menu opens and saves it (section 10); <code>--annotations FILE</code>
-loads one at start-up (<code>main.cpp</code> stores <code>annotations_file</code> at <code>src/main.cpp:1127</code> and copies
-it to the configuration at <code>src/main.cpp:2985</code>, and <code>ScriptHost::start()</code> loads it (<code>annotations_file</code>,
+loads one at start-up (<code>main.cpp</code> stores <code>annotations_file</code> at <code>src/main.cpp:1129</code> and copies
+it to the configuration at <code>src/main.cpp:2998</code>, and <code>ScriptHost::start()</code> loads it (<code>annotations_file</code>,
 <code>src/script/script_host.cpp:201-215</code>), after <code>--map</code> and before the scripts, so a
 script's <code>@name</code> of the file resolves). <code>replace_annotations()</code> is the
 primitive an import builds on.</p>
@@ -3254,7 +3254,7 @@ so every consumer reads both layers with no code of its own.
 <code>names</code> is assigned in place, so the <code>const SymbolTable*</code> the Disassembly, Call Stack
 and Breakpoints panels hold (<code>set_symbol_table(&amp;dbg_.symbols())</code>) stays valid.</p>
 <p><code>recompose_names()</code> is called after every change of either layer: the toolchain writers
-(<code>recompose_names</code> at <code>src/debug/debugger.cpp:274</code> in load_map and <code>:288</code> in clear_symbols; in <code>src/debug/debugger_source.cpp</code> at <code>:409</code> the deferred-check drop, <code>:547</code> and <code>:554</code> the
+(<code>recompose_names</code> at <code>src/debug/debugger.cpp:276</code> in load_map and <code>:290</code> in clear_symbols; in <code>src/debug/debugger_source.cpp</code> at <code>:409</code> the deferred-check drop, <code>:547</code> and <code>:554</code> the
 hand SLD's labels, <code>:797</code> the program-load attach and its bind, <code>:961</code>
 drop_sidecars, <code>:1064</code> and <code>:1070</code> the ring landing) and every verb that changes a label
 (<code>recompose_names</code> at <code>src/debug/debugger_annotations.cpp:71</code> in set_user_label, <code>:80</code> in remove_user_label, <code>:116</code> in replace_annotations; <code>set_user_comment()</code> changes no name and does not). The attachment cache
@@ -3298,7 +3298,7 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   file the toolchain layer was loaded from (<code>toolchain_symbols().loaded_file()</code> in <code>add_annotation_actions()</code>, <code>toolchain_note</code>,
   <code>annotation_menu.cpp:95-98</code>; <code>state_of()</code>, <code>:24</code>, only says whether a label is there). The panels hold a <code>const Debugger*</code> for reading; the writes go
   through the non-const pointer <code>DebuggerManager</code> hands them with <code>set_annotation_backend()</code>
-  (<code>src/debugger/debugger_manager.cpp:442</code> and <code>:446</code>), and each panel's <code>annotations_changed()</code> signal makes the
+  (<code>src/debugger/debugger_manager.cpp:455</code> and <code>:459</code>), and each panel's <code>annotations_changed()</code> signal makes the
   manager refresh the panels.</li>
 <li><strong>The Disassembly draws it.</strong> <code>label_column_shown()</code> (<code>disasm_panel.cpp:1157</code>) is true while the symbol table
   (the composed reader, section 9) holds any label; then the <strong>Label</strong> column sits between the BP column and the
@@ -3316,18 +3316,18 @@ an unchanged dialog never raises the unsaved-changes question.</p>
   file).</li>
 <li><strong>The Map menu.</strong> <code>DebuggerWindow</code> adds <strong>Open Annotations…</strong>, <strong>Save Annotations</strong> and <strong>Save Annotations As…</strong>
   (<code>connect</code>, <code>src/debugger/debugger_window.cpp:1099-1104</code>), connected to <code>DebuggerManager::on_open_annotations()</code>
-  (<code>debugger_manager.cpp:924</code>), <code>on_save_annotations()</code> (<code>:836</code>) and <code>on_save_annotations_as()</code> (<code>:826</code>); Save with no
+  (<code>debugger_manager.cpp:937</code>), <code>on_save_annotations()</code> (<code>:849</code>) and <code>on_save_annotations_as()</code> (<code>:839</code>); Save with no
   current file is Save As, which appends <code>.jdp</code> to a name without a suffix. Failures are warnings with the
   backend's <code>why</code> (an Open names the line).</li>
 <li><strong>Unsaved changes (D11).</strong> <code>DebuggerManager</code> keeps <code>saved_revision_</code> (<code>debugger_manager.h</code>), the backend's
   <code>annotations_revision()</code> at the last Open, Save or <code>--annotations</code>; <code>annotations_unsaved()</code> compares them.
-  <code>confirm_discard_annotations()</code> (<code>debugger_manager.cpp:906</code>) asks Save / Discard / Cancel when they differ, and is
+  <code>confirm_discard_annotations()</code> (<code>debugger_manager.cpp:919</code>) asks Save / Discard / Cancel when they differ, and is
   asked by <code>on_open_annotations()</code> before it opens and by <code>MainWindow::closeEvent()</code>
   (<code>confirm_discard_annotations</code>, <code>src/gui/main_window.cpp:4174</code>) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
   through <code>close()</code>, which then returns false). An unattended close (<code>unattended_</code>, the delayed automatic exit and
   SIGINT/SIGTERM, tested at <code>src/gui/main_window.cpp:4171</code>) asks nothing: it logs that the unsaved changes were
   discarded and quits (<code>QG-ANN-05</code>). With nothing changed there is no dialog. <code>set_annotations_file()</code>
-  (<code>debugger_manager.cpp:807</code>), called by <code>QtApp</code> for <code>--annotations</code> (<code>set_annotations_file</code>, <code>src/gui/qt_app.cpp:397</code>), makes that file
+  (<code>debugger_manager.cpp:820</code>), called by <code>QtApp</code> for <code>--annotations</code> (<code>set_annotations_file</code>, <code>src/gui/qt_app.cpp:397</code>), makes that file
   the Save target and the starting point of "unsaved".</li>
 <li><strong>Settings.</strong> None: the store has no Preferences field, so <code>config_keys.cpp</code> has no row; the CLI is
   <code>--annotations FILE</code>.</li>

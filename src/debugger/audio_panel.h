@@ -18,9 +18,13 @@
 
 #include "debug/events.h"   // jnext::dbg::ClientId
 
+class AudioScopeView;
+
 namespace jnext { namespace dbg { class Debugger; struct AudioState; } }
 
 class AudioLogView;
+class AudioStreamView;
+class AudioTrackerView;
 
 /// Debugger panel showing the decoded AY chips and the audio source controls.
 ///
@@ -30,10 +34,13 @@ class AudioLogView;
 /// envelope) from `Debugger::audio_state()`; its Hex toggle shows the raw
 /// 16 x 3 register table instead. DAC & Beeper shows the four DAC channels with
 /// their M and S buttons, the NR 0x84 port families, the beeper and Pi inputs, the
-/// host gains and mutes and the table of discarded writes. Each of the 13
+/// host gains and mutes, the table of discarded writes, the Pacing group (the CTC channels and the DMA
+/// with their computed rates) and the Sample stream group (each DAC writer's measured rate, jitter and gaps
+/// over the last second, from the audio write log; see AudioStreamView). Each of the 13
 /// channels (9 AY, 4 DAC) has an M (mute) and an S (solo) button, which act on
-/// `AUDIO_CHANNEL_MUTE` only. Log lists the decoded audio writes (see
-/// AudioLogView). Tracker and Scopes are placeholders until their features land.
+/// `AUDIO_CHANNEL_MUTE` only. Log lists the decoded audio writes (see AudioLogView). Tracker shows
+/// the AY tune one frame per row (AudioTrackerView). Scopes shows an oscilloscope trace and a level
+/// meter for each of the sixteen mixer sources (AudioScopeView).
 class AudioPanel : public QWidget {
     Q_OBJECT
 public:
@@ -57,17 +64,40 @@ public:
     /// True while the Chips tab is the current one: the only tab with live data.
     bool chips_on_show() const;
 
+    /// True while the Scopes tab is the current one (GH #536): the debugger window asks the
+    /// backend for the source tap only then.
+    bool scopes_on_show() const;
+
+    /// The Scopes view's per-frame refresh, run by the manager while the machine runs with this
+    /// panel on show and the Scopes tab current (refresh() does the same on a paused redraw).
+    void refresh_scopes();
     /// True while the Log tab is the current one: the tab that asks the backend to
     /// record the write log (DebuggerManager::apply_data_needs()), and the other one
     /// with live data.
     bool log_on_show() const;
 
+    /// True while the DAC & Beeper tab is the current one: it also asks the backend to record the write
+    /// log (the Sample stream group reads it), and its Pacing and Sample stream groups are live.
+    bool dac_on_show() const;
+
+    /// True while the Tracker tab is the current one: it reads the same write log as the Log
+    /// tab, so either one on show asks the backend to record it.
+    bool tracker_on_show() const;
+
+    /// Start the .psg recording to `path` (the Record PSG... button's body, and the tests'
+    /// seam). False when the backend refuses (FILE cannot be created, or one already runs);
+    /// the status label then says so.
+    bool start_psg_recording(const QString& path);
+    /// Finish the recording, whoever started it. False on a write error, which the status
+    /// label then says; also false when nothing records.
+    bool stop_psg_recording();
+
     QSize sizeHint() const override { return QSize(400, 600); }
     QSize minimumSizeHint() const override { return QSize(350, 580); }
 
 signals:
-    /// The current sub-tab changed: which of Chips and Log (if either) is live
-    /// changed with it, so the manager re-derives what the panel asks of the backend.
+    /// The current sub-tab changed: what the window asks of the backend depends on it (Log records the
+    /// write log, Scopes holds the source tap; GH #498), so the manager re-derives what the panel asks.
     void sub_tab_changed();
 
     /// A dropped-write row of CPU source was double-clicked: show the OUT or
@@ -75,12 +105,14 @@ signals:
     /// Symbols, CPU and Memory panels use).
     void show_in_disassembly_requested(uint16_t addr);
 
+    /// A Tracker row was double-clicked: rewind to the start of that frame.
+    void rewind_to_frame_requested(uint32_t frame);
+
 private:
     void create_ui();
     QWidget* create_chips_tab();
     QWidget* create_dac_tab();
     void refresh_dac_(const jnext::dbg::AudioState& st);
-    QWidget* placeholder_tab();
 
     /// The "DAC channels" group: rows A-D, each with M and S.
     QGroupBox* create_dac_channel_group();
@@ -108,7 +140,10 @@ private:
     QTabWidget* tabs_ = nullptr;
     QScrollArea* chips_scroll_ = nullptr;
     QScrollArea* dac_scroll_ = nullptr;
+    AudioScopeView* scope_view_ = nullptr;
     AudioLogView* log_view_ = nullptr;
+    AudioStreamView* stream_view_ = nullptr;   // the Pacing and Sample stream groups of DAC & Beeper
+    AudioTrackerView* tracker_view_ = nullptr;
 
     // The decoded widgets of one chip, found again by refresh().
     struct ChannelWidgets {
@@ -138,6 +173,15 @@ private:
     std::array<QToolButton*, 13> solo_btn_{};
     int      solo_ = -1;
     uint16_t pre_solo_mask_ = 0;
+
+    // The .psg recording row (top of the Chips tab). `psg_note_` is a refusal or a write error,
+    // shown until the next start; `psg_path_` the file this panel started (the status tooltip).
+    QPushButton* psg_record_ = nullptr;
+    QPushButton* psg_stop_ = nullptr;
+    QLabel* psg_status_ = nullptr;
+    QString psg_note_;
+    QString psg_path_;
+    void refresh_psg_();
 
     // Info labels
     QLabel* turbosound_label_ = nullptr;

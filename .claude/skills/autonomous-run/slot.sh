@@ -89,8 +89,9 @@ LOGDIR=${JNEXT_SLOT_REMOTE_LOG_DIR:-$HOME/tmp/remote-run}
 LIMIT=${JNEXT_SLOT_LOAD_LIMIT:-$(nproc 2>/dev/null || echo 12)}
 DIR=${JNEXT_SLOT_DIR:-}
 
-# Targets worth sending (the remote-run skill's D14 list, plus the full regression, regression-rows and test-affected).
-HEAVY_TARGETS=" unit-test unit-test-sdl unit-test-win unit-test-wasm wasm-browser-test regression regression-win regression-wasm regression-rows test-affected "
+# Targets worth sending (the remote-run skill's D14 list, plus the full regression, regression-rows and test-affected,
+# plus every target whose prerequisites include the PGO build gui-release: SLOT-68 derives that set from the Makefile).
+HEAVY_TARGETS=" unit-test unit-test-sdl unit-test-win unit-test-wasm wasm-browser-test regression regression-win regression-wasm regression-rows test-affected harness-selftest regression-confirm fuse-pgo gui-release gui-release-run "
 
 usage() { echo "usage: slot.sh --dir <slots dir> [--limit N] <command> [args...]" >&2; exit 2; }
 while [[ $# -gt 0 ]]; do

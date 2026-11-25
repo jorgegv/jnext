@@ -78,7 +78,7 @@ holds for an RZX recording given to `--load` or `--rzx-play`, under
 run.
 
 **A stopped run is not a successful one.** A `timeout` or `kill` that stops
-JNEXT (SIGTERM, or Ctrl-C's SIGINT) still gets its `--wav-record`, `--record`
+JNEXT (SIGTERM, or Ctrl-C's SIGINT) still gets its `--wav-record`, `--wav-record-stems`, `--record`
 and `--rzx-record` output finalized, as a window close would, under
 `--headless`, in the window and in the SDL-only build alike. JNEXT then ends by
 that signal, so the status is 128+N (143, or 130 for Ctrl-C) and a stopped run

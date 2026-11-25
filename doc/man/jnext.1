@@ -1098,6 +1098,26 @@ emulation.
 Record the mixed stereo output to a 44.1 kHz, 16\-bit PCM WAV.
 Works headless and requires neither an audio device nor ffmpeg.
 .TP
+\f[B]\-\-wav\-record\-stems\f[R] \f[I]DIR\f[R]
+Record the mix as seven 44.1 kHz, 16\-bit stereo WAV files in
+\f[I]DIR\f[R], one per source: \f[CR]ay0.wav\f[R], \f[CR]ay1.wav\f[R],
+\f[CR]ay2.wav\f[R] (each AY chip after its mode and pan, silent while
+the chip is not in the mix), \f[CR]dac.wav\f[R] (left is A+B, right is
+C+D), \f[CR]beeper.wav\f[R] (EAR and MIC; a playing tape and Pi audio
+sent to EAR are inside it, as the Next mixes them as one term),
+\f[CR]pi.wav\f[R] (the Pi I2S audio) and \f[CR]mix.wav\f[R].
+The stems are taken before the host gains and the debugger mutes, so
+\f[CR]mix.wav\f[R] equals \f[B]\-\-wav\-record\f[R] at 0 dB, and the six
+source files add up to \f[CR]mix.wav\f[R] exactly while every source is
+steady within an output sample and otherwise within 3 counts per sample
+(the rounding of the seven files).
+\f[I]DIR\f[R] is created if missing and files of those names in it are
+overwritten.
+If \f[I]DIR\f[R] or a file cannot be created, \f[B]jnext\f[R] exits
+non\-zero without running the emulation; a write error that shows later
+exits non\-zero too.
+Cannot be combined with \f[B]\-\-silent\f[R].
+.TP
 \f[B]\-\-dac\-trace\f[R] \f[I]FILE\f[R]
 Record \f[CR]segment,tstate,channel,value\f[R] rows for physical DAC
 writes.
@@ -1136,6 +1156,27 @@ browser page.
 An unwritable \f[I]FILE\f[R] is refused before the machine starts.
 A write error, or writes lost because more than 65536 arrived between
 two services of the loop, makes the run exit non\-zero.
+.TP
+\f[B]\-\-psg\-record\f[R] \f[I]FILE\f[R]
+Record each AY chip\(cqs register stream as \f[CR].psg\f[R], in the
+layout Fuse writes for its AY log: a 16\-byte header, then for every
+frame in which a register from R0 to R13 was written the register/value
+pairs in register order, with frame separators between the frames.
+\f[I]FILE\f[R] takes AY#0; AY#1 and AY#2 go to \f[I]FILE\f[R] with
+\f[CR]\-ay1\f[R] or \f[CR]\-ay2\f[R] before the extension
+(\f[CR]tune.psg\f[R] gives \f[CR]tune\-ay1.psg\f[R]), created at that
+chip\(cqs first write and aligned to the start of the recording.
+When a register is written more than once in a frame the last value is
+kept.
+R14 and R15 are not recorded.
+A reset or a state load keeps the elapsed time, and a rewind keeps what
+was written and carries on after it.
+It works in every frontend, headless, with \f[B]\-\-silent\f[R] and in a
+browser page.
+An unwritable \f[I]FILE\f[R] is refused before the machine starts.
+A write error makes the run exit non\-zero.
+The same recording starts from the Chips tab of the debugger\(cqs Audio
+panel.
 .TP
 \f[B]\-\-audio\-gain\-db\f[R] \f[I]DB\f[R]
 Set master host audio gain from \-24 dB to +24 dB (default 0 dB).
@@ -3153,6 +3194,14 @@ synthesis.
 If the emulator exits abnormally, the file may retain its initial
 zero\-length data header even though PCM follows it.
 .IP \(bu 2
+WAV stems (\f[B]\-\-wav\-record\-stems\f[R] \f[I]DIR\f[R]) write one
+file per source (each AY chip, the DAC, the beeper, the Pi and the mix)
+that add up to the mix.
+They follow the same rules as \f[B]\-\-wav\-record\f[R]: headless works,
+cold boots continue the files, \f[B]\-\-silent\f[R] is refused, and
+SIGTERM or SIGINT finalise them.
+While they record, HALT\-idle programs run without the HALT batching.
+.IP \(bu 2
 DAC tracing (\f[B]\-\-dac\-trace\f[R] \f[I]FILE\f[R]) records guest DAC
 writes before mixing.
 Channels are numbered 0\-3 (A\-D) and timestamps are CPU T\-states.
@@ -3160,6 +3209,10 @@ Channels are numbered 0\-3 (A\-D) and timestamps are CPU T\-states.
 The audio write log (\f[B]\-\-audio\-log\f[R] \f[I]FILE\f[R]) records
 the decoded AY, DAC and beeper writes with their timestamps, the same
 rows the debugger\(cqs Audio panel shows on its Log tab.
+.IP \(bu 2
+The \f[CR].psg\f[R] recording (\f[B]\-\-psg\-record\f[R] \f[I]FILE\f[R])
+saves each AY chip\(cqs register writes, one file per chip in use, in
+the layout Fuse writes for its AY log.
 .IP \(bu 2
 Master and per\-subsystem host gains are available under \f[B]Settings >
 Preferences > Audio\f[R], or for one run with the

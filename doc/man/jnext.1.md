@@ -871,6 +871,21 @@ naming the option and the value, and exits with status 1.
 :   Record the mixed stereo output to a 44.1 kHz, 16-bit PCM WAV. Works
     headless and requires neither an audio device nor ffmpeg.
 
+**\--wav-record-stems** *DIR*
+:   Record the mix as seven 44.1 kHz, 16-bit stereo WAV files in *DIR*, one per
+    source: `ay0.wav`, `ay1.wav`, `ay2.wav` (each AY chip after its mode and
+    pan, silent while the chip is not in the mix), `dac.wav` (left is A+B,
+    right is C+D), `beeper.wav` (EAR and MIC; a playing tape and Pi audio sent
+    to EAR are inside it, as the Next mixes them as one term), `pi.wav` (the Pi
+    I2S audio) and `mix.wav`. The stems are taken before the host gains and
+    the debugger mutes, so `mix.wav` equals **\--wav-record** at 0 dB, and the
+    six source files add up to `mix.wav` exactly while every source is steady
+    within an output sample and otherwise within 3 counts per sample (the
+    rounding of the seven files). *DIR* is created if missing and files of
+    those names in it are overwritten. If *DIR* or a file cannot be created,
+    **jnext** exits non-zero without running the emulation; a write error
+    that shows later exits non-zero too. Cannot be combined with **\--silent**.
+
 **\--dac-trace** *FILE*
 :   Record `segment,tstate,channel,value` rows for physical DAC writes. A cold
     boot starts a new segment.
@@ -897,6 +912,22 @@ naming the option and the value, and exits with status 1.
     An unwritable *FILE* is refused before the machine starts. A write error, or
     writes lost because more than 65536 arrived between two services of the loop,
     makes the run exit non-zero.
+
+**\--psg-record** *FILE*
+:   Record each AY chip's register stream as `.psg`, in the layout Fuse writes
+    for its AY log: a 16-byte header, then for every frame in which a register
+    from R0 to R13 was written the register/value pairs in register order, with
+    frame separators between the frames. *FILE* takes AY#0; AY#1 and AY#2 go to
+    *FILE* with `-ay1` or `-ay2` before the extension (`tune.psg` gives
+    `tune-ay1.psg`), created at that chip's first write and aligned to the start
+    of the recording. When a register is written more than once in a frame the
+    last value is kept. R14 and R15 are not recorded. A reset or a state load
+    keeps the elapsed time, and a rewind keeps what was written and carries on
+    after it. It
+    works in every frontend, headless, with **\--silent** and in a browser page.
+    An unwritable *FILE* is refused before the machine starts. A write error
+    makes the run exit non-zero. The same recording starts from the Chips tab of
+    the debugger's Audio panel.
 
 **\--audio-gain-db** *DB*
 :   Set master host audio gain from -24 dB to +24 dB (default 0 dB). The gain is
@@ -2457,11 +2488,18 @@ Notes worth knowing:
   **\--silent**, which disables mixer synthesis. If the emulator exits
   abnormally, the file may retain its initial zero-length data header even
   though PCM follows it.
+- WAV stems (**\--wav-record-stems** *DIR*) write one file per source (each AY
+  chip, the DAC, the beeper, the Pi and the mix) that add up to the mix. They
+  follow the same rules as **\--wav-record**: headless works, cold boots
+  continue the files, **\--silent** is refused, and SIGTERM or SIGINT finalise
+  them. While they record, HALT-idle programs run without the HALT batching.
 - DAC tracing (**\--dac-trace** *FILE*) records guest DAC writes before mixing.
   Channels are numbered 0-3 (A-D) and timestamps are CPU T-states.
 - The audio write log (**\--audio-log** *FILE*) records the decoded AY, DAC and
   beeper writes with their timestamps, the same rows the debugger's Audio panel
   shows on its Log tab.
+- The `.psg` recording (**\--psg-record** *FILE*) saves each AY chip's register
+  writes, one file per chip in use, in the layout Fuse writes for its AY log.
 - Master and per-subsystem host gains are available under **Settings >
   Preferences > Audio**, or for one run with the **\--audio-gain-** family.
   Beeper, each TurboSound AY chip and the DAC family can be balanced

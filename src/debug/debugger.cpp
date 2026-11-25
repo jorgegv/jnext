@@ -124,6 +124,8 @@ Debugger::~Debugger() {
     // (row LIFE-07). Retired unconditionally — a sink that is already null
     // stays null.
     impl_->ds().set_coverage_sink(nullptr);
+    // GH #536 - the source tap is `Impl`'s and the machine holds a raw pointer to it (LIFE rule).
+    impl_->emu.set_audio_scope_tap(nullptr);
     // GH #388 - and the memory-coverage sink, which points into `Impl` likewise.
     impl_->ds().set_mem_coverage_sink(nullptr);
     // GH #276 B4 — CAP-01. A capture still queued can never be taken now: say
@@ -546,6 +548,8 @@ Result Debugger::load_state_bytes(ClientId by, const uint8_t* data, size_t n) {
         impl_->emu.rzx_player().is_playing())
         return Result::RefusedRzx;
 
+    // GH #538: a .psg recording keeps the silent frames that played before the load.
+    if (impl_->psg) impl_->psg->note_time(frame_tag(impl_->emu));
     StateReader r(data, n);
     const bool ok_load = impl_->emu.load_state(r);
     impl_->log_mutate_range(by, "state", ok_load ? "loaded" : "load FAILED (machine corrupt)");

@@ -207,9 +207,15 @@ with `main` (`origin/main` when there is no local `main`; the remote-run host's 
 `TEST-AFFECTED MISS`, so the map or the conf is fixed on the same branch; with no such base, or in a
 platform tree (SDL-only, Windows, WebAssembly), the check is silent. A docs-only plan ran no suite, so
 every suite that fails is a miss. The planner's rows are
-`TAF-01..10` and `TAF-12..74` in `test/test-affected-selftest.sh` (`make test-affected-selftest`,
-part of `make unit-test`), on a hand-written fixture build tree, and `HS-194a..j` in the harness
+`TAF-01..10` and `TAF-12..79` in `test/test-affected-selftest.sh` (`make test-affected-selftest`,
+part of `make unit-test`), on a hand-written fixture build tree, and `HS-194a..m` in the harness
 self-test.
+
+A FULL plan runs `make unit-test` and then every make target the plan names. `make lint-test-scripts` (the
+regression preflight's four test-script lints: traps, timeouts, quiet pipe grep and bare in-place `sed`,
+which BSD sed on macOS rejects) is a prerequisite of both `make unit-test` and `make test-affected`, so a
+branch round lints every tracked test script and a bad one no longer waits for the batch gate's
+regression run.
 
 What `make test-affected` does not do: it runs the traceability check only when the manifest, the test
 CMake file, the generator or the matrix changed, so a new `check()` row alone leaves the committed

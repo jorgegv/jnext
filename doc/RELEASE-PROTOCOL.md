@@ -465,8 +465,8 @@ release", "write the forum post").
 - **Exception — a skipped announcement.** If the version last *announced on the
   forums* is older than the previous public release, extend the span back to
   that announced version so nothing goes unannounced. Ask the user which
-  version was last announced whenever it isn't obvious; the answer goes in the
-  announcement's own header line.
+  version was last announced whenever it isn't obvious; the answer is the
+  vA.B.C of the "New features since last release (vA.B.C):" line.
 
 ### 8.2 Both formats, always
 
@@ -514,12 +514,12 @@ Check them against `README.md` before posting — they have moved before:
 ### 8.5 Template — rich text
 
 ```markdown
-**JNEXT vX.Y.Z released** (previous announced build: vA.B.C)
+**JNEXT vX.Y.Z released**
 
 JNEXT is a ZX Spectrum Next emulator written against the official FPGA VHDL
 sources. With versions for Linux, Windows and MacOS (Apple Silicon and Intel).
 
-New features since last release:
+New features since last release (vA.B.C):
 
 **For users**
 
@@ -538,11 +538,11 @@ Plus the regular list of rendering, timing and compatibility fixes — see the C
 ### 8.6 Template — phpBB
 
 ```bbcode
-[b]JNEXT vX.Y.Z released[/b] (previous announced build: vA.B.C)
+[b]JNEXT vX.Y.Z released[/b]
 
 JNEXT is a ZX Spectrum Next emulator written against the official FPGA VHDL sources. With versions for Linux, Windows and MacOS (Apple Silicon and Intel).
 
-New features since last release:
+New features since last release (vA.B.C):
 
 [b]For users[/b]
 [list]

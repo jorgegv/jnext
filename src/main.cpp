@@ -533,8 +533,10 @@ static int run_main(int argc, char* argv[]) {
     bool        magic_port_mode_set = false;
     std::string record_file;
     std::string wav_record_file;
+    std::string wav_record_stems_dir;
     std::string dac_trace_file;
     std::string audio_log_file;
+    std::string psg_record_file;
     cli::AudioGainArgs audio_gain;
     std::string rzx_play_file;
     std::string rzx_record_file;
@@ -1339,11 +1341,17 @@ static int run_main(int argc, char* argv[]) {
             case cli::OptId::WavRecord:
                 wav_record_file = v[0];
                 break;
+            case cli::OptId::WavRecordStems:
+                wav_record_stems_dir = v[0];
+                break;
             case cli::OptId::DacTrace:
                 dac_trace_file = v[0];
                 break;
             case cli::OptId::AudioLog:
                 audio_log_file = v[0];
+                break;
+            case cli::OptId::PsgRecord:
+                psg_record_file = v[0];
                 break;
             case cli::OptId::AudioGainDb:
             case cli::OptId::AudioGainBeeperDb:
@@ -2136,6 +2144,11 @@ static int run_main(int argc, char* argv[]) {
     }
     if (silent && !wav_record_file.empty()) {
         startup_report::report("--wav-record cannot be combined with --silent because --silent disables mixer synthesis.\n");
+        return 1;
+    }
+    if (silent && !wav_record_stems_dir.empty()) {
+        startup_report::report(
+                "--wav-record-stems cannot be combined with --silent because --silent disables mixer synthesis.\n");
         return 1;
     }
 
@@ -3288,6 +3301,11 @@ static int run_main(int argc, char* argv[]) {
             startup_report::report("--wav-record cannot be used while audio is disabled in preferences.\n");
             return 1;
         }
+        if (cfg.silent && !wav_record_stems_dir.empty()) {
+            startup_report::report(
+                    "--wav-record-stems cannot be used while audio is disabled in preferences.\n");
+            return 1;
+        }
         // Refused HERE, before the machine boots, for the same reason as a
         // --record that cannot start (GH #86): discovering at exit that the
         // recording could never have been written wastes the whole run. A
@@ -3342,6 +3360,15 @@ static int run_main(int argc, char* argv[]) {
             dac_trace_recorder.stop();
             return 1;
         }
+        // GH #539: the per-source WAV stems are a Debugger recording (INS-24), started before the first frame so they
+        // begin with the first sample, like --wav-record. A refused DIR leaves nothing behind (the verb's contract).
+        if (!wav_record_stems_dir.empty() &&
+            app.debugger().stems_record_start(jnext::dbg::CLIENT_NONE, wav_record_stems_dir) != jnext::dbg::Result::Ok) {
+            startup_report::report("--wav-record-stems: cannot write the stem files in '%s'\n", wav_record_stems_dir.c_str());
+            audio_recorder.stop();
+            dac_trace_recorder.stop();
+            return 1;
+        }
         // The stream asks the backend for the log and drains it at every pump; no frame has run yet.
         if (!audio_log_file.empty() && !audio_log.attach(app.debugger())) {
             Log::audio()->error("--audio-log: could not attach to the debugger");
@@ -3358,6 +3385,16 @@ static int run_main(int argc, char* argv[]) {
             ~AudioLogGuard() { if (stream) { std::string why; stream->finish(why); } }
         } audio_log_guard;
         if (!audio_log_file.empty()) audio_log_guard.stream = &audio_log;
+
+        // GH #538: the .psg recording starts here too, before any frame runs. A FILE that cannot
+        // be created is refused like the other capture files (the machine is not left running).
+        if (!psg_record_file.empty() &&
+            app.debugger().psg_record_start(jnext::dbg::CLIENT_NONE, psg_record_file) != jnext::dbg::Result::Ok) {
+            startup_report::report("--psg-record: cannot write '%s'\n", psg_record_file.c_str());
+            audio_recorder.stop();
+            dac_trace_recorder.stop();
+            return 1;
+        }
 
         // Task 66 — apply the saved GUI preferences that have no CLI
         // competitor (CPU speed, window scale, CRT filter, tape fast-load)
@@ -3634,7 +3671,8 @@ static int run_main(int argc, char* argv[]) {
             fl.scheduled    = !screenshot_file.empty() || auto_exit_delay_frames >= 0 || auto_exit_delay >= 0 ||
                               pok_request.has_value() || !script_files.empty() || !script_keys.empty();
             fl.recording    = !record_file.empty() || !wav_record_file.empty() || !rzx_record_file.empty() ||
-                              !dac_trace_file.empty() || !record_script_file.empty();
+                              !dac_trace_file.empty() || !record_script_file.empty() ||
+                              !wav_record_stems_dir.empty();
             const fast_boot::Decision fd = fast_boot::decide(fl);
             if (fd.why == fast_boot::Why::Armed) {
                 app.emulator().arm_fast_boot(fd.frames, hide);
@@ -3655,7 +3693,9 @@ static int run_main(int argc, char* argv[]) {
         // page's loop, after main() has returned.
         // `audio_log_wanted` by value like `record_file`: the browser frontend runs this after main()
         // returned, when main()'s own locals (audio_log_file) are gone.
-        auto finish = [&, record_file, audio_log_wanted = !audio_log_file.empty()]() -> int {
+        auto finish = [&, record_file, audio_log_wanted = !audio_log_file.empty(),
+                       stems_wanted = !wav_record_stems_dir.empty(), stems_dir = wav_record_stems_dir,
+                       psg_record_wanted = !psg_record_file.empty(), psg_record_file]() -> int {
             // Capture requests are part of the CLI contract: if one cannot start
             // or finalize, an otherwise-clean run must not report success.
             bool capture_ok = true;
@@ -3697,12 +3737,32 @@ static int run_main(int argc, char* argv[]) {
                 }
             }
 
+            // GH #539: finalised before the machine goes away; a recording the GUI started is stopped here too.
+            if (app.debugger().stems_recording() &&
+                app.debugger().stems_record_stop(jnext::dbg::CLIENT_NONE) != jnext::dbg::Result::Ok) {
+                if (stems_wanted)
+                    Log::audio()->error("--wav-record-stems: write error in '{}'", stems_dir);
+                else
+                    Log::audio()->error("Stem recording: write error");
+                capture_ok = false;
+            }
+
             if (audio_log_wanted) {
                 std::string why;
                 if (!audio_log.finish(why)) {
                     Log::audio()->error("--audio-log: {}", why);
                     capture_ok = false;
                 }
+            }
+
+            // GH #538: a recording the GUI started is finished here too (same call, same verdict).
+            if (app.debugger().psg_recording() &&
+                app.debugger().psg_record_stop(jnext::dbg::CLIENT_NONE) != jnext::dbg::Result::Ok) {
+                if (psg_record_wanted)
+                    Log::audio()->error("--psg-record: write error on '{}' or its -ay1/-ay2 files", psg_record_file);
+                else
+                    Log::audio()->error("PSG recording: write error");
+                capture_ok = false;
             }
 
             app.shutdown();
