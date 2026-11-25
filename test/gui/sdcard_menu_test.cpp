@@ -453,7 +453,7 @@ int main(int argc, char** argv)
         using OC = SdCardDevice::OutsideChange;
         const int n1 = warn(0, static_cast<int>(OC::Replaced));
         const bool t1 = last_box_text.find("replaced by another file") != std::string::npos && last_box_text.find("The SD card image") != std::string::npos &&
-                        last_box_text.find("File Manager") != std::string::npos;
+                        last_box_text.find("Insert SD Card Image") != std::string::npos;
         const int n2 = warn(1, static_cast<int>(OC::Resized));
         const bool t2 = last_box_text.find("was resized") != std::string::npos && last_box_text.find("The second SD card image") != std::string::npos;
         const int n3 = warn(0, static_cast<int>(OC::Rewritten));
@@ -486,7 +486,7 @@ int main(int argc, char** argv)
                   has(rw, "replaced by another file") && has(rw, "no longer fits the new image") && !has(rw, "lost when JNEXT exits") &&
                   has(dp, "was deleted") && has(dp, "lost when JNEXT exits") && !has(dp, "SD-writes file") &&
                   has(dw, "was deleted") && has(dw, "cannot be used again without the image") && !has(dw, "lost when JNEXT exits") && !has(dw, "new image") &&
-                  !has(dp, "File Manager") && !has(dw, "File Manager") && has(rp, "File Manager"),
+                  !has(dp, "File Manager") && !has(dw, "File Manager") && !has(rp, "File Manager") && has(rp, "Insert SD Card Image") && has(rw, "Insert SD Card Image"),
               rw + " | " + dw);
     }
     {

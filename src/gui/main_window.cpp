@@ -2325,7 +2325,10 @@ void MainWindow::card_file_changed(int slot, int kind, const QString& image, boo
         return;
     }
     const bool deleted = static_cast<SdCardDevice::OutsideChange>(kind) == SdCardDevice::OutsideChange::Deleted;
+    const bool replaced = static_cast<SdCardDevice::OutsideChange>(kind) == SdCardDevice::OutsideChange::Replaced;
     const QString text = (deleted ? tr("%1 image '%2' %3\n\nStop using this card.")
+                          : replaced ? tr("%1 image '%2' %3\n\nInsert the card again (File > Insert SD Card Image...) before changing "
+                                          "files on it: the file manager would work on the new file, not the one the machine reads.")
                                   : tr("%1 image '%2' %3\n\nStop using this card, and change files on the card with File > SD Card File "
                                        "Manager instead (see the user guide, \"Changing the card from outside JNEXT\")."))
                              .arg(card, QDir::toNativeSeparators(image), what);

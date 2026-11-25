@@ -2095,7 +2095,7 @@ That is safe because of how the card is built, each point checked in the code:
   `SdCardDevice` records the image's size, time and (POSIX) device and inode, and `outside_change()` reports
   `Replaced` (the path names another file; the device keeps the old one), `Deleted` (the path names no file; the device
   keeps the open one), `Resized` (any mode) and `Rewritten` (the time moved, only when a writes file is bound, a
-  digest-bound one included: otherwise the guest and the manager move the time), each once per mount. The text says
+  digest-bound one included: otherwise the guest and the manager move the time), each once per mount, and after `Replaced` or `Deleted` nothing more for that mount. The text says
   whether the machine's writes are lost on exit (no writes file) or go into a writes file that no longer fits the image
   (`CardFileEvent::writes_file`). `Emulator::check_card_files()` runs it for both slots; the Qt status tick calls
   `MainWindow::poll_card_files()`, which shows one warning box per kind (`MainWindow::card_file_changed()`), and the SDL

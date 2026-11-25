@@ -186,7 +186,8 @@ public:
     static void note_host_write() { write_generation_.fetch_add(1, std::memory_order_relaxed); }
 
     /// What changed under the mounted image since it was mounted, seen from outside jnext (GH #558). Each kind is
-    /// reported ONCE per mount (latched), most serious first; nothing is ever refused, ejected or reset.
+    /// reported ONCE per mount (latched), most serious first; after Replaced or Deleted nothing more is reported for
+    /// that mount (the path no longer names the machine's file); nothing is ever refused, ejected or reset.
     ///   Replaced   the path now names another file (POSIX only: a rename over the open file); the device keeps
     ///              reading the old one, and what the machine writes there is lost when jnext exits;
     ///   Resized    the file's size is not the size at mount (any mode); the device keeps the mount-time size;
