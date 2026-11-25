@@ -28,24 +28,25 @@ at the card again.
 ## The two panes
 
 - **The card pane** (left) lists a folder of the card in the slot chosen in the box
-  at the bottom of the window: **SD Card 1: *file name*** or **SD Card 2: *file name***
-  (the image's file name; hover for its full path), and `SD Card 2: <empty>`
-  for a slot with no card, which is greyed.
+    at the bottom of the window: **SD Card 1: *file name*** or **SD Card 2: *file name***
+    (the image's file name; hover for its full path), and `SD Card 2: <empty>`
+    for a slot with no card, which is greyed.
 
-  The two slots are the ones of **File ▸ Insert SD Card Image…** (card 1) and
-  **Insert Second SD Card Image…** (card 2), and the labels follow them while the window
-  is open.
+    The two slots are the ones of **File ▸ Insert SD Card Image…** (card 1) and
+    **Insert Second SD Card Image…** (card 2), and the labels follow them while the window
+    is open.
 
-  Names are shown as the card stores them, long names included.
+    Names are shown as the card stores them, long names included.
 
-  A name that holds a character outside plain ASCII (the card stores such names in code
-  page 437, the DOS code page of FAT short names; an accented letter is one) is shown as
-  `%XX`, two hex digits for each such byte, because the host cannot spell it; it works
-  with every action.
+    A name that holds a character outside plain ASCII (the card stores such names in code
+    page 437, the DOS code page of FAT short names; an accented letter is one) is shown as
+    `%XX`, two hex digits for each such byte, because the host cannot spell it; it works
+    with every action.
 
-  An entry the card cannot address by any name (a short name repeated behind an earlier
-  entry, or a name holding the byte 7F) is listed but cannot be acted on, and its
-  tooltip says so.
+    An entry the card cannot address by any name (a short name repeated behind an earlier
+    entry, or a name holding the byte 7F) is listed but cannot be acted on, and its
+    tooltip says so.
+
 - **The host pane** (right) is an ordinary folder of your computer.
 
 Each pane has a title above it, **SD Card** over the card pane and **Host filesystem**

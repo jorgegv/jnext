@@ -4674,23 +4674,27 @@ card and greys every card action, with a note, until the work is done. It then l
 at the card again.</p>
 <h2 id="the-two-panes">The two panes<a class="headerlink" href="#the-two-panes" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>The card pane</strong> (left) lists a folder of the card in the slot chosen in the box
-  at the bottom of the window: <strong>SD Card 1: <em>file name</em></strong> or <strong>SD Card 2: <em>file name</em></strong>
-  (the image's file name; hover for its full path), and <code>SD Card 2: &lt;empty&gt;</code>
-  for a slot with no card, which is greyed.</li>
-</ul>
+<li>
+<p><strong>The card pane</strong> (left) lists a folder of the card in the slot chosen in the box
+    at the bottom of the window: <strong>SD Card 1: <em>file name</em></strong> or <strong>SD Card 2: <em>file name</em></strong>
+    (the image's file name; hover for its full path), and <code>SD Card 2: &lt;empty&gt;</code>
+    for a slot with no card, which is greyed.</p>
 <p>The two slots are the ones of <strong>File ▸ Insert SD Card Image…</strong> (card 1) and
-  <strong>Insert Second SD Card Image…</strong> (card 2), and the labels follow them while the window
-  is open.</p>
+<strong>Insert Second SD Card Image…</strong> (card 2), and the labels follow them while the window
+is open.</p>
 <p>Names are shown as the card stores them, long names included.</p>
 <p>A name that holds a character outside plain ASCII (the card stores such names in code
-  page 437, the DOS code page of FAT short names; an accented letter is one) is shown as
-  <code>%XX</code>, two hex digits for each such byte, because the host cannot spell it; it works
-  with every action.</p>
+page 437, the DOS code page of FAT short names; an accented letter is one) is shown as
+<code>%XX</code>, two hex digits for each such byte, because the host cannot spell it; it works
+with every action.</p>
 <p>An entry the card cannot address by any name (a short name repeated behind an earlier
-  entry, or a name holding the byte 7F) is listed but cannot be acted on, and its
-  tooltip says so.
-- <strong>The host pane</strong> (right) is an ordinary folder of your computer.</p>
+entry, or a name holding the byte 7F) is listed but cannot be acted on, and its
+tooltip says so.</p>
+</li>
+<li>
+<p><strong>The host pane</strong> (right) is an ordinary folder of your computer.</p>
+</li>
+</ul>
 <p>Each pane has a title above it, <strong>SD Card</strong> over the card pane and <strong>Host filesystem</strong>
 over the host pane. Both panes are lists, the same size, with their top and bottom edges
 aligned; the folder each shows is written under its title. The slot selector and the <strong>Read-only</strong> box are
