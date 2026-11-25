@@ -849,10 +849,6 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
             err = alias_clash_message(alias_stored, alias_dir, card_path);
             return FileAddStatus::DestInvalid;
         }
-        if (dest_is_bytes && resolves_elsewhere(fat_path, fno)) {
-            err = resolves_elsewhere_message(card_path);
-            return FileAddStatus::DestInvalid;
-        }
         const bool card_is_dir = (fno.fattrib & AM_DIR) != 0;
         if (n.is_dir && !card_is_dir) {
             err = "'" + card_path + "' already exists on the card as a file, "
