@@ -116,10 +116,10 @@ Step 5 Phase 2 pattern), follow this recipe:
    every commit. Do not put the forbidden substrings in comments either —
    the lint matches raw text.
 8. **No Co-Authored-By trailers** in commits. House style.
-9. **Do NOT run cmake or the test binary from within a sub-agent.**
-   Sandbox restrictions block them; build, run, and commit happen from the
-   main session (see `memory/feedback_subagent_sandbox.md`). The author
-   sub-agent delivers source code only.
+9. **Build and run the suite in your own worktree.** The author agent
+   builds, runs what the change touches (the suite, `make test-affected`,
+   the regression rows it touches) and commits on its branch; the full
+   gate runs on `main` (CLAUDE.md merge protocol step 2).
 10. **Do NOT patch `src/` to make tests pass.** That belongs to the
     Emulator Bug backlog; see
     §5.
@@ -552,17 +552,17 @@ discrepancies bullets, Summary table totals line):
   output through SDL's `disk` driver and asserts no zeros were spliced into
   a live waveform. Prefer extending those two over mocking SDL.
 
-## 7. Worktree mechanics and the sub-agent sandbox
+## 7. Worktree mechanics
 
 A few operational rules that bit us during Phase 2 and are easy to forget:
 
 - **Always use absolute paths when cd'ing into worktrees from the main
   session.** A relative path to `~/tmp/worktrees/jnext/<name>` is ambiguous once
   the shell cwd changes mid-session.
-- **Sub-agents cannot run cmake, the test binary, or `regression.sh`.**
-  The sandbox blocks them regardless of permission mode. Sub-agents write
-  test source and commit on their branch; the main session builds, runs
-  tests, and merges. See `memory/feedback_subagent_sandbox.md`.
+- **Sub-agents build and test in their own worktree.** Run
+  `make worktree-bootstrap` first (a fresh worktree has no SD image), then
+  build, run the touched suites and rows, and commit on the branch. The
+  main session merges.
 - **Isolation-worktree agents can escape with absolute `cd`.** The
   isolation is advisory, not enforced. Brief every sub-agent prompt with
   a "NEVER cd out of the worktree" clause and a "when using Write/Edit,
@@ -573,11 +573,9 @@ A few operational rules that bit us during Phase 2 and are easy to forget:
   worktrees accumulate build artifacts and confuse later `git worktree
   list` output. If the worktree contains submodules, `--force` is
   required.
-- **Regression always runs on real desktop.** The sandbox reports
-  ~billions of pixel diffs on every screenshot test because it has no
-  graphics substrate. Ask the user to run the touched rows
-  (`make regression-rows ROWS="<row> ..."`) before claiming a merge is safe;
-  the full suite runs in the batch gate (CLAUDE.md merge protocol step 2).
+- **Run the touched regression rows before claiming a merge is safe**
+  (`make regression-rows ROWS="<row> ..."`); the full suite runs in the
+  batch gate (CLAUDE.md merge protocol step 2).
 
 ## 8. The theatre pattern and why this process exists
 
@@ -641,7 +639,6 @@ short-cut would have let slip through in the original theatre suites.
 | A plan row cannot be exercised via the current API | Leave it PLANNED in the plan doc (`missing` in the matrix). Do not add a `skip()` to the suite: a SKIP fails the run. |
 | An emulator fix lands and unblocks planned rows | Same branch as the fix: write the real assertions from the plan, update the suite's pin in `test/unit-tests.conf`. Re-run. |
 | A test suite reports a SKIP | The run is red. Build the premise (like SD-28) or install the missing tool; never accept it. |
-| Regression shows a spurious screenshot failure | Check if you're running in the sandbox. The sandbox has no graphics substrate. Rerun on real desktop before assuming a real regression. |
 | Two test rewrites land in parallel and conflict on `test/CMakeLists.txt` | Merge conflicts belong to the agent that tried to merge last (per CLAUDE.md). Resolve on that branch, not main. |
 
 ## 10. Related documents and memory
@@ -658,8 +655,6 @@ short-cut would have let slip through in the original theatre suites.
   the user confirming it works first.
 - `memory/feedback_regression_refs.md` — never regenerate regression
   reference images without asking first.
-- `memory/feedback_subagent_sandbox.md` — build/test/commit from the main
-  session, not sub-agents.
 - `memory/feedback_agent_worktree_escape.md` — brief sub-agents to never
   leave their worktree.
 - `memory/project_test_plan_audit_20260414.md` — the audit that triggered
