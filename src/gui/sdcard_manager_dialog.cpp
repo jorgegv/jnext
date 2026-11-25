@@ -134,7 +134,7 @@ SdManagerDialog::SdManagerDialog(Emulator& emu, const sm::Remembered& remembered
 
     // Each pane is a bold title (what it is), its folder's path and its list, and nothing else: the selector, the
     // Read-only box and the note are below, so the two panes are the same size with their top and bottom edges aligned.
-    auto make_title = [this](const QString& text, const char* name) {
+    auto make_title = [](const QString& text, const char* name) {
         auto* t = new QLabel(QStringLiteral("<b>") + text.toHtmlEscaped() + QStringLiteral("</b>"));
         t->setObjectName(QString::fromLatin1(name));
         t->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
