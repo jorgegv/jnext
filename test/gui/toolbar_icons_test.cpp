@@ -481,6 +481,7 @@ void test_toolbars() {
             if (a->text() == "NMI") return "Multiface NMI (F9)";
             if (a->text() == "P&ause") return "Pause / resume emulation (Alt+U or Pause)";
             if (a->text() == "Debug") return "Toggle Debugger (Alt+D)";
+            if (a->text() == "SD Card File Manager...") return "SD Card File Manager";   // GH #558: the tip drops the ellipsis
             return a->text();
         };
         for (const Bar& b : bars)
@@ -489,7 +490,7 @@ void test_toolbars() {
                 if (a->toolTip().isEmpty() || a->toolTip() != want_tip(a)) ok = false;
             }
         check("TBI-13", "every toolbar action has a tooltip: its name, or the NMI/Pause/Debug ones naming "
-                        "their keys", ok, got);
+                        "their keys, or the SD card manager's without its ellipsis", ok, got);
     }
 
     // TBI-14 — the buttons show the icon, not the action's text.

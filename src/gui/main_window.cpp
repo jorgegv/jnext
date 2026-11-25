@@ -2285,12 +2285,14 @@ void MainWindow::on_sd_manager() {
     rem.host_dir   = session_.sd_host_dir.value_or(app_config_.data().sdmanager_host_dir).toStdString();
     auto* dlg = new SdManagerDialog(*emulator_, sd_session_, rem, load_dialog_seed(), this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    dlg->setWindowModality(Qt::ApplicationModal);
+    // Application modal, so the debugger window is blocked too. QDialog::open() would make it window modal (it
+    // blocks only this window), hence show() on a modal dialog.
+    dlg->setModal(true);
     connect(dlg, &QDialog::finished, this, [this, dlg](int) {
         remember_sd_manager(dlg->remembered());
         QTimer::singleShot(0, this, [this]() { finish_sd_manager(); });
     });
-    dlg->open();
+    dlg->show();
 }
 
 void MainWindow::finish_sd_manager() {

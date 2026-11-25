@@ -1334,8 +1334,8 @@ int main() {
             hand_dir(fsv, dir_cluster("0:/DUPX"), 2,
                      {{u"", "DER        ", 0x10, dir_cluster("0:/DA"), 0},
                       {u"D\u00E9R", "DER        ", 0x10, dir_cluster("0:/DB"), 0},
-                      {u"", "FIL     BIN", 0x20, file_cluster("0:/KEEP.BIN"), static_cast<uint32_t>(kD1.size())},
-                      {u"F\u00E9L.BIN", "FIL     BIN", 0x20, file_cluster("0:/OTHER.BIN"), static_cast<uint32_t>(kD2.size())}},
+                      {u"", "FEL     BIN", 0x20, file_cluster("0:/KEEP.BIN"), static_cast<uint32_t>(kD1.size())},
+                      {u"F\u00E9L.BIN", "FEL     BIN", 0x20, file_cluster("0:/OTHER.BIN"), static_cast<uint32_t>(kD2.size())}},
                      pokes);
             return true;
         });
