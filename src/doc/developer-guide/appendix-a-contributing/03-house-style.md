@@ -7,8 +7,8 @@ and each section says which.
 
 ## Match the surrounding code
 
-*(Derived from `CLAUDE.md`'s "surgical changes" rule and its rule that findings
-are fixed on the branch that surfaced them, and visible throughout the tree.)*
+*(Derived from `CLAUDE.md`'s "surgical changes" and "scope restriction" rules,
+and visible throughout the tree.)*
 
 Touch only what the task requires. Do not reformat adjacent lines, rename things
 you happened to read on the way past, or "improve" a comment you did not come
@@ -19,10 +19,8 @@ The reason is entirely practical: a diff that mixes one real change with thirty
 cosmetic ones costs the reviewer the ability to see the real one, and that
 reviewer is the gate the whole process depends on.
 
-If you do notice a genuine second problem on the way, fix it on the same
-branch, in its own commit and with its own test, so the reviewer still sees each
-change on its own. Only work that is both large and unrelated goes to a new
-issue, with the evidence.
+If you do notice a genuine second problem, say so — in a note, in the pull
+request, or as a new issue. Just do not fix it in the same change.
 
 ## Program text is ASCII
 
