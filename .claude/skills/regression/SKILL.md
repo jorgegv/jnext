@@ -104,7 +104,9 @@ New failures vs baseline: <list or "none">
   full regression only when it is needed", "Those two rows are examples, not the
   list"). Follow them; this skill does not restate them. Always report the
   failed row names.
-- A full `make regression` never runs on a branch. Branches and reviewers run
+- A full `make regression` never runs on a branch, unless the change is to
+  the regression harness or to the PGO build itself (CLAUDE.md merge protocol
+  step 2). Branches and reviewers run
   `make regression-rows ROWS="<row> ..."` (non-PGO by default). The full suite
   runs in the batch gate (CI), or in its local fallback on a detached worktree
   of `main`.

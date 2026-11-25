@@ -71,7 +71,7 @@ No Co-Authored-By lines (CLAUDE.md mandate).
 - `grep -rn` in `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/` for VHDL lookups (or delegate to `vhdl-oracle` if you want a clean read-only answer).
 - `grep -rn` in `src/` for C++ sites.
 - After each commit, the suite binary of the subsystem you touched. Before handing to review, `LANG=C make -C <worktree> test-affected` (and the platform runs it names); `make unit-test` once before landing.
-- `LANG=C make -C <worktree> regression-rows ROWS="<row> ..."` for the rows your fix can touch, as you go. Never a full `make regression` on the branch: the batch gate runs it.
+- `LANG=C make -C <worktree> regression-rows ROWS="<row> ..."` for the rows your fix can touch, as you go. Never a full `make regression` on the branch, unless the change is to that harness or to the PGO build itself (CLAUDE.md merge protocol step 2): the batch gate runs it.
 
 ## What you must NOT do
 

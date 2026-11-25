@@ -11,7 +11,7 @@ Run all three test layers and produce the canonical triplet line:
 
 A handover ends with the CI batch gate; this line ends one only when the local fallback ran instead. Result is cached at `.claude/last-test-triplet.txt` so the SessionStart hook can display it next session.
 
-The batch gate is a green CI run on `main`'s tip (CLAUDE.md merge protocol step 2: `test/ci-gate.sh`, `make ci-gate-check`). This skill runs its LOCAL FALLBACK only, when GitHub Actions is down or gives no runner within 2 hours. Then run the whole fallback list of CLAUDE.md step 2, in its order (read it there; this skill covers its unit, SDL, FUSE and regression layers), in a detached worktree of `main`'s tip (`~/tmp/worktrees/jnext/main-gate`), or `remote-run.sh --gate`. On a branch, never run it: run `make test-affected` before each review round and `make unit-test` once before landing.
+The batch gate is a green CI run on `main`'s tip (CLAUDE.md merge protocol step 2: `test/ci-gate.sh`, `make ci-gate-check`). This skill runs its LOCAL FALLBACK only, when GitHub Actions is down or gives no runner within 2 hours. Then run the whole fallback list of CLAUDE.md step 2, in its order (read it there; this skill covers its unit, SDL, FUSE and regression layers), in a detached worktree of `main`'s tip (`~/tmp/worktrees/jnext/main-gate`), or `remote-run.sh --gate`. On a branch, never run it (unless the change is to those harnesses or to the PGO build itself, CLAUDE.md merge protocol step 2): run `make test-affected` before each review round and `make unit-test` once before landing.
 
 **Expected counts are not restated here** — they go stale. The unit total is
 pinned per suite in `test/unit-tests.conf` and the harness refuses to run if the
