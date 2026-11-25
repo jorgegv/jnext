@@ -947,7 +947,9 @@ static void test_outside_change() {
             init_card(d);
             const auto size = fs::file_size(img);
             std::error_code ec;
+            const auto mt0 = fs::last_write_time(img, ec);
             fs::resize_file(img, size + 512, ec);   // grown by one sector
+            fs::last_write_time(img, mt0 + std::chrono::seconds(30), ec);   // a tool's write moves the time (a coarse filesystem clock might not)
             // the first kind seen is Resized; with a writes file the changed time is a second kind (Rewritten), once
             const OC grown = d.outside_change();
             const OC grown_again = d.outside_change();
