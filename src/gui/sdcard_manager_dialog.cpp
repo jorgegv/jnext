@@ -132,9 +132,8 @@ SdManagerDialog::SdManagerDialog(Emulator& emu, const sm::Remembered& remembered
     card_view->accepts = [](const QMimeData& m) { return m.hasUrls(); };
     card_view->dropped = [this](const QMimeData& m, bool shift) { drop_on_card(m, shift); };
 
-    // Each pane is its folder's path over its list, and nothing else: the selector, the Read-only box and the note
-    // are in the bottom row, so the two panes are the same size with their top and bottom edges aligned.
-    // a bold title over each pane says what it is
+    // Each pane is a bold title (what it is), its folder's path and its list, and nothing else: the selector, the
+    // Read-only box and the note are below, so the two panes are the same size with their top and bottom edges aligned.
     auto make_title = [this](const QString& text, const char* name) {
         auto* t = new QLabel(QStringLiteral("<b>") + text.toHtmlEscaped() + QStringLiteral("</b>"));
         t->setObjectName(QString::fromLatin1(name));
@@ -372,7 +371,7 @@ void SdManagerDialog::refresh_card_note() {
 }
 
 // The shown folder again (the guest or another program changed the card): the selection is kept by path, and so is the
-// scroll position.
+// scroll position (the setValue() below is redundant on this Qt, which keeps the value over a model reset; kept in case).
 void SdManagerDialog::relist_card() {
     if (slot_ < 0 || card_busy()) return;
     const QStringList sel = selected_card_paths();
