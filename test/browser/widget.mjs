@@ -1,4 +1,4 @@
-// Browser rows WIDGET-01..31: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
+// Browser rows WIDGET-01..32: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
 // (make wasm-browser-test, spec widget.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // Server A is the page host (http://localhost:<port>, a secure context): it serves the files of the
@@ -806,6 +806,34 @@ row('WIDGET-31', 'in a block layout (the credit in the flow) nothing is polled: 
   });
   await page.context().close();
   must(r.polls === 0 && r.total === 0 && r.resize === 1 && r.ro === 1, 'flow layout: ' + JSON.stringify(r));
+});
+
+row('WIDGET-32', 'a responsive host (flex row above 800 px, block below): wide, the per-frame check runs and the container keeps the reserved margin; resized narrow, the check stops (no frames in 500 ms), the credit sits in the flow under the box and the container\'s margin is restored; wide again, it resumes', async () => {
+  layoutPage('resp.html', '<style>.row{display:flex}@media (max-width:800px){.row{display:block}}</style><div class="row"><div id="p" style="margin-bottom:10px"></div><aside style="width:200px">sidebar</aside></div><p id="after">after</p>');
+  const page = await ctxPage(`${AURL}/resp.html`, { viewport: { width: 1200, height: 900 } }, { init: SPY });
+  await waitFor(page, () => window.pl && document.querySelector('.jnext-credit'), null, 120000);
+  const probe = (ms) => page.evaluate(async (ms) => {
+    const s = window.__spy, p0 = s.poll;
+    await new Promise((r) => setTimeout(r, ms));
+    const c = document.querySelector('.jnext-credit'), r = c.getBoundingClientRect(), box = document.querySelector('.jnext-player').getBoundingClientRect(),
+          l = c.querySelector('a').getBoundingClientRect(), hit = document.elementFromPoint(l.left + l.width / 2, l.top + l.height / 2);
+    return { polls: s.poll - p0, margin: document.getElementById('p').style.marginBottom, position: c.style.position, underBox: r.top >= box.bottom - 1,
+             overlap: !(r.top >= box.bottom - 0.5 || r.bottom <= box.top + 0.5 || r.left >= box.right - 0.5 || r.right <= box.left + 0.5),
+             linkHit: !!hit && !!hit.closest('.jnext-credit'), right: r.right, boxRight: box.right, resize: s.resize.size, ro: s.ro.size };
+  }, ms);
+  const wide = await probe(500);
+  await page.setViewportSize({ width: 700, height: 900 });
+  await sleep(300);
+  const narrow = await probe(500);
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await sleep(300);
+  const wide2 = await probe(500);
+  await page.context().close();
+  must(wide.polls > 0 && wide.margin === '36px' && wide.position === 'absolute' && !wide.overlap && wide.linkHit, 'wide: ' + JSON.stringify(wide));
+  must(narrow.polls === 0 && narrow.margin === '10px' && narrow.position !== 'absolute' && narrow.underBox && !narrow.overlap && narrow.linkHit &&
+       Math.abs(narrow.right - narrow.boxRight) <= 2 && narrow.resize === 1 && narrow.ro === 1, 'narrow: ' + JSON.stringify(narrow));
+  must(wide2.polls > 0 && wide2.margin === '36px' && !wide2.overlap && wide2.linkHit, 'wide again: ' + JSON.stringify(wide2));
+  must(page.msgs.length === 0, page.msgs.join('; '));
 });
 
 row('WIDGET-23', 'lifecycle: destroy() removes the credit, a failed mount leaves none, and two players have one credit each', async () => {
