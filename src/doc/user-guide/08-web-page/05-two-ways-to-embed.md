@@ -56,7 +56,8 @@ What the widget gives you:
 - a progress bar while NextZXOS's card is made and the machine starts;
 - the usual "click to start" overlay (over the `data-poster` picture when there is one);
 - a toolbar: Pause or Resume, Reset, NMI (when the element has `data-nmi`), Mute or Unmute, Fullscreen;
-- a status line.
+- a status line;
+- the small "JNext" link under the screen, linked to www.jnext.es and aligned to the right edge of the player; `jnext.mount()` adds it to every player, so your own page gets it too.
 
 Every element with the class `jnext-widget` gets a player, so a page can hold several.
 

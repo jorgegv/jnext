@@ -9,6 +9,8 @@ The release's `jnext-VERSION-web.zip` holds `plain.html`, a whole page in one fi
 3. Open `plain.html?file=game.nex` in the browser.
 4. Click the player. The program starts.
 
+Under every player JNEXT shows a small "JNext" link with its icon, which takes the visitor to the project site, www.jnext.es. It is aligned to the right edge of the player.
+
 ![plain.html running a program](../img/web-plain-page.png)
 
 The page is that simple because its core is this:

@@ -92,7 +92,9 @@
     W + '.jnext-overlay{all:initial;box-sizing:border-box}' +
     W + 'canvas{all:initial;display:block}' +
     W + '.jw-frame:fullscreen{display:flex;flex-direction:column;border-radius:0}' +
-    W + '.jw-frame:fullscreen .jw-stage{flex:1 1 0;min-height:0}';
+    W + '.jw-frame:fullscreen .jw-stage{flex:1 1 0;min-height:0}' +
+    // The attribution mount() adds goes below the toolbar in fullscreen, so the screen stays between the title bar and it.
+    W + '.jw-frame:fullscreen .jnext-credit{order:9}';
 
   function injectCss() {
     if (document.getElementById('jnext-widget-css')) return;
