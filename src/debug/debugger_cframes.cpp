@@ -1,4 +1,4 @@
-// CAP-SRC (GH #434, epic #353): the C frames at the stop. See the developer guide, 7.10.
+// CAP-SRC (GH #434, epic #353): the C frames at the stop. See the developer guide, 3.9.5.10.
 //
 // A frame's BASE `fp` is the address of the saved frame pointer: `E - 2`, where E is the SP at the
 // function's entry (the address of the return address). The tracker supplies it exactly: the CALL

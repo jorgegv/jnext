@@ -84,7 +84,7 @@ wine. This is a documented local check, not a CI step.
 
 ## The jobs in `ci.yml`
 
-**`test`** is the main job: one definition, a matrix of six legs that run in
+**`test`** is the main job: one definition, a matrix of eight legs that run in
 parallel on runners of their own. Every leg installs the same
 dependency set and checks out the repository with submodules; then
 
@@ -113,7 +113,7 @@ dependency set and checks out the repository with submodules; then
   the version and the pins, so a hit only skips the downloads;
 - **`browser`** runs `make wasm-browser-test`: the browser frontend in the pinned
   Chromium headless shell (rows BRW-01 to BRW-35, WBI-PW-01 to WBI-PW-09 for the image and
-  the warm start, WEBAPI-01 to WEBAPI-34 for the JavaScript API, WEBPKG-BR-01 to WEBPKG-BR-07 for the shipped zip, WIDGET-01 to WIDGET-32 for the widget, BCARD-01 to BCARD-44 for the card flow, WBW-01 to WBW-17 for the kept writes, BSN-01 to BSN-11 for snapshots, BRZ-01 to BRZ-12 for RZX, BCRT-01 to BCRT-13 for the CRT effect, TKB-01 to TKB-17 for the on-screen keyboard, and WBENCH-01 to WBENCH-12, the arithmetic of the browser bench;
+  the warm start, WEBAPI-01 to WEBAPI-34 for the JavaScript API, WEBPKG-BR-01 to WEBPKG-BR-07 for the shipped zip, WIDGET-01 to WIDGET-32 for the widget, BCARD-01 to BCARD-47 for the card flow, WBW-01 to WBW-22 for the kept writes, BOUT-01 to BOUT-20 for the files JNEXT writes, BDBG-01 to BDBG-30 for the debugger protocols served by a page, WEBNMI-01 to WEBNMI-04 for the NMI button, BCFILE-01 to BCFILE-06 and PAGES-01 to PAGES-05 for a program on the card and the Pages site, BSN-01 to BSN-11 for snapshots, BRZ-01 to BRZ-12 for RZX, BCRT-01 to BCRT-13 for the CRT effect, TKB-01 to TKB-17 for the on-screen keyboard, and WBENCH-01 to WBENCH-12, the arithmetic of the browser bench;
   [5.6](06-the-browser-build.md)). Besides the emsdk cache it caches Playwright
   (`~/.cache/jnext/tools/playwright-1.65.0`, keyed by the version and the two pin
   prefixes) and uses the SD-image cache: the run turns the cached distribution
@@ -252,7 +252,7 @@ whose reference screenshot is an SD-card directory listing.
 public — the allowlist described in [5.3](03-packaging-and-release.md). When it
 is not, nothing builds, and the tag remains a private history marker.
 
-When it is, seven artifact jobs run. `deb` is a matrix over two pinned Ubuntu LTS
+When it is, eight artifact jobs run. `deb` is a matrix over two pinned Ubuntu LTS
 containers, one per supported release, because `dpkg-shlibdeps` bakes the
 container's own library package names into the dependency list, so a deb built
 in one release's container is uninstallable on the next. `rpm` is a matrix over

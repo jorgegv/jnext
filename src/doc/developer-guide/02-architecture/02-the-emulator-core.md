@@ -32,12 +32,17 @@ Grouped roughly, the object holds:
   `Renderer`, which itself owns the `Ula` and `Lores`.
 - **Audio** — `Beeper`, `TurboSound`, `Dac`, `I2s`, `Mixer`.
 - **Peripherals** — `Copper`, `Ctc`, `Dma`, `SpiMaster`, `I2cController`,
-  `I2cRtc`, `Uart`, `DivMmc`, `Multiface`, `NmiSource`, `SdCardDevice`, and the
-  emulated ESP-01, which is off by default and therefore held behind a pointer.
+  `I2cRtc`, `Uart`, `DivMmc`, `Multiface`, `NmiSource`, two `SdCardDevice`s (the
+  second socket is SPI index 1), and the devices that can sit on the UARTs:
+  the emulated ESP-01, the NextPi's `PiUartDevice` and the joystick-connector
+  serial source and link (`--joy-uart-rx`). Those are off by default and
+  therefore held behind pointers, and owned here so that a cold boot joins or
+  rebuilds them with the machine. The esxDOS host-filesystem layer
+  (`EsxdosHostFs`, `HostFileStreams`) and the extended-NEX host also live here.
 - **Input** — `Keyboard`, `Joystick`, `KempstonMouse`, `Md6ConnectorX2`,
   `MembraneStick`, `IoMode`, `EmuFnKeys`, `PhantomTypist`.
 - **Host-facing state that is not machine state** — `DebugState`, `TraceLog`,
-  `CallStack`, the tape loaders and the tape saver, the video and RZX
+  `CallStack`, the tape loaders (TAP, TZX, WAV), the tape saver and the tape recorder, the video and RZX
   recorders, the rewind ring, the profiler, and the 640 × 256 framebuffer.
 
 The snapshot loaders are a deliberate exception to all of that: `NexLoader`,

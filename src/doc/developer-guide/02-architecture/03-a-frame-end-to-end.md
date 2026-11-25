@@ -52,21 +52,27 @@ edge of real time:
   in the one tick, up to `FASTLOAD_BURST_LIMIT` (200) and no longer than
   `FASTLOAD_BURST_BUDGET_US` (50 ms) of wall clock, so the window repaints and
   reads keys at 20 Hz even at the ~130 frames per second a Next boot reaches
-  (200 frames once blocked it for about 1.6 s). `fastload_active()` is true for
-  a tape being loaded and for the **fast boot window**: `arm_fast_boot()`
-  opens N emulated frames at launch (`main.cpp`, through `fast_boot::decide()`
-  in `src/platform/fast_boot.h`) in which a plain Next start runs uncapped with
-  the sound card unfed. The window counts frames in `end_of_frame()`, survives
-  the firmware's own soft reset, and closes on time up, the first guest key, a
-  debugger stop (any pause that is then resumed, between frames or inside one), `init()` without `preserve_memory`
-  and `load_state()`. It is host pacing only: not serialised, and it changes
-  no emulated state (`fast_boot_test`). Armed with `hide_screen`,
-  `fast_boot_hides_screen()` (window open, not paused) makes the two present
-  sites (`QtApp::TickEffects::present`, the `SdlApp::tick` present block) hand
-  the window `fast_boot::shown_frame()`: a black frame under
-  `fast_boot::HIDDEN_GENERATION`, uploaded once and held like a paused frame.
-  Compositing is unchanged, so screenshots, recordings and the debugger panels
-  still read the real framebuffer.
+  (200 frames once blocked it for about 1.6 s). `fastload_active()` is true in
+  two cases:
+    - **A tape being loaded.**
+    - **The fast boot window.** `arm_fast_boot()` opens N emulated frames at
+      launch (`main.cpp`, through `fast_boot::decide()` in
+      `src/platform/fast_boot.h`) in which a plain Next start runs uncapped
+      with the sound card unfed.
+        - It counts frames in `end_of_frame()` and survives the firmware's own
+          soft reset.
+        - It closes on time up, the first guest key, a debugger stop (any pause
+          that is then resumed, between frames or inside one), `init()` without
+          `preserve_memory` and `load_state()`.
+        - It is host pacing only: not serialised, and it changes no emulated
+          state (`fast_boot_test`).
+        - Armed with `hide_screen`, `fast_boot_hides_screen()` (window open, not
+          paused) makes the two present sites (`QtApp::TickEffects::present`, the
+          `SdlApp::tick` present block) hand the window
+          `fast_boot::shown_frame()`: a black frame under
+          `fast_boot::HIDDEN_GENERATION`, uploaded once and held like a paused
+          frame. Compositing is unchanged, so screenshots, recordings and the
+          debugger panels still read the real framebuffer.
 - **The audio band's estimate stays within one device chunk of the reading**
   (`BandState::envelope_ms` in `src/platform/audio_pacing.h`, set from the
   opened device's buffer; see [Audio](../03-subsystems/04-audio.md)).
@@ -156,7 +162,7 @@ The visible symptom is a frame that renders flat.
 while (clock_.get() < frame_end) { … }
 ```
 
-Each iteration does four things.
+Each iteration does these things, in this order.
 
 **Debugger checks come first.** If the machine is already paused, a PC
 breakpoint has been hit, a step-into is pending, or a run-to-cycle target has
@@ -189,90 +195,166 @@ leaves PC on the opcode, so a halted CPU re-fetches the `0x76` and burns one slo
 5 T at 28 MHz from SRAM) in the whole body above, and in the device cluster below, for
 every repeat: most of the frame of a program that idles on `EI; HALT`. When
 `run_frame()` (and only `run_frame()`: a debugger Step is one repeat, always) executes a
-slot that was such a repeat, `halt_batch_after_slot_()` asks whether each further repeat would do
+slot that was such a repeat (and the IM2 fabric is quiescent and the switch is on: the cheapest refusals, made inline), `halted_slot_()` calls
+`halt_batch_after_slot_()`, which asks whether each further repeat would do
 exactly what this one did. The first repeat is always real, so every M1 hook, the fetch and
-the T-states come from the real path and no contention or wait formula is restated. The
-answer is yes only if the CPU actually ran the slot (not a DMA slot, a parked CPU or a boot hold), nothing observes the machine instruction by instruction (no breakpoint, watchpoint, event subscription, step mode or coverage; trace, rewind, RZX and tape; a debugger client that is merely attached does not count),
-nothing is waiting for an instruction boundary (an `/INT`, an `/NMI`, a pending host NMI
-press, a CPU speed or contention commit), the DMA is idle or only waiting out its burst prescaler with the bus released, the UART channels are idle, no attached UART device (the ESP-01, the NextPi link) wants ticks (`Uart::batch_quiescent()`) and the NMI source is idle, and the IM2 fabric
-is quiescent (in either mode: with a device in `S_REQ` the `/INT` line is asserted and a request is pending, which refuses), the HALT page is not contended (with the NR 0x08 bit-6 contention shadow
-settled, since a page is uncontended only while the disable is in force) and the PC is not
-one the DivMMC automap, the esxDOS shim or the NMI vector react to. Then the slot absorbs `n - 1` more repeats (`Z80Cpu::repeat_halt()`: the
+the T-states come from the real path and no contention or wait formula is restated.
+
+![One instruction slot: the four choices, and the batch that absorbs repeated slots](../img/frame-slot.svg)
+
+*The slot of `step_one_instruction()`, and where the HALT batch and the raster-poll batch hook in after it.*
+
+The answer is yes only if **all** of these hold:
+
+- The CPU actually ran the slot (not a DMA slot, a parked CPU or a boot hold).
+- Nothing observes the machine instruction by instruction: no breakpoint,
+  watchpoint, event subscription, step mode or coverage; no trace, rewind, RZX
+  or tape. A debugger client that is merely attached does not count.
+- Nothing is waiting for an instruction boundary: an `/INT`, an `/NMI`, a
+  pending host NMI press, a CPU speed or contention commit.
+- The DMA is idle, or only waiting out its burst prescaler with the bus
+  released.
+- The UART channels are idle, no attached UART device (the ESP-01, the NextPi
+  link) wants ticks (`Uart::batch_quiescent()`), and the NMI source is idle.
+- The IM2 fabric is quiescent, in either mode: with a device in `S_REQ` the
+  `/INT` line is asserted and a request is pending, which refuses.
+- The HALT page is not contended (with the NR 0x08 bit-6 contention shadow
+  settled, since a page is uncontended only while the disable is in force).
+- The PC is not one the DivMMC automap, the esxDOS shim or the NMI vector
+  react to.
+
+Then the slot absorbs `n - 1` more repeats (`Z80Cpu::repeat_halt()`: the
 T-state counter, `R` and the `execute()` serial, which is all `n - 1` more `execute()` calls
-change), where `n` is bounded to end before the next scheduler event (a scanline, the CVC
-reload, the frame end), the next interrupt request, the next CTC event, the opening of the DMA prescaler gate (`Dma::cycles_to_prescaler_gate()`) and the next Copper
-action (`Copper::idle_cycles()` from the Copper's own position, the same
-`copper_position_at_()` the Copper loop uses). The batched slot then runs the device cluster
-once, from the same call as every other slot, over the whole window; while the raster walk is live (a client asked for it) it (`VideoTiming::advance()`, additive) is advanced over the absorbed repeats in the same step, and the call-stack tracker needs nothing, since a `HALT` repeat changes no frame and the real repeat has already recorded the newest frame's target space; the PSG and the mixer are not
-split-invariant, so their part is replayed repeat by repeat in the same order first, and the cluster's
-own PSG and audio block is switched off for that one call. Nothing else about a batch is allowed into the
-loop or the cluster: a second caller of the cluster, or a flag the loop carries per slot, cost every slot of
-every program a percent in instructions under the WebAssembly build's clang, and the replay's own copies of the
-audio chain are kept byte-different from the originals (a counter) so that the link-time optimiser does not fold
-them back into one function with two callers. Every bound, and every gate whose absence changes what the machine
-does, is pinned by a row of `halt_batch_equiv_test` or `halt_batch_periph_test` whose mutation
-turns it red. A few gates are redundant with another and stay as explicit statements of the
-contract (an `/INT` pending implies a non-quiescent IM2 fabric; the coverage terms of the debugger
-predicate repeat what each coverage set already does). The DivMMC and Multiface flip-flop states are NOT gates: at a PC the automap
-does not react to by address, every transition of either converges within one M1 edge, which
-the real repeat already is, so a gate on their state was removed as provably redundant.
+change), where `n` is bounded to end before the earliest of:
+
+- the next scheduler event (a scanline, the CVC reload, the frame end);
+- the next interrupt request;
+- the next CTC event;
+- the opening of the DMA prescaler gate (`Dma::cycles_to_prescaler_gate()`);
+- the next Copper action (`Copper::idle_cycles()` from the Copper's own
+  position, the same `copper_position_at_()` the Copper loop uses).
+
+The batched slot then runs the device cluster once, from the same call as every other slot, over the whole window:
+
+- while the raster walk is live (a client asked for it), `VideoTiming::advance()`
+  (additive) is advanced over the absorbed repeats in the same step;
+- the call-stack tracker needs nothing, since a `HALT` repeat changes no frame
+  and the real repeat has already recorded the newest frame's target space;
+- the PSG and the mixer are not split-invariant, so their part is replayed
+  repeat by repeat in the same order first, and the cluster's own PSG and audio
+  block is switched off for that one call.
+
+Three constraints keep the batch out of everything else:
+
+- Nothing else about a batch is allowed into the loop or the cluster: a second
+  caller of the cluster, or a flag the loop carries per slot, cost every slot of
+  every program a percent in instructions under the WebAssembly build's clang.
+- The replay's own copies of the audio chain are kept byte-different from the
+  originals (a counter) so that the link-time optimiser does not fold them back
+  into one function with two callers.
+- Every bound, and every gate whose absence changes what the machine does, is
+  pinned by a row of `halt_batch_equiv_test` or `halt_batch_periph_test` whose
+  mutation turns it red. A few gates are redundant with another and stay as
+  explicit statements of the contract (an `/INT` pending implies a
+  non-quiescent IM2 fabric; the coverage terms of the debugger predicate repeat
+  what each coverage set already does). The DivMMC and Multiface flip-flop
+  states are NOT gates: at a PC the automap does not react to by address,
+  every transition of either converges within one M1 edge, which the real
+  repeat already is, so a gate on their state was removed as provably
+  redundant.
 
 **A loop that waits for a raster line can be one slot too.** A program that does not `HALT` can still
 spend its frame in a loop that re-reads NR 0x1E / 0x1F until the line it wants arrives (the NextZXOS Guide
-viewer does, in a seven-instruction loop with interrupts disabled; several games do). Each read of either
-register by the guest (the read handlers installed in `Emulator::init()`, only while the CPU is inside
-`execute()`, so a debugger panel reading them does not count) notes itself and raises `poll_watch_`.
-`run_frame()` then calls `poll_slot_()` after the slots that follow, from the same place as the HALT batch
-and with one test of that flag per slot as the whole cost to a program that never reads the raster. The
-method is observation, not recognition of code: `poll_slot_()` snapshots the CPU after the slot that
-read a raster register (`Z80Cpu::capture_loop_state()`: every register, the hidden latches, the interrupt
-state; not the 7-bit `R` counter, which every instruction advances), and then checks each following slot
-until one that reads a raster register leaves PC where the first one did. Every instruction of that pass
-must be on a whitelist of instructions that do nothing outside the CPU (register-only loads and ALU,
-jumps, the CB register forms, `IN r,(C)`, `IN A,(n)`, `OUT (C),r`), the only I/O allowed is a raster read
-and the select of NR 0x1E or 0x1F, and no M1 of the pass may be an address the DivMMC automap or the NMI source
-reacts to. If the CPU is then in the state it started in, the pass was a deterministic function of that
-state and of the values its reads returned, so a further pass that reads the same values does the same
-again. How many further passes there are comes from the shared gates and bounds (`batch_window_limit_()`,
-the one function the HALT batch calls too: debugger observers, trace, tape, RZX, DMA, UART, a pending
-`/INT`, speed or contention commit, the next scanline, interrupt request, CTC event, DMA gate and
-Copper action) and from asking `cvc_at()`, through the same `raster_reg_value_at_()` the read handlers
-use, what each read of each absorbed pass would return; the pass whose read would differ runs for real,
-after the window. Contention must not be able to apply (`ContentionModel::contention_possible()`: not at
-3.5 MHz), so a pass costs the same whatever the beam does. `Z80Cpu::repeat_loop()` then adds the passes'
-T-states, `R` and `execute()` serial, the clock and the DMA prescaler timer advance, and the PSG and the
-mixer are replayed slot by slot through `halt_batch_replay_()`, the HALT batch's own replay, before the
-cluster runs once over the window. Every batch is preceded by its own watched pass: nothing is cached
+viewer does, in a seven-instruction loop with interrupts disabled; several games do). The method is
+observation, not recognition of code. In order:
+
+1. **Notice.** Each read of either register by the guest (the read handlers
+   installed in `Emulator::init()`, only while the CPU is inside `execute()`, so a
+   debugger panel reading them does not count) notes itself and raises
+   `poll_watch_`. `run_frame()` then calls `poll_slot_()` after the slots that
+   follow, from the same place as the HALT batch and with one test of that flag
+   per slot as the whole cost to a program that never reads the raster.
+2. **Snapshot.** `poll_slot_()` snapshots the CPU after the slot that read a
+   raster register (`Z80Cpu::capture_loop_state()`: every register, the hidden
+   latches, the interrupt state; not the 7-bit `R` counter, which every
+   instruction advances).
+3. **Watch one pass.** It checks each following slot until one that reads a
+   raster register leaves PC where the first one did. Every instruction of that
+   pass must be on a whitelist of instructions that do nothing outside the CPU
+   (register-only loads and ALU, jumps, the CB register forms, `IN r,(C)`,
+   `IN A,(n)`, `OUT (C),r`); the only I/O allowed is a raster read and the
+   select of NR 0x1E or 0x1F; and no M1 of the pass may be an address the
+   DivMMC automap or the NMI source reacts to.
+4. **Compare.** If the CPU is then in the state it started in, the pass was a
+   deterministic function of that state and of the values its reads returned,
+   so a further pass that reads the same values does the same again.
+5. **Bound.** How many further passes there are comes from the shared gates and
+   bounds (`batch_window_limit_()`, the one function the HALT batch calls too:
+   debugger observers, trace, tape, RZX, DMA, UART, a pending `/INT`, speed or
+   contention commit, the next scanline, interrupt request, CTC event, DMA gate
+   and Copper action) and from asking `cvc_at()`, through the same
+   `raster_reg_value_at_()` the read handlers use, what each read of each
+   absorbed pass would return; the pass whose read would differ runs for real,
+   after the window. Contention must not be able to apply
+   (`ContentionModel::contention_possible()`: not at 3.5 MHz), so a pass costs
+   the same whatever the beam does.
+6. **Absorb.** `Z80Cpu::repeat_loop()` adds the passes' T-states, `R` and
+   `execute()` serial, the clock and the DMA prescaler timer advance, and the
+   PSG and the mixer are replayed slot by slot through `halt_batch_replay_()`,
+   the HALT batch's own replay, before the cluster runs once over the window.
+
+Every batch is preceded by its own watched pass: nothing is cached
 between batches, and `run_frame()` drops a watched pass on entry, because a debugger pause can be followed
 by an edit of the registers or of memory. The fixed cost to every program is that one flag test; it was measured against the
 branch point on the bench workloads, under gcc and under clang, at 0.03 to 0.23 % of host instructions, so
 the optimisation is always on rather than a costly one (page 2.6).
 
-Around that choice it also records the trace entry, notes what the end-of-slot
+Around those choices, the CPU branch also records the trace entry, notes what the end-of-slot
 interrupt tick will need (the instruction's T-states, its first edge, its opcode
-fetches), counts RZX instructions, ticks real-time tape playback, and advances
-the master clock. All of that is shared verbatim with
+fetches), counts RZX instructions and ticks real-time tape playback. Whatever
+the choice, the slot then advances the master clock, moves the FUSE T-state
+counter along when no instruction did (a DMA, parked or boot-hold slot), and
+feeds the DMA prescaler timer. All of that is shared verbatim with
 `execute_single_instruction()`, and the sharing was not free: the debugger's
 single-step once kept its own copy of this cluster, silently lost the IM2 tick
 and both /INT polls, and so delivered no interrupts at all while you were
 stepping.
 
-**Then a data-breakpoint check**, which returns early if one fired.
+**Then the boundary drain.** When the debugger is armed and events are pending,
+everything the slot latched (a memory or port access, a register write, a DMA
+event) is delivered now, with the machine stopped: subscription conditions are
+evaluated, handlers run, and a `Stop` verdict pauses. It runs before the
+data-breakpoint test, and whenever there is anything to drain, so a `Log` or
+`Continue` subscription is delivered and the ring is empty for the next slot.
+Events latched by the device cluster below (a Copper MOVE, a deferred CPU NextREG
+write) are delivered at the next boundary instead. See
+[3.9.2](../03-subsystems/09-2-event-delivery-and-mutation.md).
+
+**Then a data-breakpoint check**, which returns early if one fired (or if the
+drain returned a stop). The early return still ticks the IM2 fabric for the
+slot (`finish_slot_interrupts()`), since the device cluster that normally does
+so is skipped.
 
 **Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:12316`), the
-shared post-instruction cluster. Its order matters: the Copper is stepped at
-28 MHz granularity across the window the instruction consumed, stopping at every
-video-row boundary inside that window; the deferred CPU
-NextREG writes are drained, so that a same-register collision ends up holding
-the CPU's value exactly as the VHDL does; the NR 0x07 and NR 0x08 bit-6 commit
-edges are applied; CTC, UART and MD6 are ticked for whatever part of the
-instruction a port access inside it has not already brought them through; the
-I/O-mode injectors run; the NMI source pipeline and the /NMI falling edge are
-handled; PSG ticking and audio integration happen; `run_scheduled_until(clock_)`
-drains the scheduler and the separate queue that holds the ULA frame and line
-interrupt requests; and last of all `finish_slot_interrupts()` ticks the IM2
-fabric for the instruction and hands the CPU the exact /INT window for the
-next boundary.
+shared post-instruction cluster. Its order matters:
+
+![The post-instruction device cluster, in order](../img/frame-device-cluster.svg)
+
+1. The Copper is stepped at 28 MHz granularity across the window the
+   instruction consumed, stopping at every video-row boundary inside that
+   window.
+2. The deferred CPU NextREG writes are drained, so that a same-register
+   collision ends up holding the CPU's value exactly as the VHDL does.
+3. The NR 0x07 and NR 0x08 bit-6 commit edges are applied.
+4. CTC, UART and MD6 are ticked for whatever part of the instruction a port
+   access inside it has not already brought them through.
+5. The I/O-mode injectors run.
+6. The NMI source pipeline and the /NMI falling edge are handled.
+7. PSG ticking and audio integration happen.
+8. `run_scheduled_until(clock_)` drains the scheduler and the separate queue
+   that holds the ULA frame and line interrupt requests.
+9. Last of all `finish_slot_interrupts()` ticks the IM2 fabric for the
+   instruction and hands the CPU the exact /INT window for the next boundary.
 
 The scheduler drain is where the **interrupt** events actually fire, and it has a
 consequence worth internalising: **the interrupt callbacks run at instruction

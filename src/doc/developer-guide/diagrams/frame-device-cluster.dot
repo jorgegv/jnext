@@ -1,0 +1,26 @@
+// The order of tick_devices_after_instruction(): the post-instruction device
+// cluster (src/core/emulator.cpp). The order is the content of the figure.
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/frame-device-cluster.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// Palette note: the page theme's pastel dark red family (see css/theme.css).
+digraph frame_device_cluster {
+    bgcolor="transparent";
+    rankdir=LR;
+    fontname="Helvetica";
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.14,0.08"];
+    edge [color="#8c6b70"];
+
+    s1 [label="1  Copper\nacross the window,\nstopping at each row"];
+    s2 [label="2  deferred CPU\nNextREG writes"];
+    s3 [label="3  NR 0x07 / 0x08\ncommit edges"];
+    s4 [label="4  CTC, UART, MD6\nticked up to date"];
+    s5 [label="5  I/O-mode\ninjectors"];
+    s6 [label="6  NMI source\nand /NMI edge"];
+    s7 [label="7  PSG and\naudio integration"];
+    s8 [label="8  scheduler drain\n(frame / line / scanline)", fillcolor="#f3e3e6"];
+    s9 [label="9  finish_slot_interrupts()\nIM2 tick, /INT window", fillcolor="#e9d3d6"];
+    s1 -> s2 -> s3 -> s4 -> s5 -> s6 -> s7 -> s8 -> s9;
+}

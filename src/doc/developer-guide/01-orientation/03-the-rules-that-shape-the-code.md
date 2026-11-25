@@ -230,4 +230,4 @@ some configuration, on somebody else's machine, long after you wrote it.
 Build configurations and the `ENABLE_QT_UI` / `ENABLE_DEBUGGER` arms are
 covered in [5.2 Build configurations](../05-building/02-build-configurations.md);
 branch, worktree and review discipline is in
-[6.2 Branches, worktrees and review](../06-contributing/02-branches-worktrees-and-review.md).
+[A.2 Branches, worktrees and review](../appendix-a-contributing/02-branches-worktrees-and-review.md).

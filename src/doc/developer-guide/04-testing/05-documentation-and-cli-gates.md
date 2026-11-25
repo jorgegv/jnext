@@ -43,7 +43,7 @@ The guide cites code as a file name, a colon and a line number, and every such
 cite of a file in this repository is checked by `test/lint-devguide-cites.pl`
 (a Perl script like the other lints; `make docs-devguide-cites-check` runs it,
 and `docs-check` runs that). Before it existed one merge shifted 17 cites of
-chapter 7 and only a reviewer's script noticed. The rule, in full:
+the source-level debugging pages and only a reviewer's script noticed. The rule, in full:
 
 - **Every cite is anchored to a symbol.** The nearest backticked identifier
   before the cite in the same sentence (a function, class, member, constant or

@@ -43,9 +43,11 @@ machine, and cost a closed window nothing.
   rewind's replay loop;
 - `magic_hold_`: set when a magic breakpoint fires, released by the resume that
   ends its stop.
+- `verify_hold_`: held while a source map attached to a tape program waits for its
+  program ([3.9.4](09-4-execution-control-and-rewind.md)).
 
 Each contributor has its own bit because a shared one would let one owner's
-release clear another's arm. `SuspendScope` clears all of them. Outside the two
+release clear another's arm. `SuspendScope` clears all of them. Outside the three
 holds, `armed() == attached() || persistent_breakpoints()`.
 
 `attached` and `live_raster` are two different gates. `attached` gates the
@@ -148,6 +150,8 @@ loop owners share one statement of them:
 |---|---|---|
 | Qt, SDL | `PumpBudget{}`: one command | `PumpBudget{0, 2, 10}`: drain a queued chain, never block the tick |
 | headless | `PumpBudget{}` | `PumpBudget{50, 2, 10}`, and no frame that tick |
+
+In the browser (WebAssembly) build the paused figure for Qt/SDL-style loops is `PumpBudget{0, 0, 10}`: while wasm runs no byte can arrive, so the 2 ms drain would be a pure busy-wait. It still answers every command already buffered, bounded by 10 ms.
 
 The headless branch turns what would be a busy spin on a paused machine into a
 wait. Its one countdown that keeps running is `--delayed-automatic-exit`,

@@ -72,15 +72,34 @@ nav:
       - 3.7 Input: 03-subsystems/07-input.md
       - 3.8 Media and loaders: 03-subsystems/08-media-and-loaders.md
       - 3.8.1 The SD card set: 03-subsystems/08-1-the-sd-card-set.md
-      # The debug subsystem and its frontends. The frontend pages keep the file
-      # names (and so the URLs) they had as pages 3.10-3.13; only their numbers
-      # in the nav changed.
+      # The debug subsystem and its frontends. Some pages keep the file names
+      # (and so the URLs) of an earlier numbering; only their nav numbers differ.
       - 3.9 The debug subsystem:
           - 3.9 Overview: 03-subsystems/09-debug-and-the-debugger.md
           - 3.9.1 The backend API: 03-subsystems/09-1-the-backend-api.md
           - 3.9.2 Event delivery and mutation: 03-subsystems/09-2-event-delivery-and-mutation.md
           - 3.9.3 Sessions, the pump and the reconstruct contract: 03-subsystems/09-3-sessions-the-pump-and-reconstruct.md
           - 3.9.4 Execution control and rewind: 03-subsystems/09-4-execution-control-and-rewind.md
+          - 3.9.5 Source-level debugging:
+              - 3.9.5 Overview: 03-subsystems/09-5-source-level-debugging/index.md
+              - 3.9.5.1 Which memory supplied the instruction: 03-subsystems/09-5-source-level-debugging/01-which-memory.md
+              - 3.9.5.2 The source map: 03-subsystems/09-5-source-level-debugging/02-the-source-map.md
+              - 3.9.5.3 Loading: 03-subsystems/09-5-source-level-debugging/03-loaders.md
+              - 3.9.5.4 File formats and records:
+                  - 3.9.5.4 Overview: 03-subsystems/09-5-source-level-debugging/04-formats.md
+                  - 3.9.5.4.1 sjasmplus SLD: 03-subsystems/09-5-source-level-debugging/04-1-sld.md
+                  - 3.9.5.4.2 sjasmplus --sym and --exp: 03-subsystems/09-5-source-level-debugging/04-2-sjasmplus-equ.md
+                  - 3.9.5.4.3 The z88dk map: 03-subsystems/09-5-source-level-debugging/04-3-z88dk-map.md
+                  - 3.9.5.4.4 z88dk listings: 03-subsystems/09-5-source-level-debugging/04-4-z88dk-listings.md
+                  - 3.9.5.4.5 NextBuild Memory.txt: 03-subsystems/09-5-source-level-debugging/04-5-nextbuild-memory-txt.md
+                  - 3.9.5.4.6 Annotations project file: 03-subsystems/09-5-source-level-debugging/04-6-user-annotations.md
+                  - 3.9.5.4.7 skoolkit and Ghidra exports: 03-subsystems/09-5-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md
+              - 3.9.5.5 Breakpoints, steps, history and call frames: 03-subsystems/09-5-source-level-debugging/05-breakpoints-steps-history.md
+              - 3.9.5.6 Lifetime: 03-subsystems/09-5-source-level-debugging/06-lifetime.md
+              - 3.9.5.7 The frontends: 03-subsystems/09-5-source-level-debugging/07-frontends.md
+              - 3.9.5.8 Tests, fixtures and adding a producer: 03-subsystems/09-5-source-level-debugging/08-tests-and-new-producers.md
+              - 3.9.5.9 C variables: 03-subsystems/09-5-source-level-debugging/09-c-variables.md
+              - 3.9.5.10 C frames and values: 03-subsystems/09-5-source-level-debugging/10-c-frames-and-values.md
       - 3.10 The debugger frontends:
           - 3.10 Overview and capability matrix: 03-subsystems/10-0-the-debugger-frontends.md
           - 3.10.1 The shared socket transport: 03-subsystems/10-1-the-socket-transport.md
@@ -108,31 +127,11 @@ nav:
       - 5.4 Continuous integration: 05-building/04-continuous-integration.md
       - 5.5 Performance and optimisation: 05-building/05-performance-and-optimisation.md
       - 5.6 The browser build: 05-building/06-the-browser-build.md
-  - 6. Contributing:
-      - 06-contributing/index.md
-      - 6.1 Issues and pull requests: 06-contributing/01-issues-and-pull-requests.md
-      - 6.2 Branches, worktrees and review: 06-contributing/02-branches-worktrees-and-review.md
-      - 6.3 House style: 06-contributing/03-house-style.md
-  - 7. Source-level debugging:
-      - 07-source-level-debugging/index.md
-      - 7.1 Which memory supplied the instruction: 07-source-level-debugging/01-which-memory.md
-      - 7.2 The source map: 07-source-level-debugging/02-the-source-map.md
-      - 7.3 Loading: 07-source-level-debugging/03-loaders.md
-      - 7.4 File formats and records:
-          - 7.4 Overview: 07-source-level-debugging/04-formats.md
-          - 7.4.1 sjasmplus SLD: 07-source-level-debugging/04-1-sld.md
-          - 7.4.2 sjasmplus --sym and --exp: 07-source-level-debugging/04-2-sjasmplus-equ.md
-          - 7.4.3 The z88dk map: 07-source-level-debugging/04-3-z88dk-map.md
-          - 7.4.4 z88dk listings: 07-source-level-debugging/04-4-z88dk-listings.md
-          - 7.4.5 NextBuild Memory.txt: 07-source-level-debugging/04-5-nextbuild-memory-txt.md
-          - 7.4.6 Annotations project file: 07-source-level-debugging/04-6-user-annotations.md
-          - 7.4.7 skoolkit and Ghidra exports: 07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md
-      - 7.5 Breakpoints, steps, history and call frames: 07-source-level-debugging/05-breakpoints-steps-history.md
-      - 7.6 Lifetime: 07-source-level-debugging/06-lifetime.md
-      - 7.7 The frontends: 07-source-level-debugging/07-frontends.md
-      - 7.8 Tests, fixtures and adding a producer: 07-source-level-debugging/08-tests-and-new-producers.md
-      - 7.9 C variables: 07-source-level-debugging/09-c-variables.md
-      - 7.10 C frames and values: 07-source-level-debugging/10-c-frames-and-values.md
+  - Appendix A. Contributing:
+      - appendix-a-contributing/index.md
+      - A.1 Issues and pull requests: appendix-a-contributing/01-issues-and-pull-requests.md
+      - A.2 Branches, worktrees and review: appendix-a-contributing/02-branches-worktrees-and-review.md
+      - A.3 House style: appendix-a-contributing/03-house-style.md
 
 # Same posture as the user guide: `mkdocs build --strict` must fail on a page
 # missing from the nav and on a cross-reference that no longer resolves.

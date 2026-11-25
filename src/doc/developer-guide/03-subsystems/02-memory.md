@@ -90,7 +90,7 @@ costs at most 0.6 % of throughput and executes the same instruction counts.
 Behind it `Mmu::cov_note_()` marks the byte of the route in a `dbg::MemCoverage`: X from `read_m1()`, R from `read()` and W from
 a write that landed; `read_fetch()` (a prefix's inner M1) marks nothing and a
 `Floating` route is not memory. The map is keyed by the space the arbiter named,
-so the aliases stay apart; see [9.1](09-1-the-backend-api.md).
+so the aliases stay apart; see [3.9.1](09-1-the-backend-api.md).
 
 `read()` and `read_m1()` are `route()` followed by one side-effect tail for every
 source: the byte (0xFF for a null pointer), the +3 floating-bus latch and the

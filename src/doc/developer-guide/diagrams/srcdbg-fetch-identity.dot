@@ -1,4 +1,4 @@
-// Which memory supplied an instruction: chapter 7.1.
+// Which memory supplied an instruction: 3.9.5.1.
 //
 // Rendered by `make docs-devguide-diagrams` into ../img/srcdbg-fetch-identity.svg,
 // which is COMMITTED. Edit this file, never the SVG.

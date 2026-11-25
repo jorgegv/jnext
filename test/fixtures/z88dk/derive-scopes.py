@@ -19,7 +19,7 @@
 # function with no entry is not printed. All addresses are the 16-bit value of the map (every map
 # of the table is unbanked: its code is in a rule-4 section, page 4 under the NEX).
 #
-# RULES (they mirror the dev guide, 7.9, "The scope table"; the code is fill_scopes()):
+# RULES (they mirror the dev guide, 3.9.5.9, "The scope table"; the code is fill_scopes()):
 #  1. Records: the `addr` lines named __C_LINE_ or __ASM_LINE_ that have a section, whose section
 #     does not begin (case-insensitive) with "data", "bss" or "smc", and whose location ends in
 #     :<line> with line >= 1. Others (line 0, no section, data/bss/smc) are ignored.
