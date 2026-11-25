@@ -34,7 +34,7 @@ Per feedback memory:
 
 ## Workflow
 
-1. Resolve target: either the main repo `/home/jorgegv/src/spectrum/jnext` or a worktree path supplied by the caller.
+1. Resolve target: a detached worktree of `main`'s tip, `~/tmp/worktrees/jnext/main-gate` (create it if missing), unless the caller names another. Never the main checkout (step 2's `make clean` wipes its `build/`), never an author's worktree.
 2. ALWAYS rebuild clean first — never "if needed": `LANG=C make -C <target> clean && LANG=C make -C <target> gui-release` (`feedback_test_runs_always_rebuild`, `feedback_clean_gui_release_for_regression`). A stale binary yields false FAILs and false PASSes.
 3. Run `LANG=C make -C <target> unit-test` then `LANG=C make -C <target> unit-test-sdl`, each redirected to its own log with its status checked; count pass/fail (never bare `ctest`: it skips the manifest checks).
 4. Run FUSE: capture output, count pass/fail.

@@ -14,7 +14,7 @@ actual set disagree. Read the conf, or take the total from the run's own summary
 
 ## Inputs
 
-Optional: **worktree path** (default: `/home/jorgegv/src/spectrum/jnext`).
+Target: a detached worktree of `main`'s tip, `~/tmp/worktrees/jnext/main-gate` (create it if missing), unless the user names another. Never the main checkout (step 1's `make clean` wipes its `build/`), never an author's worktree.
 
 ## Steps
 
