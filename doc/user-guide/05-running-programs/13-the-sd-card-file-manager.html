@@ -4705,7 +4705,7 @@ another program changes the image, the pane lists the folder again within half a
 keeping your selection and your place in the list. <strong>F5</strong> (or <strong>Refresh</strong> in the pane's
 menu) lists it again at once, and so does bringing the window to the front. The pane
 always shows what the machine has mounted; if the card in the slot is swapped while the
-window is open, it says so and shows the new card's top folder.</p>
+window is open, the selector and the pane show the new card's top folder (or the card that is left after an eject).</p>
 <h2 id="what-you-can-do">What you can do<a class="headerlink" href="#what-you-can-do" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -4788,7 +4788,7 @@ the folder again after reading something else. So a change shows up the next tim
 program goes to look:</p>
 <ul>
 <li>in the Browser: enter a folder and come back, or leave it and open it again;</li>
-<li>in NextBASIC: type <code>dir</code> or <code>cat</code> again;</li>
+<li>in NextBASIC: <code>cd</code> into a folder and back, or <code>cat</code> another folder, then <code>cat</code> the folder again (a second <code>cat</code> of the same folder straight away can still show the old listing);</li>
 <li>a dot command you have just copied: found the next time you type it;</li>
 <li>a program that reads a file: finds it the next time it opens that file.</li>
 </ul>
@@ -4828,8 +4828,13 @@ not a safe thing to do either.</p>
 <h2 id="changing-the-card-from-outside-jnext">Changing the card from outside JNEXT<a class="headerlink" href="#changing-the-card-from-outside-jnext" title="Permanent link">&para;</a></h2>
 <p>The supported way is this window. Without a writes file, another program that writes the
 image while JNEXT runs writes the same file the machine reads, and works as this window
-does, under the same rules (above). JNEXT cannot tell when a program changes the image; it
-notices within half a second and shows it in the card pane.</p>
+does, under the same rules (above). JNEXT does not see the write itself and cannot tell
+which program made it, but it notices that the image changed within half a second and
+lists the folder again in the card pane. It cannot tell what a running program has open.</p>
+<p><strong>With a writes file, never change the image from outside.</strong> The window and the warnings
+that point here are about this: a card started with <code>--sdcard-writes FILE</code> keeps every
+change in <em>FILE</em>, and an image changed underneath it no longer fits <em>FILE</em> (see
+<a href="#cards-with-a-writes-file">Cards with a writes file</a>). Use this window for such a card.</p>
 <p>Never <strong>replace</strong> or <strong>resize</strong> the image file while it is in use (some tools write a new
 file and rename it over the old one; some change the card's size). The machine keeps
 the old file, and what it writes is lost when JNEXT exits; a resized image keeps its old

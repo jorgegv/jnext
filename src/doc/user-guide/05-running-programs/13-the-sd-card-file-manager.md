@@ -60,7 +60,7 @@ another program changes the image, the pane lists the folder again within half a
 keeping your selection and your place in the list. **F5** (or **Refresh** in the pane's
 menu) lists it again at once, and so does bringing the window to the front. The pane
 always shows what the machine has mounted; if the card in the slot is swapped while the
-window is open, it says so and shows the new card's top folder.
+window is open, the selector and the pane show the new card's top folder (or the card that is left after an eject).
 
 ## What you can do
 
@@ -122,7 +122,7 @@ the folder again after reading something else. So a change shows up the next tim
 program goes to look:
 
 - in the Browser: enter a folder and come back, or leave it and open it again;
-- in NextBASIC: type `dir` or `cat` again;
+- in NextBASIC: `cd` into a folder and back, or `cat` another folder, then `cat` the folder again (a second `cat` of the same folder straight away can still show the old listing);
 - a dot command you have just copied: found the next time you type it;
 - a program that reads a file: finds it the next time it opens that file.
 
@@ -169,8 +169,14 @@ To get a plain image with your changes in it, use `--sdcard-writes-flatten OUT`.
 
 The supported way is this window. Without a writes file, another program that writes the
 image while JNEXT runs writes the same file the machine reads, and works as this window
-does, under the same rules (above). JNEXT cannot tell when a program changes the image; it
-notices within half a second and shows it in the card pane.
+does, under the same rules (above). JNEXT does not see the write itself and cannot tell
+which program made it, but it notices that the image changed within half a second and
+lists the folder again in the card pane. It cannot tell what a running program has open.
+
+**With a writes file, never change the image from outside.** The window and the warnings
+that point here are about this: a card started with `--sdcard-writes FILE` keeps every
+change in *FILE*, and an image changed underneath it no longer fits *FILE* (see
+[Cards with a writes file](#cards-with-a-writes-file)). Use this window for such a card.
 
 Never **replace** or **resize** the image file while it is in use (some tools write a new
 file and rename it over the old one; some change the card's size). The machine keeps

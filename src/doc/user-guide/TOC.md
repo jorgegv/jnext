@@ -88,8 +88,9 @@ session as subsections.
   JNEXT (File > Save Bug Report, `--bug-report`), what it holds and how to read
   it. Added after the TOC was agreed.
 - **5.13 The SD card file manager** — the window that moves files between the
-  card and a folder of the host: the panes, copy, move, rename, delete, read-only
-  cards, the pause and the restart after a card change, and what it remembers.
+  card and a folder of the host: the panes with their up rows, copy, move, rename,
+  delete, read-only cards, how the running machine sees a change (no pause, no
+  restart), cards with a writes file and outside tools, and what it remembers.
   Added after the TOC was agreed.
 
 ## 6. The debugger
