@@ -66,7 +66,7 @@ Single-bool branch + `[[unlikely]]`. No new allocations, no string formatting un
 ```bash
 LANG=C cmake --build build -j$(nproc) > /tmp/probe-build.log 2>&1; echo "status=$?"; tail -5 /tmp/probe-build.log
 
-# Clone the suites' SD master once per investigation (never the user's card, GH #555; `make worktree-bootstrap` if it is missing); never boot on the master (jnext writes to it). Delete the clone when done.
+# Clone the suites' SD master once per investigation (never the user's card, GH #555; if it is missing, run `make worktree-bootstrap`, which reports how to provision it); never boot on the master (jnext writes to it). Delete the clone when done.
 mkdir -p ~/tmp/g46b-<name> && { [ -f ~/tmp/g46b-<name>/sd.img ] || cp --reflink=auto ~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<name>/sd.img; }
 
 # Probe off (default):
