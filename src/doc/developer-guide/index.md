@@ -6,7 +6,7 @@ do not know about them.
 
 It is written for two readers. The first is a new contributor who wants to fix
 a bug or add a feature, and needs to find the right file without reading a
-quarter of a million lines to get there. The second is the maintainer returning to
+hundred thousand lines to get there. The second is the maintainer returning to
 a subsystem after enough time away that its shape has to be rebuilt in their
 head before it can safely be touched.
 
@@ -41,17 +41,14 @@ like eccentricity:
   explains the mechanism; the motivation is this one. Generated content that
   nobody re-derives drifts silently, and a reader — human or otherwise —
   cannot tell drifted documentation from correct documentation.
-- **The test apparatus is larger than the emulator.** `src/` is around 220 000
-  lines of C and C++ (612 files); `test/` and the test directories under `src/`
-  are around 463 000 lines of tests, harness and tooling (710 files). Both
-  counts are `wc -l` over the files `git ls-files` lists, measured on
-  2026-11-25 at version 1.3.78: for the emulator, `*.c`, `*.cpp`, `*.h`,
-  `*.hpp` and `*.mm` under `src/`, excluding the `test/` directories there; for
-  the tests, `*.c`, `*.cpp`, `*.h`, `*.hpp`, `*.sh`, `*.py`, `*.pl`, `*.pm`,
-  `*.mjs`, `*.js`, `*.cmake`, `*.conf` and `CMakeLists.txt` under `test/`
-  (excluding `test/fixtures` and the regression reference images) plus the C
-  and C++ files in the `src/` test directories. Raw lines, blanks and comments
-  included (no `cloc` on the host). [Chapter 4](04-testing/index.md) is about that machinery, and its
+- **The test apparatus is larger than the emulator.** `src/` is around 134 000
+  lines of C++; `test/` is around 281 000 lines of C++ tests and harness code,
+  and the shell, Python, Perl and build files around them (tools, CI,
+  packaging) add about 79 000 more. These are code lines, blanks and comments
+  excluded, measured on 2026-11-25 at version 1.3.78 with `make kloc-count`
+  (`tools/kloc-count.sh`: `git ls-files` only, `*.cpp` and `*.h` under `src/`
+  and `test/`, third-party code and generated renders not counted; `make
+  kloc-count-detailed` gives every directory). [Chapter 4](04-testing/index.md) is about that machinery, and its
   size is not accidental — it is the mechanism by which generated work gets
   accepted or rejected.
 
