@@ -509,7 +509,7 @@ void MainWindow::ensure_pause_client() {
     if (!r) return;
     pause_client_ = r.value;
 #ifdef ENABLE_DEBUGGER
-    if (debugger_mgr_) debugger_mgr_->set_emulator_window_pause_client(pause_client_);
+    if (debugger_mgr_) debugger_mgr_->add_window_pause_client(pause_client_);
 #endif
 }
 
@@ -2278,6 +2278,10 @@ void MainWindow::on_sd_manager() {
                              tr("The SD card file manager cannot open: %1").arg(QString::fromStdString(why)));
         return;
     }
+#ifdef ENABLE_DEBUGGER
+    // The session's pause is the window's own, not a debugger stop: it must not open the debugger window.
+    if (debugger_mgr_) debugger_mgr_->add_window_pause_client(sd_session_.client());
+#endif
     sync_pause_state();
     sdmanager::Remembered rem;
     rem.card_image = session_.sd_card.value_or(app_config_.data().sdmanager_card).toStdString();

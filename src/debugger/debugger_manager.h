@@ -7,6 +7,7 @@
 #include <QPointer>
 #include <QToolBar>
 #include <memory>
+#include <vector>
 
 #include "debug/debug_keymap.h"
 #include "debug/debugger.h"
@@ -44,7 +45,7 @@ class DebuggerWindow;
 /// A pause the window did not cause still opens it: the pause state is PULLED
 /// from the backend on every tick, whoever is attached. The one exception
 /// (GH #306): a pause made by the emulator window's own Pause control, a third
-/// Qt client owned by MainWindow, whose id is set_emulator_window_pause_client().
+/// Qt client owned by MainWindow, whose id is add_window_pause_client().
 ///
 /// The window hands the backend to its panels; since WP4a-d eleven of the 13
 /// read through it (the Breakpoints panel through the manager's
@@ -179,10 +180,13 @@ public:
     void set_script_host(jnext::script::ScriptHost* host);
     jnext::script::ScriptHost* script_host() const { return script_host_; }
 
-    /// GH #306 — the id of MainWindow's Pause client. A pause whose `by` is
-    /// this client does not open a closed debugger window. CLIENT_NONE = none.
-    void set_emulator_window_pause_client(jnext::dbg::ClientId id) {
-        emulator_window_pause_client_ = id;
+    /// GH #306 — the id of a client the EMULATOR WINDOW itself pauses through (its Pause control; the SD card
+    /// file manager's session, GH #558). A pause whose `by` is such a client is not a debugger stop and does not
+    /// open a closed debugger window. Adding an id twice, or CLIENT_NONE, changes nothing.
+    void add_window_pause_client(jnext::dbg::ClientId id) {
+        if (id == jnext::dbg::CLIENT_NONE) return;
+        for (jnext::dbg::ClientId c : window_pause_clients_) if (c == id) return;
+        window_pause_clients_.push_back(id);
     }
 
 public slots:
@@ -430,6 +434,6 @@ private:
     /// so a pause found already in force when the window opens still gets the
     /// full pause-edge sequence on the next tick, as it always has.
     bool shown_paused_ = false;
-    jnext::dbg::ClientId emulator_window_pause_client_ = jnext::dbg::CLIENT_NONE;   // GH #306
+    std::vector<jnext::dbg::ClientId> window_pause_clients_;   // GH #306, #558
     jnext::script::ScriptHost* script_host_ = nullptr;   // GH #26 WP5
 };

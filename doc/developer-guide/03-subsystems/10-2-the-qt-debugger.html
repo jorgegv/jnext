@@ -3301,10 +3301,10 @@ and F5 keys. In a build with no debugger it is also the only way, from the GUI, 
 pause made by a magic breakpoint or a script.</p>
 <h2 id="the-pause-state-is-pulled">The pause state is pulled<a class="headerlink" href="#the-pause-state-is-pulled" title="Permanent link">&para;</a></h2>
 <p>A pause the window did not cause still opens it, with one exception: a pause
-whose <code>by</code> is the emulator window's Pause client
-(<code>set_emulator_window_pause_client()</code>; matched on the client id, so another
-Gui or observer client still opens it) is exactly what that control exists to
-make without the window. <code>check_breakpoint_hit()</code> reads
+whose <code>by</code> is one of the emulator window's own clients (its Pause control and
+the SD card file manager's session; <code>add_window_pause_client()</code>, matched on the
+client id, so another Gui or observer client still opens it) is not a debugger
+stop and is exactly what those controls exist to make without the window. <code>check_breakpoint_hit()</code> reads
 <code>state()</code> once per tick, after the pump, and brings the window to it in both
 directions. A pause it has not shown gets the pause-edge sequence, opening the
 window first if it is closed: a breakpoint, a magic breakpoint, a persistent
@@ -3470,9 +3470,9 @@ moved; the greying of a paged label whose page is not what <code>source_page()</
 refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label (Show in Disassembly, Memory and Source are all disabled for one): the Disassembly and the
 Source tab show the CPU's map. Rows: <code>QSYML-*</code>.</p>
 <p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:1139</code>)
-redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:424</code>: ~4 Hz). Paused, it
+redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:428</code>: ~4 Hz). Paused, it
 redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:1128</code>; <code>PausedStamp</code>,
-<code>debugger_manager.h:279</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
+<code>debugger_manager.h:283</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The Audio panel is the one
 exception to the running cadence: while the window is open, the Audio dock is on show (<code>panel_on_show()</code>) and its
