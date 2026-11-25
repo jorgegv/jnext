@@ -1062,6 +1062,9 @@ void QtApp::TickEffects::set_timer_interval(int ms) {
 void QtApp::on_status_tick() {
     if (!main_window_) return;
 
+    // GH #558: an SD card image changed from outside JNEXT (replaced, resized, rewritten under a writes file): warn once per kind.
+    main_window_->poll_card_files();
+
     double fps = static_cast<double>(frame_count_);
     frame_count_ = 0;
 

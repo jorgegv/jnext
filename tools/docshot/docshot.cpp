@@ -803,13 +803,11 @@ void capture_sdcard_manager(const Options& opt) {
         ++g_failed;
         return;
     }
-    sdmanager::SdManagerSession session;   // not opened: this window only displays
     sdmanager::Remembered rem;
     rem.card_image = card.toStdString();
-    rem.card_dir = "/";
+    rem.card_dir = "/GAMES";   // a subfolder, so the up row shows
     rem.host_dir = host.toStdString();
-    SdManagerDialog dlg(emu, session, rem, host);
-    dlg.resize(820, 440);
+    SdManagerDialog dlg(emu, rem, host);
     dlg.show();
     settle(400);   // the host folder is read on a worker thread
     save_crop(&dlg, &dlg, opt.out_dir + QStringLiteral("/sdcard-manager.png"));

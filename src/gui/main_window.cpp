@@ -40,6 +40,7 @@
 #include "core/sdcard_upgrade.h"
 #include "gui/sdcard_download_dialog.h"
 #include "gui/sdcard_manager_dialog.h"   // GH #558
+#include "peripheral/sd_card.h"
 #include "peripheral/sd_write_journal.h"
 #include "qt/menu_bar_alt_nav_qt.h"   // GH #268
 #include "toolbar_icons/toolbar_icons.h"
@@ -2257,58 +2258,86 @@ void MainWindow::refresh_card_set_actions() {
         : tr("Delete the Previous SD Card Backup..."));
 }
 
-// GH #558 - the SD card file manager. The machine is paused for as long as the window is open (an observer client of the
-// session's own) and a card change ends in a hard reset: both by sd_session_, opened here and closed from a zero-delay
-// timer after the window's `finished` (never inside the tick or a debugger event: Debugger::reset refuses there).
+// GH #558 - the SD card file manager. It does not touch the machine: no pause, no reset, no question. The card has no
+// copy in jnext (the device reads every block from the file or the writes file), so a change is on the card at once and
+// the guest sees it when it next reads the folder. The window is modeless and there is ONE of it; it goes inert while a
+// card operation (an upgrade, a go back) owns the card.
 void MainWindow::on_sd_manager() {
-    if (sd_session_.is_open()) return;   // the window is up (it is modal; this is a programmatic trigger)
+    if (sd_dialog_) {   // already open: raise it
+        sd_dialog_->show();
+        sd_dialog_->raise();
+        sd_dialog_->activateWindow();
+        return;
+    }
     if (card_op_ != CardOp::None) {
         QMessageBox::information(this, tr("SD Card File Manager"),
                                  tr("The SD card is being changed by another action. Try again when it is done."));
         return;
     }
-    if (!emulator_ || !debugger_) {
-        QMessageBox::information(this, tr("SD Card File Manager"),
-                                 tr("The SD card file manager is not available: the machine cannot be paused."));
+    if (!emulator_) {
+        QMessageBox::information(this, tr("SD Card File Manager"), tr("The SD card file manager is not available: there is no machine."));
         return;
     }
-    std::string why;
-    if (!sd_session_.open(*debugger_, why)) {
-        QMessageBox::warning(this, tr("SD Card File Manager"),
-                             tr("The SD card file manager cannot open: %1").arg(QString::fromStdString(why)));
-        return;
-    }
-    sync_pause_state();
     sdmanager::Remembered rem;
     rem.card_image = session_.sd_card.value_or(app_config_.data().sdmanager_card).toStdString();
     rem.card_dir   = session_.sd_card_dir.value_or(app_config_.data().sdmanager_card_dir).toStdString();
     rem.host_dir   = session_.sd_host_dir.value_or(app_config_.data().sdmanager_host_dir).toStdString();
-    auto* dlg = new SdManagerDialog(*emulator_, sd_session_, rem, load_dialog_seed(), this);
+    auto* dlg = new SdManagerDialog(*emulator_, rem, load_dialog_seed(), this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    // Application modal, so the debugger window is blocked too. QDialog::open() would make it window modal (it
-    // blocks only this window), hence show() on a modal dialog.
-    dlg->setModal(true);
-    connect(dlg, &QDialog::finished, this, [this, dlg](int) {
-        remember_sd_manager(dlg->remembered());
-        QTimer::singleShot(0, this, [this]() { finish_sd_manager(); });
-    });
+    dlg->setModal(false);
+    dlg->set_card_busy([this] { return card_op_ != CardOp::None; });
+    sd_dialog_ = dlg;
+    connect(dlg, &QDialog::finished, this, [this, dlg](int) { remember_sd_manager(dlg->remembered()); });
     dlg->show();
 }
 
-void MainWindow::finish_sd_manager() {
+void MainWindow::poll_card_files() {
     if (!emulator_) return;
-    switch (sd_session_.close(*emulator_)) {
-    case sdmanager::SdManagerSession::CloseResult::ResetAndResumed:
-    case sdmanager::SdManagerSession::CloseResult::ResetStayedPaused:
-        statusBar()->showMessage(tr("SD card changed: the machine restarts"), 5000);
+    for (const auto& ev : emulator_->check_card_files())
+        card_file_changed(ev.slot, static_cast<int>(ev.kind), QString::fromStdString(ev.image), ev.writes_file);
+}
+
+void MainWindow::card_file_changed(int slot, int kind, const QString& image, bool writes_file) {
+    if (unattended_) return;
+    const QString card = slot == 1 ? tr("The second SD card") : tr("The SD card");
+    QString what;
+    switch (static_cast<SdCardDevice::OutsideChange>(kind)) {
+    case SdCardDevice::OutsideChange::Replaced:
+        what = writes_file ? tr("was replaced by another file while JNEXT is running. The machine keeps using the old file, and what "
+                                "it writes goes into the SD-writes file, which no longer fits the new image.")
+                           : tr("was replaced by another file while JNEXT is running. The machine keeps using the old file, and what it "
+                                "writes is lost when JNEXT exits.");
         break;
-    case sdmanager::SdManagerSession::CloseResult::ResetDeferred:
-        statusBar()->showMessage(tr("SD card changed: the machine restarts paused, resume it afterwards"), 8000);
+    case SdCardDevice::OutsideChange::Deleted:
+        what = writes_file ? tr("was deleted while JNEXT is running. The machine keeps using the open file, and what it writes goes "
+                                "into the SD-writes file, which cannot be used again without the image.")
+                           : tr("was deleted while JNEXT is running. The machine keeps using the open file, and what it writes is "
+                                "lost when JNEXT exits.");
+        break;
+    case SdCardDevice::OutsideChange::Resized:
+        what = tr("was resized while JNEXT is running. The card keeps its old size.");
+        break;
+    case SdCardDevice::OutsideChange::Rewritten:
+        what = tr("was changed by another program while it has an SD-writes file. The writes file no longer fits the image, "
+                  "and the card the machine sees may be damaged.");
         break;
     default:
-        break;
+        return;
     }
-    sync_pause_state();
+    const auto k = static_cast<SdCardDevice::OutsideChange>(kind);
+    const QString shown = QDir::toNativeSeparators(image);
+    QString text;
+    if (k == SdCardDevice::OutsideChange::Deleted)
+        text = tr("%1 image '%2' %3\n\nStop using this card.").arg(card, shown, what);
+    else if (k == SdCardDevice::OutsideChange::Replaced)
+        text = tr("%1 image '%2' %3\n\nInsert the card again (File > %4) before changing files on it: the file manager would "
+                  "work on the new file, not the one the machine reads.")
+                   .arg(card, shown, what, slot == 1 ? tr("Insert Second SD Card Image...") : tr("Insert SD Card Image..."));
+    else
+        text = tr("%1 image '%2' %3\n\nStop using this card, and change files on the card with File > SD Card File Manager "
+                  "instead (see the user guide, \"Changing the card from outside JNEXT\").")
+                   .arg(card, shown, what);
+    QTimer::singleShot(0, this, [this, text]() { QMessageBox::warning(this, tr("SD card image changed"), text); });
 }
 
 // What the window closed on is remembered and saved (the GUI change takes over from a command-line value), like

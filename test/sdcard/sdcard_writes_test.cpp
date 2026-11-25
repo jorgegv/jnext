@@ -915,6 +915,27 @@ int main() {
         swj::forget_all_for_test();
     }
 
+    // SDCOH-10 (GH #558, owner Q4): the start-up refusal of a writes file that does not fit the image names BOTH causes: it
+    // was made for another image, or the image was changed by another program since (an edit with hdfmonkey, mtools...).
+    {
+        const std::string img_a = make_image("coh10a.img");
+        const std::string jf = (fs::path(g_dir) / "coh10.jsdw").string();
+        std::string why1, why2;
+        bool first = swj::bind(img_a, jf, digest_binding(0x11), false, why1);
+        uint8_t sec[512] = {};
+        first = first && swj::for_image(img_a)->commit(3, sec);   // the file is created at the first write
+        swj::forget_all_for_test();
+        const bool refused = !swj::bind(img_a, jf, digest_binding(0x22), false, why2);   // the same file, an image that differs
+        swj::forget_all_for_test();
+        check("SDCOH-10",
+              "the refusal of a writes file that no longer fits the image says it was made for another image, or the image was "
+              "changed by another program since, and offers --sdcard-writes-reset",
+              first && refused && why2.find("was made for another image") != std::string::npos &&
+                  why2.find("or the image was changed by another program since") != std::string::npos &&
+                  why2.find("--sdcard-writes-reset") != std::string::npos,
+              std::string("first=") + (first ? "1" : "0") + " refused=" + (refused ? "1" : "0") + " why1=" + why1 + " why2=" + why2);
+    }
+
     fs::remove_all(g_dir);
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

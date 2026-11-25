@@ -4,6 +4,10 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <cstring>
+#include <filesystem>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 
 namespace {
 
@@ -110,6 +114,19 @@ bool SdCardDevice::mount(const std::string& path, bool read_only) {
     file_.seekg(0, std::ios::end);
     file_size_ = static_cast<uint64_t>(file_.tellg());
     file_.seekg(0, std::ios::beg);
+    {   // what outside_change() compares with
+        std::error_code ec;
+        mount_mtime_ = static_cast<std::int64_t>(std::filesystem::last_write_time(path, ec).time_since_epoch().count());
+        mount_dev_ = mount_ino_ = 0;
+#ifndef _WIN32
+        struct stat st {};
+        if (::stat(path.c_str(), &st) == 0) {
+            mount_dev_ = static_cast<std::uint64_t>(st.st_dev);
+            mount_ino_ = static_cast<std::uint64_t>(st.st_ino);
+        }
+#endif
+        latched_replaced_ = latched_resized_ = latched_rewritten_ = latched_deleted_ = false;
+    }
 
     // Pass-5 verify-audit fix (2026-05-09): full SPI-protocol state reset
     // on mount. The pre-fix code cleared only state_/initialized_/app_cmd_/
@@ -127,6 +144,43 @@ bool SdCardDevice::mount(const std::string& path, bool read_only) {
     sd_log()->debug("mounted SD image: {} ({} bytes, {} MB)",
                    path, file_size_, file_size_ / (1024 * 1024));
     return true;
+}
+
+SdCardDevice::OutsideChange SdCardDevice::outside_change() {
+    if (!mounted() || path_.empty()) return OutsideChange::None;
+    // Once the path has been replaced or deleted it no longer names the machine's file: nothing it says is about that file.
+    if (latched_replaced_ || latched_deleted_) return OutsideChange::None;
+    {
+        std::error_code dec;
+        if (!std::filesystem::exists(path_, dec) && !dec) {
+            latched_deleted_ = true;
+            return OutsideChange::Deleted;
+        }
+    }
+#ifndef _WIN32
+    struct stat st {};
+    if (!latched_replaced_ && mount_ino_ != 0 && ::stat(path_.c_str(), &st) == 0 &&
+        (static_cast<std::uint64_t>(st.st_ino) != mount_ino_ || static_cast<std::uint64_t>(st.st_dev) != mount_dev_)) {
+        latched_replaced_ = true;
+        return OutsideChange::Replaced;
+    }
+#endif
+    std::error_code ec;
+    if (!latched_resized_) {
+        const std::uintmax_t now = std::filesystem::file_size(path_, ec);
+        if (!ec && now != file_size_) {
+            latched_resized_ = true;
+            return OutsideChange::Resized;
+        }
+    }
+    if (journal_ && !latched_rewritten_) {
+        const std::int64_t t = static_cast<std::int64_t>(std::filesystem::last_write_time(path_, ec).time_since_epoch().count());
+        if (!ec && t != mount_mtime_) {
+            latched_rewritten_ = true;
+            return OutsideChange::Rewritten;
+        }
+    }
+    return OutsideChange::None;
 }
 
 void SdCardDevice::unmount() {

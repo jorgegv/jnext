@@ -33,7 +33,17 @@ for a NEX loaded directly (see "Running programs"): that file is stored when the
 program closes it and is there at the next run. `--sdcard-file-add` works with it too:
 the file you add goes into *FILE* and the image stays untouched.
 
+**Never change the image with another program while it has a writes file** (hdfmonkey,
+mtools, a loop mount, a copy over it): *FILE* holds pieces of the card's tables that fit
+the image only as it was, so the machine would see a mixture and the card would be
+damaged. JNEXT warns when it sees it happen and refuses *FILE* at the next start. To
+change files on such a card while it runs, use **File ▸ SD Card File Manager…**, which
+writes into *FILE* ([5.13](../05-running-programs/13-the-sd-card-file-manager.md)).
+
 ## Changing the card while JNEXT runs
+
+This section is about swapping the whole card. To change the *files* on the running
+card, with no restart, see [5.13](../05-running-programs/13-the-sd-card-file-manager.md).
 
 **File > Insert SD Card Image** puts a different card in the running machine,
 and **File > Eject SD Card** takes it out. Nothing is reset, so you keep what

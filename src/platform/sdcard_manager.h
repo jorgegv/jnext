@@ -7,8 +7,6 @@
 // it DECIDES lives here, so it is testable without a window:
 //
 //   * card_slots()               what each card slot holds, and whether and why it is shown read-only;
-//   * SdManagerSession      the pause, resume and hard-reset contract with the hosted debugger backend,
-//                           and the warn-before-the-first-change gate;
 //   * run_transfer()        copy or move a multi-selection between the card and the host, both ways;
 //   * delete_items()        delete a multi-selection (the card permanently, the host to the trash);
 //   * make_folder()         New Folder, in both panes;
@@ -33,7 +31,6 @@
 #include <vector>
 
 #include "core/sdcard_card_ops.h"
-#include "debug/debugger.h"
 
 class Emulator;
 
@@ -58,83 +55,6 @@ struct SlotInfo {
 /// (cardops::probe: the first FAT32 partition). The card ops themselves would write a write-protected
 /// slot, so this is the only place that enforces the first three.
 std::array<SlotInfo, 2> card_slots(Emulator& emu);
-
-// ---- the session ----------------------------------------------------------
-
-/// The window's contract with the machine, for ONE open of the manager.
-///
-/// The machine is paused while the window is open (by this session's own OBSERVER client: it arms
-/// nothing, REQ-qt-32), a card change makes the guest's idea of the card (NextZXOS's FAT and
-/// directories in RAM, the warm start) stale, so a change ends in a HARD RESET, and no change leaves
-/// the machine as it was. The session is declared AFTER the Debugger it was opened on (it holds its
-/// client and detaches it on destruction), like StartupStop.
-class SdManagerSession {
-public:
-    SdManagerSession() = default;
-    ~SdManagerSession();
-    SdManagerSession(const SdManagerSession&)            = delete;
-    SdManagerSession& operator=(const SdManagerSession&) = delete;
-
-    /// Begin a session: attach the observer client (once, kept across opens), record whether the machine
-    /// was already paused, and pause it if not. False with `why` set when the backend refuses either.
-    /// Refused while a session is open.
-    bool open(jnext::dbg::Debugger& dbg, std::string& why);
-    bool is_open() const { return open_; }
-
-    /// Pause the machine again if something else resumed it (a remote debugger client can). False when it
-    /// cannot be paused. Not open: false.
-    bool ensure_paused();
-
-    /// The warning before the FIRST card change of this session. `ask` shows it (true = the user accepts).
-    /// Declined: false, nothing is allowed, and the next call asks again. Accepted: true, and nothing asks
-    /// again until the next open. Not open, or no `ask`: false.
-    bool confirm_first_change(const std::function<bool()>& ask);
-
-    /// A card write is about to be attempted. Sets `changed` BEFORE the engine runs, whatever its outcome:
-    /// a rollback is not byte-identical (replaced files and a directory's grown cluster stay), so a failed
-    /// write may still have changed the card.
-    void note_card_write_attempt();
-
-    /// The window's per-write gate, in one call: confirm_first_change(ask), then ensure_paused(), then
-    /// note_card_write_attempt(). False = the write must not run (and nothing is noted).
-    bool before_card_write(const std::function<bool()>& ask);
-
-    bool changed() const { return changed_; }
-
-    /// close() reports the machine's REAL state afterwards (Debugger::state().paused): a remote client can
-    /// resume it, and an observer does not hold a pause when its owner detaches.
-    enum class CloseResult {
-        NotOpen,            ///< close() without an open session: nothing was done
-        Resumed,            ///< no change, and the machine ran before: it runs again
-        StayedPaused,       ///< no change, and the machine was paused before: still paused
-        ResetAndResumed,    ///< changed: hard reset (synchronous, while paused), then it runs
-        ResetStayedPaused,  ///< changed and it was paused before (or it would not resume): reset, paused
-        ResetDeferred,      ///< changed, the synchronous reset was refused: a deferred reset is requested
-                            ///< and the machine is left PAUSED; the user resumes after the restart
-    };
-
-    /// End the session. A changed session re-pauses first (ensure_paused), so the reset really runs on a
-    /// paused machine. Call it OUTSIDE the tick and outside any debugger event delivery (Debugger::reset
-    /// refuses inside one): the window does it from a zero-delay timer after its `finished`.
-    ///
-    /// Unchanged: run() if the machine was running at open. Changed: Debugger::reset(Hard) FIRST, which is
-    /// synchronous and keeps the pause, so no frame runs on the old machine over the changed card, then
-    /// run() if the machine was running at open. If the reset is refused (no LoopDriver, or an
-    /// unacknowledged corruption), Emulator::request_hard_reset() is made and the machine stays paused:
-    /// the frontend performs a deferred reset on its next tick whether or not frames run, so the restart
-    /// still happens before anything runs.
-    CloseResult close(Emulator& emu);
-
-    jnext::dbg::ClientId client() const { return cid_; }
-
-private:
-    jnext::dbg::Debugger* dbg_ = nullptr;
-    jnext::dbg::ClientId  cid_ = jnext::dbg::CLIENT_NONE;
-    bool open_ = false;
-    bool was_paused_ = false;
-    bool may_change_ = false;
-    bool changed_ = false;
-};
 
 // ---- the host files the running emulator holds -----------------------------
 
@@ -169,7 +89,17 @@ struct TransferItem {
     std::string source;
     std::string name;
     bool        is_dir = false;
+    /// What the pane listed for a CARD item (entry_stamp()), "" = not checked. The card is live: the guest can rename,
+    /// delete or re-create an entry between the listing and the action, so the item's folder is listed again before
+    /// its engine call and an entry that is not the one listed fails THAT item ("changed on the card since it was
+    /// listed"), writing nothing for it.
+    std::string stamp;
 };
+
+/// The identity of a listed card entry: stored name, 8.3 alias, kind, size, attributes, date and time. Two listings
+/// of one entry agree; an entry deleted and re-created under the same name does not (size, date or time differ,
+/// and a rename changes the name).
+std::string entry_stamp(const sdcard::cardops::CardEntry& e);
 
 struct TransferRequest {
     Side        from = Side::Host;       ///< where the items are; they go to the other side
@@ -195,8 +125,8 @@ struct TransferHooks {
     /// Send a host entry (file, directory or symbolic link, the link itself) to the trash. False with
     /// `err` set = it is still there. Absent = every trash fails: there is no permanent delete.
     std::function<bool(const std::string& host_path, std::string& err)> trash_host;
-    /// Called before EVERY card write (once per card-writing item): typically
-    /// SdManagerSession::before_card_write. False = abort the run, nothing more is written.
+    /// Called before EVERY card write (once per card-writing item): the window plugs in its "a card operation
+    /// owns the card" refusal. False = abort the run, nothing more is written. Absent = refused.
     std::function<bool()> before_card_write;
 };
 
@@ -226,13 +156,21 @@ struct TransferReport {
 /// (a card write: the gate) only after its extract succeeded, and a failure of that removal fails the item.
 TransferReport run_transfer(const TransferRequest& r, TransferHooks& h);
 
-/// Delete the paths. Card: each removed permanently with its whole subtree (cardops::remove; an entry
+/// Delete the paths. `stamps` (parallel to `paths`, or empty) are the listed identities of card items, as for
+/// TransferItem::stamp. Card: each removed permanently with its whole subtree (cardops::remove; an entry
 /// with the read-only attribute refuses the item, naming it), through the gate, one engine call per
 /// path, stopping at the first failure. Host: each to the trash (`h.trash_host`), never permanently;
 /// a path that is the mounted image or holds it is refused. `card_read_only_reason` as for a transfer.
 TransferReport delete_items(Side side, const std::string& image, const std::vector<std::string>& paths,
                             const std::vector<std::string>& held_files, TransferHooks& h,
-                            const std::string& card_read_only_reason = {});
+                            const std::string& card_read_only_reason = {},
+                            const std::vector<std::string>& stamps = {});
+
+/// Rename one card item (cardops::rename through the gate), after the same listed-identity check: `stamp` is
+/// the listed identity ("" = not checked). Nothing is written when the entry is not the one listed.
+TransferReport rename_card_item(const std::string& image, const std::string& path, const std::string& stamp,
+                                const std::string& new_name, TransferHooks& h,
+                                const std::string& card_read_only_reason = {});
 
 /// New Folder. Card: cardops::make_dir in card directory `dir` through the gate (it never overwrites;
 /// the name rules are the engine's). Host: one new directory under `dir`; the name must be a single

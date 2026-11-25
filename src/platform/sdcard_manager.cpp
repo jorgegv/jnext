@@ -147,6 +147,8 @@ std::string host_leaf(const std::string& source) {
 // Card lookups
 // ---------------------------------------------------------------------------
 
+constexpr const char* kChangedSinceListed = "changed on the card since it was listed";
+
 // Walk a card path from the root through REAL LISTINGS: each component must be the open_name of an entry
 // listed in the directory reached so far (ASCII case folded), and each but the last a directory. So the
 // entry found is the one whose stored name is on the card, whatever spelling the caller believes it has,
@@ -260,6 +262,17 @@ bool gate(TransferHooks& h, TransferReport& rep) {
 
 }  // namespace
 
+std::string entry_stamp(const ops::CardEntry& e) {
+    std::string s = e.name;
+    s += '\x1f';
+    s += e.altname;
+    s += '\x1f';
+    s += e.dir ? 'd' : 'f';
+    s += std::to_string(e.size) + '\x1f' + std::to_string(static_cast<unsigned>(e.attr)) + '\x1f' +
+         std::to_string(e.fdate) + '\x1f' + std::to_string(e.ftime);
+    return s;
+}
+
 // ===========================================================================
 // card_slots()
 // ===========================================================================
@@ -320,97 +333,6 @@ std::vector<std::string> held_host_files(Emulator& emu) {
     add(emu.wav_tape().path());
     add(emu.config().esxdos_stub_root);
     return v;
-}
-
-// ===========================================================================
-// SdManagerSession
-// ===========================================================================
-
-SdManagerSession::~SdManagerSession() {
-    // The backend outlives this object (declared before it in the loop owner).
-    if (dbg_ && cid_ != jnext::dbg::CLIENT_NONE) (void)dbg_->detach(cid_);
-}
-
-bool SdManagerSession::open(jnext::dbg::Debugger& dbg, std::string& why) {
-    if (open_) {
-        why = "the SD card file manager is already open";
-        return false;
-    }
-    if (dbg_ != &dbg && cid_ != jnext::dbg::CLIENT_NONE) {
-        if (dbg_) (void)dbg_->detach(cid_);
-        cid_ = jnext::dbg::CLIENT_NONE;
-    }
-    dbg_ = &dbg;
-    if (cid_ == jnext::dbg::CLIENT_NONE) {
-        // An OBSERVER: it arms nothing, so the window costs no per-instruction tracking.
-        const auto r = dbg.attach(jnext::dbg::ClientInfo{"Qt SD card file manager", jnext::dbg::ClientKind::Gui,
-                                                         /*observer=*/true});
-        if (!r) {
-            why = "the debugger backend refused the file manager's client";
-            return false;
-        }
-        cid_ = r.value;
-    }
-    was_paused_ = dbg.state().paused;
-    if (!was_paused_ && dbg.pause(cid_) != jnext::dbg::Result::Ok) {
-        why = "the machine could not be paused";
-        return false;
-    }
-    open_ = true;
-    may_change_ = false;
-    changed_ = false;
-    return true;
-}
-
-bool SdManagerSession::ensure_paused() {
-    if (!open_ || !dbg_) return false;
-    if (dbg_->state().paused) return true;
-    return dbg_->pause(cid_) == jnext::dbg::Result::Ok && dbg_->state().paused;
-}
-
-bool SdManagerSession::confirm_first_change(const std::function<bool()>& ask) {
-    if (!open_) return false;
-    if (may_change_) return true;
-    if (!ask || !ask()) return false;
-    may_change_ = true;
-    return true;
-}
-
-void SdManagerSession::note_card_write_attempt() { changed_ = true; }
-
-bool SdManagerSession::before_card_write(const std::function<bool()>& ask) {
-    if (!confirm_first_change(ask)) return false;
-    if (!ensure_paused()) return false;
-    note_card_write_attempt();
-    return true;
-}
-
-SdManagerSession::CloseResult SdManagerSession::close(Emulator& emu) {
-    if (!open_ || !dbg_) return CloseResult::NotOpen;
-    const bool changed = changed_;
-    // A remote client can have resumed the machine since the last write. A reset must run on a paused
-    // machine (no frame on the old one over the changed card), so pause it again first; if that is refused
-    // the reset still runs, synchronously, and the result below reports what the machine is really doing.
-    if (changed) (void)ensure_paused();
-    open_ = false;
-    changed_ = false;
-    may_change_ = false;
-    // The result is the machine's REAL state after the verbs: a pause that was lost (the owner detached; an
-    // observer holds none) or a run that was refused must not be reported as the other.
-    auto paused_now = [&] { return dbg_->state().paused; };
-    if (!changed) {
-        if (!was_paused_) (void)dbg_->run(cid_);
-        return paused_now() ? CloseResult::StayedPaused : CloseResult::Resumed;
-    }
-    // Synchronous, and on the paused machine: it is replaced before any frame runs on it over the changed
-    // card. (If the cold boot itself fails the machine was rebuilt all the same, and the deferred request
-    // below boots it once more; harmless.)
-    if (dbg_->reset(cid_, jnext::dbg::ResetKind::Hard) != jnext::dbg::Result::Ok) {
-        emu.request_hard_reset();
-        return CloseResult::ResetDeferred;
-    }
-    if (!was_paused_) (void)dbg_->run(cid_);
-    return paused_now() ? CloseResult::ResetStayedPaused : CloseResult::ResetAndResumed;
 }
 
 // ===========================================================================
@@ -525,6 +447,17 @@ ItemOutcome host_to_card(Ctx& c, const TransferItem& it, const std::string& labe
             case OverwriteAnswer::Cancel: return ItemOutcome::Cancelled;
             default: overwrite = true; break;
         }
+        // The question is a modal box and the guest runs while it is open: verify the entry the user agreed to
+        // replace is still the one listed, before the engine replaces whatever now carries that name.
+        std::vector<ops::CardEntry> again;
+        const ops::CardEntry* now = nullptr;
+        if (ops::list_dir(c.r.image, c.card_dest_dir, again, err) == FileAddStatus::Ok)
+            for (const ops::CardEntry& e : again)
+                if (folded(e.name) == want) now = &e;
+        if (!now || entry_stamp(*now) != entry_stamp(*same)) {
+            fail(c, label, "'" + dest + "' " + kChangedSinceListed + "; it is not replaced");
+            return ItemOutcome::Failed;
+        }
     }
     if (!gate(c.h, c.rep)) return ItemOutcome::Cancelled;
     const FileAddStatus st = sdcard::add_to_image(c.r.image, it.source, dest, overwrite, err, nullptr, true);
@@ -551,6 +484,10 @@ ItemOutcome card_to_host(Ctx& c, const TransferItem& it, const std::string& labe
         fail(c, label, err);
         return ItemOutcome::Failed;
     }
+    if (!it.stamp.empty() && entry_stamp(entry) != it.stamp) {
+        fail(c, label, "'" + ops::display_name(entry) + "' " + kChangedSinceListed + "; it is not copied");
+        return ItemOutcome::Failed;
+    }
     std::error_code ec;
     if (!fs::is_directory(fs::path(c.r.dest_dir), ec)) {
         fail(c, label, "'" + c.r.dest_dir + "' is not a folder");
@@ -574,6 +511,15 @@ ItemOutcome card_to_host(Ctx& c, const TransferItem& it, const std::string& labe
             case OverwriteAnswer::Skip: return ItemOutcome::Skipped;
             case OverwriteAnswer::Cancel: return ItemOutcome::Cancelled;
             default: break;
+        }
+        // The question lets the guest run: the card entry must still be the one listed, before anything is
+        // trashed or extracted.
+        ops::CardEntry again;
+        std::string aerr, acanon;
+        if (find_card_entry(c.r.image, it.source, again, acanon, aerr) != FileAddStatus::Ok ||
+            (!it.stamp.empty() && entry_stamp(again) != it.stamp)) {
+            fail(c, label, "'" + ops::display_name(entry) + "' " + kChangedSinceListed + "; it is not copied");
+            return ItemOutcome::Failed;
         }
         std::string terr;
         if (!c.h.trash_host || !c.h.trash_host(target.string(), terr)) {
@@ -662,7 +608,7 @@ TransferReport run_transfer(const TransferRequest& r, TransferHooks& h) {
 
 TransferReport delete_items(Side side, const std::string& image, const std::vector<std::string>& paths,
                             const std::vector<std::string>& held_files, TransferHooks& h,
-                            const std::string& card_read_only_reason) {
+                            const std::string& card_read_only_reason, const std::vector<std::string>& stamps) {
     std::vector<std::string> held = held_files;
     held.push_back(image);
     if (paths.empty()) return {};
@@ -686,6 +632,8 @@ TransferReport delete_items(Side side, const std::string& image, const std::vect
                     err = "the card root cannot be deleted";
                 } else if (walk_card(image, paths[i], &e, &canon, err) != FileAddStatus::Ok) {
                     // not an entry a listing gives (or not addressable): err says why
+                } else if (i < stamps.size() && !stamps[i].empty() && entry_stamp(e) != stamps[i]) {
+                    err = "'" + ops::display_name(e) + "' " + kChangedSinceListed + "; it is not deleted";
                 } else if (!gate(h, rep)) {
                     stop_at(rep, paths, skip_flags, i);
                     return rep;
@@ -716,6 +664,28 @@ TransferReport delete_items(Side side, const std::string& image, const std::vect
         }
         rep.done.push_back(paths[i]);
     }
+    return rep;
+}
+
+TransferReport rename_card_item(const std::string& image, const std::string& path, const std::string& stamp,
+                                const std::string& new_name, TransferHooks& h, const std::string& card_read_only_reason) {
+    TransferReport rep;
+    auto failed = [&](const std::string& why) {
+        rep.failed = path;
+        rep.error = why;
+        return rep;
+    };
+    std::string why;
+    if (!card_writable_now(image, card_read_only_reason, why)) return failed(why);
+    ops::CardEntry e;
+    std::string canon, err;
+    if (components(path).empty()) return failed("the card root cannot be renamed");
+    if (walk_card(image, path, &e, &canon, err) != FileAddStatus::Ok) return failed(err);
+    if (!stamp.empty() && entry_stamp(e) != stamp)
+        return failed("'" + ops::display_name(e) + "' " + kChangedSinceListed + "; it is not renamed");
+    if (!gate(h, rep)) return rep;
+    if (ops::rename(image, canon, new_name, err) != FileAddStatus::Ok) return failed(err);
+    rep.done.push_back(path);
     return rep;
 }
 

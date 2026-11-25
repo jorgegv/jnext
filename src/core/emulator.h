@@ -293,6 +293,17 @@ public:
     /// The read-overlay rule is card 0's: card 2 has no overlay.
     std::string sd_card_change_refusal(int slot = 0) const;
 
+    /// A card image changed under a mounted card from OUTSIDE jnext (GH #558, SdCardDevice::outside_change): the
+    /// kinds not yet reported for the mounts now in place, with the slot and image. Logged at error level; never
+    /// acts on the card. Called about once a second by the frontends.
+    struct CardFileEvent {
+        int slot = 0;
+        SdCardDevice::OutsideChange kind = SdCardDevice::OutsideChange::None;
+        std::string image;
+        bool writes_file = false;   // the slot has an SD-writes file bound (the message differs)
+    };
+    std::vector<CardFileEvent> check_card_files();
+
     /// Why `change` would put one image in both slots ("" = it would not): an
     /// insert of the file the OTHER slot has mounted. Two devices writing one
     /// FAT is the phantom-card hazard again, whichever route (File > Insert,

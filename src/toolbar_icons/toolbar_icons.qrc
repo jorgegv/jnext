@@ -12,5 +12,6 @@
     <file alias="sd-manager.svg">../gui/icons/sd-manager.svg</file>
     <file alias="screenshot.svg">../gui/icons/screenshot.svg</file>
     <file alias="soft-reset.svg">../gui/icons/soft-reset.svg</file>
+    <file alias="up-dir.svg">../gui/icons/up-dir.svg</file>
 </qresource>
 </RCC>

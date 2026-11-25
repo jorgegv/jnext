@@ -1,18 +1,19 @@
 // The SD card file manager's logic (GH #558 S2): src/platform/sdcard_manager.*, no toolkit.
 //
 // ORACLES. Nothing is derived by reading the implementation back.
-//   - The owner's requirements (issue #558 and its decision comments): opening pauses the machine; a browse-only
-//     visit resumes it and leaves a machine that was already paused paused; ANY card change ends in a hard
-//     reset with no frame run on the old machine, and the warning before the first change must be accepted;
+//   - The owner's requirements (issue #558 and its decision comments, amended 2026-11-25): the manager does not touch
+//     the machine (no pause, no reset, no question before a change): the guest sees a change when it next reads the
+//     folder, and the manager sees the guest's writes (SDCOH-01..04); a card item that changed since it was listed is
+//     not acted on (SDMT-37);
 //     a card jnext cannot write, a write-protected card and a state that forbids a card change are shown
 //     read-only; copies are all-or-nothing per item and stop at the first failure; the host side goes to the
 //     trash, the card side is permanent; an existing destination asks, and a rename or folder never overwrites;
 //     the remembered view reflects the emulator, which wins (owner amendment 2026-11-24): a remembered card that
 //     is not mounted gives the mounted one, another card or a vanished directory gives the ROOT.
-//   - The debugger backend's contract (debug/debugger.h, CTL-01/02/12 and SES-01): the pause and who owns it
-//     (Debugger::state().pause_reason.by), `reset(Hard)` is synchronous and keeps the pause, an observer
-//     client arms nothing. Read from the backend's own state and from a LoopDriver that counts the boots and
-//     records the pause in force when each one runs.
+//   - The guest's view: the SPI port pair driven the way the guest drives it (OUT 0xE7 / OUT 0xEB / IN 0xEB, the SD
+//     Physical Layer commands CMD0/8/55/41/58 init, CMD17 read, CMD24 write), and the FAT32 on-disk layout (fatgen103
+//     section 3.1 BPB fields, section 6 directory entries, section 7 LFN entries) read RAW from what the SPI returns.
+//     The machine's pause state and boots are read from the debugger backend and a LoopDriver that counts boots.
 //   - The card's contents are read back with FatFs and with extract_from_image (an independent reader), and the
 //     image is compared by digest where "nothing was written" is the claim. Fixtures are built at run time with
 //     FatFs f_mkfs plus byte pokes; never a NextZXOS image, in any form.
@@ -306,7 +307,7 @@ sm::TransferRequest host_req(const std::string& img, const std::string& dest, co
     r.image = img;
     r.dest_dir = dest;
     r.move = move;
-    for (const auto& p : items) r.items.push_back({p.string(), p.filename().string(), false});
+    for (const auto& p : items) r.items.push_back({p.string(), p.filename().string(), false, std::string()});
     return r;
 }
 
@@ -317,7 +318,7 @@ sm::TransferRequest card_req(const std::string& img, const std::string& dest, co
     r.image = img;
     r.dest_dir = dest;
     r.move = move;
-    for (const auto& p : items) r.items.push_back({p, p, false});
+    for (const auto& p : items) r.items.push_back({p, p, false, std::string()});
     return r;
 }
 
@@ -331,10 +332,13 @@ struct Rig {
     int boots = 0;
     bool boot_saw_paused = false;
     uint32_t boot_saw_frame = 0;
-    sm::SdManagerSession ss;   // declared after dbg: destroyed (and detached) before it
 
-    explicit Rig(bool with_driver = true) {
-        cfg.type = MachineType::ZX48K;
+    explicit Rig(bool with_driver = true, MachineType type = MachineType::ZX48K, const std::string& sd = {},
+                 const std::string& sd2 = {}) {
+        cfg.type = type;
+        cfg.sd_card_image = sd;
+        cfg.sd_card2_image = sd2;
+        cfg.rewind_buffer_frames = 0;
         emu.init(cfg);
         dbg = std::make_unique<Debugger>(emu);
         if (with_driver) {
@@ -377,176 +381,6 @@ int main() {
     write_host_file(host / "B.BIN", kNewB);
     write_host_file(host / "tree" / "t1.bin", kA);
     write_host_file(host / "tree" / "sub" / "x.bin", kX);
-
-    // ======================= the session (SDMS) =======================
-
-    // SDMS-01
-    {
-        Rig r;
-        r.emu.run_frame();
-        std::string why;
-        const bool was_running = !r.paused();
-        const bool ok = r.ss.open(*r.dbg, why);
-        check("SDMS-01", "open on a running machine pauses it, and the pause is the session's own client's",
-              was_running && ok && r.paused() && r.pause_owner() == r.ss.client() &&
-                  r.ss.client() != jnext::dbg::CLIENT_NONE && r.dbg->state().pause_reason.kind == PauseReason::Kind::User,
-              why);
-        r.ss.close(r.emu);
-    }
-    // SDMS-02
-    {
-        Rig r;
-        r.emu.run_frame();
-        std::string why;
-        r.ss.open(*r.dbg, why);
-        const auto res = r.ss.close(r.emu);
-        check("SDMS-02", "close with no change resumes the machine, with zero cold boots and no reset request",
-              res == sm::SdManagerSession::CloseResult::Resumed && !r.paused() && r.boots == 0 &&
-                  !r.emu.take_hard_reset_request());
-    }
-    // SDMS-03
-    {
-        Rig r;
-        const ClientId a = r.dbg->attach(ClientInfo{"A", ClientKind::Test}).value;
-        r.dbg->pause(a);
-        std::string why;
-        const bool ok = r.ss.open(*r.dbg, why);
-        const bool still_a = r.paused() && r.pause_owner() == a;
-        const auto res = r.ss.close(r.emu);
-        check("SDMS-03", "open when another client already paused: still paused and still owned by it; a no-change close leaves it so",
-              ok && still_a && res == sm::SdManagerSession::CloseResult::StayedPaused && r.paused() &&
-                  r.pause_owner() == a && r.boots == 0);
-    }
-    // SDMS-04
-    {
-        Rig r;
-        r.emu.run_frame();
-        std::string why;
-        r.ss.open(*r.dbg, why);
-        const bool gate = r.ss.before_card_write([] { return true; });
-        const uint32_t frame_at_change = r.dbg->state().frame;
-        const auto res = r.ss.close(r.emu);
-        check("SDMS-04", "close after a change: exactly one cold boot, run while the machine was still paused and at the frame of the change, then running",
-              gate && r.ss.changed() == false && res == sm::SdManagerSession::CloseResult::ResetAndResumed && r.boots == 1 &&
-                  r.boot_saw_paused && r.boot_saw_frame == frame_at_change && !r.paused() && !r.emu.take_hard_reset_request(),
-              "boots=" + std::to_string(r.boots));
-    }
-    // SDMS-05
-    {
-        Rig r;
-        const ClientId a = r.dbg->attach(ClientInfo{"A", ClientKind::Test}).value;
-        r.dbg->pause(a);
-        std::string why;
-        r.ss.open(*r.dbg, why);
-        r.ss.before_card_write([] { return true; });
-        const auto res = r.ss.close(r.emu);
-        check("SDMS-05", "a change on an already-paused machine: one cold boot, and the machine is paused afterwards (CTL-12 rule 3)",
-              res == sm::SdManagerSession::CloseResult::ResetStayedPaused && r.boots == 1 && r.boot_saw_paused && r.paused());
-    }
-    // SDMS-06
-    {
-        Rig r;
-        std::string why;
-        r.ss.open(*r.dbg, why);
-        int asks = 0;
-        const bool d1 = r.ss.confirm_first_change([&] { ++asks; return false; });
-        const bool d2 = r.ss.confirm_first_change([&] { ++asks; return false; });
-        const bool ok1 = r.ss.confirm_first_change([&] { ++asks; return true; });
-        const bool ok2 = r.ss.confirm_first_change([&] { ++asks; return true; });
-        const bool noask = asks == 3;
-        r.ss.close(r.emu);
-        r.ss.open(*r.dbg, why);
-        const bool again = r.ss.confirm_first_change([&] { ++asks; return true; });
-        check("SDMS-06", "confirm_first_change: declined allows nothing and asks again; accepted asks no more this cycle; a re-open asks again",
-              !d1 && !d2 && ok1 && ok2 && noask && again && asks == 4, "asks=" + std::to_string(asks));
-        r.ss.close(r.emu);
-    }
-    // SDMS-07
-    {
-        Rig r(false);
-        std::string why;
-        r.ss.open(*r.dbg, why);
-        r.ss.before_card_write([] { return true; });
-        const auto res = r.ss.close(r.emu);
-        check("SDMS-07", "a refused reset (no LoopDriver): ResetDeferred, a deferred hard reset requested, the machine left paused",
-              res == sm::SdManagerSession::CloseResult::ResetDeferred && r.emu.take_hard_reset_request() && r.paused() &&
-                  r.boots == 0);
-    }
-    // SDMS-08
-    {
-        Rig r;
-        std::string why;
-        r.ss.open(*r.dbg, why);
-        const ClientId b = r.dbg->attach(ClientInfo{"B", ClientKind::Test}).value;
-        r.dbg->run(b);
-        const bool ran = !r.paused();
-        const bool re = r.ss.ensure_paused();
-        // and the per-write gate does it too, before the write is noted
-        r.dbg->run(b);
-        const bool ran2 = !r.paused();
-        const bool gated = r.ss.before_card_write([] { return true; });
-        check("SDMS-08", "ensure_paused pauses again after another client's run(), and so does the per-write gate (before_card_write) before it notes the write",
-              ran && re && r.paused() && r.pause_owner() == r.ss.client() && ran2 && gated && r.paused() && r.ss.changed());
-        r.ss.close(r.emu);
-    }
-    // SDMS-09
-    {
-        Rig r;
-        const bool a0 = r.dbg->armed(), t0 = r.dbg->attached();
-        std::string why;
-        r.ss.open(*r.dbg, why);
-        const bool a1 = r.dbg->armed(), t1 = r.dbg->attached();
-        r.ss.close(r.emu);
-        check("SDMS-09", "the session's client is an observer: armed() and attached() are the same before, during and after",
-              a0 == a1 && t0 == t1 && r.dbg->armed() == a0 && r.dbg->attached() == t0 && !t1);
-    }
-    // SDMS-10
-    {
-        Rig r;
-        std::string why;
-        const bool before_open = r.ss.confirm_first_change([] { return true; }) || r.ss.ensure_paused();
-        const auto closed_unopened = r.ss.close(r.emu);
-        r.ss.open(*r.dbg, why);
-        const bool second_open = r.ss.open(*r.dbg, why);
-        const bool declined = r.ss.before_card_write([] { return false; });
-        const bool not_changed = !r.ss.changed();
-        const bool accepted = r.ss.before_card_write([] { return true; });
-        const auto res = r.ss.close(r.emu);
-        check("SDMS-10", "outside an open session nothing is allowed and close is a no-op; open twice is refused; a declined write is not noted as a change",
-              !before_open && closed_unopened == sm::SdManagerSession::CloseResult::NotOpen && !second_open && !declined &&
-                  not_changed && accepted && res == sm::SdManagerSession::CloseResult::ResetAndResumed);
-    }
-
-    // SDMS-11
-    {
-        // paused by A, a change, B resumes the machine, close: the reset runs on a machine paused again, and the result is true
-        Rig r;
-        const ClientId a = r.dbg->attach(ClientInfo{"A", ClientKind::Test}).value;
-        r.dbg->pause(a);
-        std::string why;
-        r.ss.open(*r.dbg, why);
-        r.ss.before_card_write([] { return true; });
-        const ClientId b = r.dbg->attach(ClientInfo{"B", ClientKind::Test}).value;
-        r.dbg->run(b);
-        const bool ran = !r.paused();
-        const auto res = r.ss.close(r.emu);
-        check("SDMS-11", "a remote resume before close: the session pauses again before the hard reset (it runs on a paused machine), and the result is the machine's real state",
-              ran && r.boots == 1 && r.boot_saw_paused && res == sm::SdManagerSession::CloseResult::ResetStayedPaused && r.paused());
-    }
-    // SDMS-12
-    {
-        // paused by A, A detaches mid-session (an observer holds no pause): a no-change close reports what the machine does
-        Rig r;
-        const ClientId a = r.dbg->attach(ClientInfo{"A", ClientKind::Test}).value;
-        r.dbg->pause(a);
-        std::string why;
-        r.ss.open(*r.dbg, why);
-        r.dbg->detach(a);
-        const bool lost = !r.paused();
-        const auto res = r.ss.close(r.emu);
-        check("SDMS-12", "the pause of the client that detaches is lost: a no-change close reports Resumed exactly when the machine runs, StayedPaused exactly when it is paused",
-              lost && res == sm::SdManagerSession::CloseResult::Resumed && !r.paused());
-    }
 
     // ======================= slots =======================
 
@@ -1669,6 +1503,317 @@ int main() {
         const int plain_slot = sm::resolve_remembered(r, s, "", "").slot;
         check("SDMR-05", "a relative host directory that exists relative to the working directory (\".\", \"..\") still gives the fallback; a remembered card image holding a NUL is not matched against the slots (the first mounted slot is shown), the plain one is",
               rel_ok && nul_slot == 0 && plain_slot == 1, std::to_string(nul_slot) + std::to_string(plain_slot));
+    }
+
+    // ======================= the machine sees what the manager does, and the manager what the machine does =======================
+    //
+    // The guest's side: the SPI port pair, driven as the firmware drives it, against a REAL Emulator that keeps running
+    // (never paused) while the manager changes the card between frames. The FAT32 layout is read RAW from what CMD17
+    // returns (fatgen103: BPB reserved sectors @14, FAT count @16, sectors per cluster @13, FAT size @36, root cluster
+    // @44; a directory entry is 32 bytes, name @0, attributes @11, cluster high @20, low @26, size @28; an LFN entry
+    // holds UTF-16 characters at 1..10, 14..25, 28..31).
+    struct GuestSd {
+        Emulator& e;
+        void sel(uint8_t v) { e.port().out(0x00E7, v); }
+        void tx(uint8_t b) { e.port().out(0x00EB, b); }
+        uint8_t rx() { return e.port().in(0x00EB); }
+        uint8_t cmd(uint8_t c, uint32_t arg) {
+            tx(static_cast<uint8_t>(0x40 | c));
+            tx(static_cast<uint8_t>(arg >> 24)); tx(static_cast<uint8_t>(arg >> 16));
+            tx(static_cast<uint8_t>(arg >> 8));  tx(static_cast<uint8_t>(arg));
+            tx(0x95);
+            for (int i = 0; i < 20; ++i) {
+                const uint8_t r1 = rx();
+                if (r1 != 0xFF) return r1;
+            }
+            return 0xFF;
+        }
+        void init() { cmd(0, 0); cmd(8, 0x1AA); cmd(55, 0); cmd(41, 0x40000000); cmd(58, 0); }
+        // `selv` 0xFE = card 0, 0xFD = card 1 (zxnext.vhd:3311-3314). Every call is a whole guest transaction.
+        bool read(uint8_t selv, uint32_t sector, Bytes& out) {
+            sel(selv);
+            init();
+            bool ok = false;
+            if (cmd(17, sector) == 0x00) {
+                for (int i = 0; i < 64 && !ok; ++i) ok = rx() == 0xFE;
+                if (ok) {
+                    out.resize(512);
+                    for (int i = 0; i < 512; ++i) out[static_cast<size_t>(i)] = rx();
+                    rx(); rx();
+                }
+            }
+            sel(0xFF);
+            return ok;
+        }
+        bool write(uint8_t selv, uint32_t sector, const Bytes& data) {
+            sel(selv);
+            init();
+            bool ok = false;
+            if (cmd(24, sector) == 0x00) {
+                tx(0xFE);
+                for (int i = 0; i < 512; ++i) tx(data[static_cast<size_t>(i)]);
+                tx(0xFF); tx(0xFF);
+                for (int i = 0; i < 32; ++i) {
+                    const uint8_t b = rx();
+                    if (b != 0xFF) { ok = (b & 0x1F) == 0x05; break; }
+                }
+            }
+            sel(0xFF);
+            return ok;
+        }
+    };
+    struct Geo { uint32_t root = 0, data = 0, spc = 0; };
+    auto geometry = [&](GuestSd& g, uint8_t selv, Geo& geo) {
+        Bytes bpb;
+        if (!g.read(selv, kLba, bpb)) return false;
+        auto u16 = [&](size_t o) { return static_cast<uint32_t>(bpb[o] | (bpb[o + 1] << 8)); };
+        auto u32 = [&](size_t o) { return u16(o) | (u16(o + 2) << 16); };
+        geo.spc = bpb[13];
+        geo.data = kLba + u16(14) + bpb[16] * u32(36);
+        geo.root = geo.data + (u32(44) - 2) * geo.spc;
+        return geo.spc != 0;
+    };
+    auto contains = [](const Bytes& hay, const Bytes& needle) {
+        return std::search(hay.begin(), hay.end(), needle.begin(), needle.end()) != hay.end();
+    };
+    auto sfn_at = [](const Bytes& dir, const char* sfn11) -> int {   // offset of the 32-byte entry whose name is sfn11, or -1
+        for (size_t o = 0; o + 32 <= dir.size(); o += 32)
+            if (std::memcmp(dir.data() + o, sfn11, 11) == 0 && dir[o + 11] != 0x0F) return static_cast<int>(o);
+        return -1;
+    };
+    const Bytes kLong = payload(700, 77);
+    const fs::path longhost = host / "Long Name.txt";
+    write_host_file(longhost, kLong);
+    const Bytes lfn_prefix = {'L', 0, 'o', 0, 'n', 0, 'g', 0, ' ', 0};   // the first five characters of the long name, UTF-16LE
+
+    // One run of the coherence scenario: `slot` (0 or 1) is the card the manager changes and the guest reads; `writes`
+    // binds a writes file to its image. Returns what the rows assert.
+    struct Coh {
+        bool before_clean = false, after_has_entry = false, data_ok = false, never_paused = false, no_boot = false,
+             no_reset = false, image_same = false, journal_has_changed = false, ok_run = false;
+        std::string detail;
+    };
+    auto coherence = [&](int slot, bool writes) {
+        Coh c;
+        Img a(G), b(G);
+        const std::string target = slot == 0 ? a.p : b.p;
+        std::string jf;
+        if (writes) {
+            jf = (fresh_dir("cohj") / "w.sdw").string();
+            sd_write_journal::Binding bd;
+            bd.bytes = fs::file_size(target);
+            bd.sha256.fill(0x3C);
+            std::string why;
+            if (!sd_write_journal::bind(target, jf, bd, false, why)) { c.detail = "bind: " + why; return c; }
+        }
+        const std::string sha_before = sha_file(target);
+        Rig r(true, MachineType::ZXN_ISSUE2, a.p, b.p);
+        GuestSd g{r.emu};
+        const uint8_t selv = slot == 0 ? 0xFE : 0xFD;
+        for (int i = 0; i < 3; ++i) r.emu.run_frame();
+        Geo geo;
+        Bytes before, after, data;
+        if (!geometry(g, selv, geo) || !g.read(selv, geo.root, before)) { c.detail = "guest read failed"; return c; }
+        c.before_clean = sfn_at(before, "LONGNA~1TXT") < 0 && !contains(before, lfn_prefix);
+        bool paused_ever = r.paused();
+        Hk hk;
+        sm::TransferHooks h = hk.hooks();
+        const sm::TransferReport rep = sm::run_transfer(host_req(target, "/", {longhost}), h);   // between two frames
+        paused_ever = paused_ever || r.paused();
+        // the very next thing the guest reads is the same sector (no frame, no other read between the two reads of it: a
+        // one-block read cache in the device would answer the old bytes), and again after more frames
+        Bytes right_after;
+        const bool immediate = g.read(selv, geo.root, right_after) && sfn_at(right_after, "LONGNA~1TXT") >= 0;
+        for (int i = 0; i < 3; ++i) r.emu.run_frame();
+        paused_ever = paused_ever || r.paused();
+        if (!g.read(selv, geo.root, after)) { c.detail = "guest re-read failed"; return c; }
+        const int off = sfn_at(after, "LONGNA~1TXT");
+        c.after_has_entry = immediate && off >= 0 && after[static_cast<size_t>(off) + 11] == 0x20 && contains(after, lfn_prefix);
+        if (off >= 0) {
+            auto u16 = [&](size_t o) { return static_cast<uint32_t>(after[o] | (after[o + 1] << 8)); };
+            const uint32_t cluster = (u16(static_cast<size_t>(off) + 20) << 16) | u16(static_cast<size_t>(off) + 26);
+            const uint32_t size = u16(static_cast<size_t>(off) + 28) | (u16(static_cast<size_t>(off) + 30) << 16);
+            c.data_ok = cluster >= 2 && size == kLong.size() && g.read(selv, geo.data + (cluster - 2) * geo.spc, data) &&
+                        std::equal(data.begin(), data.begin() + 512, kLong.begin());
+        }
+        c.never_paused = !paused_ever;
+        c.no_boot = r.boots == 0;
+        c.no_reset = !r.emu.take_hard_reset_request();
+        c.image_same = !writes || sha_file(target) == sha_before;
+        if (writes) {
+            // the sectors a plain copy changes are all in the writes file
+            Img plain(G);
+            std::string perr;
+            sdcard::add_to_image(plain.p, longhost.string(), "/Long Name.txt", false, perr, nullptr, true);
+            std::ifstream f0(G, std::ios::binary), f1(plain.p, std::ios::binary);
+            const auto info = sd_write_journal::peek_file(jf);
+            std::vector<char> x(512), y(512);
+            bool all = info.is_journal && !info.sectors.empty();
+            for (uint32_t sct = 0; f0.read(x.data(), 512) && f1.read(y.data(), 512); ++sct)
+                if (x != y) all = all && std::find(info.sectors.begin(), info.sectors.end(), sct) != info.sectors.end();
+            c.journal_has_changed = all;
+        } else {
+            c.journal_has_changed = true;
+        }
+        c.ok_run = rep.failed.empty() && rep.error.empty() && rep.done.size() == 1;
+        c.detail = rep_str(rep);
+        return c;
+    };
+    // SDCOH-01
+    {
+        const Coh c = coherence(0, false);
+        check("SDCOH-01", "plain card, slot 0: the machine keeps running while the manager copies 'Long Name.txt' onto the card between frames, and the guest's SPI reads (CMD17) of the root directory, before and after, show the new LFN entry, the 8.3 alias LONGNA~1TXT with the archive attribute, and the file's bytes; zero cold boots, never paused, no reset requested",
+              c.ok_run && c.before_clean && c.after_has_entry && c.data_ok && c.never_paused && c.no_boot && c.no_reset, c.detail);
+    }
+    // SDCOH-02
+    {
+        const Coh c = coherence(0, true);
+        check("SDCOH-02", "the same with a writes file bound: the guest sees the entry and the data, the image's bytes are unchanged, and every sector a plain copy changes is in the writes file",
+              c.ok_run && c.before_clean && c.after_has_entry && c.data_ok && c.never_paused && c.no_boot && c.no_reset && c.image_same &&
+                  c.journal_has_changed,
+              c.detail);
+    }
+    // SDCOH-03
+    {
+        const Coh c = coherence(1, false);
+        check("SDCOH-03", "the same on the SECOND card, through its own chip select (OUT 0xE7 selects card 1)",
+              c.ok_run && c.before_clean && c.after_has_entry && c.data_ok && c.never_paused && c.no_boot && c.no_reset, c.detail);
+    }
+    // SDCOH-04
+    {
+        // the guest writes the sectors a plain copy of one.bin changes (the bytes come from making that copy with the
+        // engine on a scratch card); the manager's listing then shows the file, in plain and in writes-file mode
+        Img scratch(G);
+        std::string perr;
+        sdcard::add_to_image(scratch.p, (host / "one.bin").string(), "/GUEST.BIN", false, perr, nullptr, true);
+        std::vector<std::pair<uint32_t, Bytes>> changed;
+        {
+            std::ifstream f0(G, std::ios::binary), f1(scratch.p, std::ios::binary);
+            std::vector<char> x(512), y(512);
+            for (uint32_t sct = 0; f0.read(x.data(), 512) && f1.read(y.data(), 512); ++sct)
+                if (x != y) changed.push_back({sct, Bytes(y.begin(), y.end())});
+        }
+        auto arm = [&](bool writes, std::string& detail) {
+            Img c(G);
+            std::string jf;
+            if (writes) {
+                jf = (fresh_dir("cohg") / "w.sdw").string();
+                sd_write_journal::Binding bd;
+                bd.bytes = fs::file_size(c.p);
+                bd.sha256.fill(0x4D);
+                std::string why;
+                if (!sd_write_journal::bind(c.p, jf, bd, false, why)) { detail = why; return false; }
+            }
+            Rig r(true, MachineType::ZXN_ISSUE2, c.p);
+            GuestSd g{r.emu};
+            for (int i = 0; i < 2; ++i) r.emu.run_frame();
+            bool wrote = !changed.empty();
+            for (const auto& ch : changed) wrote = wrote && g.write(0xFE, ch.first, ch.second);
+            const bool listed = [&] {
+                for (const auto& e : ls(c.p, "/")) if (e.name == "GUEST.BIN" && !e.dir && e.size == kOne.size()) return true;
+                return false;
+            }();
+            const Tree got = extracted(c.p, "/GUEST.BIN");
+            return wrote && listed && got == Tree{{"GUEST.BIN", kOne}} && (!writes || sha_file(c.p) == sha_g);
+        };
+        std::string d1, d2;
+        const bool plain = arm(false, d1), journal = arm(true, d2);
+        check("SDCOH-04", "the reverse direction: the guest writes a directory sector, a FAT sector and a data sector by SPI CMD24, and the manager's listing and extract then show the new file, on a plain card and with a writes file (image unchanged)",
+              plain && journal && !changed.empty(), d1 + "|" + d2 + " sectors=" + std::to_string(changed.size()));
+    }
+    // SDMT-37
+    {
+        Img c(G);
+        auto stamp_of = [&](const std::string& dir, const std::string& name) {
+            for (const auto& e : ls(c.p, dir)) if (e.name == name) return sm::entry_stamp(e);
+            return std::string();
+        };
+        const std::string st_a = stamp_of("/MYDIR", "A.BIN"), st_b = stamp_of("/MYDIR", "B.BIN");
+        // between the listing and the action the guest renames A.BIN and creates another A.BIN of another size
+        std::string err;
+        const bool renamed = ops::rename(c.p, "/MYDIR/A.BIN", "OLD.BIN", err) == St::Ok;
+        const bool recreated = sdcard::add_to_image(c.p, (host / "two.bin").string(), "/MYDIR/A.BIN", false, err, nullptr, true) == St::Ok;
+        const std::string sha_stale = sha_file(c.p);
+        Hk hk;
+        sm::TransferHooks h = hk.hooks();
+        const fs::path out = fresh_dir("stale");
+        sm::TransferRequest cp = card_req(c.p, out.string(), {"/MYDIR/A.BIN"});
+        cp.items[0].stamp = st_a;
+        const sm::TransferReport rc = sm::run_transfer(cp, h);
+        sm::TransferRequest mv = card_req(c.p, out.string(), {"/MYDIR/A.BIN"}, true);
+        mv.items[0].stamp = st_a;
+        const sm::TransferReport rm = sm::run_transfer(mv, h);
+        const sm::TransferReport rd = sm::delete_items(sm::Side::Card, c.p, {"/MYDIR/A.BIN"}, {}, h, {}, {st_a});
+        const sm::TransferReport rr = sm::rename_card_item(c.p, "/MYDIR/A.BIN", st_a, "NEW.BIN", h);
+        auto stale_msg = [](const sm::TransferReport& r) {
+            return r.error.find("changed on the card since it was listed") != std::string::npos && !r.failed.empty() && r.done.empty();
+        };
+        const bool nothing = sha_file(c.p) == sha_stale && tree_of(out).empty() && on_card(c.p, "/MYDIR/A.BIN") && on_card(c.p, "/MYDIR/OLD.BIN");
+        // an unchanged entry proceeds with the same stamp
+        sm::TransferRequest ok = card_req(c.p, out.string(), {"/MYDIR/B.BIN"});
+        ok.items[0].stamp = st_b;
+        const sm::TransferReport rok = sm::run_transfer(ok, h);
+        check("SDMT-37", "a card item that is not the entry listed (renamed away and re-created under its name with another size) fails copy, move, delete and rename with 'changed on the card since it was listed' and writes nothing; an unchanged item with its listed stamp proceeds",
+              renamed && recreated && !st_a.empty() && stale_msg(rc) && stale_msg(rm) && stale_msg(rd) && stale_msg(rr) && nothing &&
+                  rok.done.size() == 1 && rok.error.empty() && tree_of(out) == Tree{{"B.BIN", kB}},
+              rep_str(rc) + " | " + rep_str(rm) + " | " + rep_str(rd) + " | " + rep_str(rr));
+    }
+    // SDMT-38
+    {
+        // the overwrite question is a modal box and the guest runs while it is open: the item is verified again after it
+        auto stale_msg = [](const sm::TransferReport& r) {
+            return r.error.find("changed on the card since it was listed") != std::string::npos && !r.failed.empty() && r.done.empty();
+        };
+        // the guest renames /MYDIR/A.BIN away and creates another A.BIN (another size) under its name
+        auto change = [&](const std::string& img) {
+            std::string e;
+            ops::rename(img, "/MYDIR/A.BIN", "OLD.BIN", e);
+            sdcard::add_to_image(img, (host / "two.bin").string(), "/MYDIR/A.BIN", false, e, nullptr, true);
+        };
+        std::string diag;
+        // card to host: the host already holds an A.BIN, so the question is asked
+        auto c2h = [&](bool move, bool changed) {
+            Img c(G);
+            std::string st;
+            for (const auto& e : ls(c.p, "/MYDIR")) if (e.name == "A.BIN") st = sm::entry_stamp(e);
+            const fs::path out = fresh_dir("q2h");
+            write_host_file(out / "A.BIN", kX);
+            Hk hk;
+            hk.answers = {sm::OverwriteAnswer::Replace};
+            sm::TransferHooks h = hk.hooks();
+            const auto inner = h.ask_overwrite;
+            h.ask_overwrite = [&](const std::string& d, bool dd) { if (changed) change(c.p); return inner(d, dd); };
+            sm::TransferRequest rq = card_req(c.p, out.string(), {"/MYDIR/A.BIN"}, move);
+            rq.items[0].stamp = st;
+            const sm::TransferReport r = sm::run_transfer(rq, h);
+            diag += "c2h:" + rep_str(r) + " | ";
+            if (changed)
+                return stale_msg(r) && hk.count("trash:") == 0 && tree_of(out) == Tree{{"A.BIN", kX}} &&
+                       extracted(c.p, "/MYDIR/A.BIN") == Tree{{"A.BIN", kTwo}} && on_card(c.p, "/MYDIR/OLD.BIN");
+            return r.done.size() == 1 && r.error.empty() && tree_of(out) == Tree{{"A.BIN", kA}} && move == !on_card(c.p, "/MYDIR/A.BIN");
+        };
+        // host to card: the card already holds /MYDIR/A.BIN, so the question is asked
+        auto h2c = [&](bool move, bool changed) {
+            Img c(G);
+            const fs::path src = fresh_dir("q2c") / "A.BIN";
+            write_host_file(src, kX);
+            Hk hk;
+            hk.answers = {sm::OverwriteAnswer::Replace};
+            sm::TransferHooks h = hk.hooks();
+            const auto inner = h.ask_overwrite;
+            h.ask_overwrite = [&](const std::string& d, bool dd) { if (changed) change(c.p); return inner(d, dd); };
+            const sm::TransferReport r = sm::run_transfer(host_req(c.p, "/MYDIR", {src}, move), h);
+            diag += "h2c:" + rep_str(r) + " | ";
+            if (changed)
+                return stale_msg(r) && fs::exists(src) && hk.count("trash:") == 0 &&
+                       extracted(c.p, "/MYDIR/A.BIN") == Tree{{"A.BIN", kTwo}} && on_card(c.p, "/MYDIR/OLD.BIN");
+            return r.done.size() == 1 && r.error.empty() && extracted(c.p, "/MYDIR/A.BIN") == Tree{{"A.BIN", kX}} && move == !fs::exists(src);
+        };
+        const bool ctl = c2h(false, false) && c2h(true, false) && h2c(false, false) && h2c(true, false);
+        const bool c2h_stale = c2h(false, true) && c2h(true, true);
+        const bool h2c_stale = h2c(false, true) && h2c(true, true);
+        check("SDMT-38", "a card entry that changes while the overwrite question is open (renamed away and re-created under its name) is refused after the answer with 'changed on the card since it was listed', copy and move, in both directions: nothing is trashed, extracted or replaced; with no change the same answer proceeds",
+              ctl && c2h_stale && h2c_stale, std::string(ctl ? "ctl=1 " : "ctl=0 ") + (c2h_stale ? "c2h=1 " : "c2h=0 ") + (h2c_stale ? "h2c=1 " : "h2c=0 ") + diag);
     }
 
     std::error_code ec;

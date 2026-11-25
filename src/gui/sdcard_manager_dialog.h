@@ -2,10 +2,12 @@
 
 #include <QDialog>
 #include <QMessageBox>
+#include <QSize>
 #include <QString>
 
 #include <array>
 #include <functional>
+#include <cstdint>
 #include <optional>
 
 #include "platform/sdcard_manager.h"
@@ -22,16 +24,23 @@ class QPushButton;
 class QTimer;
 class QToolButton;
 class SdCardModel;
+class SdHostModel;
 
 /// GH #558 - the SD card file manager window: two panes, the card in a slot on the left and a host folder on the
 /// right, with Copy, Rename, Delete and New Folder between and inside them, and drag and drop (Shift = move).
 ///
-/// A VIEW. Every decision is in src/platform/sdcard_manager.* (the pause and reset session, what a copy or a move
-/// does, what is held and must not be touched, what the window opens on), and every card operation is
-/// sdcard::cardops, add_to_image or extract_from_image. This class only draws, asks the questions and refreshes.
+/// A VIEW. Every decision is in src/platform/sdcard_manager.* (what a copy or a move does, what is held and must
+/// not be touched, what the window opens on), and every card operation is sdcard::cardops, add_to_image or
+/// extract_from_image. This class only draws, asks the questions and refreshes.
 /// What it adds to the contract:
-///   * the machine is paused and a card change ends in a hard reset by the SdManagerSession it is given (opened and
-///     closed by the owner, MainWindow; this window calls before_card_write(), which asks the first-change warning);
+///   * it does NOT touch the machine: no pause, no reset, no question before a change. The card has no copy in jnext
+///     (the device reads every block from the file or the writes file), so a change is on the card at once and the
+///     guest sees it when it next reads the folder. A permanent note says so;
+///   * the card pane FOLLOWS the card: its poll re-lists the folder when the guest wrote (the write generation), or
+///     another program changed the image (size, time); F5 and window activation re-list too; the selection and the
+///     scroll position stay;
+///   * while a card operation owns the card (an upgrade or a go back runs FatFs on a worker thread) the window is
+///     INERT: no card call at all, every card action disabled (set_card_busy());
 ///   * EVERY operation re-reads sdmanager::card_slots() and sdmanager::held_host_files() at the moment it runs: the card in
 ///     the slot may have changed under the window (a remote debugger), a recording may have started;
 ///   * the emulator wins: the card pane shows what the machine has mounted. When the card in the shown slot changes
@@ -43,9 +52,14 @@ class SdCardModel;
 class SdManagerDialog : public QDialog {
     Q_OBJECT
 public:
-    /// `host_fallback` is the Load directory (the host pane's second choice); `session` must be open for any card write.
-    SdManagerDialog(Emulator& emu, sdmanager::SdManagerSession& session, const sdmanager::Remembered& remembered,
-                    const QString& host_fallback, QWidget* parent = nullptr);
+    /// `host_fallback` is the Load directory (the host pane's second choice).
+    SdManagerDialog(Emulator& emu, const sdmanager::Remembered& remembered, const QString& host_fallback,
+                    QWidget* parent = nullptr);
+
+    /// "A card operation owns the card right now" (MainWindow: card_op_ != None). While it returns true the window
+    /// makes no card call and disables every card action. Absent = never busy.
+    void set_card_busy(std::function<bool()> busy) { card_busy_ = std::move(busy); }
+    bool card_busy() const { return card_busy_ && card_busy_(); }
     ~SdManagerDialog() override;
 
     /// What to remember: the shown card, its folder (stored form) and the host folder.
@@ -58,6 +72,9 @@ public:
 
     /// Reload both panes.
     void refresh();
+
+    /// The window's default size: the earlier 900x520 plus 20% in each direction.
+    static QSize default_size();
 
     /// Has the card in the shown slot changed under the window? If so, show the first mounted card's root. Called by a
     /// timer while the window is open, and by every operation before it acts. True when the view was reset.
@@ -91,13 +108,26 @@ public:
     bool deliver_event_for_test(Side side, class QEvent& ev);
     /// Stop the polling timer (the tests call check_card_change() themselves).
     void stop_polling_for_test();
+    /// How many times the card pane has listed its folder (its model's reloads): a poll that finds nothing changed
+    /// must not move it.
+    int card_reloads_for_test() const;
+    /// The one-line note that is always shown under the panes.
+    static QString permanent_note();
+
+protected:
+    void changeEvent(QEvent* e) override;   // re-lists the card pane when the window is activated
 
 private:
     bool ask_text(const QString& title, const QString& label, const QString& initial, QString& out);
     QMessageBox::StandardButton box(const QString& title, const QString& text, QMessageBox::StandardButtons buttons,
                                     QMessageBox::Icon icon = QMessageBox::Question);
     void show_report(const QString& what, const sdmanager::TransferReport& r);
-    bool card_gate();                         ///< before_card_write with the first-change warning
+    bool card_gate();                         ///< before_card_write: refuses while a card operation owns the card
+    void relist_card();                       ///< the shown folder again, keeping the selection and the scroll
+    bool image_changed() const;               ///< the shown image's size or time moved since the last listing
+    void note_card_state();                   ///< what the card changes are compared with at the next poll
+    void refresh_card_note();
+    QStringList selected_card_stamps(const QStringList& paths) const;
     sdmanager::TransferHooks hooks();
     /// The current state of the shown slot, re-read; false (and a box) when it cannot be used. `write`: the
     /// operation changes the card, so a read-only card refuses.
@@ -110,14 +140,19 @@ private:
     void navigate_card(const QString& dir);
     void navigate_host(const QString& dir);
     void update_actions();
-    void set_view_mode(QListView* v, bool icons);
+    void activate_card(const QModelIndex& i);   ///< a folder is entered, the up row goes to the parent
+    void activate_host(const QModelIndex& i);
     QStringList selected_card_paths() const;
     QStringList selected_host_paths() const;
     bool run_and_report(const sdmanager::TransferRequest& req);
     bool trash(const QString& path, QString& err);
 
     Emulator& emu_;
-    sdmanager::SdManagerSession& session_;
+    std::function<bool()> card_busy_;
+    bool was_busy_ = false;
+    bool ro_forced_ = false, ro_user_choice_ = false;   // the Read-only box forced on for a card that cannot be written, and what the user had
+    std::uint64_t seen_generation_ = 0;
+    std::uint64_t seen_image_stamp_ = 0;      ///< size and mtime of the shown image, folded
     QString host_fallback_;
     int slot_ = -1;
     QString card_dir_ = QStringLiteral("/");
@@ -132,7 +167,8 @@ private:
     QListView* card_view_ = nullptr;
     QListView* host_view_ = nullptr;
     SdCardModel* card_model_ = nullptr;
-    QFileSystemModel* host_model_ = nullptr;
+    QFileSystemModel* host_fs_ = nullptr;
+    SdHostModel* host_model_ = nullptr;
     QPushButton* to_host_button_ = nullptr;
     QPushButton* to_card_button_ = nullptr;
     QTimer* poll_ = nullptr;

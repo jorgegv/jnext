@@ -843,6 +843,7 @@ bool SdlApp::tick(uint32_t& sleep_ms) {
         }
         const uint64_t now_ms = SDL_GetTicks();
         if (now_ms - present_window_start_ms_ >= 1000) {
+            (void)emulator_.check_card_files();   // GH #558: logs an image changed from outside, once per kind
             Log::platform()->debug("sdl present: ticks={} uploads={}",
                                    present_ticks_, present_uploads_);
             present_ticks_ = present_uploads_ = 0;

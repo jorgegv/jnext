@@ -883,6 +883,97 @@ static void test_write_busy_not_after_reject() {
           " next2=" + std::to_string(next2));
 }
 
+// ─── What changes under a mounted image from outside jnext (GH #558) ───────
+//
+// Oracle: the owner's amendment (2026-11-25): with a writes file bound, an in-place rewrite of the image (hdfmonkey,
+// mtools, a loop mount) leaves the writes file not fitting the image, so it is warned about, once; a plain image is
+// written by the guest and the manager themselves (its time moves), so a time change there is not a warning; a resize
+// is a warning in any mode, and the card keeps its mount-time size.
+static void test_outside_change() {
+    namespace fs = std::filesystem;
+    auto bind_journal = [](const std::string& img) {
+        sd_write_journal::Binding b;
+        b.bytes = fs::file_size(img);
+        b.sha256.fill(0x2B);
+        std::string why;
+        return sd_write_journal::bind(img, img + ".jsdw", b, false, why);
+    };
+    using OC = SdCardDevice::OutsideChange;
+    // SDCOH-07
+    {
+        const std::string wimg = make_image(8);
+        const bool bound = bind_journal(wimg);
+        SdCardDevice w;
+        w.mount(wimg, false);
+        const OC fresh = w.outside_change();
+        std::error_code ec;
+        fs::last_write_time(wimg, fs::last_write_time(wimg, ec) + std::chrono::seconds(30), ec);   // same size, another time
+        const OC first = w.outside_change();
+        const OC again = w.outside_change();
+        // control: a plain mount ignores the time, and so does a guest write (which changes it itself)
+        const std::string pimg = make_image(8);
+        SdCardDevice p;
+        p.mount(pimg, false);
+        init_card(p);
+        fs::last_write_time(pimg, fs::last_write_time(pimg, ec) + std::chrono::seconds(30), ec);
+        const OC plain_time = p.outside_change();
+        (void)send_cmd_r1(p, 24, 3);
+        spi_write(p, 0xFE);
+        for (int i = 0; i < 512; ++i) spi_write(p, 0x5A);
+        spi_write(p, 0xFF);
+        spi_write(p, 0xFF);
+        p.deselect();
+        const OC plain_write = p.outside_change();
+        w.unmount();
+        p.unmount();
+        sd_write_journal::forget_all_for_test();
+        std::remove(wimg.c_str());
+        std::remove((wimg + ".jsdw").c_str());
+        std::remove(pimg.c_str());
+        check("SDCOH-07", "with a writes file bound, the image's time changing in place (same size) is reported as Rewritten exactly once (latched); a plain mount reports nothing for a time change or for the guest's own write",
+              bound && fresh == OC::None && first == OC::Rewritten && again == OC::None && plain_time == OC::None && plain_write == OC::None,
+              std::to_string(static_cast<int>(first)) + std::to_string(static_cast<int>(again)) + std::to_string(static_cast<int>(plain_time)) +
+                  std::to_string(static_cast<int>(plain_write)));
+    }
+    // SDCOH-09
+    {
+        bool all = true;
+        std::string detail;
+        for (int mode = 0; mode < 2; ++mode) {
+            const std::string img = make_image(8);
+            if (mode == 1 && !bind_journal(img)) all = false;
+            SdCardDevice d;
+            d.mount(img, false);
+            init_card(d);
+            const auto size = fs::file_size(img);
+            std::error_code ec;
+            const auto mt0 = fs::last_write_time(img, ec);
+            fs::resize_file(img, size + 512, ec);   // grown by one sector
+            fs::last_write_time(img, mt0 + std::chrono::seconds(30), ec);   // a tool's write moves the time (a coarse filesystem clock might not)
+            // the first kind seen is Resized; with a writes file the changed time is a second kind (Rewritten), once
+            const OC grown = d.outside_change();
+            const OC grown_again = d.outside_change();
+            const OC grown_third = d.outside_change();
+            // the card keeps the mount-time size: the sector past the old end is still refused
+            const uint8_t past_end = send_cmd_r1(d, 17, 8);
+            d.deselect();
+            fs::resize_file(img, size, ec);          // and truncated back: the kind is latched, nothing more is said
+            const OC back = d.outside_change();   // the truncation's time change: Rewritten was already given, so nothing
+            d.unmount();
+            sd_write_journal::forget_all_for_test();
+            std::remove(img.c_str());
+            std::remove((img + ".jsdw").c_str());
+            const bool ok = grown == OC::Resized && (mode == 1 ? grown_again == OC::Rewritten : grown_again == OC::None) &&
+                            grown_third == OC::None && past_end != 0x00 && back == OC::None;
+            all = all && ok;
+            detail += std::to_string(static_cast<int>(grown)) + std::to_string(static_cast<int>(grown_again)) + std::to_string(static_cast<int>(grown_third)) + (past_end != 0 ? "r" : "R") +
+                      std::to_string(static_cast<int>(back)) + " ";
+        }
+        check("SDCOH-09", "an image resized under a mounted card is reported as Resized once, on a plain mount and with a writes file; the card keeps its mount-time size (the sector past the old end is still refused)",
+              all, detail);
+    }
+}
+
 // ─── Read-only mount (GH #77, --sdcard-readonly) ────────────────────────
 
 static void test_readonly_mount() {
@@ -4380,6 +4471,7 @@ int main() {
     test_write_busy_cs_deassert(sd);      // SD-BUSY-05 (GH #177 review)
     test_readonly_mount();
     test_write_protected();          // SDWP-01 (GH #558)
+    test_outside_change();           // SDCOH-07, SDCOH-09 (GH #558)
     test_readonly_guard();           // SD-RO-03..08 (GH #455)
     test_mmc_cmd1_init(sd);
 

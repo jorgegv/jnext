@@ -180,6 +180,26 @@ public:
     static std::uint64_t host_write_generation() {
         return write_generation_.load(std::memory_order_relaxed);
     }
+    /// A write jnext made to a card by another route than CMD24: the card engines' FatFs writes (the SD card file
+    /// manager, the file-add and the upgrade; fatfs_diskio.cpp calls it once per successful write). It counts as a
+    /// jnext write for the warm start and the digest baseline, like CMD24 (GH #558).
+    static void note_host_write() { write_generation_.fetch_add(1, std::memory_order_relaxed); }
+
+    /// What changed under the mounted image since it was mounted, seen from outside jnext (GH #558). Each kind is
+    /// reported ONCE per mount (latched), most serious first; after Replaced or Deleted nothing more is reported for
+    /// that mount (the path no longer names the machine's file); nothing is ever refused, ejected or reset.
+    ///   Replaced   the path now names another file (POSIX only: a rename over the open file); the device keeps
+    ///              reading the old one, and what the machine writes there is lost when jnext exits;
+    ///   Resized    the file's size is not the size at mount (any mode); the device keeps the mount-time size;
+    ///   Rewritten  the modification time moved while a writes file is bound: the writes file holds sectors that
+    ///              fit the image as it was. Without a writes file the guest and the manager move the time
+    ///              themselves, so it is not looked at.
+    /// The mtime is not a hash: a change that keeps the time (touch -r, cp -p) is not seen.
+    ///   Deleted    the path names no file any more (the image was unlinked); the device keeps reading the open file.
+    enum class OutsideChange { None, Replaced, Resized, Rewritten, Deleted };
+    OutsideChange outside_change();
+    /// A writes file is bound (the card's changes go into it, not into the image).
+    bool has_writes_file() const { return journal_ != nullptr; }
 
     /// The two restored cursors whose only observable fault is an
     /// out-of-bounds ACCESS, which no behavioural assertion can see on a
@@ -347,6 +367,10 @@ private:
     // Backing store
     std::fstream file_;
     uint64_t file_size_ = 0;
+    // What the image looked like at mount, for outside_change().
+    std::int64_t mount_mtime_ = 0;
+    std::uint64_t mount_dev_ = 0, mount_ino_ = 0;
+    bool latched_replaced_ = false, latched_resized_ = false, latched_rewritten_ = false, latched_deleted_ = false;
     // Mount properties (not protocol state: not in describe_state()).
     bool read_only_ = false;      // write-protected: CMD24 never touches file_
     // The image has a write journal (--sdcard-writes): the file is opened

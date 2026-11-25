@@ -17,6 +17,7 @@
 #include "../dac_caps_dropped.h"
 #include "../test_portable.h"
 
+#include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
@@ -421,6 +422,100 @@ int main() {
         sd_write_journal::forget_all_for_test();
         std::remove(jf.c_str());
         std::remove(img.c_str());
+    }
+
+    // SDCOH-08 (GH #558): a new file renamed over the mounted image path (rsync, some editors). The card keeps reading
+    // the OLD file (the open descriptor), so the machine's writes would be lost when jnext exits; Replaced is reported
+    // once. POSIX only: Windows cannot rename over an open file.
+    {
+        const std::string img = make_image(8);
+        const std::string repl = make_image(8);
+        {   // the replacement's sector 0 differs from the original's
+            std::fstream f(repl, std::ios::in | std::ios::out | std::ios::binary);
+            f.seekp(0);
+            const char x = static_cast<char>(fixture_byte(0, 0) ^ 0xFF);
+            f.write(&x, 1);
+        }
+        SdCardDevice sd;
+        sd.mount(img, false);
+        init_card(sd);
+        const auto fresh = sd.outside_change();
+        std::error_code ec;
+        std::filesystem::rename(repl, img, ec);
+        const auto first = sd.outside_change();
+        const auto again = sd.outside_change();
+        const bool still_old = reads_original(sd, 0);   // the descriptor still names the old (unlinked) file
+        sd.unmount();
+        std::remove(img.c_str());
+        check("SDCOH-08", "a file renamed over the mounted image is reported as Replaced exactly once, and the card keeps reading the old file",
+              !ec && fresh == SdCardDevice::OutsideChange::None && first == SdCardDevice::OutsideChange::Replaced &&
+                  again == SdCardDevice::OutsideChange::None && still_old,
+              std::to_string(static_cast<int>(first)) + std::to_string(static_cast<int>(again)) + (still_old ? "o" : "N"));
+    }
+
+    // SDCOH-11 (GH #558): the image unlinked while mounted. The card keeps reading the open file, so what the machine
+    // writes is lost when jnext exits; Deleted is reported once.
+    {
+        const std::string img = make_image(8);
+        SdCardDevice sd;
+        sd.mount(img, false);
+        init_card(sd);
+        const auto fresh = sd.outside_change();
+        std::error_code ec;
+        std::filesystem::remove(img, ec);
+        const auto first = sd.outside_change();
+        const auto again = sd.outside_change();
+        const bool still_old = reads_original(sd, 0);   // the descriptor still names the unlinked file
+        sd.unmount();
+        check("SDCOH-11", "an image deleted while mounted is reported as Deleted exactly once, and the card keeps reading the open file",
+              !ec && fresh == SdCardDevice::OutsideChange::None && first == SdCardDevice::OutsideChange::Deleted &&
+                  again == SdCardDevice::OutsideChange::None && still_old,
+              std::to_string(static_cast<int>(first)) + std::to_string(static_cast<int>(again)) + (still_old ? "o" : "N"));
+    }
+
+    // SDCOH-12 (GH #558): once the path has been replaced or deleted it no longer names the machine's file, so nothing
+    // more is said about it: a cp + mv replace of a writes-file image (new time), a replace by a file of another size,
+    // and a delete followed by a re-create each give exactly ONE report over several polls.
+    {
+        auto events = [&](int arm) {
+            const std::string img = make_image(8);
+            sd_write_journal::Binding b;
+            b.bytes = std::filesystem::file_size(img);
+            b.sha256.fill(0x2B);
+            std::string why;
+            const bool bound = arm == 3 || sd_write_journal::bind(img, img + ".jsdw", b, false, why);
+            SdCardDevice sd;
+            sd.mount(img, false);
+            std::string seen;
+            auto poll = [&] {
+                for (int i = 0; i < 3; ++i) {
+                    const auto k = sd.outside_change();
+                    if (k != SdCardDevice::OutsideChange::None) seen += std::to_string(static_cast<int>(k));
+                }
+            };
+            std::error_code ec;
+            if (arm == 0 || arm == 1) {   // arm 0: same size, newer time (cp + mv); arm 1: another size
+                const std::string repl = make_image(arm == 0 ? 8 : 9);
+                std::filesystem::last_write_time(repl, std::filesystem::last_write_time(img, ec) + std::chrono::seconds(30), ec);
+                std::filesystem::rename(repl, img, ec);
+            } else {                      // arm 2: deleted, then a new file at the path
+                std::filesystem::remove(img, ec);
+                poll();
+                const std::string again = make_image(9);
+                std::filesystem::rename(again, img, ec);
+            }
+            poll();
+            sd.unmount();
+            sd_write_journal::forget_all_for_test();
+            std::remove(img.c_str());
+            std::remove((img + ".jsdw").c_str());
+            return bound ? seen : std::string("unbound");
+        };
+        const std::string cpmv = events(0), size = events(1), del = events(2);
+        const std::string R = std::to_string(static_cast<int>(SdCardDevice::OutsideChange::Replaced));
+        const std::string D = std::to_string(static_cast<int>(SdCardDevice::OutsideChange::Deleted));
+        check("SDCOH-12", "with a writes file bound, a cp + mv replace of the image gives exactly one report (Replaced, no Rewritten), a replace by a file of another size exactly one (Replaced, no Resized), and a delete then a re-create exactly one (Deleted, no Replaced)",
+              cpmv == R && size == R && del == D, cpmv + "|" + size + "|" + del);
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

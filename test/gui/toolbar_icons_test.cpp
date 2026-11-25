@@ -467,9 +467,12 @@ void test_toolbars() {
                     if (!n.isEmpty()) shown << n;
                 }
         shown.sort();
-        const QStringList all = toolbar_icons::names();
-        check("TBI-12", "the icons the toolbars show are exactly the compiled-in set: an SVG added but not "
-                        "wired to an action fails", !all.isEmpty() && shown == all,
+        QStringList all = toolbar_icons::names();
+        // GH #558: icons of a list row, not of a toolbar action (the SD card file manager's "up" row); they are in the
+        // set but no toolbar shows them. A new one needs its own use asserted by the suite that owns it.
+        const bool has_up_dir = all.removeAll(QStringLiteral("up-dir")) == 1;
+        check("TBI-12", "the icons the toolbars show are exactly the compiled-in set, less the list-row icon up-dir: an SVG "
+                        "added but not wired to an action fails", has_up_dir && !all.isEmpty() && shown == all,
               "shown=" + s(shown.join(",")) + " set=" + s(all.join(",")));
     }
 

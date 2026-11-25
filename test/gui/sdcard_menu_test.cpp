@@ -9,12 +9,15 @@
 #include <QAction>
 #include <QApplication>
 #include <QCoreApplication>
+#include <QLabel>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QTimer>
 #include <QMenu>
 #include <QMenuBar>
 #include <QToolBar>
+#include <QElapsedTimer>
+#include "peripheral/sd_card.h"
 #include <QTemporaryDir>
 
 #include <cstdio>
@@ -28,6 +31,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/fatfs_diskio.h"
 #include "core/sdcard_backup.h"
 #include "core/sdcard_upgrade.h"
 #include "peripheral/sd_write_journal.h"
@@ -159,10 +163,15 @@ int main(int argc, char** argv)
     // Any box that is still up 40 ms after it appeared is one nobody answers (the confirm is clicked at 0 ms): it is
     // counted and closed, so a defect that raises an unexpected warning fails a row instead of hanging the suite.
     int unexpected_dialogs = 0;
+    std::string last_box_text;
     QTimer watchdog;
     watchdog.setInterval(40);
     QObject::connect(&watchdog, &QTimer::timeout, [&] {
-        if (QWidget* m = QApplication::activeModalWidget()) { ++unexpected_dialogs; m->close(); }
+        if (QWidget* m = QApplication::activeModalWidget()) {
+            ++unexpected_dialogs;
+            if (auto* mb = qobject_cast<QMessageBox*>(m)) last_box_text = mb->text().toStdString();
+            m->close();
+        }
     });
     watchdog.start();
     auto answer_ok = [] {
@@ -393,6 +402,126 @@ int main(int argc, char** argv)
             if (qobject_cast<SdManagerDialog*>(w)) bare_opened = true;
         check("SDMENU-18", "File > SD Card File Manager... in a window with no machine shows one refusing box and opens nothing",
               unexpected_dialogs - before == 1 && !bare_opened, "boxes=" + std::to_string(unexpected_dialogs - before));
+    }
+
+    {
+        // an open manager window is handed the main window's card-operation predicate: while an upgrade has the card out
+        // it makes no FatFs call over three poll intervals and its note says the card is being changed
+        reset_set();
+        Fixture f(card);
+        f.win.sd_manager_action()->trigger();
+        SdManagerDialog* dlg = nullptr;
+        for (QWidget* w : QApplication::topLevelWidgets())
+            if (auto* d = qobject_cast<SdManagerDialog*>(w)) dlg = d;
+        Live L;
+        std::uint64_t attaches = 0;
+        bool note_busy = false, off = false;
+        in_work = [&] {
+            if (!dlg) return;
+            const auto at0 = fatfs_glue::attach_count_for_test();
+            for (int i = 0; i < 3; ++i) dlg->check_card_change();
+            dlg->refresh();
+            attaches = fatfs_glue::attach_count_for_test() - at0;
+            QLabel* note = dlg->findChild<QLabel*>("card_note");
+            note_busy = note && note->text().contains(QStringLiteral("being changed by another action"));
+            QPushButton* b = dlg->findChild<QPushButton*>("copy_to_host");
+            off = b && !b->isEnabled();
+        };
+        f.win.card_op_upgrade_work_for_test = [&](std::string&) { put(card, (1 << 16) + 4096); return true; };
+        live_run(f.win.upgrade_sd_action(), f, L);
+        in_work = nullptr;
+        if (dlg) dlg->accept();
+        QCoreApplication::processEvents();
+        check("SDMENU-20", "with the file manager window open, an upgrade that has the card out leaves it inert: no FatFs attach over three poll intervals and a refresh, the note says the card is being changed, and its copy buttons are disabled",
+              dlg && attaches == 0 && note_busy && off && L.dialogs == 0,
+              "attaches=" + std::to_string(attaches) + (note_busy ? " note=1" : " note=0") + (off ? " off=1" : " off=0"));
+    }
+
+    {
+        // GH #558: an image changed from outside JNEXT is warned about, one box per kind, naming the card and the way out
+        reset_set();
+        Fixture f(card);
+        auto warn = [&](int slot, int kind) {
+            const int before = unexpected_dialogs;
+            last_box_text.clear();
+            f.win.card_file_changed(slot, kind, QStringLiteral("/some/dir/card.img"));
+            QElapsedTimer t;
+            t.start();
+            while (unexpected_dialogs == before && t.elapsed() < 1500) QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            return unexpected_dialogs - before;
+        };
+        using OC = SdCardDevice::OutsideChange;
+        const int n1 = warn(0, static_cast<int>(OC::Replaced));
+        const bool t1 = last_box_text.find("replaced by another file") != std::string::npos && last_box_text.find("The SD card image") != std::string::npos &&
+                        last_box_text.find("Insert SD Card Image") != std::string::npos;
+        const int n2 = warn(1, static_cast<int>(OC::Resized));
+        const bool t2 = last_box_text.find("was resized") != std::string::npos && last_box_text.find("The second SD card image") != std::string::npos;
+        const int n3 = warn(0, static_cast<int>(OC::Rewritten));
+        const bool t3 = last_box_text.find("SD-writes file") != std::string::npos && last_box_text.find("may be damaged") != std::string::npos;
+        const int n0 = warn(0, static_cast<int>(OC::None));   // nothing to say: no box (the call returns after the timeout)
+        check("SDMENU-19", "an image replaced, resized or rewritten under a writes file from outside JNEXT raises exactly one warning box per report, naming the card and pointing to the file manager; no report, no box",
+              n1 == 1 && t1 && n2 == 1 && t2 && n3 == 1 && t3 && n0 == 0,
+              std::to_string(n1) + std::to_string(n2) + std::to_string(n3) + std::to_string(n0));
+    }
+
+    {
+        // GH #558: the wording follows what the machine's writes do (a writes file takes them), and a deleted image is told too
+        reset_set();
+        Fixture f(card);
+        auto text = [&](int kind, bool wf, int slot = 0) {
+            const int before = unexpected_dialogs;
+            last_box_text.clear();
+            f.win.card_file_changed(slot, kind, QStringLiteral("/some/dir/card.img"), wf);
+            QElapsedTimer t;
+            t.start();
+            while (unexpected_dialogs == before && t.elapsed() < 1500) QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            return last_box_text;
+        };
+        using OC = SdCardDevice::OutsideChange;
+        auto has = [](const std::string& s, const char* w) { return s.find(w) != std::string::npos; };
+        const std::string rp = text(static_cast<int>(OC::Replaced), false), rw = text(static_cast<int>(OC::Replaced), true);
+        const std::string dp = text(static_cast<int>(OC::Deleted), false), dw = text(static_cast<int>(OC::Deleted), true);
+        const std::string r2 = text(static_cast<int>(OC::Replaced), false, 1);   // the second card: its own menu item
+        const bool second = has(r2, "Insert Second SD Card Image") && has(rp, "File > Insert SD Card Image") && !has(rp, "Second");
+        check("SDMENU-21", "the warning for a replaced or deleted image says the machine's writes are lost on exit when there is no writes file, and that they go into the writes file (which no longer fits, or cannot be used without the image) when there is one",
+              has(rp, "replaced by another file") && has(rp, "lost when JNEXT exits") && !has(rp, "SD-writes file") &&
+                  has(rw, "replaced by another file") && has(rw, "no longer fits the new image") && !has(rw, "lost when JNEXT exits") &&
+                  has(dp, "was deleted") && has(dp, "lost when JNEXT exits") && !has(dp, "SD-writes file") &&
+                  has(dw, "was deleted") && has(dw, "cannot be used again without the image") && !has(dw, "lost when JNEXT exits") && !has(dw, "new image") &&
+                  !has(dp, "File Manager") && !has(dw, "File Manager") && !has(rp, "File Manager") && has(rp, "Insert SD Card Image") && has(rw, "Insert SD Card Image") && second,
+              rw + " | " + dw);
+    }
+    {
+        // GH #558: the status tick's poll turns what Emulator::check_card_files() finds, in either slot, into one box each
+        reset_set();
+        const std::string card2 = dir + "/card2.img";
+        put(card2, 1 << 16);
+        make_journal(card2, dir + "/w2.jsdw");
+        { sd_write_journal::Binding b; std::error_code bec; b.bytes = fs::file_size(card2, bec);
+          b.mtime = static_cast<int64_t>(fs::last_write_time(card2, bec).time_since_epoch().count());
+          std::string why; sd_write_journal::bind(card2, dir + "/w2.jsdw", b, false, why); }   // the second card has a writes file
+        Fixture f(card);
+        const bool m2 = f.emu.sd_card2().mount(card2, false);
+        const auto none = f.emu.check_card_files();
+        std::error_code ec;
+        fs::resize_file(card, (1 << 16) + 512, ec);   // slot 1 (index 0): grown
+        fs::last_write_time(card2, fs::last_write_time(card2, ec) + std::chrono::seconds(30), ec);   // slot 2 (index 1): rewritten, it has a writes file
+        const auto evs = f.emu.check_card_files();
+        const bool ev_ok = evs.size() == 2 && evs[0].slot == 0 && evs[0].kind == SdCardDevice::OutsideChange::Resized && evs[0].image == card &&
+                           evs[1].slot == 1 && evs[1].kind == SdCardDevice::OutsideChange::Rewritten && evs[1].image == card2 && !evs[0].writes_file && evs[1].writes_file;
+        const bool again = f.emu.check_card_files().empty();   // each kind once
+        // the window's poll shows a box per report: re-arm with fresh reports (a new mount latches nothing)
+        f.emu.sd_card().unmount();
+        f.emu.sd_card().mount(card, false);
+        fs::resize_file(card, (1 << 16) + 1024, ec);
+        const int before = unexpected_dialogs;
+        f.win.poll_card_files();
+        QElapsedTimer t;
+        t.start();
+        while (unexpected_dialogs == before && t.elapsed() < 1500) QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        check("SDMENU-22", "Emulator::check_card_files() reports a change of either slot's image once, with the slot, the kind and the image, and the main window's poll turns a report into a warning box",
+              m2 && none.empty() && ev_ok && again && unexpected_dialogs - before == 1,
+              std::to_string(evs.size()) + " boxes=" + std::to_string(unexpected_dialogs - before));
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

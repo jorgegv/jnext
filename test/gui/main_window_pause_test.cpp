@@ -27,6 +27,7 @@
 // ===========================================================================
 
 #include "gui/main_window.h"
+#include "gui/sdcard_manager_dialog.h"
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -556,6 +557,25 @@ void test_pause() {
     // MWP-18 - see pre_frames_polls_startup_stop().
     check("MWP-18", "QtApp::TickEffects::pre_frames() polls the startup stop before the tick's frames (a window Pause and Run "
                     "between two ticks)", pre_frames_polls_startup_stop());
+
+    // MWP-19 (GH #558, amended 2026-11-25) - the SD card file manager does not touch the machine: opening it neither pauses
+    // it nor opens the debugger window, and closing it leaves both as they were. (A pause by any other client still opens
+    // the window: MWP-05 and PBPUI-02 pin that.)
+    {
+        Fixture fx;
+        fx.w->sd_manager_action()->trigger();
+        fx.tick();
+        SdManagerDialog* dlg = nullptr;
+        for (QWidget* t : QApplication::topLevelWidgets())
+            if (auto* d = qobject_cast<SdManagerDialog*>(t)) dlg = d;
+        const bool open_ok = dlg && !fx.paused() && !fx.debugger_open() && fx.indicators(false);
+        if (dlg) dlg->accept();
+        QApplication::processEvents();
+        fx.tick();
+        check("MWP-19", "opening the SD card file manager neither pauses the machine nor opens the debugger window, and closing it leaves both as they were",
+              open_ok && !fx.paused() && !fx.debugger_open() && fx.indicators(false),
+              std::string("open_ok=") + (open_ok ? "1" : "0") + " paused=" + (fx.paused() ? "1" : "0") + " dbg=" + (fx.debugger_open() ? "1" : "0"));
+    }
 }
 
 }  // namespace

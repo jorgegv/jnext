@@ -69,6 +69,7 @@ Files live in `src/gui/icons/`.
 | `sd-manager.svg` | SD Card File Manager | SD card: clipped corner, three contacts, the letters SD drawn as strokes | none: a new action |
 | `screenshot.svg` | Screenshot | camera: body, lens, viewfinder bump, flash dot | theme icon `camera-photo`, which Fusion does not have, so the button showed the word |
 | `nmi.svg` | Multiface NMI | the letters "NMI" across a ring, with a blank border round the text so the ring is visibly cut by it (owner's choice) | none: a text-only button |
+| `up-dir.svg` | SD card file manager: the first row of every non-root folder | arrow up then left (U+21B0 style), a list-row icon, not a toolbar button | none: a new row |
 | `debug.svg` | Toggle Debugger | chip with pins and a solid die, magnifier over its lower-right corner | QPainter drawing: a dark chip and an orange magnifier |
 
 The arc and arrowhead coordinates in `power.svg`, `soft-reset.svg`, `nmi.svg` and

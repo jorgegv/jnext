@@ -189,8 +189,17 @@ with status 1.
     back to the stand-in at the next start, whatever the program: it
     belongs to the card, not to the NEX that wrote it. Excludes
     **--sdcard-readonly**; with **--sdcard-file-add** the copy goes into
-    *FILE* and the image is not written. A recording of the warm start
-    is keyed on the image and on *FILE*’s sectors, so it is taken again
+    *FILE* and the image is not written. Do not change the image with
+    another program while *FILE* has writes for it (hdfmonkey, mtools, a
+    loop mount, a copy over it): *FILE* would no longer fit the image,
+    and the card the machine sees would be damaged. Use the SD card file
+    manager (File menu), which writes into *FILE*. JNEXT warns once,
+    with a message box and in its log, when the image of a card with a
+    writes file changes (or is replaced, deleted or resized) while it
+    runs, and it refuses *FILE* at the next start (“was made for another
+    image, or the image was changed by another program since”). The same
+    applies to **--sdcard2-writes**. A recording of the warm start is
+    keyed on the image and on *FILE*’s sectors, so it is taken again
     after the machine has written one; the stand-in’s file is not card
     state and does not change it. Files read from the image by the host
     (the ROMs, a snapshot’s card identity) do not see the writes. See

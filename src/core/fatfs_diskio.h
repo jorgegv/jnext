@@ -39,4 +39,10 @@ bool attach(uint8_t pdrv, const std::string& image_path, uint32_t part_lba,
 // Flush and close the backing file for `pdrv`.
 void detach(uint8_t pdrv);
 
+/// Test observables (GH #558): how many attaches and how many SUCCESSFUL disk_write calls this process has made. The
+/// second is the number of times a write was noted in SdCardDevice::host_write_generation() (once per successful call,
+/// never for a refused or failed write, never for a read).
+std::uint64_t attach_count_for_test();
+std::uint64_t write_count_for_test();
+
 } // namespace fatfs_glue
