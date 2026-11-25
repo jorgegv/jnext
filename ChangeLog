@@ -46,7 +46,7 @@
 - Slow suites: a sector cache in the SD-image code cuts the card tests by up to 5x; the tape suite is split in two
 
 ### Contributors in this release
-- @janko-jj, @lordheavy, @derekfountain, @koseid72
+- @janko-jj, @lordheavy, @derekfountain, @koseid72, @Stu042
 
 ## v1.3.47 (2026-11-21)
 
