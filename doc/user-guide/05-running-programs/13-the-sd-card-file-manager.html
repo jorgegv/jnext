@@ -4658,9 +4658,8 @@ opens a window to move files between the SD card of the running machine and a fo
 of your computer, with the mouse. The card is on the left, a folder of your computer
 on the right. It needs no command line, and it works on the card that NextZXOS is
 using, however it was made.</p>
-<p>The machine keeps running while you use the window, and it sees your changes the way
-a Next sees a WiFi SD card's: the files are on the card at once, and NextZXOS finds
-them when it next reads the folder. Read <a href="#changing-the-card-while-the-machine-runs">Changing the card while the machine
+<p>The machine keeps running while you use the window: your changes are on the card at
+once, and NextZXOS finds them when it next reads the folder. Read <a href="#changing-the-card-while-the-machine-runs">Changing the card while the machine
 runs</a> before you change files a program may
 be using.</p>
 <p><img alt="The SD card file manager" src="../img/sdcard-manager.png" /></p>
@@ -4678,18 +4677,20 @@ at the card again.</p>
 <li><strong>The card pane</strong> (left) lists a folder of the card in the slot chosen in the box
   at the bottom of the window: <strong>SD Card 1: <em>file name</em></strong> or <strong>SD Card 2: <em>file name</em></strong>
   (the image's file name; hover for its full path), and <code>SD Card 2: &lt;empty&gt;</code>
-  for a slot with no card, which is greyed. The two slots are the ones of <strong>File ▸ Insert
-  SD Card Image…</strong> (card 1) and <strong>Insert Second SD Card Image…</strong> (card 2), and the labels follow them
-  while the window is open.
-  Names are shown as the card stores them, long names included. A name that holds a
-  character outside plain ASCII (the card stores such names in code page 437, the
-  DOS code page of FAT short names; an accented letter is one) is shown as <code>%XX</code>,
-  two hex digits for each such byte, because the host cannot spell it; it works
-  with every action. An entry the card cannot address by any name (a short name
-  repeated behind an earlier entry, or a name holding the byte 7F) is listed but
-  cannot be acted on, and its tooltip says so.</li>
-<li><strong>The host pane</strong> (right) is an ordinary folder of your computer.</li>
+  for a slot with no card, which is greyed.</li>
 </ul>
+<p>The two slots are the ones of <strong>File ▸ Insert SD Card Image…</strong> (card 1) and
+  <strong>Insert Second SD Card Image…</strong> (card 2), and the labels follow them while the window
+  is open.</p>
+<p>Names are shown as the card stores them, long names included.</p>
+<p>A name that holds a character outside plain ASCII (the card stores such names in code
+  page 437, the DOS code page of FAT short names; an accented letter is one) is shown as
+  <code>%XX</code>, two hex digits for each such byte, because the host cannot spell it; it works
+  with every action.</p>
+<p>An entry the card cannot address by any name (a short name repeated behind an earlier
+  entry, or a name holding the byte 7F) is listed but cannot be acted on, and its
+  tooltip says so.
+- <strong>The host pane</strong> (right) is an ordinary folder of your computer.</p>
 <p>Each pane has a title above it, <strong>SD Card</strong> over the card pane and <strong>Host filesystem</strong>
 over the host pane. Both panes are lists, the same size, with their top and bottom edges
 aligned; the folder each shows is written under its title. The slot selector and the <strong>Read-only</strong> box are
@@ -4700,7 +4701,7 @@ except the top one (the card's root, or the root of your computer's file system)
 with an <strong>up row</strong>, <code>..</code> with a left-and-up arrow: a double-click or <strong>Enter</strong> on it
 goes to the parent folder. It is not an entry: it cannot be selected, copied, dragged,
 renamed or deleted. The panes show only the folder you are in, one level at a time. The
-window opens at 1080 by 624 pixels.</p>
+window opens at 1080 by 624 pixels, but can be resized at will.</p>
 <p><strong>The card pane re-reads the folder by itself.</strong> When the machine writes to the card, or
 another program changes the image, the pane lists the folder again within half a second,
 keeping your selection and your place in the list. <strong>F5</strong> (or <strong>Refresh</strong> in the pane's
@@ -4794,10 +4795,10 @@ program goes to look:</p>
 <li>a dot command you have just copied: found the next time you type it;</li>
 <li>a program that reads a file: finds it the next time it opens that file.</li>
 </ul>
-<p>In a test, a program that asked for a new file again straight away, with nothing else
-read in between, still got the old answer; as soon as it had read another folder it saw
-the file. If something does not show up, look at another folder and come back.</p>
-<p><strong>Your part</strong>, exactly as with a WiFi SD card in a real Next:</p>
+<p>If something does not show up, have the program read another folder and then come
+back to this one: a program that asks again straight away, with nothing else read in
+between, can still get the old answer.</p>
+<p><strong>Your part:</strong></p>
 <ul>
 <li>Do not change, rename or delete a file a running program has open or is writing, and
   do not change the card while the machine itself is saving to it. NextZXOS may hold the

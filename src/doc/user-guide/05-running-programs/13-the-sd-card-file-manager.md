@@ -6,9 +6,8 @@ of your computer, with the mouse. The card is on the left, a folder of your comp
 on the right. It needs no command line, and it works on the card that NextZXOS is
 using, however it was made.
 
-The machine keeps running while you use the window, and it sees your changes the way
-a Next sees a WiFi SD card's: the files are on the card at once, and NextZXOS finds
-them when it next reads the folder. Read [Changing the card while the machine
+The machine keeps running while you use the window: your changes are on the card at
+once, and NextZXOS finds them when it next reads the folder. Read [Changing the card while the machine
 runs](#changing-the-card-while-the-machine-runs) before you change files a program may
 be using.
 
@@ -31,16 +30,22 @@ at the card again.
 - **The card pane** (left) lists a folder of the card in the slot chosen in the box
   at the bottom of the window: **SD Card 1: *file name*** or **SD Card 2: *file name***
   (the image's file name; hover for its full path), and `SD Card 2: <empty>`
-  for a slot with no card, which is greyed. The two slots are the ones of **File ▸ Insert
-  SD Card Image…** (card 1) and **Insert Second SD Card Image…** (card 2), and the labels follow them
-  while the window is open.
-  Names are shown as the card stores them, long names included. A name that holds a
-  character outside plain ASCII (the card stores such names in code page 437, the
-  DOS code page of FAT short names; an accented letter is one) is shown as `%XX`,
-  two hex digits for each such byte, because the host cannot spell it; it works
-  with every action. An entry the card cannot address by any name (a short name
-  repeated behind an earlier entry, or a name holding the byte 7F) is listed but
-  cannot be acted on, and its tooltip says so.
+  for a slot with no card, which is greyed.
+
+  The two slots are the ones of **File ▸ Insert SD Card Image…** (card 1) and
+  **Insert Second SD Card Image…** (card 2), and the labels follow them while the window
+  is open.
+
+  Names are shown as the card stores them, long names included.
+
+  A name that holds a character outside plain ASCII (the card stores such names in code
+  page 437, the DOS code page of FAT short names; an accented letter is one) is shown as
+  `%XX`, two hex digits for each such byte, because the host cannot spell it; it works
+  with every action.
+
+  An entry the card cannot address by any name (a short name repeated behind an earlier
+  entry, or a name holding the byte 7F) is listed but cannot be acted on, and its
+  tooltip says so.
 - **The host pane** (right) is an ordinary folder of your computer.
 
 Each pane has a title above it, **SD Card** over the card pane and **Host filesystem**
@@ -54,7 +59,7 @@ except the top one (the card's root, or the root of your computer's file system)
 with an **up row**, `..` with a left-and-up arrow: a double-click or **Enter** on it
 goes to the parent folder. It is not an entry: it cannot be selected, copied, dragged,
 renamed or deleted. The panes show only the folder you are in, one level at a time. The
-window opens at 1080 by 624 pixels.
+window opens at 1080 by 624 pixels, but can be resized at will.
 
 **The card pane re-reads the folder by itself.** When the machine writes to the card, or
 another program changes the image, the pane lists the folder again within half a second,
@@ -128,11 +133,11 @@ program goes to look:
 - a dot command you have just copied: found the next time you type it;
 - a program that reads a file: finds it the next time it opens that file.
 
-In a test, a program that asked for a new file again straight away, with nothing else
-read in between, still got the old answer; as soon as it had read another folder it saw
-the file. If something does not show up, look at another folder and come back.
+If something does not show up, have the program read another folder and then come
+back to this one: a program that asks again straight away, with nothing else read in
+between, can still get the old answer.
 
-**Your part**, exactly as with a WiFi SD card in a real Next:
+**Your part:**
 
 - Do not change, rename or delete a file a running program has open or is writing, and
   do not change the card while the machine itself is saving to it. NextZXOS may hold the
