@@ -4,7 +4,7 @@ Distilled from ~120 feedback memos and 16 handovers (2026-07 → 2026-10). CLAUD
 
 ## Selection and scope
 
-- Never grow the milestone you are emptying. "Same family as #N" is not importance.
+- Never grow the milestone you are emptying. "Same family as #N" is not importance. Exception: an issue you file out of another issue's work (only when filing separately is justified, CLAUDE.md "Findings an issue surfaces") gets that issue's milestone at creation (`gh issue create --milestone <M>`; owner, 2026-10-10) and enters the queue normally.
 - Branch model, finishing rule, recount rule: CLAUDE.md (merge protocol + Constraints).
 - Read scope literally; never widen to a superset.
 - "Blocked on #X" notes go stale: check X before scoping.
@@ -39,13 +39,13 @@ Load `verification-discipline`; it is the evidence standard.
 - Instrumentation stays on an investigation branch; only fix commits reach `main`.
 - Merge fixes individually; never squash several fixes into one.
 - Never move a tag. Never `git reset --hard` on `main`.
-- Push only `main` + its tags after a CLEAN CI gate run on that commit, or the fallback gate (explicit refspecs, CI idle; the gated sha to `main`, then all the batch's tags except the newest in one push, then the newest tag alone; a public release tag alone), and epic branches (never force; SKILL.md §Branches). After pushing `main`, watch the LATEST CI run on `main`; red → it becomes the next issue.
+- Pushes: exactly SKILL.md §Authorized (which follows CLAUDE.md's standing authorization). After pushing `main`, watch the LATEST CI run on `main`; red → it becomes the next issue.
 - Inherited work from a dead agent = unreviewed third-party code: back it up, review it in full.
 - No role ever bypasses or disables a hook, git or Claude Code (`git -c core.hooksPath=…`, `--no-verify`, an env override). A blocked agent stops and reports; the orchestrator decides, and asks the owner if the hook guards something only the owner can authorize (owner, 2026-10-13: an implementer committed with `core.hooksPath=/dev/null` unprompted).
 
 ## Agents and tokens
 
-- ≤4 running agents, all roles combined; slot split in SKILL.md.
+- Agent cap and slot split: SKILL.md §Slots (the one place the cap is written).
 - No commit-watch Monitors, no per-event chatter; rely on completion notifications.
 - Batch requests to a resumed agent (each resume re-reads 400-800k tokens).
 - Silent >30 min: read the report file, check liveness (`ps`, load), then nudge. File mtimes are not liveness.

@@ -31,7 +31,7 @@ stop if the branch or worktree already exists — another session may hold it. T
 
 ## Dispatch — auditors in parallel
 
-Single message, multiple `Agent` calls (all `subsystem-auditor`), one per subsystem, at most 3 running agents in total (auditors + reviewers); queue the rest. Each gets:
+Single message, multiple `Agent` calls (all `subsystem-auditor`), one per subsystem, within the owner's agent cap (`autonomous-run` §Slots, the one place it is written; auditors and reviewers both count); queue the rest. Each gets:
 
 - Subsystem name
 - Worktree path
