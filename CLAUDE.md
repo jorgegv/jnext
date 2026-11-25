@@ -244,7 +244,7 @@ copy appears in a packaging, CI, CMake or mkdocs file.
 ## Building
 
 ```bash
-cmake --build build -j$(nproc) 2>&1 | tail -5
+LANG=C cmake --build build -j$(nproc) > ~/tmp/build.log 2>&1; echo status=$?; tail -5 ~/tmp/build.log
 ```
 
 The build uses CMake with Qt6 UI enabled (`-DENABLE_QT_UI=ON`). The executable is at `build/jnext`.
@@ -591,8 +591,9 @@ exists because the harness shipped once with a bug that appeared *only when a su
 `make regression` depends on `unit-test-build`: the suite runs `build/test/rewind_test`,
 and `make clean` deletes it.
 
-**Agent worktrees: run `make worktree-bootstrap` first.** `roms/*` is git-ignored, so a
-fresh worktree has no SD-card image and cannot run the tests at all.
+**Agent worktrees: run `make worktree-bootstrap` first.** It verifies the suites' SD
+master (`~/.jnext/sdcard/test-suite/`, never the user's card) and the git submodules,
+which `git worktree add` leaves empty, and says how to fix either.
 
 ### FUSE Z80 opcode test suite
 
@@ -650,9 +651,10 @@ ccache -M 20G     # the 5G default thrashes on a tree this size
 **2. Reviewers: run mutation cycles in parallel, not serially.** Reviewer
 mutations are independent by construction (reverting a stencil gate has nothing
 to do with reverting a tab order), yet they are usually run one after another in
-a single build dir. Give each mutation its own build directory (or its own
-worktree) and run them concurrently — ccache is global, so the second and third
-builds are almost free. Mutations are checked with **targeted rows**
+a single build dir. Give each mutation its own detached worktree
+(`git worktree add --detach`, removed after; never a `cp`/`tar` copy) with its own
+build directory, and run 2-3 concurrently: mutants in one shared source tree compile
+each other. ccache is global, so the second and third builds are almost free. Mutations are checked with **targeted rows**
 (`make regression-rows ROWS="<row> ..."`), never full runs (GH #295).
 
 **`JNEXT_TEST_JOBS` caps the suite's lanes; it is no longer a speed trade-off**
@@ -704,10 +706,10 @@ Key options:
 - `--headless` — no display, no audio, runs at max speed
 - `--sdcard FILE` — SD image with ROMs at `/MACHINES/NEXT/`. Optional; if omitted, falls back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img` (the patched image; offers to download the canonical distribution `cspect-next-1gb.img` and produce that patched copy). `--sdcard-download-confirm` / `--sdcard-download-force` control that provisioning
 - `--delayed-screenshot FILE` — save PNG screenshot after delay
-- `--delayed-screenshot-time N` — delay in seconds (default 10)
+- `--delayed-screenshot-time N` — delay in emulated seconds (default 10; machine time, host speed does not matter)
 - `--delayed-screenshot-frames N` — delay in frames (overrides `--delayed-screenshot-time`)
 - `--delayed-screenshot-layers LIST` — layers composed into the screenshot: comma-separated `ula`, `layer2`, `sprites`, `tiles`, `all` (default `all`). An excluded layer is composed as if its hardware enable bit were clear, so the rest still follow NR 0x15 priority and the NR 0x4A fallback colour shows through. Excluding `ula` also removes the **border** (the ULA emits it)
-- `--delayed-automatic-exit N` — exit emulator after N seconds. It is a hard bound: it always fires. If it (or a window close) arrives while a `--delayed-screenshot` is still outstanding — the capture came due but no frame was rendered for it, e.g. the debugger was paused, or the exit delay is simply shorter than the screenshot delay — jnext logs an **error** and **exits non-zero** rather than quietly writing nothing, or writing a stale frame with the wrong layers in it
+- `--delayed-automatic-exit N` — exit emulator after N emulated seconds. It is a hard bound: it always fires. If it (or a window close) arrives while a `--delayed-screenshot` is still outstanding — the capture came due but no frame was rendered for it, e.g. the debugger was paused, or the exit delay is simply shorter than the screenshot delay — jnext logs an **error** and **exits non-zero** rather than quietly writing nothing, or writing a stale frame with the wrong layers in it
 - `--delayed-automatic-exit-frames N` — exit after N frames (overrides `--delayed-automatic-exit` when both are given). Same hard-bound contract as the seconds form, but deterministic: a capture due at frame N is still taken, one due at frame N+1 is not (and errors + exits non-zero)
 - `--load FILE` — load a NEX, TAP, or TZX file at startup
 - `--rtc "YYYY-MM-DD HH:MM:SS"` — pin the RTC to a fixed date/time (deterministic boot screenshots; ISO `T` form also accepted)
