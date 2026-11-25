@@ -44,7 +44,7 @@ mentions them, so a test can no longer be absent from this document.
 | Contention                                 |   178 |  178 |    0 |    0 |       0 |          0 |
 | LoRes                                      |   101 |  101 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    97 |   97 |    0 |    0 |       0 |          0 |
-| Companion: sdcard_posix_test               |     9 |    9 |    0 |    0 |       0 |          0 |
+| Companion: sdcard_posix_test               |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: sdcard_writes_test              |    30 |   30 |    0 |    0 |       0 |          0 |
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
@@ -71,9 +71,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   103 |  103 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6699 | 6699 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6700 | 6700 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6699**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6170**. Rows the 258 suites declared in `test/unit-tests.conf` run live: **18453**.
+Rows the sections above carry: **6700**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6171**. Rows the 258 suites declared in `test/unit-tests.conf` run live: **18454**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -5090,15 +5090,16 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| SDP-IOERR-01 | transient host write error: CMD24 answers 0x0D with no busy byte, the card still reads sectors 1 and 4, and the rejected block never lands in the file afterwards (SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:181 |
-| SDP-IOERR-03 | after a failed host write the card recovered read-write, not degraded to read-only: the next CMD24 is accepted (0x05) and its block is in the file | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:220 |
-| SDP-IOERR-02 | persistent host write error: CMD24 answers 0x0D and the card still reads sectors 1 and 2 while the failure lasts | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:244 |
-| SDP-IOERR-04 | host write error on an image that can no longer be opened for writing: the card degrades to read-only, so the next CMD24 is refused (0x0D, no further stream write) and reads still return the original bytes | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:301 |
-| SDP-IOERR-05 | host write error with the image gone (neither reopen works): the card ends unmounted, and a later mount() works and reads | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:334 |
-| SDP-SDW-01 | a journal append that really fails (RLIMIT_FSIZE) answers 0x0D, the file keeps its last whole length and the sector still reads its earlier content (SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:383 |
-| SDP-SDW-02 | a kept-file append that really fails (RLIMIT_FSIZE) returns false, FILE keeps its last whole length (no torn tail) and the earlier kept file is still the kept one | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:416 |
-| SDCOH-08 | a file renamed over the mounted image is reported as Replaced exactly once, and the card keeps reading the old file | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:449 |
-| SDCOH-11 | an image deleted while mounted is reported as Deleted exactly once, and the card keeps reading the open file | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:469 |
+| SDP-IOERR-01 | transient host write error: CMD24 answers 0x0D with no busy byte, the card still reads sectors 1 and 4, and the rejected block never lands in the file afterwards (SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:182 |
+| SDP-IOERR-03 | after a failed host write the card recovered read-write, not degraded to read-only: the next CMD24 is accepted (0x05) and its block is in the file | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:221 |
+| SDP-IOERR-02 | persistent host write error: CMD24 answers 0x0D and the card still reads sectors 1 and 2 while the failure lasts | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:245 |
+| SDP-IOERR-04 | host write error on an image that can no longer be opened for writing: the card degrades to read-only, so the next CMD24 is refused (0x0D, no further stream write) and reads still return the original bytes | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:302 |
+| SDP-IOERR-05 | host write error with the image gone (neither reopen works): the card ends unmounted, and a later mount() works and reads | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:335 |
+| SDP-SDW-01 | a journal append that really fails (RLIMIT_FSIZE) answers 0x0D, the file keeps its last whole length and the sector still reads its earlier content (SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:384 |
+| SDP-SDW-02 | a kept-file append that really fails (RLIMIT_FSIZE) returns false, FILE keeps its last whole length (no torn tail) and the earlier kept file is still the kept one | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:417 |
+| SDCOH-08 | a file renamed over the mounted image is reported as Replaced exactly once, and the card keeps reading the old file | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:450 |
+| SDCOH-11 | an image deleted while mounted is reported as Deleted exactly once, and the card keeps reading the open file | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:470 |
+| SDCOH-12 | with a writes file bound, a cp + mv replace of the image gives exactly one report (Replaced, no Rewritten), a replace by a file of another size exactly one (Replaced, no Resized), and a delete then a re-create exactly one (Deleted, no Replaced) | (SD SPI spec) | pass | test/sdcard/sdcard_posix_test.cpp:517 |
 
 ### Companion write-journal suite — `test/sdcard/sdcard_writes_test.cpp`
 

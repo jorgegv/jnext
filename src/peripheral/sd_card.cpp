@@ -148,7 +148,9 @@ bool SdCardDevice::mount(const std::string& path, bool read_only) {
 
 SdCardDevice::OutsideChange SdCardDevice::outside_change() {
     if (!mounted() || path_.empty()) return OutsideChange::None;
-    if (!latched_deleted_) {
+    // Once the path has been replaced or deleted it no longer names the machine's file: nothing it says is about that file.
+    if (latched_replaced_ || latched_deleted_) return OutsideChange::None;
+    {
         std::error_code dec;
         if (!std::filesystem::exists(path_, dec) && !dec) {
             latched_deleted_ = true;

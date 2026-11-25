@@ -485,7 +485,8 @@ int main(int argc, char** argv)
               has(rp, "replaced by another file") && has(rp, "lost when JNEXT exits") && !has(rp, "SD-writes file") &&
                   has(rw, "replaced by another file") && has(rw, "no longer fits the new image") && !has(rw, "lost when JNEXT exits") &&
                   has(dp, "was deleted") && has(dp, "lost when JNEXT exits") && !has(dp, "SD-writes file") &&
-                  has(dw, "was deleted") && has(dw, "cannot be used again without the image") && !has(dw, "lost when JNEXT exits"),
+                  has(dw, "was deleted") && has(dw, "cannot be used again without the image") && !has(dw, "lost when JNEXT exits") && !has(dw, "new image") &&
+                  !has(dp, "File Manager") && !has(dw, "File Manager") && has(rp, "File Manager"),
               rw + " | " + dw);
     }
     {

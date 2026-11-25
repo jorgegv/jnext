@@ -183,8 +183,9 @@ change in *FILE*, and an image changed underneath it no longer fits *FILE* (see
 Never **replace**, **delete** or **resize** the image file while it is in use (some tools write a new
 file and rename it over the old one; some change the card's size). The machine keeps
 the old file, and what it writes is lost when JNEXT exits (with a writes file, it goes into
-that file, which no longer fits the new image); a resized image keeps its old
-size. JNEXT warns once when it sees any of these, in any mode.
+that file, which no longer fits a replacement image, or cannot be used again without a deleted
+one); a resized image keeps its old size. JNEXT warns once when it sees any of these, in any
+mode, and says no more about that file after a replace or a delete.
 
 ## What it remembers
 

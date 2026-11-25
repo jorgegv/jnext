@@ -2324,8 +2324,10 @@ void MainWindow::card_file_changed(int slot, int kind, const QString& image, boo
     default:
         return;
     }
-    const QString text = tr("%1 image '%2' %3\n\nStop using this card, and change files on the card with File > SD Card File "
-                            "Manager instead (see the user guide, \"Changing the card from outside JNEXT\").")
+    const bool deleted = static_cast<SdCardDevice::OutsideChange>(kind) == SdCardDevice::OutsideChange::Deleted;
+    const QString text = (deleted ? tr("%1 image '%2' %3\n\nStop using this card.")
+                                  : tr("%1 image '%2' %3\n\nStop using this card, and change files on the card with File > SD Card File "
+                                       "Manager instead (see the user guide, \"Changing the card from outside JNEXT\")."))
                              .arg(card, QDir::toNativeSeparators(image), what);
     QTimer::singleShot(0, this, [this, text]() { QMessageBox::warning(this, tr("SD card image changed"), text); });
 }

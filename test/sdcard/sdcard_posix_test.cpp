@@ -17,6 +17,7 @@
 #include "../dac_caps_dropped.h"
 #include "../test_portable.h"
 
+#include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
@@ -470,6 +471,51 @@ int main() {
               !ec && fresh == SdCardDevice::OutsideChange::None && first == SdCardDevice::OutsideChange::Deleted &&
                   again == SdCardDevice::OutsideChange::None && still_old,
               std::to_string(static_cast<int>(first)) + std::to_string(static_cast<int>(again)) + (still_old ? "o" : "N"));
+    }
+
+    // SDCOH-12 (GH #558): once the path has been replaced or deleted it no longer names the machine's file, so nothing
+    // more is said about it: a cp + mv replace of a writes-file image (new time), a replace by a file of another size,
+    // and a delete followed by a re-create each give exactly ONE report over several polls.
+    {
+        auto events = [&](int arm) {
+            const std::string img = make_image(8);
+            sd_write_journal::Binding b;
+            b.bytes = std::filesystem::file_size(img);
+            b.sha256.fill(0x2B);
+            std::string why;
+            const bool bound = arm == 3 || sd_write_journal::bind(img, img + ".jsdw", b, false, why);
+            SdCardDevice sd;
+            sd.mount(img, false);
+            std::string seen;
+            auto poll = [&] {
+                for (int i = 0; i < 3; ++i) {
+                    const auto k = sd.outside_change();
+                    if (k != SdCardDevice::OutsideChange::None) seen += std::to_string(static_cast<int>(k));
+                }
+            };
+            std::error_code ec;
+            if (arm == 0 || arm == 1) {   // arm 0: same size, newer time (cp + mv); arm 1: another size
+                const std::string repl = make_image(arm == 0 ? 8 : 9);
+                std::filesystem::last_write_time(repl, std::filesystem::last_write_time(img, ec) + std::chrono::seconds(30), ec);
+                std::filesystem::rename(repl, img, ec);
+            } else {                      // arm 2: deleted, then a new file at the path
+                std::filesystem::remove(img, ec);
+                poll();
+                const std::string again = make_image(9);
+                std::filesystem::rename(again, img, ec);
+            }
+            poll();
+            sd.unmount();
+            sd_write_journal::forget_all_for_test();
+            std::remove(img.c_str());
+            std::remove((img + ".jsdw").c_str());
+            return bound ? seen : std::string("unbound");
+        };
+        const std::string cpmv = events(0), size = events(1), del = events(2);
+        const std::string R = std::to_string(static_cast<int>(SdCardDevice::OutsideChange::Replaced));
+        const std::string D = std::to_string(static_cast<int>(SdCardDevice::OutsideChange::Deleted));
+        check("SDCOH-12", "with a writes file bound, a cp + mv replace of the image gives exactly one report (Replaced, no Rewritten), a replace by a file of another size exactly one (Replaced, no Resized), and a delete then a re-create exactly one (Deleted, no Replaced)",
+              cpmv == R && size == R && del == D, cpmv + "|" + size + "|" + del);
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
