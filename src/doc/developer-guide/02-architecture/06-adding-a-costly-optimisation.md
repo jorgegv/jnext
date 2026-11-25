@@ -14,7 +14,8 @@ Measure the fixed cost on programs that do not use the optimisation (section 2).
   under every compiler that ships (gcc, and clang for the macOS and WebAssembly builds). It is always
   on and is not registered anywhere. The HALT batch and the Copper unmet-WAIT skip are free.
 - **Costly**: above that on any of them. It is registered (section 4) and off unless the user names it
-  with `--enable-costly-optimizations NAME[,NAME...]`.
+  with `--enable-costly-optimizations NAME[,NAME...]` (the flag is
+  not wired into the command line yet: section 4 says what exists).
 
 A user switch for a free optimisation has no use: the output is identical either way and only the host
 is slower, and the tests have their `_for_test` setter.
