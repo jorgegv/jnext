@@ -3117,11 +3117,9 @@ does not add a layer at all: it substitutes chunky pixels into the ULA's slot.
 All of it is under software control at scanline granularity, and through the
 Copper at a position <em>within</em> a scanline, which is what makes raster effects on
 this machine so much richer than on a 48K Spectrum.</p>
-<p>That makes video the largest of the FPGA core's hardware subsystems except the
-peripheral devices taken together (<code>src/peripheral/</code> holds a dozen) — about 12 100
-lines across eight modules in <code>src/video/</code> (<code>wc -l</code> over its non-test <code>.cpp</code> and <code>.h</code>
-files, 2026-11-25; the same count gives 14 800 for <code>src/peripheral/</code> and under 6 600
-for each of <code>cpu</code>, <code>memory</code>, <code>audio</code>, <code>port</code> and <code>input</code>), plus the part of <code>src/core/emulator.cpp</code> that
+<p>That makes video a large subsystem in JNEXT: about 12 100 lines across eight modules
+in <code>src/video/</code> (<code>wc -l</code> over its non-test <code>.cpp</code> and <code>.h</code> files, 2026-11-25), plus the part of
+<code>src/core/emulator.cpp</code> that
 feeds it. It produces exactly one artefact: a 640×256 ARGB8888 framebuffer,
 built one scanline at a time by <code>Renderer::render_frame</code> at the end of every
 emulated frame (see
