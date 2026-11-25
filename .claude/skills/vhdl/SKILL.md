@@ -18,6 +18,17 @@ Argument or implicit from user message:
 
 ## Steps
 
+0. **Pin the core first.** The oracle is the core pinned by `FPGA_CORE_REF` in jnext's `.github/workflows/ci.yml` (core 3.02.03). Read the sha there each time; never copy it into this skill. Which branch the FPGA checkout has does not matter, only its HEAD (owner, 2026-11-26). HEAD differs and the tree is clean → check the pin out detached; dirty → stop and report, never cite from it:
+
+```bash
+fpga=/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA
+ref=$(sed -n 's/^ *FPGA_CORE_REF: *\([0-9a-f]\{40\}\).*/\1/p' <jnext checkout>/.github/workflows/ci.yml)
+if [ "$(git -C "$fpga" rev-parse HEAD)" != "$ref" ]; then
+  if [ -z "$(git -C "$fpga" status --porcelain)" ]; then git -C "$fpga" checkout --detach "$ref"
+  else echo "FPGA checkout dirty and not on $ref: stop and report"; fi
+fi
+```
+
 1. If a known subsystem name, prefer reading the subsystem's file (`device/`, `video/` or `audio/`; MMU and NextREG are in `zxnext.vhd`) in full. Otherwise grep across all `.vhd` files for the pattern.
 
 2. For grep results, read **±30 lines** around each hit to capture the full process body.
