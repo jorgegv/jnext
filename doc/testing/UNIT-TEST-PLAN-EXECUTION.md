@@ -90,7 +90,8 @@ When an existing `*_test.cpp` file is full-rewritten from a plan (the Task 5
 Step 5 Phase 2 pattern), follow this recipe:
 
 1. **Isolate in a git worktree.** Create a fresh worktree under
-   `.claude/worktrees/` so the author can commit on a dedicated branch
+   `~/tmp/worktrees/jnext/<name>` (the `worktree-launch` skill; never inside
+   the repo) so the author can commit on a dedicated branch
    without risking main. Worktree isolation protects against absolute-path
    `cd` escapes (see `memory/feedback_agent_worktree_escape.md`).
 2. **Read the plan in full before touching code.** The plan is the
@@ -208,9 +209,9 @@ transform in `compute_ram_addr`"). On that branch:
 3. Run the affected subsystem test binary. Any newly-live rows either
    pass (fix is correct) or fail (fix is incomplete or has a new bug).
    Iterate on the emulator code, not the test.
-4. Run the full regression suite on real desktop (`bash test/regression.sh`
-   — sandbox has no graphics substrate; see
-   `memory/feedback_regression_refs.md`) before merging. No cross-
+4. Run the regression rows the fix touches
+   (`make regression-rows ROWS="<row> ..."`) before merging; the full suite
+   runs in the batch gate (CLAUDE.md merge protocol step 2). No cross-
    subsystem regressions allowed.
 5. Independent code review of both the C++ fix AND the newly-live tests,
    same rules as §4.
@@ -556,7 +557,7 @@ discrepancies bullets, Summary table totals line):
 A few operational rules that bit us during Phase 2 and are easy to forget:
 
 - **Always use absolute paths when cd'ing into worktrees from the main
-  session.** Relative `.claude/worktrees/agent-xxxxx` is ambiguous once
+  session.** A relative path to `~/tmp/worktrees/jnext/<name>` is ambiguous once
   the shell cwd changes mid-session.
 - **Sub-agents cannot run cmake, the test binary, or `regression.sh`.**
   The sandbox blocks them regardless of permission mode. Sub-agents write
@@ -568,14 +569,15 @@ A few operational rules that bit us during Phase 2 and are easy to forget:
   verify the path resolves inside the worktree, not the main checkout"
   clause. See `memory/feedback_agent_worktree_escape.md`.
 - **Prune worktrees after merge.** `git worktree remove --force
-  .claude/worktrees/agent-xxxxx` after the merge commit lands. Stale
+  ~/tmp/worktrees/jnext/<name>` after the merge commit lands. Stale
   worktrees accumulate build artifacts and confuse later `git worktree
   list` output. If the worktree contains submodules, `--force` is
   required.
 - **Regression always runs on real desktop.** The sandbox reports
   ~billions of pixel diffs on every screenshot test because it has no
-  graphics substrate. Ask the user to run `bash test/regression.sh`
-  before claiming a merge is safe.
+  graphics substrate. Ask the user to run the touched rows
+  (`make regression-rows ROWS="<row> ..."`) before claiming a merge is safe;
+  the full suite runs in the batch gate (CLAUDE.md merge protocol step 2).
 
 ## 8. The theatre pattern and why this process exists
 

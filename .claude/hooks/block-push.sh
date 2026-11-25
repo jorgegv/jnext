@@ -75,6 +75,10 @@ Exception: the standing authorization in CLAUDE.md's push rule (after a green,
 APPROVED merge + bump: push main and its new tags (all but the newest, then the newest alone), CI on main idle;
 push epic branches, never force). PRs and anything else stay per-message.
 
+Matching is textual: a mention in a grep, heredoc, echo or commit message
+blocks too. Write such text with the Write/Edit tools and search it with the
+Grep tool; never use the override for a command that does not push.
+
 If the user just said push/PR, or the push is inside that standing scope,
 prefix the command with:
     JNEXT_ALLOW_PUSH=1 <your command>
