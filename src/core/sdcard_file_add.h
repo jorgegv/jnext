@@ -117,7 +117,12 @@ bool same_image_file(const std::string& a, const std::string& b);
 /// partial file is removed — a truncated `DRV-A.DSK` is worse than no
 /// `DRV-A.DSK` — and so are the directories this call made for it.
 ///
-/// `err` always receives a one-sentence explanation on failure.
+/// `err` always receives a one-sentence explanation on failure.///
+/// `dest_is_bytes` (default false, the command line's behaviour): the destination path is CP437 BYTES the caller took
+/// from a listing of this card (the SD card file manager). PRECONDITION: every existing component of it is the
+/// `open_name` its listing gives for that entry (the spelling FatFs resolves to THAT entry); a component that
+/// FatFs resolves to a different entry than the one carrying that name is refused (DestInvalid), never written through.
+/// Control bytes and DEL are refused; bytes above 0x7E are accepted. The command line leaves it false and refuses them.
 FileAddStatus add_file_to_image(const std::string& image_path,
                                 const std::string& host_file,
                                 const std::string& dest_path,
@@ -205,6 +210,13 @@ struct AddSummary {
 /// and the cluster an existing directory grew by (FAT never shrinks one). A
 /// partial copy is never reported as success. A single file has the same
 /// contract (add_file_to_image()).
+///
+///
+/// `dest_is_bytes` (default false, the command line's behaviour): the destination path is CP437 BYTES the caller took
+/// from a listing of this card (the SD card file manager). PRECONDITION: every existing component of it is the
+/// `open_name` its listing gives for that entry (the spelling FatFs resolves to THAT entry); a component that
+/// FatFs resolves to a different entry than the one carrying that name is refused (DestInvalid), never written through.
+/// Control bytes and DEL are refused; bytes above 0x7E are accepted. The command line leaves it false and refuses them.
 ///
 /// `summary` (optional) is filled on success.
 FileAddStatus add_to_image(const std::string& image_path,

@@ -59,6 +59,10 @@ struct ExtractSummary {
 /// only control bytes are refused. The command line's strings are UTF-8 and cannot carry such a byte, so it refuses
 /// them with the advice to use the 8.3 name or the parent folder (and that advice has no answer when the 8.3 name
 /// itself holds a high byte: the parent folder is then the only route).
+/// PRECONDITION in that mode: every component of the path is the `open_name` its listing gives for that entry (the
+/// spelling FatFs resolves to THAT entry). A component FatFs resolves to a different entry than the listing's (a
+/// duplicate 8.3 name behind an earlier entry) is refused (SourceUnreadable) instead of extracting the other entry's
+/// bytes under this one's name. Control bytes and DEL are refused.
 FileAddStatus extract_from_image(const std::string& image_path, const std::string& card_path,
                                  const std::string& dest_dir, std::string& err,
                                  ExtractSummary* summary = nullptr, bool card_path_is_bytes = false);

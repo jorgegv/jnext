@@ -210,13 +210,27 @@ FileAddStatus extract_from_image(const std::string& image_path, const std::strin
             return St::ImageUnusable;
         }
         {
+            const auto stat_sect = fno.dir_sect;   // the directory slot f_stat resolved the typed name to
+            const auto stat_ofs = fno.dir_ofs;
             DIR dj{};
             if (f_opendir(&dj, parent == "0:" ? "0:/" : parent.c_str()) == FR_OK) {
                 const std::string want = fold(comps[i]);
                 for (;;) {
                     FILINFO e{};
                     if (f_readdir(&dj, &e) != FR_OK || e.fname[0] == 0) break;
-                    if (fold(e.fname) == want || fold(e.altname) == want) { fno = e; break; }
+                    if (fold(e.fname) == want || fold(e.altname) == want) {
+                        fno = e;
+                        // Bytes mode: the entry the LISTING names must be the entry FatFs opens. A name whose 8.3
+                        // conversion collides with an earlier entry's resolves to THAT entry (and its bytes would be
+                        // written under this one's name): refuse it.
+                        if (card_path_is_bytes && (e.dir_sect != stat_sect || e.dir_ofs != stat_ofs)) {
+                            f_closedir(&dj);
+                            err = "'" + shown_name(card_path) + "' names an entry FatFs resolves to a different one (a duplicate 8.3 "
+                                  "name in the directory); it is not extracted";
+                            return St::SourceUnreadable;
+                        }
+                        break;
+                    }
                 }
                 f_closedir(&dj);
             }

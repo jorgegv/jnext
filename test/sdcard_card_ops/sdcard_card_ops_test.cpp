@@ -1309,6 +1309,47 @@ int main() {
               e1 + " | " + e2 + " | " + e3 + " | DB=" + names_of(P, "/DB") + " DA=" + names_of(P, "/DA"));
     }
 
+    // SDOPS-58 (GH #558 K3): dest_is_bytes refuses a DEL (0x7F) component and a control byte, and creates nothing
+    {
+        const std::string P = tmp_name("addb7f") + ".img";
+        make_card(P, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS&, Pokes&) { return true; });
+        const std::string src = (host / "three.bin").string();
+        std::string e1, e2, e3;
+        const St del = sdcard::add_to_image(P, src, "/D\x7F/x.bin", false, e1, nullptr, true);
+        const St ctl = sdcard::add_to_image(P, src, "/D\x01/x.bin", false, e2, nullptr, true);
+        const St hi = sdcard::add_to_image(P, src, "/D\x82/x.bin", false, e3, nullptr, true);
+        check("SDOPS-58", "add_to_image with dest_is_bytes: a destination component holding DEL (0x7F) or a control byte is refused (DestInvalid, no folder made); a byte above 0x7E is accepted",
+              del == St::DestInvalid && e1.find("printable ASCII") != std::string::npos && ctl == St::DestInvalid && hi == St::Ok &&
+                  names_of(P, "/").find("D\x82") != std::string::npos && names_of(P, "/").find('\x7F') == std::string::npos,
+              e1 + " | " + e2 + " | " + e3 + " | root=" + names_of(P, "/"));
+    }
+    // SDOPS-59 (GH #558 N1): dest_is_bytes, a destination the listing cannot address (a long entry behind an earlier entry with the
+    // SAME 8.3 name: a folder, and a file) is refused by the engine, and neither the earlier folder nor the earlier file is touched
+    {
+        const std::string P = tmp_name("addbun") + ".img";
+        make_card(P, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& fsv, Pokes& pokes) {
+            if (f_mkdir("0:/DUPX") != FR_OK || f_mkdir("0:/DA") != FR_OK || f_mkdir("0:/DB") != FR_OK || !fat_write("0:/KEEP.BIN", kD1) ||
+                !fat_write("0:/OTHER.BIN", kD2))
+                return false;
+            hand_dir(fsv, dir_cluster("0:/DUPX"), 2,
+                     {{u"", "DER        ", 0x10, dir_cluster("0:/DA"), 0},
+                      {u"D\u0082R", "DER        ", 0x10, dir_cluster("0:/DB"), 0},
+                      {u"", "FIL     BIN", 0x20, file_cluster("0:/KEEP.BIN"), static_cast<uint32_t>(kD1.size())},
+                      {u"F\u0082L.BIN", "FIL     BIN", 0x20, file_cluster("0:/OTHER.BIN"), static_cast<uint32_t>(kD2.size())}},
+                     pokes);
+            return true;
+        });
+        const std::string src = (host / "three.bin").string();
+        std::string e1, e2, e3;
+        const St in_dir = sdcard::add_to_image(P, src, "/DUPX/D\x82R/y.bin", false, e1, nullptr, true);
+        const St on_file = sdcard::add_to_image(P, src, "/DUPX/F\x82L.BIN", true, e2, nullptr, true);
+        const St named = sdcard::add_to_image(P, src, "/DUPX/DER/z.bin", false, e3, nullptr, true);
+        check("SDOPS-59", "add_to_image with dest_is_bytes: a folder or a file FatFs resolves to an earlier entry (same 8.3 name) is refused (DestInvalid), the earlier folder and file keep their contents; the earlier folder by its own name still takes a file",
+              in_dir == St::DestInvalid && on_file == St::DestInvalid && e1.find("cannot address") != std::string::npos &&
+                  e2.find("cannot address") != std::string::npos && named == St::Ok && names_of(P, "/DA") == "z.bin" && names_of(P, "/DB").empty(),
+              e1 + " | " + e2 + " | " + e3 + " | DA=" + names_of(P, "/DA") + " DB=" + names_of(P, "/DB"));
+    }
+
     sd_write_journal::forget_all_for_test();
     std::error_code ec;
     fs::permissions(g_dir, fs::perms::owner_all, fs::perm_options::add, ec);
