@@ -1546,6 +1546,16 @@ int main(int argc, char** argv)
             return true;
         };
         Img a(G);
+        // a writes file is bound: the guest's writes go into it and the IMAGE does not change, so only the write generation
+        // can tell the pane (a plain image's time would move with every guest write)
+        const std::string jf45 = (fresh_dir("sw45") / "w.sdw").string();
+        {
+            sd_write_journal::Binding bd;
+            bd.bytes = fs::file_size(a.p);
+            bd.sha256.fill(0x45);
+            std::string why;
+            sd_write_journal::bind(a.p, jf45, bd, false, why);
+        }
         Rig rig;
         rig.emu.sd_card().mount(a.p, false);
         SdCardDevice& dev = rig.emu.sd_card();
@@ -1561,7 +1571,7 @@ int main(int argc, char** argv)
         bool wrote = !changed.empty();
         for (const auto& ch : changed) wrote = wrote && guest_write(dev, ch.first, ch.second);
         d.check_card_change();
-        const bool guest_arm = wrote && has(card_names(d), "GUEST.BIN") && d.card_reloads_for_test() == r0 + 1;
+        const bool guest_arm = wrote && has(card_names(d), "GUEST.BIN") && d.card_reloads_for_test() == r0 + 1 && sha_file(a.p) == sha_g;
         auto* view = child<QListView>(d, "card_view");
         const QModelIndexList sel = view->selectionModel()->selectedIndexes();
         const bool kept = sel.size() == 1 && sel.first().data().toString() == "FILE.BIN";    // still selected, by name
@@ -1586,6 +1596,7 @@ int main(int argc, char** argv)
         const bool gen_still = SdCardDevice::host_write_generation() == gen0;
         const int r2 = d2.card_reloads_for_test();
         d2.check_card_change();
+        sd_write_journal::forget_image(a.p);
         const bool outside_arm = !before_has && gen_still && has(card_names(d2), "GUEST.BIN") && d2.card_reloads_for_test() == r2 + 1;
         check("SDMW-45", "the card pane re-lists by itself when the guest writes (write generation) and when another program rewrites a plain image (size and time, no generation), keeps a selected entry selected by name, and a poll that finds nothing changed lists nothing",
               quiet && guest_arm && kept && settled && outside_arm,
