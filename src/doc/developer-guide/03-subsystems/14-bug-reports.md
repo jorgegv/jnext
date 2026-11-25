@@ -159,7 +159,7 @@ clone as `python3 -I`, and needs no jnext build and no card. It is not packaged.
 
 ## Tests
 
-`bug_view_test` (BV-01 to 19) builds reports in memory and runs the viewer as `python3 -I` in a child with an explicit minimal environment (`LANG=C`, `PATH=/usr/bin:/bin`, no `HOME`): refusals, every section, names and values from the report, the pictures byte for byte, memory present and absent, escaping, text mode, and hostile structure. `bug_report_ui_test` (BRUI-01 to 06) drives the real menu action and file dialog of an offscreen window. `bug_report_test` (rows BR-01 to BR-34) builds reports in memory from a no-card session
+`bug_view_test` (BV-01 to 19) builds reports in memory and runs the viewer as `python3 -I` in a child with an explicit minimal environment (`LANG=C`, `PATH=/usr/bin:/bin`, no `HOME`): refusals, every section, names and values from the report, the pictures byte for byte, memory present and absent, escaping, text mode, and hostile structure. `bug_report_ui_test` (BRUI-01 to 06) drives the real menu action and file dialog of an offscreen window. `bug_report_test` (rows BR-01 to BR-35) builds reports in memory from a no-card session
 and from a synthetic card with ROM files of a known pattern, and parses them with the
 container's reader. The two regression rows `bug-report-nosd-func` and
 `bug-report-card-func` run the real binary. The second one is the end-to-end check of the
