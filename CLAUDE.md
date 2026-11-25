@@ -182,9 +182,9 @@ The single authoritative protocol for landing any implemented change on `main`:
   - Bug Fixes
   - Internal JNEXT Development: new plans, enhancements to test results, big architectural changes or enhancements, etc.
   - Contributors in this release (owner decision 2026-10-04, from v1.1.0 on): a single `- ` bullet with a comma-separated list of the handles (`@handle`) of everyone other than the owner who CONTRIBUTED since the previous public release: opened an issue or PR, commented on one, reviewed a PR, or tested and reported back (owner, 2026-10-05: "they all contribute"). Every handle is written `@handle` whatever its origin (GitHub, a forum, elsewhere), with no note of where it comes from (owner, 2026-10-07: `@vmorilla, @MickeyG`). No per-person details. **A contributor is LISTED only if an issue they opened was closed between the previous public release and this one** (owner, 2026-11-17); someone who only commented, tested, or opened an issue still open is not listed. An issue filed for a forum requester counts as theirs. An issue counts for the release whose tagged commit contains its fix, not for the one whose window its close time falls in: issues are closed after the push, so a fix that shipped in the previous release earns no second mention. No listed contributor: the section is omitted.
-- Descriptions for each feature/fix should never be more than one line, and should be about 10-20 words maximum
+- Descriptions for each feature/fix should never be more than one line, and short: name the feature, not its mechanism or its flags (well under 20 words). Merge related features into one line; a coalesced line may run longer (owner, 2026-11-25)
 - Trivial fixes, syntax, reformats, documentation, project plan updates, etc. should not appear on the ChangeLog. Only significative features and fixes.
-- The file should only be updated when the user requests it
+- The file should only be updated when the user requests it, except in an autonomous run: each landed issue's line goes into `Unreleased` on `main` at landing (owner, 2026-11-18). Renaming `Unreleased` to a version stays the owner's.
 - The initial version (v0.91.0) should contains a short list of the current features at that time
 - If there are commits after the last tag, and the user requests a ChangeLog update, it should be updated up to the current date, and using "(current date)" as the version identifier in the ChangeLog
 - Don't be overly confident about features: never put an ongoing feature in the ChangeLog if it's still not tested or has known bugs
@@ -219,7 +219,7 @@ The single authoritative protocol for landing any implemented change on `main`:
 
 When the user asks to bump the version, follow these steps in order:
 
-1. Run all unit tests (`make unit-test`) and regression tests (`make regression`) — none must have any FAIL or SKIP. The regression is satisfied without a local run by `make regression-ci-check` (a green CI run on the same content key, checked before the bump) or `make regression-stamp-check` — see doc/RELEASE-PROTOCOL.md §7
+1. Run all unit tests (`make unit-test`, `make unit-test-sdl`), the FUSE suite and regression tests (`make regression`) — none must have any FAIL or SKIP. The regression is satisfied without a local run by `make regression-ci-check` (a green CI run on the same content key, checked before the bump) or `make regression-stamp-check` — see doc/RELEASE-PROTOCOL.md §7
 2. ~~Update the traceability matrix~~ — **no longer a manual step (GH #196).** It is generated and staleness-gated; `make unit-test` regenerates and fails if the committed copy differs. Commit the regenerated file if it changed.
 3. Update the unit test status report
 4. Update the DEVELOPMENT-SESSIONS document (`doc/DEVELOPMENT-SESSIONS.md`)
