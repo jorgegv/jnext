@@ -84,6 +84,9 @@ session as subsections.
   trainers on the running machine, what each status means, where a poke lands
   per machine, the value prompt, what is forgotten on a reset, and the script
   recipe for builds without the window. Added 2026-10-18 (GH #381).
+- **5.12 Bug reports** — saving one file with the state of the machine and of
+  JNEXT (File > Save Bug Report, `--bug-report`), what it holds and how to read
+  it. Added after the TOC was agreed.
 - **5.13 The SD card file manager** — the window that moves files between the
   card and a folder of the host: the panes, copy, move, rename, delete, read-only
   cards, the pause and the restart after a card change, and what it remembers.
