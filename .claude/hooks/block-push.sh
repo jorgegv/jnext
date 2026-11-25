@@ -71,9 +71,9 @@ merges on owned branches/worktrees are fine; git push, git push -u,
 git push --force, gh pr create, and any equivalent are all forbidden unless
 the user explicitly says 'push' or 'open a PR'."
 
-Exception: the standing authorization in CLAUDE.md's push rule (after a green,
-APPROVED merge + bump: push main and its new tags (all but the newest, then the newest alone), CI on main idle;
-push epic branches, never force). PRs and anything else stay per-message.
+Exception: the standing authorization in CLAUDE.md's push rule, exactly within
+the scope stated there (read it there; this message does not restate it).
+Anything outside it stays per-message.
 
 Matching is textual: a mention in a grep, heredoc, echo or commit message
 blocks too. Write such text with the Write/Edit tools and search it with the
