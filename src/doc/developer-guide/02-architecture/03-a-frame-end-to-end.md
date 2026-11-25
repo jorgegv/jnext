@@ -335,7 +335,7 @@ drain returned a stop). The early return still ticks the IM2 fabric for the
 slot (`finish_slot_interrupts()`), since the device cluster that normally does
 so is skipped.
 
-**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:12316`), the
+**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:12333`), the
 shared post-instruction cluster. Its order matters:
 
 ![The post-instruction device cluster, in order](../img/frame-device-cluster.svg)
