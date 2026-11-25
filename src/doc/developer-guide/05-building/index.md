@@ -52,7 +52,7 @@ never linked against.
 
 CMake does the actual building. Sitting on top of it is a **semantic
 Makefile**: every target carries a one-line description, so running `make` with
-no arguments prints all 69 of them. That listing is generated from the Makefile
+no arguments prints all of them (132 when this was counted, 2026-11-25). That listing is generated from the Makefile
 itself rather than maintained beside it, which is what stops it from drifting
 out of date. It is the authoritative catalogue of what you can build, and
 nothing in this chapter tries to replace it.
