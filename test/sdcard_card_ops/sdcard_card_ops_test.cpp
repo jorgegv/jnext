@@ -1340,14 +1340,15 @@ int main() {
             return true;
         });
         const std::string src = (host / "three.bin").string();
-        std::string e1, e2, e3;
+        std::string e1, e2, e3, e4;
+        const St as_tree = sdcard::add_to_image(P, (host / "T").string(), "/DUPX/D\x82R", false, e4, nullptr, true);
         const St in_dir = sdcard::add_to_image(P, src, "/DUPX/D\x82R/y.bin", false, e1, nullptr, true);
         const St on_file = sdcard::add_to_image(P, src, "/DUPX/F\x82L.BIN", true, e2, nullptr, true);
         const St named = sdcard::add_to_image(P, src, "/DUPX/DER/z.bin", false, e3, nullptr, true);
-        check("SDOPS-59", "add_to_image with dest_is_bytes: a folder or a file FatFs resolves to an earlier entry (same 8.3 name) is refused (DestInvalid), the earlier folder and file keep their contents; the earlier folder by its own name still takes a file",
-              in_dir == St::DestInvalid && on_file == St::DestInvalid && e1.find("cannot address") != std::string::npos &&
+        check("SDOPS-59", "add_to_image with dest_is_bytes: a folder (as a path, or as a copied tree) or a file FatFs resolves to an earlier entry (same 8.3 name) is refused (DestInvalid), the earlier folder and file keep their contents; the earlier folder by its own name still takes a file",
+              as_tree == St::DestInvalid && e4.find("cannot address") != std::string::npos && in_dir == St::DestInvalid && on_file == St::DestInvalid && e1.find("cannot address") != std::string::npos &&
                   e2.find("cannot address") != std::string::npos && named == St::Ok && names_of(P, "/DA") == "z.bin" && names_of(P, "/DB").empty(),
-              e1 + " | " + e2 + " | " + e3 + " | DA=" + names_of(P, "/DA") + " DB=" + names_of(P, "/DB"));
+              e1 + " | " + e2 + " | " + e3 + " | " + e4 + " | DA=" + names_of(P, "/DA") + " DB=" + names_of(P, "/DB"));
     }
 
     sd_write_journal::forget_all_for_test();
