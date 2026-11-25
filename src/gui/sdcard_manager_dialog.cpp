@@ -134,7 +134,15 @@ SdManagerDialog::SdManagerDialog(Emulator& emu, const sm::Remembered& remembered
 
     // Each pane is its folder's path over its list, and nothing else: the selector, the Read-only box and the note
     // are in the bottom row, so the two panes are the same size with their top and bottom edges aligned.
+    // a bold title over each pane says what it is
+    auto make_title = [this](const QString& text, const char* name) {
+        auto* t = new QLabel(QStringLiteral("<b>") + text.toHtmlEscaped() + QStringLiteral("</b>"));
+        t->setObjectName(QString::fromLatin1(name));
+        t->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        return t;
+    };
     auto* left = new QVBoxLayout;
+    left->addWidget(make_title(tr("SD Card"), "card_title"));
     left->addWidget(card_path_);
     left->addWidget(card_view_, 1);
 
@@ -165,6 +173,7 @@ SdManagerDialog::SdManagerDialog(Emulator& emu, const sm::Remembered& remembered
     host_view->dropped = [this](const QMimeData& m, bool shift) { drop_on_host(m, shift); };
 
     auto* right = new QVBoxLayout;
+    right->addWidget(make_title(tr("Host filesystem"), "host_title"));
     right->addWidget(host_path_);
     right->addWidget(host_view_, 1);
 
