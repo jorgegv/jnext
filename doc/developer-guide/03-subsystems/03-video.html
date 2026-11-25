@@ -3117,8 +3117,8 @@ does not add a layer at all: it substitutes chunky pixels into the ULA's slot.
 All of it is under software control at scanline granularity, and through the
 Copper at a position <em>within</em> a scanline, which is what makes raster effects on
 this machine so much richer than on a 48K Spectrum.</p>
-<p>That makes video the largest subsystem in JNEXT — about 10 200 lines across
-eight modules in <code>src/video/</code>, plus the part of <code>src/core/emulator.cpp</code> that
+<p>That makes video the largest single hardware subsystem in JNEXT — about 12 100
+lines (<code>wc -l</code>, 2026-11-25) across eight modules in <code>src/video/</code>, plus the part of <code>src/core/emulator.cpp</code> that
 feeds it. It produces exactly one artefact: a 640×256 ARGB8888 framebuffer,
 built one scanline at a time by <code>Renderer::render_frame</code> at the end of every
 emulated frame (see

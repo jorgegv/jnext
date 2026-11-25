@@ -3095,11 +3095,11 @@ that knowing the rule is usually faster than grepping.</p>
 </tr>
 <tr>
 <td><code>packaging/</code></td>
-<td>Everything that turns a build into a package: <code>rpm/</code>, <code>debian/</code>, <code>flatpak/</code>, <code>macos/</code>, <code>windows/</code>, the AppStream metadata in <code>assets/</code>, <code>gen-debian-changelog.sh</code>, and <code>sync-version.sh</code>, which does the part of a version bump that must be committed.</td>
+<td>Everything that turns a build into a package: <code>rpm/</code>, <code>debian/</code>, <code>flatpak/</code>, <code>macos/</code>, <code>windows/</code>, the AppStream metadata in <code>assets/</code>, <code>gen-debian-changelog.sh</code>, <code>web/</code> (the browser package and the Pages site scripts), <code>build-sdl3.sh</code>, <code>make-dist-tarball.sh</code>, <code>add-release.sh</code>, <code>licenses.list</code>, and <code>sync-version.sh</code>, which does the part of a version bump that must be committed.</td>
 </tr>
 <tr>
 <td><code>web/</code></td>
-<td>The browser build's JavaScript: <code>jnext_api.js.in</code> (the <code>jnext.mount()</code> API, configured with the version), <code>jnext-image.js</code> (the SD-card image download, cache and warm-start store), <code>jnext-touch-keyboard.js</code> (the on-screen keyboard) and <code>examples/</code> (the example pages, configured beside the build). The three scripts are linked into <code>jnext-&lt;version&gt;.js</code> (5.6).</td>
+<td>The browser build's JavaScript: <code>jnext_api.js.in</code> (the <code>jnext.mount()</code> API, configured with the version), <code>jnext-image.js</code> (the SD-card image download, cache and warm-start store), <code>jnext-touch-keyboard.js</code> (the on-screen keyboard), <code>jnext-widget.js.in</code> (the ready-made widget), <code>examples/</code> (the example pages) and <code>pages/</code> (the site index), configured beside the build. The first three scripts are linked into <code>jnext-&lt;version&gt;.js</code> (5.6).</td>
 </tr>
 <tr>
 <td><code>third_party/</code></td>
@@ -3107,7 +3107,7 @@ that knowing the rule is usually faster than grepping.</p>
 </tr>
 <tr>
 <td><code>tools/</code></td>
-<td>Developer utilities that are not part of the build: SD-image fixers, CSpect/DZRP differential-debugging helpers, profiler post-processing, the user-guide server, <code>crtshot</code> (one picture per CRT effect, for the user guide).</td>
+<td>Developer utilities that are not part of the build: SD-image fixers, CSpect/DZRP differential-debugging helpers, profiler post-processing, the user-guide server, <code>crtshot</code> (one picture per CRT effect, for the user guide), <code>docshot</code> (user-guide screenshots), <code>make-minimal-card</code> (builds the minimal SD-card image the tests use), <code>kloc-count.sh</code> (<code>make kloc-count</code>), <code>pgo-train.sh</code> and <code>pgo-build.sh</code> (the PGO build), and <code>web-debug-bridge</code>.</td>
 </tr>
 <tr>
 <td><code>roms/</code></td>
@@ -3115,7 +3115,7 @@ that knowing the rule is usually faster than grepping.</p>
 </tr>
 <tr>
 <td><code>cmake/</code></td>
-<td><code>GenerateVersion.cmake</code> — derives the version from <code>version.yaml</code>.</td>
+<td><code>GenerateVersion.cmake</code>, which derives the version from <code>version.yaml</code>, and <code>JnextPgo.cmake</code>, the profile-guided-optimisation modes of the release build (see 5.5).</td>
 </tr>
 <tr>
 <td><code>data/</code></td>
@@ -3236,7 +3236,7 @@ profiler — surround the emulation rather than being part of it.</p>
 </tr>
 <tr>
 <td><code>save/</code></td>
-<td>A CMake target that currently has no sources; the serialisation primitives it was meant to hold live in <code>core/saveable.h</code>.</td>
+<td>The <code>.jns</code> snapshot container (<code>jns_container.*</code>: a ZIP written with the project's own code over zlib) and the state description it carries (<code>state_desc*.h</code>/<code>.cpp</code>, <code>jns-schema-overlay.json</code>); the serialisation primitives themselves live in <code>core/saveable.h</code> (see 2.5).</td>
 </tr>
 </tbody>
 </table>

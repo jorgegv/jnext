@@ -3091,12 +3091,17 @@ anything the thread holds a pointer to is destroyed.</p>
   <code>Renderer</code>, which itself owns the <code>Ula</code> and <code>Lores</code>.</li>
 <li><strong>Audio</strong> — <code>Beeper</code>, <code>TurboSound</code>, <code>Dac</code>, <code>I2s</code>, <code>Mixer</code>.</li>
 <li><strong>Peripherals</strong> — <code>Copper</code>, <code>Ctc</code>, <code>Dma</code>, <code>SpiMaster</code>, <code>I2cController</code>,
-  <code>I2cRtc</code>, <code>Uart</code>, <code>DivMmc</code>, <code>Multiface</code>, <code>NmiSource</code>, <code>SdCardDevice</code>, and the
-  emulated ESP-01, which is off by default and therefore held behind a pointer.</li>
+  <code>I2cRtc</code>, <code>Uart</code>, <code>DivMmc</code>, <code>Multiface</code>, <code>NmiSource</code>, two <code>SdCardDevice</code>s (the
+  second socket is SPI index 1), and the devices that can sit on the UARTs:
+  the emulated ESP-01, the NextPi's <code>PiUartDevice</code> and the joystick-connector
+  serial source and link (<code>--joy-uart-rx</code>). Those are off by default and
+  therefore held behind pointers, and owned here so that a cold boot joins or
+  rebuilds them with the machine. The esxDOS host-filesystem layer
+  (<code>EsxdosHostFs</code>, <code>HostFileStreams</code>) and the extended-NEX host also live here.</li>
 <li><strong>Input</strong> — <code>Keyboard</code>, <code>Joystick</code>, <code>KempstonMouse</code>, <code>Md6ConnectorX2</code>,
   <code>MembraneStick</code>, <code>IoMode</code>, <code>EmuFnKeys</code>, <code>PhantomTypist</code>.</li>
 <li><strong>Host-facing state that is not machine state</strong> — <code>DebugState</code>, <code>TraceLog</code>,
-  <code>CallStack</code>, the tape loaders and the tape saver, the video and RZX
+  <code>CallStack</code>, the tape loaders (TAP, TZX, WAV), the tape saver and the tape recorder, the video and RZX
   recorders, the rewind ring, the profiler, and the 640 × 256 framebuffer.</li>
 </ul>
 <p>The snapshot loaders are a deliberate exception to all of that: <code>NexLoader</code>,

@@ -3096,7 +3096,7 @@ still running; this guide is a snapshot of where it has got to.</p>
 like eccentricity:</p>
 <ul>
 <li><strong>The conventions are written down, in unusual density.</strong> <code>CLAUDE.md</code> at the
-  repository root is close to five hundred lines of rules about branches,
+  repository root is close to eight hundred lines of rules about branches,
   tests, versioning, documentation and house style. A human contributor absorbs
   that sort of thing gradually and keeps it in their head; an assistant starts
   every session with none of it, so it has to exist as text and be re-read each
@@ -3114,9 +3114,14 @@ like eccentricity:</p>
   explains the mechanism; the motivation is this one. Generated content that
   nobody re-derives drifts silently, and a reader — human or otherwise —
   cannot tell drifted documentation from correct documentation.</li>
-<li><strong>The test apparatus is larger than the emulator.</strong> <code>src/</code> is around 86 000
-  lines of C and C++; <code>test/</code> is around 131 000 lines of tests, harness and
-  tooling. <a href="04-testing/index.html">Chapter 4</a> is about that machinery, and its
+<li><strong>The test apparatus is larger than the emulator.</strong> <code>src/</code> is around 134 000
+  lines of C++; <code>test/</code> is around 281 000 lines of C++ tests and harness code,
+  and the shell, Python, Perl and build files around them (tools, CI,
+  packaging) add about 79 000 more. These are code lines, blanks and comments
+  excluded, measured on 2026-11-25 at version 1.3.78 with <code>make kloc-count</code>
+  (<code>tools/kloc-count.sh</code>: <code>git ls-files</code> only, <code>*.cpp</code> and <code>*.h</code> under <code>src/</code>
+  and <code>test/</code>, third-party code and generated renders not counted; <code>make
+  kloc-count-detailed</code> gives every directory). <a href="04-testing/index.html">Chapter 4</a> is about that machinery, and its
   size is not accidental — it is the mechanism by which generated work gets
   accepted or rejected.</li>
 </ul>

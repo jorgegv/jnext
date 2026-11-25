@@ -3098,7 +3098,8 @@ can see, and the registry a costly one goes into.</p>
   under every compiler that ships (gcc, and clang for the macOS and WebAssembly builds). It is always
   on and is not registered anywhere. The HALT batch and the Copper unmet-WAIT skip are free.</li>
 <li><strong>Costly</strong>: above that on any of them. It is registered (section 4) and off unless the user names it
-  with <code>--enable-costly-optimizations NAME[,NAME...]</code>.</li>
+  with <code>--enable-costly-optimizations NAME[,NAME...]</code> (the flag is
+  not wired into the command line yet: section 4 says what exists).</li>
 </ul>
 <p>A user switch for a free optimisation has no use: the output is identical either way and only the host
 is slower, and the tests have their <code>_for_test</code> setter.</p>
