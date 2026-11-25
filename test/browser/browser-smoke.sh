@@ -8,7 +8,7 @@
 # (rows WBI-PW-01..09, the SD-card image and the warm start in the browser) and `api.mjs:34`
 # (rows WEBAPI-01..34, the JavaScript API: jnext.mount and its controller) and `files.mjs:20` (rows BOUT-01..20: the files JNEXT writes, listed and fetched by the page, against native runs) and `package.mjs:7`
 # (rows WEBPKG-BR-01..07: the extracted jnext-<ver>-web.zip of `make package-web`, served alone,
-# boots the example page), `card.mjs:42` (rows BCARD-01..21, 26..43 and 45..47: the card flow of the page, the poster, card.dirs and card source none), `card-errors.mjs:5` (rows BCARD-22..25 and 44: how the pick path words a refusal, no browser), `widget.mjs:17` (rows WIDGET-01..17: the ready-made widget and the
+# boots the example page), `card.mjs:42` (rows BCARD-01..21, 26..43 and 45..47: the card flow of the page, the poster, card.dirs and card source none), `card-errors.mjs:5` (rows BCARD-22..25 and 44: how the pick path words a refusal, no browser), `widget.mjs:32` (rows WIDGET-01..32: the ready-made widget and the
 # guide's two embedding snippets, run verbatim), `touch.mjs:17` (rows TKB-01..17: the on-screen keyboard
 # under touch-device emulation) and `writes.mjs:17` (rows WBW-01..22: the guest's writes
 # kept across page loads, against a native journal oracle), `snapshots.mjs:11` (rows BSN-01..11: .sna, .z80,
@@ -50,7 +50,7 @@ export LC_ALL=C LANG=C
 BUILD=${1:?usage: browser-smoke.sh <wasm-build-dir> [spec.mjs:EXPECTED ...]}
 shift
 # Longest first (the specs run in parallel, so the order is the schedule): wall times of the CI run 44897420688.
-SPECS=("crt.mjs:13" "api.mjs:34" "files.mjs:20" "smoke.mjs:35" "writes.mjs:22" "widget.mjs:17" "touch.mjs:17" "rzx.mjs:12" "card.mjs:42" "snapshots.mjs:11" "image.mjs:9" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "package.mjs:7" "../bench/web/bench-stats-test.mjs:12" "card-errors.mjs:5" "debug.mjs:30" "$@")
+SPECS=("crt.mjs:13" "api.mjs:34" "files.mjs:20" "smoke.mjs:35" "writes.mjs:22" "widget.mjs:32" "touch.mjs:17" "rzx.mjs:12" "card.mjs:42" "snapshots.mjs:11" "image.mjs:9" "nmi.mjs:4" "cardfile.mjs:6" "pages.mjs:5" "package.mjs:7" "../bench/web/bench-stats-test.mjs:12" "card-errors.mjs:5" "debug.mjs:30" "$@")
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)

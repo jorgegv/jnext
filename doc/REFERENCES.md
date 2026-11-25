@@ -124,3 +124,9 @@ Add the URL here **and** link to this file rather than pasting the URL again
 elsewhere. If a page's content is load-bearing for a decision, quote the
 essential part inline (as with the file-handle table above) so the project
 still has the fact if the page disappears.
+
+## The project
+
+| Reference | URL |
+|---|---|
+| The JNext project site, the target of the "JNext" attribution link of the web player (GH #563) | <https://www.jnext.es> |
