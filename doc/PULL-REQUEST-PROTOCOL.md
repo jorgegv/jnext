@@ -65,6 +65,8 @@ missing, in their own PR, without reading a review thread.
 - Tick only what is verified. Unticked items name what blocks the merge.
 - If the PR description cannot be edited, post the same checklist as a review
   comment and keep updating that comment.
+- An edit notifies nobody: after each checklist update, post a one-line
+  comment that links to it and @-mentions the contributor.
 
 Template (drop the flow that does not apply):
 
@@ -98,6 +100,15 @@ _Reviewed at commit `<sha>` on `<date>`. Verdict: **APPROVE / REJECT**._
 - Non-compliance is a **REJECT** with the failing rule cited; compliance is
   required before merge.
 - The checklist above is added or refreshed as part of every review.
+- **Small findings are fixed by the maintainers, not bounced** (owner,
+  2026-10-22). If a review of an otherwise compliant PR finds only small or
+  trivial items, the maintainers fix them on their own branch on top of the
+  contributor's head, review that fix like any change, and merge. REJECT with
+  the checklist only for substantial findings.
+- **Generated files are the maintainer's.** At merge, regenerate the
+  traceability matrix and `test/SUBSYSTEM-TESTS-STATUS.md` on the final head;
+  a contributor's copy, or a maintainer regeneration made on an earlier head,
+  is not used.
 - **Author agreement is implied by submission** (owner decision, 2026-07-24):
   a PR *is* a request to merge. Once the maintainer review is green (APPROVE,
   including any owner sign-offs this document requires), the PR is merged
