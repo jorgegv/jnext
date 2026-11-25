@@ -74,7 +74,7 @@ bool is_forbidden_name_char(char c) {
 // a message ("name 'x' in the destination path", "host name 'x'") and
 // `container` says where a bad character was found.
 bool check_fat_name(const std::string& c, const std::string& subject,
-                    const std::string& container, std::string& err) {
+                    const std::string& container, std::string& err, bool allow_high = false) {
     // FF_MAX_LFN is 255; a longer component cannot be stored at all.
     if (c.size() > FF_MAX_LFN) {
         err = subject + " is longer than " +
@@ -83,7 +83,8 @@ bool check_fat_name(const std::string& c, const std::string& subject,
     }
     for (char ch : c) {
         const unsigned char u = static_cast<unsigned char>(ch);
-        if (u < 0x20 || u > 0x7E) {
+        // allow_high: a component the caller took from a listing of this card (CP437 bytes, FatFs matches them natively).
+        if (allow_high ? (u < 0x20 || u == 0x7F) : (u < 0x20 || u > 0x7E)) {
             err = subject + " is not printable ASCII; jnext writes ASCII names only";
             return false;
         }
@@ -230,6 +231,12 @@ bool same_image_file(const std::string& a, const std::string& b) {
 bool normalize_dest_path(const std::string& dest_path,
                          std::string& fatfs_path_out,
                          std::string& err) {
+    return normalize_dest_path(dest_path, fatfs_path_out, err, false);
+}
+
+bool normalize_dest_path(const std::string& dest_path,
+                         std::string& fatfs_path_out,
+                         std::string& err, bool card_bytes) {
     fatfs_path_out.clear();
     const std::vector<std::string> parts = split_slash(dest_path);
     if (parts.empty()) {
@@ -244,7 +251,7 @@ bool normalize_dest_path(const std::string& dest_path,
             return false;
         }
         if (!check_fat_name(c, "name '" + c + "' in the destination path",
-                            "the destination path", err))
+                            "the destination path", err, card_bytes))
             return false;
         out += "/";
         out += c;
@@ -733,7 +740,7 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
                                const std::string& host_dir,
                                const std::string& dest_path,
                                bool overwrite, std::string& err,
-                               AddSummary* summary) {
+                               AddSummary* summary, bool dest_is_bytes = false) {
     namespace fs = std::filesystem;
 
     // ---- 1. the destination: a path, or "/" for the card root ---------------
@@ -742,7 +749,7 @@ FileAddStatus add_dir_to_image(const std::string& image_path,
     const std::vector<std::string> dest_parts = split_slash(dest_path);
     if (!dest_parts.empty()) {
         std::string unused;
-        if (!normalize_dest_path(dest_path, unused, err))
+        if (!normalize_dest_path(dest_path, unused, err, dest_is_bytes))
             return FileAddStatus::DestInvalid;
     }
 
@@ -1084,7 +1091,7 @@ FileAddStatus add_file_to_image(const std::string& image_path,
                                 const std::string& host_file,
                                 const std::string& dest_path,
                                 bool overwrite,
-                                std::string& err) {
+                                std::string& err, bool dest_is_bytes) {
     err.clear();
 
     // ---- 1. the source -----------------------------------------------------
@@ -1134,7 +1141,7 @@ FileAddStatus add_file_to_image(const std::string& image_path,
 
     // ---- 2. the destination path ------------------------------------------
     std::string fat_path;
-    if (!normalize_dest_path(dest_path, fat_path, err))
+    if (!normalize_dest_path(dest_path, fat_path, err, dest_is_bytes))
         return FileAddStatus::DestInvalid;
 
     // ---- 3. the image ------------------------------------------------------
@@ -1273,7 +1280,7 @@ FileAddStatus add_to_image(const std::string& image_path,
                            const std::string& dest_path,
                            bool overwrite,
                            std::string& err,
-                           AddSummary* summary) {
+                           AddSummary* summary, bool dest_is_bytes) {
     namespace fs = std::filesystem;
     err.clear();
 
@@ -1302,7 +1309,7 @@ FileAddStatus add_to_image(const std::string& image_path,
             return FileAddStatus::SourceUnreadable;
         }
         const FileAddStatus st =
-            add_file_to_image(image_path, host_path, dest, overwrite, err);
+            add_file_to_image(image_path, host_path, dest, overwrite, err, dest_is_bytes);
         if (st == FileAddStatus::Ok && summary) {
             *summary = AddSummary{};
             summary->dest  = dest;
@@ -1312,7 +1319,7 @@ FileAddStatus add_to_image(const std::string& image_path,
         return st;
     }
     return add_dir_to_image(image_path, host_path, dest, overwrite, err,
-                            summary);
+                            summary, dest_is_bytes);
 }
 
 }  // namespace sdcard

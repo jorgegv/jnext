@@ -83,6 +83,11 @@ const char* file_add_status_name(FileAddStatus s);
 bool normalize_dest_path(const std::string& dest_path,
                          std::string& fatfs_path_out,
                          std::string& err);
+/// The same, with `card_bytes`: the components are CP437 BYTES taken from a listing of the card (the SD card file
+/// manager), so a byte above 0x7E is accepted (control bytes, the FAT-forbidden characters and the rest are still refused).
+bool normalize_dest_path(const std::string& dest_path,
+                         std::string& fatfs_path_out,
+                         std::string& err, bool card_bytes);
 
 /// Do `a` and `b` name the same image file?
 ///
@@ -117,7 +122,7 @@ FileAddStatus add_file_to_image(const std::string& image_path,
                                 const std::string& host_file,
                                 const std::string& dest_path,
                                 bool overwrite,
-                                std::string& err);
+                                std::string& err, bool dest_is_bytes = false);
 
 /// The `--sdcard-file-add` / `--sdcard-file-dest` pairing rule (GH #292).
 ///
@@ -207,7 +212,7 @@ FileAddStatus add_to_image(const std::string& image_path,
                            const std::string& dest_path,
                            bool overwrite,
                            std::string& err,
-                           AddSummary* summary = nullptr);
+                           AddSummary* summary = nullptr, bool dest_is_bytes = false);
 
 /// The partition geometry FatFs needs to present `image_path`'s volume: the first FAT32-LBA
 /// partition's start sector and its sector count. False, with a one-sentence `err`, for a

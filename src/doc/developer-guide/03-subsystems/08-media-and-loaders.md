@@ -2111,7 +2111,7 @@ anything that opens a host file and keeps it open, or appends to it again by pat
 the manager adds what only the configuration knows: each slot's configured image (an ejected card 0 keeps its path), the NEX
 a read overlay serves, the loaded TAP, TZX and WAV and the esxDOS root. Each of them, and any folder holding one, is refused as
 a copy or move source, as a Replace target and as a delete target, by file identity, whichever slot the pane shows. The host side of a delete or a Replace goes to the trash through a
-hook; there is no permanent fallback. Rows: `SDMS-01..12`, `SDMT-01..35`, `SDMR-01..05` (`sdcard_manager_test`).
+hook; there is no permanent fallback. Rows: `SDMS-01..12`, `SDMT-01..36`, `SDMR-01..05` (`sdcard_manager_test`).
 
 `resolve_remembered()` is what the window opens on, and the emulator wins over the remembered state: the remembered
 card's slot if it is mounted, otherwise the first mounted slot; the remembered card directory only on the remembered card,
@@ -2123,14 +2123,14 @@ directory, then home, and ignores a value that is relative, holds a NUL or (Wind
 (`src/gui/sdcard_card_model.*`) are a view over the logic above and decide nothing. The card pane is a `QListView` on
 `SdCardModel`: one directory as `cardops::list_dir` gives it, shown through `display_name`, every path it hands out built from
 an entry's `open_name` (an entry without one is shown and never acted on), and a drag payload whose lines are `%XX`-escaped
-so a name with a newline, a percent or a high byte survives. A card path is BYTES (code page 437) and a `QString` is Unicode, so every card path that crosses into Qt is carried as Latin-1 (`SdCardModel::card_text` / `card_bytes`, one code point per byte, lossless both ways) and the stored `card_dir` is the `%XX` escape of those bytes; host paths are UTF-8 and display strings are escaped ASCII. The host pane is a `QListView` on a read-only `QFileSystemModel`. Every operation first re-reads
+so a name with a newline, a percent or a high byte survives. A card path is BYTES (code page 437) and a `QString` is Unicode, so every card path that crosses into Qt is carried as Latin-1 (`SdCardModel::card_text` / `card_bytes`, one code point per byte, lossless both ways) and the stored `card_dir` is the `%XX` escape of those bytes; host paths are UTF-8 and display strings are escaped ASCII. The copy engines take that verified path as bytes (`card_path_is_bytes` of `extract_from_image`, `dest_is_bytes` of `add_to_image`; FatFs matches CP437 bytes natively), so no 8.3 alias is ever substituted: an alias can resolve to ANOTHER entry on a card with a duplicate short name. The command line keeps refusing a byte above 0x7E. The host pane is a `QListView` on a read-only `QFileSystemModel`. Every operation first re-reads
 `card_slots()` and `held_host_files()`: the card in the slot may have changed under the window, a recording may have started.
 A change while the window is open (polled by a timer, and checked before each operation) resets the card pane to the new
 card's ROOT, because the emulator wins over any remembered or shown state. The three remembered values are
 `sdcard_manager.card`, `sdcard_manager.card_dir` (stored `%XX`-escaped) and `sdcard_manager.host_dir`, plain `AppConfig`
 fields, settable with `--set` like `paths.last_load_dir`; they are read back only through `resolve_remembered()`, which checks
 them. The message boxes, the text prompts and the trash go through hooks the tests replace (`set_box_hook_for_test`,
-`set_text_hook_for_test`, `set_trash_hook_for_test`); a headless session has no trash. Rows: `SDMW-01..29`
+`set_text_hook_for_test`, `set_trash_hook_for_test`); a headless session has no trash. Rows: `SDMW-01..32`
 (`sdcard_manager_window_test`, offscreen), `AC-104..106` (`app_config_test`).
 
 **The glue caches sectors.** FatFs keeps one sector window per volume, so every path lookup

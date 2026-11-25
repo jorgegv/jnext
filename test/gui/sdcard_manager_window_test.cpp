@@ -1157,6 +1157,60 @@ int main(int argc, char** argv)
               b.texts.empty() ? std::string("no text") : b.texts.back());
         rig.session.close(rig.emu);
     }
+    // SDMW-30
+    {
+        // '< Copy' INTO a folder named with a code page 437 byte (the destination site carries bytes too)
+        const std::string K = tmp_name("cp437") + ".img";
+        make_card(K, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, populate_cp437);
+        Rig rig;
+        rig.emu.sd_card().mount(K, false);
+        rig.open();
+        Boxes b;
+        SdManagerDialog d(rig.emu, rig.session, sm::Remembered{K, sm::encode_card_dir("/D\x82R"), (host).string()}, QString::fromStdString(host.string()));
+        wire(d, b);
+        const bool inside = SdCardModel::card_bytes(d.card_dir()) == "/D\x82R";
+        select_host(d, {(host / "h1.bin").string()});
+        child<QPushButton>(d, "copy_to_card")->click();
+        check("SDMW-30", "'< Copy' into a folder named with a code page 437 byte puts the file in that folder",
+              inside && on_card(K, "/D\x82R/h1.bin") && !on_card(K, "/h1.bin") && has(card_names(d), "h1.bin"),
+              b.texts.empty() ? std::string("no box") : b.texts.back());
+        rig.session.close(rig.emu);
+    }
+    // SDMW-31
+    {
+        // New Folder INSIDE a folder named with a code page 437 byte
+        const std::string K = tmp_name("cp437") + ".img";
+        make_card(K, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, populate_cp437);
+        Rig rig;
+        rig.emu.sd_card().mount(K, false);
+        rig.open();
+        Boxes b;
+        SdManagerDialog d(rig.emu, rig.session, sm::Remembered{K, sm::encode_card_dir("/D\x82R"), {}}, QString::fromStdString(host.string()));
+        wire(d, b);
+        b.say(QStringLiteral("SUB"));
+        d.findChild<QAction*>("card_new_folder")->trigger();
+        check("SDMW-31", "New Folder inside a folder named with a code page 437 byte creates it there",
+              on_card(K, "/D\x82R/SUB") && !on_card(K, "/SUB") && has(card_names(d), "SUB"),
+              b.texts.empty() ? std::string("no box") : b.texts.back());
+        rig.session.close(rig.emu);
+    }
+    // SDMW-32
+    {
+        // a drop INTO a folder named with a code page 437 byte
+        const std::string K = tmp_name("cp437") + ".img";
+        make_card(K, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, populate_cp437);
+        Rig rig;
+        rig.emu.sd_card().mount(K, false);
+        rig.open();
+        Boxes b;
+        SdManagerDialog d(rig.emu, rig.session, sm::Remembered{K, sm::encode_card_dir("/D\x82R"), {}}, QString::fromStdString(host.string()));
+        wire(d, b);
+        std::unique_ptr<QMimeData> m(uri_list({(host / "h2.bin").string()}));
+        const bool ok = d.drop_on_card(*m, false);
+        check("SDMW-32", "a drop of host files into a folder named with a code page 437 byte copies them into that folder",
+              ok && on_card(K, "/D\x82R/h2.bin") && !on_card(K, "/h2.bin"), b.texts.empty() ? std::string("no box") : b.texts.back());
+        rig.session.close(rig.emu);
+    }
     check("SDMW-18", "the fixture cards are real volumes of the types the rows claim (FAT32 partitioned, FAT16 partitioned)", gt == FS_FAT32 && t16 == FS_FAT16);
     sd_write_journal::forget_all_for_test();
     std::error_code ec;

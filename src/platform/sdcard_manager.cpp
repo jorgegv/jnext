@@ -152,20 +152,15 @@ std::string host_leaf(const std::string& source) {
 // entry found is the one whose stored name is on the card, whatever spelling the caller believes it has,
 // and a spelling FatFs would resolve to ANOTHER entry (a typed long name with a trailing dot, a name an
 // earlier entry shadows, ".." or "." or a backslash: no listing gives those as an open_name) finds nothing. `canonical` receives the path spelt with
-// the entries' own open_names; every engine call is made with it, never with the caller's string.
-// `ascii` receives the same path with each component that holds a byte outside printable ASCII spelt by its 8.3
-// alias instead: the copy engines (add_to_image, extract_from_image) take printable-ASCII card paths only (their
-// strings are UTF-8 command-line arguments, which cannot carry a code page 437 byte), and an alias opens the same
-// entry (short names are unique in a directory).
+// the entries' own open_names; every engine call is made with it, never with the caller's string. The copy engines
+// take it as CP437 BYTES (their `card_path_is_bytes` / `dest_is_bytes` parameter): FatFs matches those bytes natively,
+// and no alias is substituted (an alias can resolve to ANOTHER entry on a card with a duplicate short name).
 // Not found: SourceUnreadable; not a card path or a file in the middle: DestInvalid. The root (no
 // components) is Ok with `last` untouched.
 FileAddStatus walk_card(const std::string& image, const std::string& path, ops::CardEntry* last,
-                        std::string* canonical, std::string& err, std::string* ascii = nullptr) {
+                        std::string* canonical, std::string& err) {
     const std::vector<std::string> comps = components(path);
-    std::string at = "/", at_ascii = "/";
-    auto printable = [](const std::string& s) {
-        return std::all_of(s.begin(), s.end(), [](unsigned char ch) { return ch >= 0x20 && ch <= 0x7E; });
-    };
+    std::string at = "/";
     for (size_t i = 0; i < comps.size(); ++i) {
         std::vector<ops::CardEntry> list;
         const FileAddStatus st = ops::list_dir(image, at, list, err);
@@ -186,29 +181,26 @@ FileAddStatus walk_card(const std::string& image, const std::string& path, ops::
             return FileAddStatus::DestInvalid;
         }
         at = card_child(at, hit->open_name);
-        at_ascii = card_child(at_ascii, printable(hit->open_name) || hit->altname.empty() ? hit->open_name : hit->altname);
         if (i + 1 == comps.size() && last) *last = *hit;
     }
     if (canonical) *canonical = at;
-    if (ascii) *ascii = at_ascii;
     return FileAddStatus::Ok;
 }
 
 // The listed entry a card path names (not the root), and the path spelt with its open_names.
 FileAddStatus find_card_entry(const std::string& image, const std::string& path, ops::CardEntry& out,
-                              std::string& canonical, std::string& ascii, std::string& err) {
+                              std::string& canonical, std::string& err) {
     if (components(path).empty()) {
         err = "the card root cannot be copied as an item";
         return FileAddStatus::DestInvalid;
     }
-    return walk_card(image, path, &out, &canonical, err, &ascii);
+    return walk_card(image, path, &out, &canonical, err);
 }
 
 // A card directory that exists now (the root always does), as a canonical path.
-bool card_dir_exists(const std::string& image, const std::string& dir, std::string& canonical, std::string& ascii,
-                     std::string& err) {
+bool card_dir_exists(const std::string& image, const std::string& dir, std::string& canonical, std::string& err) {
     ops::CardEntry e;
-    if (walk_card(image, dir, &e, &canonical, err, &ascii) != FileAddStatus::Ok) return false;
+    if (walk_card(image, dir, &e, &canonical, err) != FileAddStatus::Ok) return false;
     if (!components(dir).empty() && !e.dir) {
         err = "'" + dir + "' is not a folder on the card";
         return false;
@@ -450,7 +442,6 @@ struct Ctx {
     TransferHooks& h;
     TransferReport& rep;
     std::string card_dest_dir;   // host to card: the destination directory, spelt with the card's own names
-    std::string card_dest_ascii; // the same, each non-ASCII component by its 8.3 alias (what the copy engine takes)
     std::vector<std::string> held;   // host files the machine holds (request's plus the image)
     bool replace_all = false, skip_all = false;
 };
@@ -478,9 +469,10 @@ ItemOutcome host_to_card(Ctx& c, const TransferItem& it, const std::string& labe
                        "recording...); it is not copied");
         return ItemOutcome::Failed;
     }
-    const std::string dest = card_child(c.card_dest_ascii, name);
+    const std::string dest = card_child(c.card_dest_dir, name);
     std::string fat, err;
-    if (!sdcard::normalize_dest_path(dest, fat, err)) {
+    // The NEW name (from the host) must pass the strict rules; the folder part is verified card bytes.
+    if (!sdcard::normalize_dest_path(name, fat, err) || !sdcard::normalize_dest_path(dest, fat, err, true)) {
         fail(c, label, err);
         return ItemOutcome::Failed;
     }
@@ -535,7 +527,7 @@ ItemOutcome host_to_card(Ctx& c, const TransferItem& it, const std::string& labe
         }
     }
     if (!gate(c.h, c.rep)) return ItemOutcome::Cancelled;
-    const FileAddStatus st = sdcard::add_to_image(c.r.image, it.source, dest, overwrite, err);
+    const FileAddStatus st = sdcard::add_to_image(c.r.image, it.source, dest, overwrite, err, nullptr, true);
     if (st != FileAddStatus::Ok) {
         fail(c, label, err);
         return ItemOutcome::Failed;
@@ -554,8 +546,8 @@ ItemOutcome host_to_card(Ctx& c, const TransferItem& it, const std::string& labe
 // One card item onto the host.
 ItemOutcome card_to_host(Ctx& c, const TransferItem& it, const std::string& label) {
     ops::CardEntry entry;
-    std::string err, canon, canon_ascii;
-    if (find_card_entry(c.r.image, it.source, entry, canon, canon_ascii, err) != FileAddStatus::Ok) {
+    std::string err, canon;
+    if (find_card_entry(c.r.image, it.source, entry, canon, err) != FileAddStatus::Ok) {
         fail(c, label, err);
         return ItemOutcome::Failed;
     }
@@ -591,7 +583,7 @@ ItemOutcome card_to_host(Ctx& c, const TransferItem& it, const std::string& labe
         }
         trashed_old = true;
     }
-    const FileAddStatus st = sdcard::extract_from_image(c.r.image, canon_ascii, c.r.dest_dir, err);
+    const FileAddStatus st = sdcard::extract_from_image(c.r.image, canon, c.r.dest_dir, err, nullptr, true);
     if (st != FileAddStatus::Ok) {
         fail(c, label, trashed_old ? err + "; the existing '" + target.string() + "' was already sent to the trash (restore it from there)"
                                    : err);
@@ -630,10 +622,10 @@ TransferReport run_transfer(const TransferRequest& r, TransferHooks& h) {
         std::string why;
         if (!card_writable_now(r.image, r.card_read_only_reason, why)) return refuse(labels, why);
     }
-    std::string card_dest, card_dest_ascii;
+    std::string card_dest;
     if (r.from == Side::Host) {
         std::string err;
-        if (!card_dir_exists(r.image, r.dest_dir, card_dest, card_dest_ascii, err))
+        if (!card_dir_exists(r.image, r.dest_dir, card_dest, err))
             return refuse(labels, err.empty() ? "the destination folder is not on the card" : err);
     }
 
@@ -641,7 +633,7 @@ TransferReport run_transfer(const TransferRequest& r, TransferHooks& h) {
     TransferReport rep;
     for (size_t i = 0; i < r.items.size(); ++i)
         if (skip_flags[i]) rep.skipped.push_back(labels[i] + " (already covered by another selected item)");
-    Ctx c{r, h, rep, card_dest, card_dest_ascii, r.held_files};
+    Ctx c{r, h, rep, card_dest, r.held_files};
     c.held.push_back(r.image);
     for (size_t i = 0; i < r.items.size(); ++i) {
         if (skip_flags[i]) continue;
@@ -741,8 +733,7 @@ TransferReport make_folder(Side side, const std::string& image, const std::strin
         // The destination directory must exist now: make_dir refuses a missing one, but the gate (and so
         // the reset) must not be taken for nothing.
         std::string err, fat, cdir;
-        std::string cdir_ascii;
-        if (!card_dir_exists(image, dir, cdir, cdir_ascii, err)) return failed(err);
+        if (!card_dir_exists(image, dir, cdir, err)) return failed(err);
         // The refusals make_dir would make anyway are made here, before the gate: a refused New Folder must
         // not cost the user the warning, and must not mark the card as changed (that ends in a reset).
         if (name.find('/') != std::string::npos || !sdcard::normalize_dest_path(name, fat, err)) {
@@ -839,8 +830,7 @@ std::string existing_dir_at_or_above(const std::string& s) {
 std::string verified_card_dir(const std::string& image, const std::string& stored) {
     const std::string decoded = decode_card_dir(stored);
     std::string canonical, err;
-    std::string ascii_unused;
-    if (!card_dir_exists(image, decoded, canonical, ascii_unused, err)) return "/";
+    if (!card_dir_exists(image, decoded, canonical, err)) return "/";
     return canonical;
 }
 

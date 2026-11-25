@@ -186,6 +186,27 @@ Bytes tiny_wav() {
 Bytes tiny_tzx() { return Bytes{'Z', 'X', 'T', 'a', 'p', 'e', '!', 0x1A, 1, 20, 0x20, 0xE8, 0x03}; }
 
 // A private copy of a master card, removed when the block ends.
+// GH #558 (S3 review): names with code page 437 bytes and the damaged-directory cases that go with them. /DUPS: a short-only
+// DER.BIN (D1) and a LONG "D<0x82> a long name.bin" (D2) whose 8.3 name is the SAME; /DUPD: the same with folders /DA and /DB;
+// /SFNO: a short-only X<0x90>Y.BIN (no long name, a high byte in the 8.3 name); /D<0x82>R: a folder.
+bool populate_bytes(FATFS& fsv, Pokes& pokes)
+{
+    if (f_mkdir("0:/DATA") != FR_OK || f_mkdir("0:/DUPS") != FR_OK || f_mkdir("0:/SFNO") != FR_OK || f_mkdir("0:/DUPD") != FR_OK ||
+        f_mkdir("0:/DA") != FR_OK || f_mkdir("0:/DB") != FR_OK || f_mkdir("0:/D\x82R") != FR_OK || !fat_write("0:/DATA/D1.BIN", kD1) ||
+        !fat_write("0:/DATA/D2.BIN", kD2))
+        return false;
+    const uint32_t c1 = file_cluster("0:/DATA/D1.BIN"), c2 = file_cluster("0:/DATA/D2.BIN");
+    hand_dir(fsv, dir_cluster("0:/DUPS"), 2,
+             {{u"", "DER     BIN", 0x20, c1, static_cast<uint32_t>(kD1.size())},
+              {u"D\u00E9 a long name.bin", "DER     BIN", 0x20, c2, static_cast<uint32_t>(kD2.size())}},
+             pokes);
+    hand_dir(fsv, dir_cluster("0:/SFNO"), 2, {{u"", std::string("X\x90Y     BIN"), 0x20, c2, static_cast<uint32_t>(kD2.size())}}, pokes);
+    hand_dir(fsv, dir_cluster("0:/DUPD"), 2,
+             {{u"", "DER        ", 0x10, dir_cluster("0:/DA"), 0}, {u"D\u00E9 a long folder", "DER        ", 0x10, dir_cluster("0:/DB"), 0}},
+             pokes);
+    return c1 != 0 && c2 != 0;
+}
+
 struct Img {
     std::string p;
     explicit Img(const std::string& master) {
@@ -852,6 +873,36 @@ int main() {
                              hk2.count("gate") == 0 && !r2.card_write_attempted;
         check("SDMT-10", "delete_items: the card removes each path permanently through the gate and stops at the first refusal naming the read-only entry; the host sends each to the trash and stops at a failure",
               card_ok && host_ok, rep_str(r) + " | " + rep_str(r2));
+    }
+    // SDMT-36
+    {
+        // F1a / F1b through the manager: the entry NAMED is the one acted on (a duplicate 8.3 name on the card, a short-only high-byte
+        // name), copying off the card and onto it
+        const std::string H = tmp_name("bytes") + ".img";
+        const int ht = make_card(H, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, populate_bytes);
+        Img c(H);
+        Hk hk;
+        sm::TransferHooks h = hk.hooks();
+        const fs::path out = fresh_dir("bytes-out");
+        const sm::TransferReport r1 = sm::run_transfer(card_req(c.p, out.string(), {"/DUPS/D\x82 a long name.bin"}), h);
+        const sm::TransferReport r2 = sm::run_transfer(card_req(c.p, out.string(), {"/SFNO/X\x90Y.BIN", "/DUPS/DER.BIN"}), h);
+        const Tree got = tree_of(out);
+        const bool off = r1.done.size() == 1 && r2.done.size() == 2 && got.size() == 3 && got.count("D%82 a long name.bin") &&
+                         got.at("D%82 a long name.bin") == kD2 && got.at("X%90Y.BIN") == kD2 && got.at("DER.BIN") == kD1;
+        const fs::path hf = fresh_dir("bytes-host");
+        write_host_file(hf / "one.bin", kOne);
+        write_host_file(hf / "two.bin", kTwo);
+        const sm::TransferReport r3 = sm::run_transfer(host_req(c.p, "/DUPD/D\x82 a long folder", {hf / "one.bin"}), h);
+        const sm::TransferReport r4 = sm::run_transfer(host_req(c.p, "/D\x82R", {hf / "two.bin"}), h);
+        auto names_in = [&](const std::string& dir) {
+            std::string n;
+            for (const auto& e : ls(c.p, dir)) n += (n.empty() ? "" : ",") + e.name;
+            return n;
+        };
+        const bool on = r3.done.size() == 1 && r4.done.size() == 1 && names_in("/DB") == "one.bin" && names_in("/DA").empty() &&
+                        names_in("/D\x82R") == "two.bin";
+        check("SDMT-36", "a card entry whose 8.3 name duplicates an earlier one's, and a short-only high-byte name, are copied off the card as THEMSELVES (the other entry keeps its bytes); a copy into a long-named folder with a duplicate 8.3 name lands in THAT folder, and into a CP437-named folder",
+              ht == FS_FAT32 && off && on, rep_str(r1) + " | " + rep_str(r2) + " | " + rep_str(r3) + " | " + rep_str(r4));
     }
     // SDMT-14
     {

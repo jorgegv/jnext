@@ -1284,6 +1284,31 @@ int main() {
         fs::remove(R16, ec);
     }
 
+    // SDOPS-57 (GH #558): add_to_image with the destination as CP437 BYTES (dest_is_bytes): into a folder named with a high byte,
+    // and into a long-named folder whose 8.3 name DUPLICATES an earlier folder's (/DA and /DB): the file lands in the folder
+    // NAMED, never in the other; the command line's behaviour is unchanged (a byte above 0x7E is refused).
+    {
+        const std::string P = tmp_name("addb") + ".img";
+        make_card(P, kLba, kFat32Sectors, FM_FAT32, 512, 0, 0x0C, [&](FATFS& fsv, Pokes& pokes) {
+            if (f_mkdir("0:/DUPD") != FR_OK || f_mkdir("0:/DA") != FR_OK || f_mkdir("0:/DB") != FR_OK || f_mkdir("0:/D\x82R") != FR_OK)
+                return false;
+            hand_dir(fsv, dir_cluster("0:/DUPD"), 2,
+                     {{u"", "DER        ", 0x10, dir_cluster("0:/DA"), 0},
+                      {u"D\u00E9 a long folder", "DER        ", 0x10, dir_cluster("0:/DB"), 0}},
+                     pokes);
+            return true;
+        });
+        const std::string src = (host / "three.bin").string();
+        std::string e1, e2, e3;
+        const St cli = sdcard::add_to_image(P, src, "/D\x82R/x.bin", false, e1);
+        const St in_cp = sdcard::add_to_image(P, src, "/D\x82R/x.bin", false, e2, nullptr, true);
+        const St dup = sdcard::add_to_image(P, src, "/DUPD/D\x82 a long folder/y.bin", false, e3, nullptr, true);
+        check("SDOPS-57", "add_to_image with dest_is_bytes: into a CP437-named folder, and into the long-named folder whose 8.3 name duplicates /DA's (it lands in /DB, /DA stays empty); without the flag a byte above 0x7E is still refused",
+              cli == St::DestInvalid && e1.find("ASCII") != std::string::npos && in_cp == St::Ok && names_of(P, "/D\x82R") == "x.bin" &&
+                  dup == St::Ok && names_of(P, "/DB") == "y.bin" && names_of(P, "/DA").empty(),
+              e1 + " | " + e2 + " | " + e3 + " | DB=" + names_of(P, "/DB") + " DA=" + names_of(P, "/DA"));
+    }
+
     sd_write_journal::forget_all_for_test();
     std::error_code ec;
     fs::permissions(g_dir, fs::perms::owner_all, fs::perm_options::add, ec);

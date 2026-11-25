@@ -50,7 +50,7 @@ bool printable_ascii(unsigned char c) { return c >= 0x20 && c <= 0x7E; }
 // the name typed: ".", "..", a trailing dot or space (it strips them, so "/FILE." would open
 // "/FILE"), and bytes outside printable ASCII (the API strings are CP437 bytes, which a UTF-8
 // argument cannot match). Everything else is FatFs's to judge.
-bool parse_card_path(const std::string& path, std::vector<std::string>& comps, std::string& err) {
+bool parse_card_path(const std::string& path, std::vector<std::string>& comps, std::string& err, bool bytes) {
     comps.clear();
     std::string cur;
     auto flush = [&] { if (!cur.empty()) { comps.push_back(cur); cur.clear(); } };
@@ -68,7 +68,10 @@ bool parse_card_path(const std::string& path, std::vector<std::string>& comps, s
             return false;
         }
         for (char ch : c) {
-            if (!printable_ascii(static_cast<unsigned char>(ch))) {
+            const unsigned char u = static_cast<unsigned char>(ch);
+            // `bytes`: the caller holds the path as CP437 bytes it took from a listing (the SD card file manager), which
+            // FatFs matches natively; only control bytes are refused. The CLI's strings are UTF-8, so it refuses all.
+            if (bytes ? (u < 0x20 || u == 0x7F) : !printable_ascii(u)) {
                 err = "card path '" + path + "' has a character outside printable ASCII in '" + c +
                       "'; FatFs matches CP437 bytes, so use the 8.3 name (ls shows it) or extract the "
                       "parent directory";
@@ -133,13 +136,13 @@ std::string join_slash(const std::vector<std::string>& v) {
 
 FileAddStatus extract_from_image(const std::string& image_path, const std::string& card_path,
                                  const std::string& dest_dir, std::string& err,
-                                 ExtractSummary* summary) {
+                                 ExtractSummary* summary, bool card_path_is_bytes) {
     using St = FileAddStatus;
     err.clear();
 
     // 1. the card path (refused before the card is opened)
     std::vector<std::string> comps;
-    if (!parse_card_path(card_path, comps, err)) return St::SourceUnreadable;
+    if (!parse_card_path(card_path, comps, err, card_path_is_bytes)) return St::SourceUnreadable;
 
     // 2. the volume, as the firmware finds it
     uint32_t lba = 0, sectors = 0;
