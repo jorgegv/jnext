@@ -84,7 +84,7 @@ wine. This is a documented local check, not a CI step.
 
 ## The jobs in `ci.yml`
 
-**`test`** is the main job: one definition, a matrix of six legs that run in
+**`test`** is the main job: one definition, a matrix of eight legs that run in
 parallel on runners of their own. Every leg installs the same
 dependency set and checks out the repository with submodules; then
 
@@ -252,7 +252,7 @@ whose reference screenshot is an SD-card directory listing.
 public — the allowlist described in [5.3](03-packaging-and-release.md). When it
 is not, nothing builds, and the tag remains a private history marker.
 
-When it is, seven artifact jobs run. `deb` is a matrix over two pinned Ubuntu LTS
+When it is, eight artifact jobs run. `deb` is a matrix over two pinned Ubuntu LTS
 containers, one per supported release, because `dpkg-shlibdeps` bakes the
 container's own library package names into the dependency list, so a deb built
 in one release's container is uninstallable on the next. `rpm` is a matrix over
