@@ -807,7 +807,8 @@ int main(int argc, char** argv)
         const bool deleted = !on_card(a.p, "/h1-renamed.bin");
         const bool no_question = b.count("Change the SD card") == 0;
         const bool note = d.findChild<QLabel*>("card_note") && d.findChild<QLabel*>("card_note")->isVisible() &&
-                          d.findChild<QLabel*>("card_note")->text() == SdManagerDialog::permanent_note();
+                          d.findChild<QLabel*>("card_note")->text() ==
+                              QStringLiteral("The machine sees a change when it next reads the folder. Do not change files a running program is using.");
         // with a writes file bound the note names it
         Img w(G);
         const std::string jf = (fresh_dir("noq-j") / "w.sdw").string();
@@ -821,7 +822,7 @@ int main(int argc, char** argv)
         SdManagerDialog d2(rig2.emu, none_remembered(), QString::fromStdString(host.string()));
         wire(d2, b);
         const QString note2 = d2.findChild<QLabel*>("card_note")->text();
-        const bool names_file = note2.contains(SdManagerDialog::permanent_note()) && note2.contains(QDir::toNativeSeparators(QString::fromStdString(jf)));
+        const bool names_file = note2.contains(QStringLiteral("when it next reads the folder")) && note2.contains(QDir::toNativeSeparators(QString::fromStdString(jf)));
         sd_write_journal::forget_image(w.p);
         check("SDMW-44", "copy, rename, New Folder, move and delete on the card ask no 'Change the SD card?' question (only the delete's own confirmation); the permanent note is shown; with a writes file bound the note names the file",
               copied && renamed && made && moved && deleted && no_question && note && names_file,
@@ -1661,6 +1662,30 @@ int main(int argc, char** argv)
         check("SDMW-48", "while a card operation owns the card the window makes no card call over three poll intervals and every action, whatever it is aimed at, does nothing (no FatFs attach, no box), the card actions and the selector are disabled and the note says so; when it ends the pane resolves again, at the root if the card changed",
               no_calls && off && says && resolved,
               std::string(no_calls ? "1" : "0") + (off ? "1" : "0") + (says ? "1" : "0") + (resolved ? "1" : "0"));
+    }
+    // SDMW-51: the Read-only box forced on for a card jnext cannot write gives the user's own choice back when a writable card is shown again
+    {
+        Img a(G), f16(F16);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        rig.emu.sd_card2().mount(f16.p, false);
+        Boxes b;
+        SdManagerDialog d(rig.emu, none_remembered(), QString::fromStdString(host.string()));
+        wire(d, b);
+        auto* ro = child<QCheckBox>(d, "read_only_box");
+        auto* combo = child<QComboBox>(d, "slot_combo");
+        const bool start = !ro->isChecked() && ro->isEnabled();                 // a writable card: unticked, usable
+        combo->setCurrentIndex(1);                                              // the FAT16 card: forced on and greyed
+        const bool forced = ro->isChecked() && !ro->isEnabled();
+        combo->setCurrentIndex(0);                                              // back: the user's choice (unticked)
+        const bool unticked = !ro->isChecked() && ro->isEnabled();
+        ro->setChecked(true);                                                   // the user ticks it,
+        combo->setCurrentIndex(1);
+        combo->setCurrentIndex(0);                                              // and it is still ticked after a visit to the other card
+        const bool still_ticked = ro->isChecked() && ro->isEnabled();
+        check("SDMW-51", "the Read-only box is forced on and greyed for a card jnext cannot write and gives the user's own choice back (unticked, or ticked) when a writable card is shown again",
+              start && forced && unticked && still_ticked,
+              std::string(start ? "1" : "0") + (forced ? "1" : "0") + (unticked ? "1" : "0") + (still_ticked ? "1" : "0"));
     }
     // SDMW-50: the host pane matches the card pane: the same icon for a file and for a folder, and the same row height
     {
