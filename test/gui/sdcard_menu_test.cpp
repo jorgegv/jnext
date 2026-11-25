@@ -50,10 +50,10 @@ void check(const char* id, const char* desc, bool ok, const std::string& detail 
     ++g_total;
     if (ok) {
         ++g_pass;
-        std::printf("[PASS] %-12s %s\n", id, desc);
+        std::printf("  PASS %s: %s\n", id, desc);
     } else {
         ++g_fail;
-        std::printf("[FAIL] %-12s %s%s%s\n", id, desc, detail.empty() ? "" : " -- ", detail.c_str());
+        std::printf("  FAIL %s: %s%s%s%s\n", id, desc, detail.empty() ? "" : " [", detail.c_str(), detail.empty() ? "" : "]");
     }
 }
 
@@ -98,7 +98,7 @@ int main(int argc, char** argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QTemporaryDir cfg_dir;
-    if (!cfg_dir.isValid()) { std::printf("[FAIL] no scratch directory\nTotal:    0  Passed:    0  Failed:    1  Skipped:    0\n"); return 1; }
+    if (!cfg_dir.isValid()) { std::printf("  FAIL SDMENU-00: no scratch directory\nTotal:    0  Passed:    0  Failed:    1  Skipped:    0\n"); return 1; }
     qputenv("JNEXT_CONFIG_DIR", cfg_dir.path().toUtf8());
     qputenv("JNEXT_SDCARD_DISTRO_URL", "http://127.0.0.1:1/sn-emulator-99.99.zip");
     QApplication app(argc, argv);

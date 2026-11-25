@@ -332,7 +332,7 @@ int main(int argc, char** argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
     QTemporaryDir cfg_dir;
-    if (!cfg_dir.isValid()) { std::printf("[FAIL] no scratch directory\nTotal:    0  Passed:    0  Failed:    1  Skipped:    0\n"); return 1; }
+    if (!cfg_dir.isValid()) { std::printf("  FAIL SDMW-00: no scratch directory\nTotal:    0  Passed:    0  Failed:    1  Skipped:    0\n"); return 1; }
     qputenv("JNEXT_CONFIG_DIR", cfg_dir.path().toUtf8());
     QApplication app(argc, argv);
     g_dir = make_scratch_dir("sdmw");
