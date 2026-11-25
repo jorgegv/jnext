@@ -1718,6 +1718,7 @@ int main(int argc, char** argv)
         const bool added = sdcard::add_to_image(a.p, (host / "h2.bin").string(), "/NEW.BIN", false, err, nullptr, true) == sdcard::FileAddStatus::Ok;
         const int r0 = d.card_reloads_for_test();
         d.check_card_change();
+        QCoreApplication::processEvents();   // the view lays the new rows out (its scroll range is settled there)
         const bool relisted = d.card_reloads_for_test() == r0 + 1 && has(card_names(d), "NEW.BIN");
         check("SDMW-54", "a re-list of a long folder keeps the card pane's scroll position",
               scrolled > 0 && added && relisted && sb->value() == scrolled,
