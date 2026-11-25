@@ -43,8 +43,9 @@ at the card again.
   cannot be acted on, and its tooltip says so.
 - **The host pane** (right) is an ordinary folder of your computer.
 
-Both panes are lists, the same size, with their top and bottom edges aligned; the
-folder each shows is written above it. The slot selector and the **Read-only** box are
+Each pane has a title above it, **SD Card** over the card pane and **Host filesystem**
+over the host pane. Both panes are lists, the same size, with their top and bottom edges
+aligned; the folder each shows is written under its title. The slot selector and the **Read-only** box are
 in the bottom row, with **Close**, and one line under the panes tells you the rule for
 changing the card (or why it is read-only).
 

@@ -1663,6 +1663,35 @@ int main(int argc, char** argv)
               no_calls && off && says && resolved,
               std::string(no_calls ? "1" : "0") + (off ? "1" : "0") + (says ? "1" : "0") + (resolved ? "1" : "0"));
     }
+    // SDMW-52: a title over each pane says what it is, and the panes stay equal and aligned
+    {
+        Img a(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        Boxes b;
+        SdManagerDialog d(rig.emu, none_remembered(), QString::fromStdString(host.string()));
+        wire(d, b);
+        d.show();
+        QCoreApplication::processEvents();
+        auto* ct = child<QLabel>(d, "card_title");
+        auto* ht = child<QLabel>(d, "host_title");
+        auto* cv = child<QListView>(d, "card_view");
+        auto* hv = child<QListView>(d, "host_view");
+        auto* cp = child<QLabel>(d, "card_path");
+        auto* hp = child<QLabel>(d, "host_path");
+        auto top = [&](QWidget* w) { return w->mapTo(&d, QPoint(0, 0)).y(); };
+        auto left = [&](QWidget* w) { return w->mapTo(&d, QPoint(0, 0)).x(); };
+        const bool text = ct && ht && ct->text().contains(QStringLiteral("SD Card")) && ht->text().contains(QStringLiteral("Host filesystem")) &&
+                          !ct->text().contains(QStringLiteral("Host")) && !ht->text().contains(QStringLiteral("SD"));
+        // each title is above its own pane (title, then the path line, then the list), in its own column
+        const bool order = ct && ht && top(ct) < top(cp) && top(cp) < top(cv) && top(ht) < top(hp) && top(hp) < top(hv) &&
+                           left(ct) < left(ht) && std::abs(left(ct) - left(cv)) <= 4 && std::abs(left(ht) - left(hv)) <= 4;
+        const bool aligned = ct && ht && top(ct) == top(ht) && top(cv) == top(hv) && cv->size() == hv->size() &&
+                             top(cv) + cv->height() == top(hv) + hv->height();
+        check("SDMW-52", "the card pane is titled 'SD Card' and the host pane 'Host filesystem', each title above its own pane's path line and list, and the two panes (titles, lists) stay the same size and aligned top and bottom",
+              text && order && aligned,
+              std::string("text=") + (text ? "1" : "0") + " order=" + (order ? "1" : "0") + " aligned=" + (aligned ? "1" : "0"));
+    }
     // SDMW-51: the Read-only box forced on for a card jnext cannot write gives the user's own choice back when a writable card is shown again
     {
         Img a(G), f16(F16);
