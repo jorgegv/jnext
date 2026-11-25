@@ -94,7 +94,12 @@ New failures vs baseline: <list or "none">
 - Any SKIP is a gate failure (CLAUDE.md, owner 2026-10-06): report it as a SKIP, never as a pass. The make targets now EXIT non-zero on one, so the exit status agrees with the counts.
 - **Never update reference screenshots without explicit user authorization**
   (`feedback_regression_refs`). Regenerating a reference to make the suite green
-  destroys the only check that would have caught the change.
+  destroys the only check that would have caught the change. To ask for that
+  authorization, put one set per affected row in the run dir: old reference, new
+  output and a diff image (or one combined PNG), the pixel count, what changed
+  (e.g. "blue 0xAA→0xB6 only"), and any oracle output for the same frame. List
+  the set in the report, keep the branch binary built so the owner can run it
+  next to `main`, and stop (owner, 2026-10-09).
 - Load, solo re-run, stamp and PENDING rules: CLAUDE.md §Testing ("Run the
   full regression only when it is needed", "Those two rows are examples, not the
   list"). Follow them; this skill does not restate them. Always report the
