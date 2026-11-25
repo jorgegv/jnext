@@ -6,7 +6,7 @@ do not know about them.
 
 It is written for two readers. The first is a new contributor who wants to fix
 a bug or add a feature, and needs to find the right file without reading a
-hundred thousand lines to get there. The second is the maintainer returning to
+quarter of a million lines to get there. The second is the maintainer returning to
 a subsystem after enough time away that its shape has to be rebuilt in their
 head before it can safely be touched.
 
@@ -23,7 +23,7 @@ Knowing that explains several things about the repository that otherwise look
 like eccentricity:
 
 - **The conventions are written down, in unusual density.** `CLAUDE.md` at the
-  repository root is close to five hundred lines of rules about branches,
+  repository root is close to eight hundred lines of rules about branches,
   tests, versioning, documentation and house style. A human contributor absorbs
   that sort of thing gradually and keeps it in their head; an assistant starts
   every session with none of it, so it has to exist as text and be re-read each
@@ -41,9 +41,17 @@ like eccentricity:
   explains the mechanism; the motivation is this one. Generated content that
   nobody re-derives drifts silently, and a reader — human or otherwise —
   cannot tell drifted documentation from correct documentation.
-- **The test apparatus is larger than the emulator.** `src/` is around 86 000
-  lines of C and C++; `test/` is around 131 000 lines of tests, harness and
-  tooling. [Chapter 4](04-testing/index.md) is about that machinery, and its
+- **The test apparatus is larger than the emulator.** `src/` is around 220 000
+  lines of C and C++ (612 files); `test/` and the test directories under `src/`
+  are around 463 000 lines of tests, harness and tooling (710 files). Both
+  counts are `wc -l` over the files `git ls-files` lists, measured on
+  2026-11-25 at version 1.3.78: for the emulator, `*.c`, `*.cpp`, `*.h`,
+  `*.hpp` and `*.mm` under `src/`, excluding the `test/` directories there; for
+  the tests, `*.c`, `*.cpp`, `*.h`, `*.hpp`, `*.sh`, `*.py`, `*.pl`, `*.pm`,
+  `*.mjs`, `*.js`, `*.cmake`, `*.conf` and `CMakeLists.txt` under `test/`
+  (excluding `test/fixtures` and the regression reference images) plus the C
+  and C++ files in the `src/` test directories. Raw lines, blanks and comments
+  included (no `cloc` on the host). [Chapter 4](04-testing/index.md) is about that machinery, and its
   size is not accidental — it is the mechanism by which generated work gets
   accepted or rejected.
 
