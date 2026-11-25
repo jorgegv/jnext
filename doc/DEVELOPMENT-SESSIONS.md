@@ -251,4 +251,12 @@
 |         |      | v1.3.28->1.3.37                                                                                        |
 | 21/11   |      | #377 dockable panels; #492 bug report; #545 browser remote debugging; #510 26.11a; CI fixes; release   |
 |         |      | docs review. v1.3.38->1.3.46; v1.3.47 PUBLIC RELEASE                                                   |
+| 22/11   |      | #547 faster test cycle: CI is the batch gate, test-affected, shared ccache, remote hosts; #548 #549    |
+|         |      | #552. v1.3.48->1.3.61                                                                                  |
+| 23/11   |      | #550 tape level; #551 CPU timing; #553 player file API; epic #224 phase 1 (Audio panel); remote-first  |
+|         |      | slots. v1.3.62->1.3.67                                                                                 |
+| 24/11   |      | #556 Exploding Fist (koseid72); #555 SD card upgrades and card lock; #557 file extract; epic #224      |
+|         |      | music and sound panels; #562 #564. v1.3.68->1.3.75                                                     |
+| 25/11   |      | #563 JNext link on web players (janko-jj); #558 SD card file manager; #504 #559 guide audits           |
+|         |      | v1.3.76->1.3.81; v1.4.0 PUBLIC RELEASE                                                                 |
 | TOTAL:  | 666h |                                                                                                        |

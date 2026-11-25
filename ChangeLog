@@ -1,6 +1,6 @@
 # ChangeLog
 
-## Unreleased (2026-11-22)
+## v1.4.0 (2026-11-25)
 
 ### User Features
 - SD card file manager (File menu, toolbar): copy, move, rename and delete files between either card and a host folder, while the machine runs
