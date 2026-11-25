@@ -1620,11 +1620,15 @@ int main() {
         sm::TransferHooks h = hk.hooks();
         const sm::TransferReport rep = sm::run_transfer(host_req(target, "/", {longhost}), h);   // between two frames
         paused_ever = paused_ever || r.paused();
+        // the very next thing the guest reads is the same sector (no frame, no other read between the two reads of it: a
+        // one-block read cache in the device would answer the old bytes), and again after more frames
+        Bytes right_after;
+        const bool immediate = g.read(selv, geo.root, right_after) && sfn_at(right_after, "LONGNA~1TXT") >= 0;
         for (int i = 0; i < 3; ++i) r.emu.run_frame();
         paused_ever = paused_ever || r.paused();
         if (!g.read(selv, geo.root, after)) { c.detail = "guest re-read failed"; return c; }
         const int off = sfn_at(after, "LONGNA~1TXT");
-        c.after_has_entry = off >= 0 && after[static_cast<size_t>(off) + 11] == 0x20 && contains(after, lfn_prefix);
+        c.after_has_entry = immediate && off >= 0 && after[static_cast<size_t>(off) + 11] == 0x20 && contains(after, lfn_prefix);
         if (off >= 0) {
             auto u16 = [&](size_t o) { return static_cast<uint32_t>(after[o] | (after[o + 1] << 8)); };
             const uint32_t cluster = (u16(static_cast<size_t>(off) + 20) << 16) | u16(static_cast<size_t>(off) + 26);
