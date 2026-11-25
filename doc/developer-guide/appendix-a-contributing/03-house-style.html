@@ -3122,8 +3122,8 @@ This page is what reviewers actually look for. Some of it is written down in
 <code>CLAUDE.md</code>; the rest is derived from reading the code and the commit history,
 and each section says which.</p>
 <h2 id="match-the-surrounding-code">Match the surrounding code<a class="headerlink" href="#match-the-surrounding-code" title="Permanent link">&para;</a></h2>
-<p><em>(Derived from <code>CLAUDE.md</code>'s "surgical changes" and "scope restriction" rules,
-and visible throughout the tree.)</em></p>
+<p><em>(Derived from <code>CLAUDE.md</code>'s "surgical changes" rule and its rule that findings
+are fixed on the branch that surfaced them, and visible throughout the tree.)</em></p>
 <p>Touch only what the task requires. Do not reformat adjacent lines, rename things
 you happened to read on the way past, or "improve" a comment you did not come
 there to change. Match the style of the file you are in rather than importing
@@ -3131,8 +3131,10 @@ your own into it.</p>
 <p>The reason is entirely practical: a diff that mixes one real change with thirty
 cosmetic ones costs the reviewer the ability to see the real one, and that
 reviewer is the gate the whole process depends on.</p>
-<p>If you do notice a genuine second problem, say so — in a note, in the pull
-request, or as a new issue. Just do not fix it in the same change.</p>
+<p>If you do notice a genuine second problem on the way, fix it on the same
+branch, in its own commit and with its own test, so the reviewer still sees each
+change on its own. Only work that is both large and unrelated goes to a new
+issue, with the evidence.</p>
 <h2 id="program-text-is-ascii">Program text is ASCII<a class="headerlink" href="#program-text-is-ascii" title="Permanent link">&para;</a></h2>
 <p><em>(Owner decision, 2026-10-17; enforced by <code>test/lint-ascii-text.sh</code>.)</em></p>
 <p>The text jnext writes to a console is ASCII. A Windows console decodes the
