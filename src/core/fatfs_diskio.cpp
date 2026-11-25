@@ -5,9 +5,11 @@ extern "C" {
 #include "third_party/fatfs/diskio.h"
 }
 
+#include "peripheral/sd_card.h"
 #include "peripheral/sd_write_journal.h"
 
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <fstream>
 #include <memory>
@@ -21,6 +23,16 @@ extern "C" {
 namespace {
 
 constexpr uint32_t kSectorSize = 512;
+
+std::atomic<std::uint64_t> g_attaches{0}, g_writes{0};
+
+// A write through the card engines is a write jnext itself made to the card: it moves the process-wide write generation,
+// which the warm-start cache and the digest baseline compare (GH #558: the manager's hard reset used to hide that these
+// writes never moved it). Called once per SUCCESSFUL disk_write, on both arms; never for a refused or failed write.
+void note_card_write() {
+    g_writes.fetch_add(1, std::memory_order_relaxed);
+    SdCardDevice::note_host_write();
+}
 
 // Direct-mapped, write-through sector cache, one per drive, living from
 // attach() to detach(). FatFs keeps a single sector window per volume, so a
@@ -82,9 +94,13 @@ std::array<Backing, FF_VOLUMES> g_backing;
 
 namespace fatfs_glue {
 
+std::uint64_t attach_count_for_test() { return g_attaches.load(std::memory_order_relaxed); }
+std::uint64_t write_count_for_test() { return g_writes.load(std::memory_order_relaxed); }
+
 bool attach(uint8_t pdrv, const std::string& image_path, uint32_t part_lba,
             uint32_t sector_count, std::string& err,
             std::shared_ptr<sd_write_journal::Journal> journal, bool read_only) {
+    g_attaches.fetch_add(1, std::memory_order_relaxed);
     if (pdrv >= FF_VOLUMES) { err = "fatfs_glue: pdrv out of range"; return false; }
     Backing& b = g_backing[pdrv];
     b.active = false; // a failed re-attach leaves the drive not ready, never half torn down
@@ -182,6 +198,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count) {
                                    buff + static_cast<size_t>(i) * kSectorSize))
                 return RES_ERROR;
         }
+        note_card_write();
         return RES_OK;
     }
     const uint64_t off =
@@ -199,6 +216,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE* buff, LBA_t sector, UINT count) {
     }
     for (UINT i = 0; i < count; ++i)
         b.cache_put(sector + i, buff + static_cast<size_t>(i) * kSectorSize);
+    note_card_write();
     return RES_OK;
 }
 

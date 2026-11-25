@@ -38,6 +38,8 @@ public:
     const QString& image() const { return image_; }
     const QString& dir() const { return dir_; }
     const QString& error() const { return error_; }
+    /// How many times the folder has been listed (set_location and reload): a test observable.
+    int reloads() const { return reloads_; }
 
     /// Every folder but the root starts with an "up" row (the arrow icon, text ".."): it is shown and activated like a
     /// folder, but it is not an entry of the card: no path, not selectable, not draggable, never a target.
@@ -50,6 +52,10 @@ public:
     /// The entry of `row` (not the up row), and its card path ("" for the up row and for an entry with no open_name).
     const sdcard::cardops::CardEntry& entry(int row) const { return entries_[static_cast<size_t>(row - (has_up_ ? 1 : 0))]; }
     QString path_of(int row) const;
+    /// The listed identity of a row (sdmanager::entry_stamp), carried as Latin-1 like a card path; "" for the up row.
+    QString stamp_of(int row) const;
+    /// The row of a card path in the current listing, or -1.
+    int row_of_path(const QString& path) const;
     bool is_dir(int row) const { return is_up_row(row) || entry(row).dir; }
 
     /// CARD PATHS ARE BYTES (code page 437, FatFs's OEM encoding), and a QString is Unicode: UTF-8 would turn a high byte
@@ -67,8 +73,10 @@ public:
     static QString parent_path(const QString& dir);
 
     /// Encode / decode the drag payload (image first, then the paths). Decode refuses a malformed one.
-    static QByteArray encode_items(const QString& image, const QStringList& paths);
-    static bool decode_items(const QByteArray& data, QString& image, QStringList& paths);
+    /// `stamps` (parallel to `paths`, or empty) ride in the payload after each path (a tab, then the escaped stamp), so a
+    /// drop can tell an entry that changed since the drag began. A payload without them decodes as before.
+    static QByteArray encode_items(const QString& image, const QStringList& paths, const QStringList& stamps = {});
+    static bool decode_items(const QByteArray& data, QString& image, QStringList& paths, QStringList* stamps = nullptr);
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
     QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
@@ -81,6 +89,7 @@ private:
     QString image_, dir_ = QStringLiteral("/"), error_;
     std::vector<sdcard::cardops::CardEntry> entries_;
     bool has_up_ = false;
+    int reloads_ = 0;
 };
 
 /// GH #558 - the host pane's model: ONE folder of a QFileSystemModel as a flat list, with the same "up" row first in

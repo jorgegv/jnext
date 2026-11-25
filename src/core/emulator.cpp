@@ -9040,6 +9040,23 @@ std::string Emulator::take_nex_load_request()
     return request;
 }
 
+std::vector<Emulator::CardFileEvent> Emulator::check_card_files() {
+    std::vector<CardFileEvent> out;
+    for (int slot = 0; slot < 2; ++slot) {
+        SdCardDevice& dev = slot == 0 ? sd_card() : sd_card2();
+        const SdCardDevice::OutsideChange k = dev.outside_change();
+        if (k == SdCardDevice::OutsideChange::None) continue;
+        out.push_back({slot, k, dev.image_path()});
+        const char* what = k == SdCardDevice::OutsideChange::Replaced
+                               ? "was replaced by another file: the machine keeps using the old one, and what it writes is lost when jnext exits"
+                           : k == SdCardDevice::OutsideChange::Resized
+                               ? "was resized: the card keeps its old size"
+                               : "was changed by another program while it has an SD-writes file: the writes file no longer fits it, and the card the machine sees may be damaged";
+        Log::emulator()->error("SD card {}: the image '{}' {}", slot + 1, dev.image_path(), what);
+    }
+    return out;
+}
+
 std::string Emulator::sd_card_change_refusal(int slot) const
 {
     // GH #540 - the session has no card slot to change: nothing was booted

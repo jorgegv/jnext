@@ -256,7 +256,7 @@ bool bind(const std::string& image_path, const std::string& file,
             fs::remove(file, ec);
             raw.clear();
         } else if (!same_image(jb, binding)) {
-            why = file + " was made for another image (it holds writes for " + describe(jb) +
+            why = file + " was made for another image, or the image was changed by another program since (it holds writes for " + describe(jb) +
                   "; this image is " + describe(binding) + "); run with "
                   "--sdcard-writes-reset to discard them";
             return false;

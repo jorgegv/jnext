@@ -1351,6 +1351,69 @@ int main() {
               e1 + " | " + e2 + " | " + e3 + " | " + e4 + " | DA=" + names_of(P, "/DA") + " DB=" + names_of(P, "/DB"));
     }
 
+    // SDCOH-05 (GH #558, 2026-11-25): every SUCCESSFUL write through the card engines is a jnext write: it moves
+    // SdCardDevice::host_write_generation() (the warm start and the digest baseline compare it), once per disk_write
+    // call, on both arms (plain file, writes file). A read never moves it, and neither does a refused write (a FAT16
+    // card's DestInvalid, a read-only attach's write protect). The count comes from the glue's own disk_write counter, so
+    // the row checks the mechanism and not just "some growth".
+    {
+        auto copy_of = [&](const std::string& master) {
+            const std::string p = tmp_name("coh") + ".img";
+            fs::copy_file(master, p, fs::copy_options::overwrite_existing);
+            return p;
+        };
+        struct Snap {
+            std::uint64_t gen, writes;
+        };
+        auto snap = [] { return Snap{SdCardDevice::host_write_generation(), fatfs_glue::write_count_for_test()}; };
+        std::string err;
+        auto moves_with_writes = [&](const Snap& a, const Snap& b) {
+            return b.writes > a.writes && b.gen - a.gen == b.writes - a.writes;
+        };
+        auto unchanged = [&](const Snap& a, const Snap& b) { return a.gen == b.gen && a.writes == b.writes; };
+        bool plain_ok = true, journal_ok = true, reads_ok = true, refused_ok = true;
+        for (int mode = 0; mode < 2; ++mode) {
+            const std::string c = copy_of(G);
+            if (mode == 1) {
+                sd_write_journal::Binding bd;
+                bd.bytes = fs::file_size(c);
+                bd.sha256.fill(0x6E);
+                std::string why;
+                sd_write_journal::bind(c, (g_dir / ("coh" + std::to_string(++g_n) + ".sdw")).string(), bd, false, why);
+            }
+            const Snap a = snap();
+            const bool r1 = ops::rename(c, "/FILE.BIN", "FILE2.BIN", err) == St::Ok;
+            const Snap b = snap();
+            const bool r2 = sdcard::add_to_image(c, (host / "three.bin").string(), "/ADDED.BIN", false, err, nullptr, true) == St::Ok;
+            const Snap d = snap();
+            (mode == 0 ? plain_ok : journal_ok) = r1 && r2 && moves_with_writes(a, b) && moves_with_writes(b, d);
+            // reads
+            ops::CardInfo ci;
+            std::vector<ops::CardEntry> le;
+            const Snap e0 = snap();
+            ops::probe(c, ci, err);
+            ops::list_dir(c, "/", le, err);
+            extracted(c, "/MYDIR");
+            reads_ok = reads_ok && unchanged(e0, snap());
+            sd_write_journal::forget_image(c);
+        }
+        {   // a refused write: FAT16 card (DestInvalid), then a read-only attach's write
+            const std::string f = copy_of(F16);
+            const Snap a = snap();
+            const bool dest_invalid = ops::rename(f, "/GAMES", "G2", err) == St::DestInvalid;
+            std::string aerr;
+            const bool attached = fatfs_glue::attach(0, G, kLba, kFat32Sectors, aerr, nullptr, true);
+            std::vector<uint8_t> blk(512, 0xA5);
+            const DRESULT wr = disk_write(0, blk.data(), 100, 1);
+            fatfs_glue::detach(0);
+            refused_ok = dest_invalid && attached && wr == RES_WRPRT && unchanged(a, snap());
+        }
+        check("SDCOH-05", "a successful engine write (rename, add_to_image) moves the write generation exactly once per disk_write call, on a plain card and with a writes file; probe, list_dir and extract never move it; a refused write (a FAT16 card's DestInvalid, a read-only attach's write protect) does not",
+              plain_ok && journal_ok && reads_ok && refused_ok,
+              std::string("plain=") + (plain_ok ? "1" : "0") + " journal=" + (journal_ok ? "1" : "0") + " reads=" + (reads_ok ? "1" : "0") +
+                  " refused=" + (refused_ok ? "1" : "0"));
+    }
+
     sd_write_journal::forget_all_for_test();
     std::error_code ec;
     fs::permissions(g_dir, fs::perms::owner_all, fs::perm_options::add, ec);

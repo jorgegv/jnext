@@ -423,6 +423,35 @@ int main() {
         std::remove(img.c_str());
     }
 
+    // SDCOH-08 (GH #558): a new file renamed over the mounted image path (rsync, some editors). The card keeps reading
+    // the OLD file (the open descriptor), so the machine's writes would be lost when jnext exits; Replaced is reported
+    // once. POSIX only: Windows cannot rename over an open file.
+    {
+        const std::string img = make_image(8);
+        const std::string repl = make_image(8);
+        {   // the replacement's sector 0 differs from the original's
+            std::fstream f(repl, std::ios::in | std::ios::out | std::ios::binary);
+            f.seekp(0);
+            const char x = static_cast<char>(fixture_byte(0, 0) ^ 0xFF);
+            f.write(&x, 1);
+        }
+        SdCardDevice sd;
+        sd.mount(img, false);
+        init_card(sd);
+        const auto fresh = sd.outside_change();
+        std::error_code ec;
+        std::filesystem::rename(repl, img, ec);
+        const auto first = sd.outside_change();
+        const auto again = sd.outside_change();
+        const bool still_old = reads_original(sd, 0);   // the descriptor still names the old (unlinked) file
+        sd.unmount();
+        std::remove(img.c_str());
+        check("SDCOH-08", "a file renamed over the mounted image is reported as Replaced exactly once, and the card keeps reading the old file",
+              !ec && fresh == SdCardDevice::OutsideChange::None && first == SdCardDevice::OutsideChange::Replaced &&
+                  again == SdCardDevice::OutsideChange::None && still_old,
+              std::to_string(static_cast<int>(first)) + std::to_string(static_cast<int>(again)) + (still_old ? "o" : "N"));
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total + g_skip, g_pass, g_fail, g_skip);
     return g_fail ? 1 : 0;

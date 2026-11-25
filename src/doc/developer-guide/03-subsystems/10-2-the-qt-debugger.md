@@ -125,10 +125,10 @@ pause made by a magic breakpoint or a script.
 ## The pause state is pulled
 
 A pause the window did not cause still opens it, with one exception: a pause
-whose `by` is one of the emulator window's own clients (its Pause control and
-the SD card file manager's session; `add_window_pause_client()`, matched on the
-client id, so another Gui or observer client still opens it) is not a debugger
-stop and is exactly what those controls exist to make without the window. `check_breakpoint_hit()` reads
+whose `by` is the emulator window's Pause client
+(`set_emulator_window_pause_client()`; matched on the client id, so another
+Gui or observer client still opens it) is exactly what that control exists to
+make without the window. `check_breakpoint_hit()` reads
 `state()` once per tick, after the pump, and brings the window to it in both
 directions. A pause it has not shown gets the pause-edge sequence, opening the
 window first if it is closed: a breakpoint, a magic breakpoint, a persistent
@@ -223,9 +223,9 @@ refresh, because a page can be mapped with no revision change. It never jumps to
 Source tab show the CPU's map. Rows: `QSYML-*`.
 
 **Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:1139`)
-redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:428`: ~4 Hz). Paused, it
+redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:424`: ~4 Hz). Paused, it
 redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:1128`; `PausedStamp`,
-`debugger_manager.h:283`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
+`debugger_manager.h:279`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The Audio panel is the one
 exception to the running cadence: while the window is open, the Audio dock is on show (`panel_on_show()`) and its

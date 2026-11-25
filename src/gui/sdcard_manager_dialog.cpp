@@ -21,6 +21,7 @@
 #include <QMimeData>
 #include <QSignalBlocker>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QStandardItemModel>
 #include <QTimer>
 #include <QToolButton>
@@ -28,12 +29,15 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <filesystem>
 
 #include "core/emulator.h"
 #include "core/sdcard_card_ops.h"
 #include "core/sdcard_carry.h"
 #include "core/sdcard_file_add.h"
 #include "gui/sdcard_card_model.h"
+#include "peripheral/sd_card.h"
+#include "peripheral/sd_write_journal.h"
 
 // QFile::moveToTrash is Qt 5.15's: the floor of every Qt5 leg that exists (the Qt5 guard and the MinGW Qt5 builds are
 // 5.15.18; every Qt6 leg is newer). There is no fallback, and a trash that fails is REPORTED: a host delete never
@@ -93,9 +97,8 @@ struct WaitCursor {
 
 }  // namespace
 
-SdManagerDialog::SdManagerDialog(Emulator& emu, sm::SdManagerSession& session, const sm::Remembered& remembered,
-                                 const QString& host_fallback, QWidget* parent)
-    : QDialog(parent), emu_(emu), session_(session), host_fallback_(host_fallback) {
+SdManagerDialog::SdManagerDialog(Emulator& emu, const sm::Remembered& remembered, const QString& host_fallback, QWidget* parent)
+    : QDialog(parent), emu_(emu), host_fallback_(host_fallback) {
     setWindowTitle(tr("SD Card File Manager"));
     setObjectName(QStringLiteral("sdcard_manager_dialog"));
     resize(default_size());
@@ -113,7 +116,7 @@ SdManagerDialog::SdManagerDialog(Emulator& emu, sm::SdManagerSession& session, c
     card_note_->setWordWrap(true);
     // A long path must never widen its pane: the panes are the same size whatever they show.
     card_path_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    card_note_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    card_note_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
     card_model_ = new SdCardModel(this);
     auto* card_view = new DropView;
@@ -147,6 +150,11 @@ SdManagerDialog::SdManagerDialog(Emulator& emu, sm::SdManagerSession& session, c
     host_view_ = host_view;
     host_view_->setObjectName(QStringLiteral("host_view"));
     host_view_->setModel(host_model_);
+    for (QListView* v : {card_view_, host_view_}) {   // the two panes look alike: one icon size, one row height
+        v->setIconSize(QSize(16, 16));
+        v->setUniformItemSizes(true);
+        v->setSpacing(0);
+    }
     host_view_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     host_view_->setDragEnabled(true);
     host_view_->setAcceptDrops(true);
@@ -182,10 +190,11 @@ SdManagerDialog::SdManagerDialog(Emulator& emu, sm::SdManagerSession& session, c
     auto* bottom = new QHBoxLayout;
     bottom->addWidget(slot_combo_);
     bottom->addWidget(read_only_box_);
-    bottom->addWidget(card_note_, 1);
+    bottom->addStretch(1);
     bottom->addWidget(close);
     auto* outer = new QVBoxLayout(this);
     outer->addLayout(panes, 1);
+    outer->addWidget(card_note_);   // the permanent note, or why the card is read-only: one row under both panes
     outer->addLayout(bottom);
 
     // ---- actions: one set per pane, in its context menu and on its keys ----
@@ -206,6 +215,8 @@ SdManagerDialog::SdManagerDialog(Emulator& emu, sm::SdManagerSession& session, c
         make("rename", tr("Rename"), QKeySequence(Qt::Key_F2), [this, side] { rename_selected(side); });
         make("delete", tr("Delete"), QKeySequence(Qt::Key_Delete), [this, side] { delete_selected(side); });
         make("new_folder", tr("New Folder"), QKeySequence(), [this, side] { new_folder(side); });
+        if (side == Side::Card)   // the host listing follows the file system by itself
+            make("refresh", tr("Refresh"), QKeySequence(Qt::Key_F5), [this] { relist_card(); });
     };
     add_actions(card_view_, Side::Card, QStringLiteral("card_"));
     add_actions(host_view_, Side::Host, QStringLiteral("host_"));
@@ -296,7 +307,6 @@ void SdManagerDialog::show_slot(int slot, const QString& dir) {
         slot_ = -1;
         card_model_->set_location(QString(), QStringLiteral("/"));
         card_path_->setText(QString());
-        card_note_->setText(tr("No SD card in this slot."));
     } else {
         const sm::SlotInfo& si = shown_slots_[static_cast<size_t>(slot_)];
         bool ok = card_model_->set_location(QString::fromStdString(si.image), card_dir_);
@@ -305,14 +315,83 @@ void SdManagerDialog::show_slot(int slot, const QString& dir) {
             ok = card_model_->set_location(QString::fromStdString(si.image), card_dir_);
         }
         card_path_->setText(SdCardModel::card_shown(card_dir_));
-        card_note_->setText(ok ? (si.writable ? QString() : QString::fromStdString(si.read_only_reason))
-                               : tr("The card cannot be read: %1").arg(card_model_->error()));
+        (void)ok;
     }
+    note_card_state();
+    refresh_card_note();
     update_actions();
 }
 
+// What the shown card looked like at the last listing: the write generation (the guest, or any engine, wrote) and the
+// image's size and time (another program wrote a plain image). The poll compares them.
+static std::uint64_t image_stamp(const std::string& img) {
+    std::error_code ec;
+    const std::uintmax_t size = std::filesystem::file_size(img, ec);
+    const auto mt = std::filesystem::last_write_time(img, ec).time_since_epoch().count();
+    return static_cast<std::uint64_t>(size) * 1000003ULL ^ static_cast<std::uint64_t>(mt);
+}
+
+void SdManagerDialog::note_card_state() {
+    seen_generation_ = SdCardDevice::host_write_generation();
+    seen_image_stamp_ = slot_ < 0 ? 0 : image_stamp(shown_slots_[static_cast<size_t>(slot_)].image);
+}
+
+bool SdManagerDialog::image_changed() const {
+    return slot_ >= 0 && image_stamp(shown_slots_[static_cast<size_t>(slot_)].image) != seen_image_stamp_;
+}
+
+void SdManagerDialog::refresh_card_note() {
+    if (card_busy()) {
+        card_note_->setText(tr("The SD card is being changed by another action."));
+        return;
+    }
+    if (slot_ < 0) {
+        card_note_->setText(tr("No SD card in this slot."));
+        return;
+    }
+    const sm::SlotInfo& si = shown_slots_[static_cast<size_t>(slot_)];
+    if (!card_model_->error().isEmpty()) {
+        card_note_->setText(tr("The card cannot be read: %1").arg(card_model_->error()));
+    } else if (!si.writable) {
+        card_note_->setText(QString::fromStdString(si.read_only_reason));
+    } else {
+        QString text = permanent_note();
+        if (const auto j = sd_write_journal::for_image(si.image))
+            text += QStringLiteral(" ") + tr("Changes go into the writes file %1.").arg(QDir::toNativeSeparators(QString::fromStdString(j->file())));
+        card_note_->setText(text);
+    }
+}
+
+// The shown folder again (the guest or another program changed the card): the selection is kept by path, and so is the
+// scroll position.
+void SdManagerDialog::relist_card() {
+    if (slot_ < 0 || card_busy()) return;
+    const QStringList sel = selected_card_paths();
+    const int scroll = card_view_->verticalScrollBar()->value();
+    const bool ok = card_model_->reload();
+    if (!ok && card_dir_ != QLatin1String("/")) {   // the folder is gone: the root, as show_slot does
+        show_slot(slot_, QStringLiteral("/"));
+        return;
+    }
+    for (const QString& p : sel) {
+        const int r = card_model_->row_of_path(p);
+        if (r >= 0) card_view_->selectionModel()->select(card_model_->index(r, 0), QItemSelectionModel::Select);
+    }
+    card_view_->verticalScrollBar()->setValue(scroll);
+    note_card_state();
+    refresh_card_note();
+    update_actions();
+}
+
+void SdManagerDialog::changeEvent(QEvent* e) {
+    QDialog::changeEvent(e);
+    if (e->type() == QEvent::ActivationChange && isActiveWindow()) relist_card();
+}
+
+int SdManagerDialog::card_reloads_for_test() const { return card_model_->reloads(); }
+
 void SdManagerDialog::navigate_card(const QString& dir) {
-    if (slot_ < 0) return;
+    if (slot_ < 0 || card_busy()) return;
     show_slot(slot_, dir);
 }
 
@@ -350,11 +429,20 @@ void SdManagerDialog::navigate_host(const QString& dir) {
 }
 
 void SdManagerDialog::refresh() {
-    show_slot(slot_, card_dir_);
+    if (!card_busy()) show_slot(slot_, card_dir_);
     if (!host_dir_.isEmpty()) navigate_host(host_dir_);
 }
 
 bool SdManagerDialog::check_card_change() {
+    // Inert while a card operation owns the card: not one card call (card_slots() probes the image through FatFs).
+    if (card_busy()) {
+        was_busy_ = true;
+        refresh_card_note();
+        update_actions();
+        return false;
+    }
+    const bool resumed = was_busy_;
+    was_busy_ = false;
     const std::array<sm::SlotInfo, 2> now = sm::card_slots(emu_);
     bool changed = false;
     if (slot_ >= 0) {
@@ -373,6 +461,10 @@ bool SdManagerDialog::check_card_change() {
                        s.writable != o.writable || s.read_only_reason != o.read_only_reason;
             }))
             show_slot(slot_, card_dir_);   // re-reads the slots and relists
+        else if (slot_ >= 0 && (resumed || SdCardDevice::host_write_generation() != seen_generation_ || image_changed()))
+            relist_card();   // the card's content may have changed: the guest wrote, or another program did
+        else if (resumed)
+            update_actions();
         return false;
     }
     // The emulator wins: the card pane resets to what the machine has now, at its ROOT.
@@ -392,6 +484,15 @@ QStringList SdManagerDialog::selected_card_paths() const {
     return out;
 }
 
+QStringList SdManagerDialog::selected_card_stamps(const QStringList& paths) const {
+    QStringList out;
+    for (const QString& p : paths) {
+        const int r = card_model_->row_of_path(p);
+        out << (r >= 0 ? card_model_->stamp_of(r) : QString());
+    }
+    return out;
+}
+
 QStringList SdManagerDialog::selected_host_paths() const {
     QStringList out;
     for (const QModelIndex& i : host_view_->selectionModel()->selectedIndexes()) {
@@ -402,20 +503,37 @@ QStringList SdManagerDialog::selected_host_paths() const {
 }
 
 void SdManagerDialog::update_actions() {
-    const bool card_there = slot_ >= 0;
+    const bool busy = card_busy();
+    slot_combo_->setEnabled(!busy);
+    card_view_->setEnabled(!busy);
+    const bool card_there = slot_ >= 0 && !busy;
     const bool writable = card_there && shown_slots_[static_cast<size_t>(slot_)].writable;
-    if (writable) {
+    if (busy) {
+        // inert: greyed, the user's own choice left as it is
+        read_only_box_->setEnabled(false);
+        read_only_box_->setToolTip(tr("The SD card is being changed by another action."));
+    } else if (writable) {
+        if (ro_forced_) {   // the box was forced on for a card jnext cannot write: the user's own choice comes back
+            QSignalBlocker block(read_only_box_);
+            read_only_box_->setChecked(ro_user_choice_);
+            ro_forced_ = false;
+        }
         read_only_box_->setEnabled(true);
         read_only_box_->setToolTip(QString());
     } else {
-        // Forced on and greyed, with the reason as its tooltip (and the note under the selector).
+        // Forced on and greyed, with the reason as its tooltip (and the note under the panes).
         QSignalBlocker block(read_only_box_);
+        if (!ro_forced_) {
+            ro_user_choice_ = read_only_box_->isChecked();
+            ro_forced_ = true;
+        }
         read_only_box_->setChecked(true);
         read_only_box_->setEnabled(false);
-        read_only_box_->setToolTip(card_there ? QString::fromStdString(shown_slots_[static_cast<size_t>(slot_)].read_only_reason)
-                                              : tr("No SD card in this slot."));
+        read_only_box_->setToolTip(busy ? tr("The SD card is being changed by another action.")
+                                        : card_there ? QString::fromStdString(shown_slots_[static_cast<size_t>(slot_)].read_only_reason)
+                                                     : tr("No SD card in this slot."));
     }
-    const bool card_write = writable && !read_only_box_->isChecked();
+    const bool card_write = writable && !busy && !read_only_box_->isChecked();
     const bool card_sel = !card_view_->selectionModel()->selectedIndexes().isEmpty();
     const bool host_sel = !host_view_->selectionModel()->selectedIndexes().isEmpty();
     to_host_button_->setEnabled(card_there && card_sel);
@@ -425,6 +543,7 @@ void SdManagerDialog::update_actions() {
     en("card_rename", card_write && card_sel);
     en("card_delete", card_write && card_sel);
     en("card_new_folder", card_write);
+    en("card_refresh", card_there);
     en("host_copy", card_write && host_sel);
     en("host_rename", host_sel);
     en("host_delete", host_sel);
@@ -473,13 +592,12 @@ void SdManagerDialog::show_report(const QString& what, const sm::TransferReport&
     box(tr("SD Card File Manager"), text.trimmed(), QMessageBox::Ok, QMessageBox::Warning);
 }
 
-bool SdManagerDialog::card_gate() {
-    return session_.before_card_write([this] {
-        return box(tr("Change the SD card?"),
-                   tr("Changing the card restarts the machine (a hard reset) when this window closes, so that it sees the "
-                      "new contents. Make the change?"),
-                   QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes;
-    });
+// No pause, no question, no reset: the change goes onto the card at once. The only refusal is the card being owned by
+// another card operation (an upgrade or a go back), which the window is inert for anyway.
+bool SdManagerDialog::card_gate() { return !card_busy(); }
+
+QString SdManagerDialog::permanent_note() {
+    return tr("The machine sees a change when it next reads the folder. Do not change files a running program is using.");
 }
 
 bool SdManagerDialog::trash(const QString& path, QString& err) {
@@ -517,6 +635,7 @@ sm::TransferHooks SdManagerDialog::hooks() {
 }
 
 bool SdManagerDialog::card_now(bool write, CardNow& out) {
+    if (card_busy()) return false;   // a card operation owns the card: nothing is asked of it, and nothing is said
     // The card may have changed under the window: show the truth before acting on a stale view.
     if (check_card_change()) {
         box(tr("SD Card File Manager"), tr("The SD card in this slot has changed; the view was reset to the card the machine has now."),
@@ -562,15 +681,21 @@ bool SdManagerDialog::run_and_report(const sm::TransferRequest& req) {
 }
 
 void SdManagerDialog::copy_to_host() {
+    // What the user selected, and the identity of each entry as the pane LISTED it, are taken BEFORE anything can
+    // re-list (card_now() and every question run an event loop and the poll): an item that is no longer that entry is
+    // not acted on.
+    const QStringList paths = selected_card_paths();
+    const QStringList stamps = selected_card_stamps(paths);
     CardNow c;
     if (!card_now(false, c) || host_dir_.isEmpty()) return;
-    const QStringList paths = selected_card_paths();
     if (paths.isEmpty()) return;
     sm::TransferRequest req;
     req.from = sm::Side::Card;
     req.image = c.image;
     req.dest_dir = host_dir_.toStdString();
-    for (const QString& p : paths) req.items.push_back({SdCardModel::card_bytes(p), SdCardModel::card_shown(p).toStdString(), false});
+    for (int i = 0; i < paths.size(); ++i)
+        req.items.push_back({SdCardModel::card_bytes(paths[i]), SdCardModel::card_shown(paths[i]).toStdString(), false,
+                             SdCardModel::card_bytes(stamps[i])});
     req.held_files = sm::held_host_files(emu_);
     run_and_report(req);
 }
@@ -584,7 +709,7 @@ void SdManagerDialog::copy_to_card() {
     req.from = sm::Side::Host;
     req.image = c.image;
     req.dest_dir = SdCardModel::card_bytes(card_dir_);
-    for (const QString& p : paths) req.items.push_back({p.toStdString(), QFileInfo(p).fileName().toStdString(), false});
+    for (const QString& p : paths) req.items.push_back({p.toStdString(), QFileInfo(p).fileName().toStdString(), false, std::string()});
     req.held_files = sm::held_host_files(emu_);
     run_and_report(req);
 }
@@ -593,8 +718,8 @@ bool SdManagerDialog::drop_on_host(const QMimeData& data, bool move) {
     CardNow c;
     if (!card_now(move, c) || host_dir_.isEmpty()) return false;
     QString image;
-    QStringList paths;
-    if (!SdCardModel::decode_items(data.data(QString::fromLatin1(SdCardModel::kMime)), image, paths) ||
+    QStringList paths, stamps;
+    if (!SdCardModel::decode_items(data.data(QString::fromLatin1(SdCardModel::kMime)), image, paths, &stamps) ||
         !sdcard::same_image_file(image.toStdString(), c.image)) {
         box(tr("SD Card File Manager"), tr("That drop does not come from the card shown here."), QMessageBox::Ok, QMessageBox::Information);
         return false;
@@ -604,7 +729,9 @@ bool SdManagerDialog::drop_on_host(const QMimeData& data, bool move) {
     req.image = c.image;
     req.dest_dir = host_dir_.toStdString();
     req.move = move;
-    for (const QString& p : paths) req.items.push_back({SdCardModel::card_bytes(p), SdCardModel::card_shown(p).toStdString(), false});
+    for (int i = 0; i < paths.size(); ++i)
+        req.items.push_back({SdCardModel::card_bytes(paths[i]), SdCardModel::card_shown(paths[i]).toStdString(), false,
+                             i < stamps.size() ? SdCardModel::card_bytes(stamps[i]) : std::string()});
     req.held_files = sm::held_host_files(emu_);
     return run_and_report(req);
 }
@@ -621,15 +748,16 @@ bool SdManagerDialog::drop_on_card(const QMimeData& data, bool move) {
     req.image = c.image;
     req.dest_dir = SdCardModel::card_bytes(card_dir_);
     req.move = move;
-    for (const QString& p : paths) req.items.push_back({p.toStdString(), QFileInfo(p).fileName().toStdString(), false});
+    for (const QString& p : paths) req.items.push_back({p.toStdString(), QFileInfo(p).fileName().toStdString(), false, std::string()});
     req.held_files = sm::held_host_files(emu_);
     return run_and_report(req);
 }
 
 void SdManagerDialog::rename_selected(Side side) {
+    const QStringList sel = side == Side::Card ? selected_card_paths() : selected_host_paths();   // as listed, before any re-list
+    const QStringList stamps0 = side == Side::Card ? selected_card_stamps(sel) : QStringList();
     CardNow c;
     if (side == Side::Card ? !card_now(true, c) : (host_op_context(c), false)) return;
-    const QStringList sel = side == Side::Card ? selected_card_paths() : selected_host_paths();
     if (sel.size() != 1) {
         box(tr("SD Card File Manager"), tr("Select one item to rename."), QMessageBox::Ok, QMessageBox::Information);
         return;
@@ -643,11 +771,12 @@ void SdManagerDialog::rename_selected(Side side) {
     QString name;
     if (!ask_text(tr("Rename"), tr("New name:"), shown, name) || name.isEmpty() || name == shown) return;
     if (side == Side::Card) {
-        if (!card_gate()) return;
-        std::string err;
-        const sdcard::FileAddStatus st = sdcard::cardops::rename(c.image, SdCardModel::card_bytes(sel.first()), name.toStdString(), err);
-        if (st != sdcard::FileAddStatus::Ok)
-            box(tr("SD Card File Manager"), tr("Cannot rename: %1").arg(QString::fromStdString(err)), QMessageBox::Ok, QMessageBox::Warning);
+        sm::TransferHooks h = hooks();
+        const sm::TransferReport rep = sm::rename_card_item(c.image, SdCardModel::card_bytes(sel.first()),
+                                                            SdCardModel::card_bytes(stamps0.first()), name.toStdString(), h,
+                                                            c.read_only_reason);
+        if (!rep.error.empty())
+            box(tr("SD Card File Manager"), tr("Cannot rename: %1").arg(QString::fromStdString(rep.error)), QMessageBox::Ok, QMessageBox::Warning);
     } else {
         const QFileInfo fi(sel.first());
         const QString target = fi.dir().filePath(name);
@@ -668,9 +797,10 @@ void SdManagerDialog::rename_selected(Side side) {
 }
 
 void SdManagerDialog::delete_selected(Side side) {
+    const QStringList sel = side == Side::Card ? selected_card_paths() : selected_host_paths();   // as listed, before any re-list
+    const QStringList stamps0 = side == Side::Card ? selected_card_stamps(sel) : QStringList();
     CardNow c;
     if (side == Side::Card ? !card_now(true, c) : (host_op_context(c), false)) return;
-    const QStringList sel = side == Side::Card ? selected_card_paths() : selected_host_paths();
     if (sel.isEmpty()) return;
     const QString what = sel.size() == 1 ? tr("'%1'").arg(side == Side::Card ? SdCardModel::card_shown(sel.first()) : sel.first())
                                          : tr("%1 items").arg(sel.size());
@@ -678,14 +808,16 @@ void SdManagerDialog::delete_selected(Side side) {
         ? tr("Delete %1 from the card? This cannot be undone.").arg(what)
         : tr("Move %1 to the trash?").arg(what);
     if (box(tr("Delete"), text, QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) return;
-    std::vector<std::string> paths;
+    std::vector<std::string> paths, stamps;
     for (const QString& p : sel) paths.push_back(side == Side::Card ? SdCardModel::card_bytes(p) : p.toStdString());
+    if (side == Side::Card)
+        for (const QString& st : stamps0) stamps.push_back(SdCardModel::card_bytes(st));
     sm::TransferHooks h = hooks();
     sm::TransferReport rep;
     {
         WaitCursor wait;
         rep = sm::delete_items(side == Side::Card ? sm::Side::Card : sm::Side::Host, c.image, paths,
-                               sm::held_host_files(emu_), h, c.read_only_reason);
+                               sm::held_host_files(emu_), h, c.read_only_reason, stamps);
     }
     show_report(tr("Delete"), rep);
     refresh();

@@ -1203,14 +1203,13 @@ void DebuggerManager::check_breakpoint_hit() {
     // activateWindow()s, so no GUI call is needed anywhere in the core.
     // Pinned by debugger_persistent_bp_test PBPUI-02. Owner Q5: another
     // client's pause opens it too (PBPUI-08). The ONE exception is GH #306: a
-    // pause made by one of the emulator window's own clients (its Pause control;
-    // the SD card file manager's session, GH #558; matched by client id, so
-    // another Gui/observer client still opens it) is not a debugger stop: it is
-    // exactly what those controls exist to do WITHOUT the debugger window.
-    bool own_pause = false;
-    if (st.pause_reason.kind == jnext::dbg::PauseReason::Kind::User)
-        for (jnext::dbg::ClientId c : window_pause_clients_)
-            if (c == st.pause_reason.by) own_pause = true;
+    // pause made by the emulator window's own Pause control (matched by client
+    // id, so another Gui/observer client still opens it) is exactly what that
+    // control exists to do WITHOUT the debugger window.
+    const bool own_pause =
+        st.pause_reason.kind == jnext::dbg::PauseReason::Kind::User &&
+        emulator_window_pause_client_ != jnext::dbg::CLIENT_NONE &&
+        st.pause_reason.by == emulator_window_pause_client_;
     if (!enabled_ && paused && !own_pause) {
         set_enabled(true);
     }

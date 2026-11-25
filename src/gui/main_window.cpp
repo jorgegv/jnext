@@ -509,7 +509,7 @@ void MainWindow::ensure_pause_client() {
     if (!r) return;
     pause_client_ = r.value;
 #ifdef ENABLE_DEBUGGER
-    if (debugger_mgr_) debugger_mgr_->add_window_pause_client(pause_client_);
+    if (debugger_mgr_) debugger_mgr_->set_emulator_window_pause_client(pause_client_);
 #endif
 }
 
@@ -2257,62 +2257,37 @@ void MainWindow::refresh_card_set_actions() {
         : tr("Delete the Previous SD Card Backup..."));
 }
 
-// GH #558 - the SD card file manager. The machine is paused for as long as the window is open (an observer client of the
-// session's own) and a card change ends in a hard reset: both by sd_session_, opened here and closed from a zero-delay
-// timer after the window's `finished` (never inside the tick or a debugger event: Debugger::reset refuses there).
+// GH #558 - the SD card file manager. It does not touch the machine: no pause, no reset, no question. The card has no
+// copy in jnext (the device reads every block from the file or the writes file), so a change is on the card at once and
+// the guest sees it when it next reads the folder. The window is modeless and there is ONE of it; it goes inert while a
+// card operation (an upgrade, a go back) owns the card.
 void MainWindow::on_sd_manager() {
-    if (sd_session_.is_open()) return;   // the window is up (it is modal; this is a programmatic trigger)
+    if (sd_dialog_) {   // already open: raise it
+        sd_dialog_->show();
+        sd_dialog_->raise();
+        sd_dialog_->activateWindow();
+        return;
+    }
     if (card_op_ != CardOp::None) {
         QMessageBox::information(this, tr("SD Card File Manager"),
                                  tr("The SD card is being changed by another action. Try again when it is done."));
         return;
     }
-    if (!emulator_ || !debugger_) {
-        QMessageBox::information(this, tr("SD Card File Manager"),
-                                 tr("The SD card file manager is not available: the machine cannot be paused."));
+    if (!emulator_) {
+        QMessageBox::information(this, tr("SD Card File Manager"), tr("The SD card file manager is not available: there is no machine."));
         return;
     }
-    std::string why;
-    if (!sd_session_.open(*debugger_, why)) {
-        QMessageBox::warning(this, tr("SD Card File Manager"),
-                             tr("The SD card file manager cannot open: %1").arg(QString::fromStdString(why)));
-        return;
-    }
-#ifdef ENABLE_DEBUGGER
-    // The session's pause is the window's own, not a debugger stop: it must not open the debugger window.
-    if (debugger_mgr_) debugger_mgr_->add_window_pause_client(sd_session_.client());
-#endif
-    sync_pause_state();
     sdmanager::Remembered rem;
     rem.card_image = session_.sd_card.value_or(app_config_.data().sdmanager_card).toStdString();
     rem.card_dir   = session_.sd_card_dir.value_or(app_config_.data().sdmanager_card_dir).toStdString();
     rem.host_dir   = session_.sd_host_dir.value_or(app_config_.data().sdmanager_host_dir).toStdString();
-    auto* dlg = new SdManagerDialog(*emulator_, sd_session_, rem, load_dialog_seed(), this);
+    auto* dlg = new SdManagerDialog(*emulator_, rem, load_dialog_seed(), this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    // Application modal, so the debugger window is blocked too. QDialog::open() would make it window modal (it
-    // blocks only this window), hence show() on a modal dialog.
-    dlg->setModal(true);
-    connect(dlg, &QDialog::finished, this, [this, dlg](int) {
-        remember_sd_manager(dlg->remembered());
-        QTimer::singleShot(0, this, [this]() { finish_sd_manager(); });
-    });
+    dlg->setModal(false);
+    dlg->set_card_busy([this] { return card_op_ != CardOp::None; });
+    sd_dialog_ = dlg;
+    connect(dlg, &QDialog::finished, this, [this, dlg](int) { remember_sd_manager(dlg->remembered()); });
     dlg->show();
-}
-
-void MainWindow::finish_sd_manager() {
-    if (!emulator_) return;
-    switch (sd_session_.close(*emulator_)) {
-    case sdmanager::SdManagerSession::CloseResult::ResetAndResumed:
-    case sdmanager::SdManagerSession::CloseResult::ResetStayedPaused:
-        statusBar()->showMessage(tr("SD card changed: the machine restarts"), 5000);
-        break;
-    case sdmanager::SdManagerSession::CloseResult::ResetDeferred:
-        statusBar()->showMessage(tr("SD card changed: the machine restarts paused, resume it afterwards"), 8000);
-        break;
-    default:
-        break;
-    }
-    sync_pause_state();
 }
 
 // What the window closed on is remembered and saved (the GUI change takes over from a command-line value), like

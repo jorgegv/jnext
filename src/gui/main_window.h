@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QActionGroup>
 #include <QPoint>
+#include <QPointer>
 #include <QStringList>
 #include <functional>
 #include <memory>
@@ -17,7 +18,7 @@
 #include "gui/host_shortcuts.h"       // GH #403
 #include "platform/pointer_capture.h"
 #include "platform/quick_snapshot_chord.h"   // jnext::QuickAction (GH #386)
-#include "platform/sdcard_manager.h"        // GH #558: the file manager's session
+#include "platform/sdcard_manager.h"        // GH #558: sdmanager::Remembered
 #include "debug/events.h"        // ClientId — GH #306 pause client
 
 class Emulator;
@@ -495,7 +496,6 @@ private:
     void on_insert_sd2();
     void on_upgrade_sd();            // GH #555 S6
     void on_sd_manager();            // GH #558
-    void finish_sd_manager();
     void remember_sd_manager(const sdmanager::Remembered& r);
     void on_go_back_sd();
     void on_delete_backup();
@@ -751,9 +751,7 @@ private:
     QAction* go_back_sd_action_    = nullptr;
     QAction* delete_backup_action_ = nullptr;
     QAction* sd_manager_action_    = nullptr;   // GH #558: File > SD Card File Manager...
-    // The file manager's pause/reset session (it holds an observer client on the Debugger this window was given, which
-    // outlives it, and detaches it on destruction).
-    sdmanager::SdManagerSession sd_session_;
+    QPointer<class SdManagerDialog> sd_dialog_;   // the file manager window (modeless, one instance), null while closed
     enum class CardOp { None, Upgrade, GoBack };
     CardOp   card_op_ = CardOp::None;           // set while the card is out for one of them
     bool     card_op_inserting_ = false;        // the card is being put back

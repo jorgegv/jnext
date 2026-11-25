@@ -558,9 +558,9 @@ void test_pause() {
     check("MWP-18", "QtApp::TickEffects::pre_frames() polls the startup stop before the tick's frames (a window Pause and Run "
                     "between two ticks)", pre_frames_polls_startup_stop());
 
-    // MWP-19 / MWP-20 (GH #558 fix-forward) - the SD card file manager pauses through a client of its own, which is the
-    // window's own like the Pause control: opening it pauses the machine WITHOUT opening the debugger window, closing
-    // it leaves the window shut and the machine running again. A pause by any other client still opens it.
+    // MWP-19 (GH #558, amended 2026-11-25) - the SD card file manager does not touch the machine: opening it neither pauses
+    // it nor opens the debugger window, and closing it leaves both as they were. (A pause by any other client still opens
+    // the window: MWP-05 and PBPUI-02 pin that.)
     {
         Fixture fx;
         fx.w->sd_manager_action()->trigger();
@@ -568,25 +568,13 @@ void test_pause() {
         SdManagerDialog* dlg = nullptr;
         for (QWidget* t : QApplication::topLevelWidgets())
             if (auto* d = qobject_cast<SdManagerDialog*>(t)) dlg = d;
-        const bool open_ok = dlg && fx.paused() && !fx.debugger_open() && fx.indicators(true);
+        const bool open_ok = dlg && !fx.paused() && !fx.debugger_open() && fx.indicators(false);
         if (dlg) dlg->accept();
         QApplication::processEvents();
-        QApplication::processEvents();
         fx.tick();
-        check("MWP-19", "opening the SD card file manager pauses the machine without opening the debugger window; closing it resumes the machine and the debugger window stays shut",
+        check("MWP-19", "opening the SD card file manager neither pauses the machine nor opens the debugger window, and closing it leaves both as they were",
               open_ok && !fx.paused() && !fx.debugger_open() && fx.indicators(false),
               std::string("open_ok=") + (open_ok ? "1" : "0") + " paused=" + (fx.paused() ? "1" : "0") + " dbg=" + (fx.debugger_open() ? "1" : "0"));
-        const auto other = fx.backend->attach(jnext::dbg::ClientInfo{"other", jnext::dbg::ClientKind::Gui, true});
-        fx.backend->pause(other.value);
-        fx.tick();
-#ifdef ENABLE_DEBUGGER
-        check("MWP-20", "after a file manager visit another client's pause still opens the debugger window (the exemption is the session's client id only)",
-              fx.paused() && fx.w->debugger_manager() && fx.w->debugger_manager()->is_enabled());
-#else
-        check("MWP-20", "after a file manager visit another client's pause is still shown by the checkmark and label",
-              fx.paused() && fx.indicators(true));
-#endif
-        fx.backend->detach(other.value);
     }
 }
 

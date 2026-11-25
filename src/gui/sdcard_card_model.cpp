@@ -10,6 +10,7 @@
 #include <QMimeData>
 
 #include "core/sdcard_carry.h"
+#include "platform/sdcard_manager.h"
 #include "toolbar_icons/toolbar_icons.h"
 
 namespace ops = sdcard::cardops;
@@ -23,6 +24,7 @@ bool SdCardModel::set_location(const QString& image, const QString& dir) {
 }
 
 bool SdCardModel::reload() {
+    ++reloads_;
     beginResetModel();
     entries_.clear();
     error_.clear();
@@ -66,24 +68,45 @@ QString SdCardModel::path_of(int row) const {
     return child_path(dir_, card_text(e.open_name));
 }
 
-QByteArray SdCardModel::encode_items(const QString& image, const QStringList& paths) {
+QString SdCardModel::stamp_of(int row) const {
+    if (is_up_row(row) || row < 0 || row >= rowCount()) return {};
+    return card_text(sdmanager::entry_stamp(entry(row)));
+}
+
+int SdCardModel::row_of_path(const QString& path) const {
+    for (int r = 0; r < rowCount(); ++r)
+        if (path_of(r) == path) return r;
+    return -1;
+}
+
+QByteArray SdCardModel::encode_items(const QString& image, const QStringList& paths, const QStringList& stamps) {
     QByteArray out = QByteArray::fromStdString(sdcard::carry::escape_name(image.toStdString(), false));
-    for (const QString& p : paths) {
+    for (int i = 0; i < paths.size(); ++i) {
         out += '\n';
-        out += QByteArray::fromStdString(sdcard::carry::escape_name(card_bytes(p), false));
+        out += QByteArray::fromStdString(sdcard::carry::escape_name(card_bytes(paths[i]), false));
+        if (i < stamps.size() && !stamps[i].isEmpty()) {
+            out += '\t';   // escape_name writes a tab as %09, so it cannot occur inside either field
+            out += QByteArray::fromStdString(sdcard::carry::escape_name(card_bytes(stamps[i]), false));
+        }
     }
     return out;
 }
 
-bool SdCardModel::decode_items(const QByteArray& data, QString& image, QStringList& paths) {
+bool SdCardModel::decode_items(const QByteArray& data, QString& image, QStringList& paths, QStringList* stamps) {
     paths.clear();
+    if (stamps) stamps->clear();
     const QList<QByteArray> lines = data.split('\n');
     if (lines.size() < 2) return false;
     for (int i = 0; i < lines.size(); ++i) {
-        std::string raw;
-        if (!sdcard::carry::unescape_name(lines[i].toStdString(), raw)) return false;
+        const int tab = lines[i].indexOf('\t');
+        std::string raw, raw_stamp;
+        if (!sdcard::carry::unescape_name((tab < 0 ? lines[i] : lines[i].left(tab)).toStdString(), raw)) return false;
+        if (tab >= 0 && i > 0 && !sdcard::carry::unescape_name(lines[i].mid(tab + 1).toStdString(), raw_stamp)) return false;
         if (i == 0) image = QString::fromStdString(raw);
-        else paths << card_text(raw);
+        else {
+            paths << card_text(raw);
+            if (stamps) *stamps << card_text(raw_stamp);
+        }
     }
     return !image.isEmpty();
 }
@@ -142,14 +165,17 @@ Qt::ItemFlags SdCardModel::flags(const QModelIndex& index) const {
 QStringList SdCardModel::mimeTypes() const { return {QString::fromLatin1(kMime)}; }
 
 QMimeData* SdCardModel::mimeData(const QModelIndexList& indexes) const {
-    QStringList paths;
+    QStringList paths, stamps;
     for (const QModelIndex& i : indexes) {
         const QString p = path_of(i.row());
-        if (!p.isEmpty() && !paths.contains(p)) paths << p;
+        if (!p.isEmpty() && !paths.contains(p)) {
+            paths << p;
+            stamps << stamp_of(i.row());
+        }
     }
     if (paths.isEmpty()) return nullptr;
     auto* m = new QMimeData;
-    m->setData(QString::fromLatin1(kMime), encode_items(image_, paths));
+    m->setData(QString::fromLatin1(kMime), encode_items(image_, paths, stamps));
     return m;
 }
 
@@ -246,7 +272,14 @@ QVariant SdHostModel::data(const QModelIndex& index, int role) const {
         }
     }
     const QModelIndex s = to_source(index);
-    return s.isValid() ? source_->data(s, role) : QVariant();
+    if (!s.isValid()) return {};
+    // The same generic file and folder icons as the card pane (never the platform's per-file icons, which an offscreen
+    // or minimal desktop does not have): the two panes look alike.
+    if (role == Qt::DecorationRole) {
+        static const QFileIconProvider icons;
+        return icons.icon(source_->isDir(s) ? QFileIconProvider::Folder : QFileIconProvider::File);
+    }
+    return source_->data(s, role);
 }
 
 Qt::ItemFlags SdHostModel::flags(const QModelIndex& index) const {
