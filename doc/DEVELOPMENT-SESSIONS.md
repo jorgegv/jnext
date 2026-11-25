@@ -258,5 +258,5 @@
 | 24/11   |      | #556 Exploding Fist (koseid72); #555 SD card upgrades and card lock; #557 file extract; epic #224      |
 |         |      | music and sound panels; #562 #564. v1.3.68->1.3.75                                                     |
 | 25/11   |      | #563 JNext link on web players (janko-jj); #558 SD card file manager; #504 #559 guide audits           |
-|         |      | v1.3.76->1.3.81; v1.4.0 PUBLIC RELEASE                                                                 |
+|         |      | v1.3.76->1.3.82; v1.4.0 PUBLIC RELEASE                                                                 |
 | TOTAL:  | 666h |                                                                                                        |
