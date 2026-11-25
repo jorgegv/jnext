@@ -785,7 +785,10 @@ void capture_sdcard_manager(const Options& opt) {
         ++g_failed;
         return;
     }
-    const QString host = tmp.filePath(QStringLiteral("my-files"));
+    // A FIXED, short host path: the picture shows it, and a random temporary name would differ in every capture.
+    const QString host_root = QDir::tempPath() + QStringLiteral("/jnext-docs");
+    const QString host = host_root + QStringLiteral("/my-files");
+    QDir(host_root).removeRecursively();
     QDir().mkpath(host + QStringLiteral("/screenshots"));
     for (const char* n : {"my-game.nex", "notes.txt", "tape-image.tap", "level-editor.zip"}) {
         QFile f(host + QStringLiteral("/") + QString::fromLatin1(n));
@@ -810,6 +813,8 @@ void capture_sdcard_manager(const Options& opt) {
     dlg.show();
     settle(400);   // the host folder is read on a worker thread
     save_crop(&dlg, &dlg, opt.out_dir + QStringLiteral("/sdcard-manager.png"));
+    dlg.close();
+    QDir(host_root).removeRecursively();
 }
 
 // ── Group 4: a z88dk program under the Source tab (GH #426) ───────────
