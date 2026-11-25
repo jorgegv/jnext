@@ -1,4 +1,4 @@
-// Browser rows WIDGET-01..26: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
+// Browser rows WIDGET-01..29: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
 // (make wasm-browser-test, spec widget.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // Server A is the page host (http://localhost:<port>, a secure context): it serves the files of the
@@ -540,6 +540,7 @@ row('WIDGET-19', 'plain.html (the basic template page) shows the same attributio
 const ctxPage = async (url, ctxOpts = {}, extra = {}) => {
   const ctx = await h.browser.newContext({ viewport: { width: 1000, height: 900 }, deviceScaleFactor: 1, ...ctxOpts });
   await ctx.addInitScript((d) => { window['jnextDev'] = d; }, CARD_SEAM);
+  if (extra.init) await ctx.addInitScript(extra.init);
   const page = await ctx.newPage();
   page.msgs = [];
   page.on('pageerror', (e) => page.msgs.push('PAGEERROR ' + e.message));
@@ -664,6 +665,116 @@ row('WIDGET-26', 'a flex-row player whose container clips (overflow hidden, roun
   must(!r.overlap && r.midInPlayer && r.linkHit && r.vis === 'visible', 'clip: ' + JSON.stringify(r));
   must(Math.abs(r.right - r.boxRight) <= 2, 'clip alignment: ' + JSON.stringify(r));
   must(kept, 'the focused credit link lost its focus on a window resize');
+});
+
+row('WIDGET-27', 'content above the player changes height after mount (block, flex, grid, positioned ancestor): the credit stays under the player box, not over it, clear of the paragraph after the host, right edge on the box edge', async () => {
+  const side = '<aside style="width:200px">sidebar</aside>';
+  const hosts = {
+    'g-block.html': '<div id="s" style="height:10px"></div><div><div id="p"></div></div><p id="after">after</p>',
+    'g-flex.html': '<div id="s" style="height:10px"></div><div style="display:flex"><div id="p"></div>' + side + '</div><p id="after">after</p>',
+    'g-grid.html': '<div id="s" style="height:10px"></div><div style="display:grid;grid-template-columns:auto 200px"><div id="p"></div>' + side + '</div><p id="after">after</p>',
+    'g-rel.html': '<div id="s" style="height:10px"></div><div style="position:relative;margin:40px 0 0 30px"><div style="display:flex"><div id="p"></div>' + side + '</div></div><p id="after">after</p>',
+  };
+  const probe = (page) => page.evaluate(() => {
+    const r = document.querySelector('.jnext-credit').getBoundingClientRect(), a = document.getElementById('after').getBoundingClientRect(),
+          box = document.querySelector('.jnext-player').getBoundingClientRect(), l = document.querySelector('.jnext-credit a').getBoundingClientRect(),
+          hit = document.elementFromPoint(l.left + l.width / 2, l.top + l.height / 2),
+          mid = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return { top: r.top, bottom: r.bottom, boxBottom: box.bottom, right: r.right, boxRight: box.right, afterTop: a.top,
+             overlap: !(r.top >= box.bottom - 0.5 || r.bottom <= box.top + 0.5 || r.left >= box.right - 0.5 || r.right <= box.left + 0.5),
+             linkHit: !!hit && !!hit.closest('.jnext-credit'), midInPlayer: !!mid && !!mid.closest('.jnext-player') };
+  });
+  const check = (name, when, r) => {
+    must(!r.overlap && r.linkHit && r.midInPlayer && r.top >= r.boxBottom - 1, name + ' ' + when + ': ' + JSON.stringify(r));
+    must(Math.abs(r.right - r.boxRight) <= 2, name + ' ' + when + ' right edge: ' + JSON.stringify(r));
+    must(r.afterTop >= r.bottom - 0.5, name + ' ' + when + ': the paragraph after the host lies under the credit: ' + JSON.stringify(r));
+  };
+  for (const [name, host] of Object.entries(hosts)) {
+    layoutPage(name, host);
+    const page = await ctxPage(`${AURL}/${name}`);
+    await waitFor(page, () => window.pl && document.querySelector('.jnext-credit'), null, 120000);
+    check(name, 'at mount', await probe(page));
+    await page.evaluate(() => { document.getElementById('s').style.height = '300px'; });
+    await sleep(500);
+    check(name, 'after the content above grew', await probe(page));
+    await page.context().close();
+    must(page.msgs.length === 0, name + ': ' + page.msgs.join('; '));
+  }
+});
+
+const SPY = () => {
+  const spy = window.__spy = { resize: new Set(), ro: new Set(), poll: 0 };
+  const aEL = window.addEventListener, rEL = window.removeEventListener;
+  window.addEventListener = function (t, f) { if (t === 'resize' && f && f.name === 'placeCredit') spy.resize.add(f); return aEL.apply(this, arguments); };
+  window.removeEventListener = function (t, f) { if (t === 'resize' && f && f.name === 'placeCredit') spy.resize.delete(f); return rEL.apply(this, arguments); };
+  const RO = window.ResizeObserver;
+  window.ResizeObserver = class extends RO {
+    constructor(cb) { super(cb); if (cb && cb.name === 'placeCredit') spy.ro.add(this); }
+    disconnect() { spy.ro.delete(this); return super.disconnect(); }
+  };
+  const raf = window.requestAnimationFrame;
+  window.requestAnimationFrame = function (cb) {
+    if (cb && cb.name === 'creditPoll') return raf.call(window, (t) => { spy.poll++; return cb(t); });
+    return raf.call(window, cb);
+  };
+};
+
+row('WIDGET-28', 'the credit takes the container\'s room and gives it all back: its bottom margin is reserved while mounted and restored by destroy(), and its observer, resize listener and per-frame check exist while mounted and are gone after destroy()', async () => {
+  layoutPage('spy.html', '<div style="display:flex"><div id="p" style="margin-bottom:10px"></div><aside style="width:200px">sidebar</aside></div>');
+  const page = await ctxPage(`${AURL}/spy.html`, {}, { init: SPY });
+  await waitFor(page, () => window.pl && document.querySelector('.jnext-credit'), null, 120000);
+  await sleep(300);
+  const before = await page.evaluate(() => ({ margin: document.getElementById('p').style.marginBottom, resize: window.__spy.resize.size, ro: window.__spy.ro.size, poll: window.__spy.poll }));
+  const after = await page.evaluate(async () => {
+    await window.pl.destroy();
+    const s = window.__spy, p0 = s.poll;
+    await new Promise((r) => setTimeout(r, 400));
+    return { margin: document.getElementById('p').style.marginBottom, resize: s.resize.size, ro: s.ro.size, polled: s.poll - p0, credits: document.querySelectorAll('.jnext-credit').length };
+  });
+  await page.context().close();
+  must(before.margin === '36px' && before.resize === 1 && before.ro === 1 && before.poll > 0, 'while mounted: ' + JSON.stringify(before));
+  must(after.margin === '10px' && after.resize === 0 && after.ro === 0 && after.polled === 0 && after.credits === 0, 'after destroy(): ' + JSON.stringify(after));
+  must(page.msgs.length === 0, page.msgs.join('; '));
+});
+
+row('WIDGET-29', 'the rendered icon is the packaging SVG: same elements, nesting and attributes (SVG namespace, 18 px, clip id renamed per mount, each reference inside its own icon)', async () => {
+  const asset = fs.readFileSync(path.join(ROOT, 'packaging/assets/io.github.zxjogv.jnext.svg'), 'utf8');
+  pages['icon.html'] = `<!doctype html><body><div id="a"></div><div id="b"></div><script src="jnext-${VERSION}.js"></script></body>`;
+  const page = await ctxPage(`${AURL}/icon.html`);
+  await waitFor(page, () => typeof jnext !== 'undefined', null, 60000);
+  const r = await page.evaluate(async (asset) => {
+    await jnext.mount(document.getElementById('a'), { width: 640, height: 512 });
+    await jnext.mount(document.getElementById('b'), { width: 640, height: 512 });
+    const ref = new DOMParser().parseFromString(asset, 'image/svg+xml').documentElement;
+    const SVGNS = 'http://www.w3.org/2000/svg';
+    const attrs = (e, root) => {
+      const o = {};
+      for (const a of e.attributes) {
+        let k = a.name, v = a.value;
+        if (k === 'xmlns') continue;
+        if (k === 'style' && /^paint-order:\s*stroke;?$/.test(v)) { k = 'paint-order'; v = 'stroke'; }
+        if (k === 'id' && e.localName === 'clipPath') v = 'CLIP';
+        if (k === 'clip-path') v = v.replace(/#[^)]*/, '#CLIP');
+        if (root && (k === 'width' || k === 'height' || k === 'aria-hidden' || k === 'style')) continue;
+        o[k] = v;
+      }
+      return o;
+    };
+    const shape = (e, root) => ({ tag: e.localName, ns: e.namespaceURI === SVGNS, attrs: attrs(e, root), kids: [...e.children].map((c) => shape(c, false)) });
+    const want = JSON.stringify(shape(ref, true));
+    const icons = [...document.querySelectorAll('.jnext-credit a svg')];
+    return icons.map((svg) => {
+      const clip = svg.querySelector('clipPath'), id = clip && clip.id;
+      const refs = [...svg.querySelectorAll('[clip-path]')].map((e) => e.getAttribute('clip-path'));
+      return { same: JSON.stringify(shape(svg, true)) === want, id, refsOk: refs.length > 0 && refs.every((x) => x === 'url(#' + id + ')') && !!svg.querySelector('#' + id),
+               size: [svg.getAttribute('width'), svg.getAttribute('height'), svg.getAttribute('aria-hidden')], nested: svg.querySelectorAll('svg *').length };
+    });
+  }, asset);
+  await page.context().close();
+  must(r.length === 2, 'icons: ' + r.length);
+  must(r.every((x) => x.same && x.refsOk && x.size.join() === '18,18,true' && x.nested === 13), 'icon structure: ' + JSON.stringify(r));
+  must(r[0].id && r[1].id && r[0].id !== r[1].id, 'clip ids not unique per mount: ' + JSON.stringify(r.map((x) => x.id)));
+  must(page.msgs.length === 0, page.msgs.join('; '));
 });
 
 row('WIDGET-23', 'lifecycle: destroy() removes the credit, a failed mount leaves none, and two players have one credit each', async () => {

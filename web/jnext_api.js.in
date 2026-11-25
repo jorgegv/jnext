@@ -239,7 +239,7 @@
     creditLink.appendChild(creditIcon);
     creditLink.appendChild(document.createTextNode('JNext'));
     credit.appendChild(creditLink);
-    var creditAlive = !!container.parentNode, creditReserved = false;
+    var creditAlive = !!container.parentNode, creditReserved = false, creditAbs = false, creditKey = '', creditRaf = 0;
     var containerMargin = container.style.marginBottom;
     if (creditAlive) container.parentNode.insertBefore(credit, container.nextSibling);
     function unreserve() {
@@ -255,6 +255,7 @@
         container.parentNode.insertBefore(credit, container.nextSibling);
       }
       unreserve();
+      creditAbs = false;
       credit.style.cssText = CREDIT_BASE;
       // Aligned to the player box (it may be narrower than a stretched container).
       var cc = container.getBoundingClientRect(), c = box.getBoundingClientRect(), r = credit.getBoundingClientRect();
@@ -270,6 +271,22 @@
       credit.style.right = (o.right - c.right) + 'px';
       container.style.marginBottom = ((parseFloat(getComputedStyle(container).marginBottom) || 0) + 26) + 'px';
       creditReserved = true;
+      creditAbs = true;
+      creditKey = creditGeometry();
+      if (!creditRaf) creditRaf = requestAnimationFrame(creditPoll);
+    }
+    // An absolutely positioned credit does not move with the player when the page's content above it
+    // changes height, and no observer sees that, so while it is in that mode (a layout that needs it
+    // is rare) the geometry is checked once per frame.
+    function creditGeometry() {
+      var a = container.getBoundingClientRect(), b = box.getBoundingClientRect();
+      return [a.left, a.top, a.width, a.height, b.left, b.top, b.width, b.height].join();
+    }
+    function creditPoll() {
+      creditRaf = 0;
+      if (!creditAlive || !creditAbs) return;
+      if (creditGeometry() !== creditKey) placeCredit();
+      if (creditAbs && creditAlive) creditRaf = requestAnimationFrame(creditPoll);
     }
     var creditObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(placeCredit) : null;
     if (creditObserver) { creditObserver.observe(container); creditObserver.observe(box); }
@@ -277,6 +294,7 @@
     placeCredit();
     function dropCredit() {
       creditAlive = false;
+      if (creditRaf) { cancelAnimationFrame(creditRaf); creditRaf = 0; }
       if (creditObserver) creditObserver.disconnect();
       window.removeEventListener('resize', placeCredit);
       unreserve();
