@@ -3,47 +3,33 @@
 ## Unreleased (2026-11-22)
 
 ### User Features
-- SD card upgrades keep your files and writes files and keep a backup you can go back to; a newer card is left alone by an older jnext; startup errors show in a window
-- Export your SD card changes to a folder and import them into another card (--sdcard-export-changes, --sdcard-import-changes, --sdcard-writes-flatten)
-- --sdcard-file-extract copies a file or directory off an SD card image into the current directory
-- Web pages: saves kept on an older NextZXOS card are reset after an update, with an onNotice callback
-- `--esxdos-stub` serves the esxDOS block-streaming calls from its host directory, so streaming games like The Way of the Exploding Fist run
-- Browser player hands the page the files JNEXT writes (recordings, screenshots, traces, exports): listFiles(), readFile(), stop()
+- SD cards: upgrades keep your files with a backup; export, import and extract card files (--sdcard-export-changes, --sdcard-import-changes, --sdcard-file-extract)
+- Startup errors show in a window
+- `--esxdos-stub` serves block-streaming calls, so streaming games run
+- Browser player: pages can read the files JNEXT writes (listFiles, readFile); old saves reset after a card update
 
 ### Developer Features
-- Debugger Audio panel: decoded AY chips (notes and cents, gates, envelope, live levels), DAC/beeper routing and discarded writes with their reason
-- Audio write log with timestamps, writer PC and source, filters and CSV export; `--audio-log FILE` streams it, also headless
-- Per-channel mute and solo for the nine AY and four DAC channels; Audio Write breakpoints; `.jds` `ay_write`, `audio_write`, `ay[chip, reg]`, `AUDIO_CHANNEL_MUTE`
-- `--debugger` and `--break-at`: a program loaded from the command line stops at its start (tape loads included) and waits for a debugger
-- Audio panel Tracker: the AY tune one frame per row for three chips, with each frame's write timing and jitter
-- Scopes tab: edge-triggered traces and level meters for sixteen audio sources, taken before mutes and gains
-- DAC & Beeper view: CTC and DMA pacing rates, each DAC writer's sample rate, jitter and gaps
-- .psg export of each AY chip's register writes from the Audio panel and --psg-record FILE, in Fuse's AY log layout
-- Per-source WAV stems (each AY chip, DAC, beeper, Pi, mix) that add up to the mix, from the Scopes tab or --wav-record-stems DIR
+- Debugger Audio panel: decoded AY chips, DAC/beeper routing, Tracker, scopes and meters, DAC pacing
+- Audio write log (`--audio-log`), per-channel mute and solo, Audio Write breakpoints and `.jds` audio events
+- Audio export: per-chip `.psg` (`--psg-record`) and per-source WAV stems (`--wav-record-stems`)
+- `--debugger` and `--break-at` stop a command-line load at its start
 
 ### Bug Fixes
-- The test suites no longer touch your own SD card; a second jnext on the same card is refused
-- Hardware IM2 interrupts no longer lock up after a RETI is followed at once by a short interrupt routine (The Way of the Exploding Fist: no sprites, menu hang)
-- `--load` and File > Open accept NEX files NextZXOS loads although their first bytes are not "Next"
-- SD cards formatted FAT16 or without a partition table now work for the 48K, 128K and +3 machines and snapshots
-- AY envelope takes its first step on the R13 write, as the hardware does
-- Debugger AY channel mutes no longer change saved snapshots and rewind slots
-- Two emulated machines in one process no longer share CPU timing state (28 MHz waits, warm-start recorder)
-- Tape loading sound plays at the hardware level, mixed through the beeper EAR/MIC term as the FPGA does
-- Browser build: --joy-uart-pty and --joy-uart-fifo are refused with a clear reason instead of failing obscurely
-- Browser: dot commands work, so the NextZXOS browser opens text files and NEX programs again
+- IM2 interrupts no longer lock up after a RETI and a short handler (The Way of the Exploding Fist)
+- FAT16 and unpartitioned SD cards work on the 48K, 128K and +3 machines
+- NEX files without a "Next" header load
+- AY envelope starts on the R13 write; debugger mutes stay out of snapshots
+- Tape loading sound plays at hardware level, through the beeper
+- Browser: dot commands work again; unsupported joystick UART options are refused clearly
+- Tests never touch your SD card; a second jnext on the same card is refused
+- Two machines in one process no longer share CPU timing
 
 ### Internal JNEXT Development
-- Remote-run hosts plan test-affected from the branch's local-main merge base, so remote review runs are no longer FULL while main is unpushed
-- `make test-affected` plans a changed test manifest, test CMake file or traceability matrix by what changed instead of FULL
-- Debugger backend gains `audio_state()`, the audio write log, `AudioWrite` events, a mixer source tap and CTC/DMA queries (`audio_debug_test`)
-- Remote runs: two lanes on the remote host, so two heavy runs share it at once
-- Faster test cycle: unit-test prerequisites and browser specs run in parallel
-- Build slots: heavy runs go to a free remote host first (several hosts, re-checked while queued) and run locally only when every remote lane is busy
-- CI is the batch gate: a clean CI run on the commit is what gets pushed; caches are saved only from main
-- Worktrees share the compiler cache, so a second checkout of the same commit rebuilds in a fraction of the time
-- `make test-affected`: a branch round runs only the suites and rows its change reaches, plus a smoke set
-- Slow suites: a sector cache in the SD-image code cuts the card tests by up to 5x; the tape suite is split in two
+- Debugger audio backend: `audio_state()`, write log, source tap, CTC/DMA queries
+- CI is the batch gate; caches are saved only from main
+- `make test-affected`: a branch runs only what its change reaches, test manifests and matrix included
+- Remote builds: several hosts with two lanes each, used before local slots
+- Faster tests: parallel prerequisites and browser specs, shared ccache, SD sector cache, split tape suite
 
 ### Contributors in this release
 - @janko-jj, @lordheavy, @derekfountain, @koseid72, @Stu042
