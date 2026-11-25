@@ -117,4 +117,4 @@ unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S
 
 ## When to escalate to the `regression-runner` subagent
 
-If the triplet is part of a larger flow (e.g. pre-merge check across many worktrees, or noisy environment), dispatch `regression-runner` instead — it surfaces new failures and every SKIP, and protects the main context from raw test output. This skill is for ad-hoc triplet runs.
+If the triplet is part of a larger flow (e.g. the fallback batch gate, or a noisy environment), dispatch `regression-runner` instead — it surfaces new failures and every SKIP, and protects the main context from raw test output. This skill is for ad-hoc triplet runs.
