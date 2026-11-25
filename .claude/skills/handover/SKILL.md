@@ -21,7 +21,9 @@ Run these in parallel:
 
 ## Triplet check
 
-The end of a session is when the batch gate runs (CLAUDE.md merge protocol step 2). If anything landed on `main` since the last green batch gate, run it now on `main`'s tip (the `regression-runner` agent), and push if it is green. If there is no time for it (the owner is leaving now), write "batch gate not run; N landings unpushed" in the memo. If `.claude/last-test-triplet.txt` is missing OR older than the latest commit and nothing landed, ask the user whether to run the full triplet; if they say no, note "triplet not freshly verified" in the memo.
+The end of a session is a sync point for the batch gate (CLAUDE.md merge protocol step 2: a CI run on `main`'s tip, as in `autonomous-run` step 10). If anything landed on `main` since the last pushed CLEAN gate, run it now: `test/ci-gate.sh dispatch gate-v<version> <sha>`, `wait <run-id>`, `make ci-gate-check RUN=<run-id> SHA=<sha>`, then delete the gate branch from `origin`, green or red. On CLEAN, push the gated sha and its tags under the standing authorization. The local `regression-runner` gate is the fallback only, when Actions cannot run. If there is no time for it (the owner is leaving now), write "batch gate not run; N landings unpushed" in the memo.
+
+Write the gate line to `.claude/last-test-triplet.txt` (gitignored; the SessionStart hook shows it): `main <sha> (v<version>) CI gate <run-id> <verdict>, <date>`. The file records whichever gate ran last, CI or the local fallback. If nothing landed and no CLEAN gate covers HEAD's content (`make regression-ci-check`), ask the user whether to run the full triplet; if they say no, note "triplet not freshly verified" in the memo.
 
 ## Memo content
 
@@ -37,9 +39,9 @@ type: project
 
 Body sections (in this order, terse, project conventions):
 
-1. **State** — branch, HEAD short SHA, +N vs main, +N vs origin/main, tree clean/dirty, push status (NOT pushed unless user authorized).
+1. **State** — branch, HEAD short SHA, +N vs main, +N vs origin/main, tree clean/dirty, push status (NOT pushed unless the standing authorization or the user covered it).
 2. **What this session did** — bullet list, one line per significant change. Reference commit SHAs.
-3. **Test triplet** — unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S (stamp?), with timestamp.
+3. **Gate** — last CI gate: run id, gated sha, verdict (`CLEAN` / failing jobs), timestamp; landings since. A local fallback run gives its triplet instead (unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S (stamp?)).
 4. **Discoveries / findings** — anything non-obvious learned this session that future-Claude will need.
 5. **Next-session priority** — concrete next step(s), specific enough to act on without re-discovery.
 6. **Outstanding** — anything escalated to user, deferred, or follow-up.
@@ -59,7 +61,7 @@ Add a one-line index entry at the top of the "## Read first" section in `/home/j
 - **NEVER include Co-Authored-by lines** (CLAUDE.md project rule).
 - **Terse but insightful** (CLAUDE.md). Don't write a development diary.
 - **Don't claim a fix is shipped if the triplet didn't confirm it.** Per `feedback_tremendous_claims_proof`, every claim needs proof; if the triplet wasn't run, say so explicitly.
-- **Don't push.** A handover is local. Mention "NOT pushed (N ahead of origin)" if commits exist.
+- **Push only what the standing authorization covers** (the gated sha and its tags after a CLEAN gate). Anything else stays local: mention "NOT pushed (N ahead of origin)" if commits exist.
 - **Convert relative dates to absolute** (per memory rules).
 
 ## Examples to model after

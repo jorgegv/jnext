@@ -1,6 +1,6 @@
 ---
 name: regression
-description: Run the screenshot regression test suite and report the pass/fail/skip triplet against the baseline. Use when the user says "run the regression", "regression tests", "screenshot tests", or asks to confirm no rendering regressions before committing/merging.
+description: Run the screenshot regression test suite and report the pass/fail/skip triplet against the baseline. Use when the user says "run the regression", "regression tests", "screenshot tests", for the fallback batch gate, or when the user asks for a full regression run; for a branch use `make regression-rows`.
 ---
 
 # Regression test suite
@@ -95,21 +95,14 @@ New failures vs baseline: <list or "none">
 - **Never update reference screenshots without explicit user authorization**
   (`feedback_regression_refs`). Regenerating a reference to make the suite green
   destroys the only check that would have caught the change.
-- `JNEXT_TEST_JOBS` is only a lane cap since GH #295: the real-time-bounded
-  rows (`audio-underrun-func`, `screenshot-paused-func`, …) run in their own
-  `quiet` phase. Check `make regression-stamp-check` first — a green stamp for
-  the same non-doc content already satisfies the gate.
-- Only a run with fail=0 AND skip=0 is stamped. If a full run's only FAILs are
-  functional rows flagged as failing on a loaded host, it says PENDING:
-  `make regression-confirm` re-runs exactly those rows solo and stamps the run
-  if they pass. Any other FAIL or a SKIP is real — report it.
-- Those two are examples, not the list (GH #245): rows that spawn short-lived
-  processes have also failed under load and passed solo. A FAIL on a loaded
-  host is unconfirmed until re-run SOLO (`make regression-rows ROWS=<row> ROWS_PGO=1`, which builds the binaries rows need, the PGO one the full run tested;
-  `make regression-confirm` after a full run whose only FAILs were loaded-host ones), and is not dismissed until that solo run passes. Always report the
-  row name. The harness prints the load at start and end, marks each FAIL that
-  happened with load ≥ `nproc`, and lists the failed rows after the results.
-- Run in the branch worktree, not on main (`feedback_regression_in_branches`).
+- Load, solo re-run, stamp and PENDING rules: CLAUDE.md §Testing ("Run the
+  full regression only when it is needed", "Those two rows are examples, not the
+  list"). Follow them; this skill does not restate them. Always report the
+  failed row names.
+- A full `make regression` never runs on a branch. Branches and reviewers run
+  `make regression-rows ROWS="<row> ..."` (non-PGO by default). The full suite
+  runs in the batch gate (CI), or in its local fallback on a detached worktree
+  of `main`.
 
 ## When to escalate to the `regression-runner` subagent
 

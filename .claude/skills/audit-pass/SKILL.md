@@ -88,8 +88,8 @@ Each audit branch is gated as CLAUDE.md merge protocol step 2 says: its touched 
 - Subsystems converged across all passes: <list>
 - Subsystems still iterating: <list>
 
-### Batch gate on main (post-merge)
-unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S
+### Batch gate on main
+CI run <id> on <sha>: <verdict> (or "not run yet: N landings local")
 
 ### Next pass
 - Subsystems to audit: <list, excluding converged>
@@ -150,5 +150,5 @@ theatre" failures earlier in the project.
 
 - **No self-review.** If you can't find a distinct agent for review, escalate.
 - **No merge until APPROVE.** REJECTS go back to the auditor on its own branch.
-- **No pushes.** Always local.
+- **Pushes only as CLAUDE.md's standing authorization allows** (after a CLEAN gate).
 - **No main-branch writes by workers.** Only the manager merges to main, and only after APPROVE.
