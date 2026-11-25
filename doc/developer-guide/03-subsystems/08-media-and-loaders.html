@@ -5397,18 +5397,18 @@ card's ROOT, because the emulator wins over any remembered or shown state. The t
 <code>sdcard_manager.card</code>, <code>sdcard_manager.card_dir</code> (stored <code>%XX</code>-escaped) and <code>sdcard_manager.host_dir</code>, plain <code>AppConfig</code>
 fields, settable with <code>--set</code> like <code>paths.last_load_dir</code>; they are read back only through <code>resolve_remembered()</code>, which checks
 them. The message boxes, the text prompts and the trash go through hooks the tests replace (<code>set_box_hook_for_test</code>,
-<code>set_text_hook_for_test</code>, <code>set_trash_hook_for_test</code>); a headless session has no trash. Rows: <code>SDMW-01..34</code>
+<code>set_text_hook_for_test</code>, <code>set_trash_hook_for_test</code>); a headless session has no trash. Rows: <code>SDMW-01..36</code>
 (<code>sdcard_manager_window_test</code>, offscreen), <code>AC-104..106</code> (<code>app_config_test</code>).</p>
 <p><strong>The manager in the main window.</strong> <code>MainWindow</code> (<code>src/gui/main_window.cpp</code>) owns the <code>SdManagerSession</code> as a member, so the
 session's observer client lives as long as the window and is detached with it; the <code>Debugger</code> it was opened on belongs to the
 loop owner and outlives the window. <code>on_sd_manager()</code> (File ▸ SD Card File Manager..., and the Main toolbar button after
 Load, both without a hotkey) refuses with a box while <code>card_op_</code> is set (the eject-work-insert actions own the card then) or
 when there is no <code>Debugger</code>, otherwise opens the session (which pauses), builds the dialog with the remembered values
-(<code>SessionPaths</code> first, <code>AppConfig</code> second, the same order as the Load directory) and shows it with <code>open()</code>, application
-modal. The window's <code>finished</code> saves what it closed on (<code>remember_sd_manager()</code>) and posts <code>finish_sd_manager()</code> through a
+(<code>SessionPaths</code> first, <code>AppConfig</code> second, the same order as the Load directory) and shows it with <code>setModal(true)</code> and <code>show()</code>, application
+modal: <code>QDialog::open()</code> would make it window modal when the dialog has a parent, which blocks only the main window and leaves the debugger window live over a paused machine. The window's <code>finished</code> saves what it closed on (<code>remember_sd_manager()</code>) and posts <code>finish_sd_manager()</code> through a
 zero-delay timer: <code>SdManagerSession::close()</code> may reset the machine and must not run inside the dialog's own event delivery or
-a tick. Its result decides the status-bar line (a restart, or a restart that is still paused). Rows: <code>SDMW-33..34</code>
-(<code>sdcard_manager_window_test</code>: a browse-only visit and a visit that changed the card, through the real action), <code>SDMENU-16..17</code>
+a tick. Its result decides the status-bar line (a restart, or a restart that is still paused). Rows: <code>SDMW-33..36</code>
+(<code>sdcard_manager_window_test</code>: a browse-only visit and a visit that changed the card, through the real action), <code>SDMENU-16..18</code>
 (<code>sdcard_menu_test</code>: the menu entry and the toolbar button, and the refusal during a card operation), <code>TBI-10</code>.</p>
 <p><strong>The glue caches sectors.</strong> FatFs keeps one sector window per volume, so every path lookup
 re-reads its directory, and an uncached <code>disk_read</code> costs an <code>lseek</code> plus an 8 KiB stream-buffer

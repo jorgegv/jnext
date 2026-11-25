@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.77</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.76</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.77</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4640,8 +4640,8 @@ using, however it was made.</p>
 <h2 id="opening-it">Opening it<a class="headerlink" href="#opening-it" title="Permanent link">&para;</a></h2>
 <p>The machine is <strong>paused</strong> while the window is open, so that nothing in the guest
 changes the card under your hands, and the status bar shows the paused indicator
-(this is the same pause as <strong>Machine ▸ Pause</strong>). The window is modal: the main window
-takes no keys until you close it. Closing it gives the machine back as it was:
+(this is the same pause as <strong>Machine ▸ Pause</strong>). The window is modal: neither the main window
+nor the debugger window takes keys until you close it. Closing it gives the machine back as it was:
 running if it was running, paused if you had paused it yourself. The one exception
 is a change to the card, described under <a href="#changing-the-card">Changing the card</a>.</p>
 <p>The menu entry has no keyboard shortcut. It is refused, with a message, while the
@@ -4651,18 +4651,21 @@ SD-card upgrade or go-back actions are working on the card.</p>
 <li><strong>The card pane</strong> (left) lists a folder of the card in the slot chosen in the box
   above it: <strong>SD card</strong> or <strong>Second SD card (D:)</strong>. A slot with no card is greyed.
   Names are shown as the card stores them, long names included. A name that holds a
-  character from the Next's character set (code page 437, such as an accented
-  letter) is shown as <code>%XX</code>, two hex digits for each such byte, because the host
-  cannot spell it; it still works with every action.</li>
+  character outside plain ASCII (the card stores such names in code page 437, the
+  DOS code page of FAT short names; an accented letter is one) is shown as <code>%XX</code>,
+  two hex digits for each such byte, because the host cannot spell it; it works
+  with every action. An entry the card cannot address by any name (a short name
+  repeated behind an earlier entry, or a name holding the byte 7F) is listed but
+  cannot be acted on, and its tooltip says so.</li>
 <li><strong>The host pane</strong> (right) is an ordinary folder of your computer, with your
   desktop's own file icons.</li>
 </ul>
 <p>Each pane has its own <strong>Up</strong> button and its own <strong>Icons</strong> button, which switches that
 pane between a list and an icon view; the other pane is not touched. Double-click a
 folder to enter it. The panes show only the folder you are in, one level at a time.</p>
-<p>When the card in the slot changes while the window is open (a program, or the
-<strong>File ▸ Insert SD Card Image…</strong> menu, swapped it), the card pane notices, says so,
-and shows the new card's top folder.</p>
+<p>The card pane always shows what the machine has mounted. If the card in the slot is
+changed from outside the window while it is open (a remote debugger client could
+do it), the pane notices, says so, and shows the new card's top folder.</p>
 <h2 id="what-you-can-do">What you can do<a class="headerlink" href="#what-you-can-do" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
