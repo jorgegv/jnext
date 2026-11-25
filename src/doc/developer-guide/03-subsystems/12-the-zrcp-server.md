@@ -65,7 +65,7 @@ that fails answers `Error evaluating parsed string: CVAR(path)`, with no reason 
 builds the C frames each time: `help set-breakpoint` says to put a `PC=` term first.
 
 The write is the same extension on the one assignment verb: `set-register CVAR(path)=value` (`cmd_set_register()`, `zrcp_server.cpp:1190`) writes
-a C variable of frame 0 through `write_c_value()` ([7.10](../07-source-level-debugging/10-c-frames-and-values.md)). The table's census (`ZRCP-TAB-01`)
+a C variable of frame 0 through `write_c_value()` ([3.9.5.10](09-5-source-level-debugging/10-c-frames-and-values.md)). The table's census (`ZRCP-TAB-01`)
 pins the command names to ZEsarUX's `ls`, so no `set-cvar` could be added. Success answers the register line, and every failure (no `)` or `=`, an
 empty path or value, a refusal of the facade) is ZEsarUX's `Error changing register`, with no reason, as a failed `CVAR()` read has none.
 

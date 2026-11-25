@@ -1,0 +1,47 @@
+// One instruction slot of Emulator::run_frame(): the four things
+// step_one_instruction() can do, and the two batches that may absorb the
+// repeats of a slot afterwards (src/core/emulator.cpp).
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/frame-slot.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// Palette note: the page theme's pastel dark red family (see css/theme.css).
+// Light fills, dark labels, transparent canvas, so the figure reads on both
+// the light and the dark theme.
+digraph frame_slot {
+    bgcolor="transparent";
+    rankdir=TB;
+    fontname="Helvetica";
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.16,0.08"];
+    edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5c4247"];
+
+    slot [label="step_one_instruction()", fillcolor="#e9d3d6"];
+    d1 [label="DMA holds the bus:\nburst of up to 16 bytes,\ncycles charged to the CPU"];
+    d2 [label="CPU parked\n(load-only NEX, PC = 0):\nNOP-sized step, nothing executed"];
+    d3 [label="NEX boot hold counting down:\nlikewise"];
+    d4 [label="otherwise:\nexecute one Z80 instruction,\nthen trace entry, interrupt-tick inputs,\nRZX count, tape tick", fillcolor="#f3e3e6"];
+
+    tail [label="every choice then: master clock advance,\nFUSE counter (non-CPU slot), DMA burst prescaler", fillcolor="#ecdfe0"];
+    drain [label="boundary drain of debug events\n(a Stop verdict pauses)", fillcolor="#ecdfe0"];
+    brk  [label="data-breakpoint check\n(early return if one fired)", fillcolor="#f5dfe2"];
+    dev  [label="tick_devices_after_instruction()", fillcolor="#e9d3d6"];
+
+    halt [shape=diamond, style="filled", fillcolor="#f5dfe2", margin="0.02,0.02",
+          label="CPU halted\nafter the slot?"];
+    poll [shape=diamond, style="filled", fillcolor="#f5dfe2", margin="0.02,0.02",
+          label="the slot read\nNR 0x1E / 0x1F\n(poll_watch_)?"];
+    hb   [label="halted_slot_() ->\nhalt_batch_after_slot_():\nall gates hold? absorb n-1 repeats\nin one window"];
+    pb   [label="poll_slot_():\nwatch one pass, compare state,\nabsorb further identical passes"];
+    next [label="next slot", fillcolor="#f3e3e6"];
+
+    slot -> d1; slot -> d2; slot -> d3; slot -> d4;
+    {d1 d2 d3 d4} -> tail;
+    tail -> halt;
+    halt -> hb   [xlabel="  yes"];
+    halt -> poll [xlabel="  no"];
+    poll -> pb   [xlabel="  yes"];
+    poll -> drain [xlabel="  no"];
+    hb -> drain; pb -> drain;
+    drain -> brk -> dev -> next;
+}

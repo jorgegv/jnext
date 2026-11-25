@@ -12,7 +12,7 @@ Available targets:
   ...
 ```
 
-There are 69 documented targets at the time of writing. The sections below
+There are 132 documented targets at the time of writing (2026-11-25). The sections below
 group them into families rather than listing them one by one, because `make`
 is the authority here and the exact number changes.
 
@@ -80,6 +80,16 @@ frontend options, `make unit-test-sdl` runs the declared suites a second time in
 the SDL-only configuration (its own `build/sdl-unit-test` tree, so `build/` stays
 the Qt one), and `make unit-test-dashboard` runs the unit tests and refreshes the
 committed per-subsystem status table.
+
+Two targets run less than the full set, for the rounds of work on a branch.
+`make test-affected` plans from the build's own depfiles, linker maps and
+`test/test-affected.conf` which suites a change reaches, runs them with a fixed
+smoke set and the documentation and CLI checks, names the platform runs
+(`unit-test-sdl`, `-win`, `-wasm`) the change needs without running them, and
+falls back to the full `make unit-test` when a changed file is in no map and no
+rule (it names the file). `make regression-rows ROWS="a-func b-func"` builds the
+binaries and runs just those rows, on the non-PGO Release build unless
+`ROWS_PGO=1`. [4.1](../04-testing/01-the-test-triplet.md) says where each fits.
 
 Two more targets run the SDL-only suites on other operating systems.
 `make unit-test-sdl` also works on macOS, where the test harness needs Homebrew's

@@ -146,8 +146,8 @@ rewritten but still under-recording, `2` is a refusal with nothing written, and
   one; a row whose only readable field was `—` would make the count look right
   while recording nothing, and would then be self-consistent forever after.
 - **It refuses to guess a source path.** Suite sources are read from CMake
-  rather than inferred from a naming convention, because 80 suite names match
-  their source basename and 7 do not, and the two ESP-01 suites live under
+  rather than inferred from a naming convention, because suite names do not all
+  match their source basename (when the reader was written, 80 of 87 did and 7 did not), and the two ESP-01 suites live under
   `src/esp01/test/` entirely. A convention that is right 92% of the time is the
   worst kind. The reader is `test/SuiteSources.pm`, shared with
   `traceability-dup-ids.pl` and, through its `--sources`, the unit harness, so

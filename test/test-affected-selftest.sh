@@ -35,6 +35,7 @@
 #           naming no suite = FULL); the matrix and its generator plan the traceability check
 #   TAF-78..79 GH #564 review: UNIT_TEST_LINTS names lint-test-scripts; the target fails when a lint does
 #   TAF-77  each of ci-gate.sh and regression-package.sh alone plans both makes
+#   TAF-80  GH #504: test/lint-devguide-cites.pl alone plans SUBSET with docs-devguide-cites-check and harness-selftest
 #   TAF-75..76 GH #564: a changed test shell script plans make lint-test-scripts (the preflight lints
 #           a branch never runs); that target runs the four test-script lints
 #   TAF-13  a fixture file is selected by the suite whose sources name its directory, and is FULL
@@ -620,7 +621,11 @@ LTS_OUT=$(JNEXT_LINT_TIMEOUTS_DIR="$PL" LANG=C make -C "$HERE/.." --no-print-dir
 row TAF-79 $([[ $LTS_RC -ne 0 && "$LTS_OUT" == *"[lint-timeouts]"*"offenders: 1"* && "$LTS_OUT" == *"[lint-pipe-grepq] scanned"* && "$LTS_OUT" == *"[lint-sed-i] scanned"* ]] && echo 1 || echo 0) \
     "make lint-test-scripts exits non-zero when one lint finds a planted offender, and the lints after it still ran (rc=$LTS_RC)"
 
+run test/lint-devguide-cites.pl
+row TAF-80 $([[ "$(plan_get mode)" == subset && "$(plan_get makes)" == "docs-devguide-cites-check harness-selftest" ]] && echo 1 || echo 0) \
+    "test/lint-devguide-cites.pl alone plans SUBSET with exactly docs-devguide-cites-check (the lint's own run) and harness-selftest (HS-102 and the cite rows that test it), not FULL (GH #504)"
+
 echo ""
 echo "Total: $total  Passed: $passed  Failed: $failed  Skipped: 0"
-[[ "$total" -eq 78 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 78"; exit 1; }
+[[ "$total" -eq 79 ]] || { echo "  FAIL test-affected-selftest: ran $total rows, expected 79"; exit 1; }
 [[ "$failed" -eq 0 ]]

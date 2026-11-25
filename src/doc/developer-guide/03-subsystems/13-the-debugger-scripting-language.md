@@ -83,7 +83,7 @@ is both is the address (row SYM-13). A z88dk C symbol (module `<file>_c`) also r
 The `-debug` records of a map (names starting `__C_LINE_`, `__ASM_LINE_` or
 `__CDBINFO__`) are not symbols: the loader drops them (rows SYM-14 to SYM-18).
 
-**`cvar(PATH)`** ([7.7](../07-source-level-debugging/07-frontends.md)) is the atom that reads a C variable of frame 0, as
+**`cvar(PATH)`** ([3.9.5.7](09-5-source-level-debugging/07-frontends.md)) is the atom that reads a C variable of frame 0, as
 an int32. Its path is not the DSL's grammar (`->`, `::`, `*`, `$1F`, a file name with a `.`), so `lex_ident()` takes `cvar` directly
 followed by `(` as one `Tok::CVar` and `lex_cvar()` (`lexer.cpp:196`) captures the raw text to the first `)` on the line, trimmed;
 a `(`, a `"`, a missing `)` and an empty path are lexical errors, and `cvar` is a reserved word (`RESERVED` in `names.cpp`, as `depth` and `changed` are), so `var cvar` is refused at load. The word was

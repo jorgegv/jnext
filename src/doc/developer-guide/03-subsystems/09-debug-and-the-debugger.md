@@ -76,7 +76,7 @@ loop. The loop owner runs the frames and then calls `pump()`, once per tick.
 | `src/debug/debugger*.cpp`, `debugger_impl.h`, `event_table.*`, `inspect.cpp`, `result.cpp` | `jnext_debug` | the facade's implementation |
 | `src/debug/debug_state.*`, `breakpoints.*`, `trace.*`, `call_stack.*`, `symbol_table.*`, `rewind_buffer.*`, `disasm*.*`, `raster_state.*`, `resume_guard.h`, `debug_keymap.*` | `jnext_debug` | the primitives under the facade, and the debugger keymap model |
 | `src/debugger/` | `jnext_debugger` (Qt) | the Qt debugger window and its panels ([3.10.2](10-2-the-qt-debugger.md)) |
-| `src/qt/` | none (header-only) | the Qt conversions of the debugger keymap, the menu-bar Alt-navigation style |
+| `src/qt/` | none (header-only) | the Qt conversions of the debugger keymap, the menu-bar Alt-navigation style, the dark-palette tints of the panels' colours |
 | `src/remote/` | `jnext_remote` | the shared socket transport ([3.10.1](10-1-the-socket-transport.md)) and the three servers in `dzrp/`, `gdb/`, `zrcp/` |
 | `src/script/` | `jnext_script` | the scripting language, its host and the recorder ([3.10.6](13-the-debugger-scripting-language.md)) |
 | `src/platform/debug_servers.*` | platform | how a loop owner opens the servers and picks each tick's pump budget |
@@ -182,11 +182,11 @@ bits behind it.
 
 The source-level half of this backend (the source map, the symbol table, the
 adapters for sjasmplus, z88dk and NextBuild files, source-line breakpoints and
-steps, and the lifetime rules) has its own chapter:
-[7. Source-level debugging](../07-source-level-debugging/index.md). The verbs of
+steps, and the lifetime rules) has its own section:
+[3.9.5 Source-level debugging](09-5-source-level-debugging/index.md). The verbs of
 that half are listed in [3.9.1](09-1-the-backend-api.md) (CAP-SYM, CAP-SRC) and
-the mechanism behind each is in chapter 7; the Qt Source tab is
-[7.7](../07-source-level-debugging/07-frontends.md).
+the mechanism behind each is in 3.9.5; the Qt Source tab is
+[3.9.5.7](09-5-source-level-debugging/07-frontends.md).
 
 The design that produced all of this is `doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md`,
 with one document per frontend in `doc/design/debug-subsystem/`. The design

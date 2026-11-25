@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.78</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.78</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.3.80</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4682,8 +4682,9 @@ refused whatever you put here, and your own LAN stays reachable.</p>
 below — and while it <em>is</em> running with the ESP on, the status bar always
 carries an ESP cell, so it can never be on invisibly.</p>
 <p><strong>NextPi</strong> starts NextPi under QEMU when JNEXT starts the ZX Next, and holds its directory, the release downloaded on first use, the QEMU program, where the Pi's sound goes and extra QEMU arguments; see <a href="../05-running-programs/10-the-raspberry-pi-serial-link.html">5.10</a>.</p>
-<p><strong>Paths</strong> remembers three directories so the file dialogs open somewhere
-useful: the last directory you loaded a program from, a default SD-card image,
+<p><strong>Paths</strong> remembers directories and card images so the file dialogs open somewhere
+useful: the last directory you loaded a program from, a default SD-card image, an
+optional <strong>Second SD card image</strong> (the D: card, see <a href="../03-first-run/03-using-your-own-image.html#a-second-sd-card-d">3.3</a>),
 and where screenshots go. It also holds the two settings <strong>File &gt; Quick
 Screenshot</strong> needs, since that capture never asks: the directory it writes to
 (blank means <code>~/.jnext/screenshots</code>) and whether it writes PNG or SCR. Those

@@ -90,7 +90,7 @@ view: the instruction at the PC may come from elsewhere, which is what
 
 The spelling of a space for a human or a file (the tags `P0E`, `ROM1`, `DIVRAM3`..., the physical
 text and the `AddressStyle`) is `debug/long_address.h`. The tags are a stable format; they are described
-in [7.1](../07-source-level-debugging/01-which-memory.md), with the slot that holds a page >= `0xE0`
+in [3.9.5.1](09-5-source-level-debugging/01-which-memory.md), with the slot that holds a page >= `0xE0`
 and reads nothing.
 
 ## The capability families
@@ -139,7 +139,7 @@ and follow the contract of [3.9.2](09-2-event-delivery-and-mutation.md).
 
 | video | `framebuffer()`, `render_layer(layer, vc, dst, stride)`, `palette(id)`, `palette_priority(id)`, `active_ula_palette_bank()`, `ula_screen_regs()`, `clip_window(layer)` | `set_palette(...)`, `set_border(by, colour)` |
 | disassembly | `disassemble(addr, n, symbols)`, `instruction_length(addr)`, `is_call_like(addr)` | — |
-| call stack and trace | `call_stack()`, `trace_entries()`, `trace_export(path)` | `set_call_stack_enabled(by, on)` (a per-client request, [7.10](../07-source-level-debugging/10-c-frames-and-values.md)); C variables: `c_frames()`, `c_locals(frame)`, `c_globals()`, `read_c_value(frame, path)`, `c_variables_status()` (all `const`, none bumps the revision), `set_trace_enabled`, `trace_clear`, `trace_resize` |
+| call stack and trace | `call_stack()`, `trace_entries()`, `trace_export(path)` | `set_call_stack_enabled(by, on)` (a per-client request, [3.9.5.10](09-5-source-level-debugging/10-c-frames-and-values.md)); C variables: `c_frames()`, `c_locals(frame)`, `c_globals()`, `read_c_value(frame, path)`, `c_variables_status()` (all `const`, none bumps the revision), `set_trace_enabled`, `trace_clear`, `trace_resize` |
 | coverage | `coverage()`, `coverage_enabled()`; INS-21: `mem_coverage_enabled()`, `mem_coverage(space, addr, n, out)`, `mem_coverage_fetch(addr)`, `mem_coverage_spaces()`, `executed_source_lines(file)` | `coverage_enable`, `coverage_clear`; INS-21: `mem_coverage_enable`, `mem_coverage_clear` |
 | input | `input_state()` | see input injection below |
 | the event model | `subscriptions(include_transient)`, `events_fired_since(seq)` | see [3.9.2](09-2-event-delivery-and-mutation.md) |
@@ -306,16 +306,16 @@ server's `monitor sym` and `--map` all read it, so a symbol loaded by one client
 
 | Verb | Does |
 |---|---|
-| `load_map(path, format, why)` | loads a symbol file into the table: `MapFormat::Z88dk`, `Simple` (`SYMBOL = $ADDR`), `NextBuild` (`Memory.txt`), `SjasmplusEqu` (`--sym` / `--exp`), or `Z88dkOrSjasmplus` (`--map`: the first line decides, one read, a pipe works). Returns the symbol count, or `RefusedUnavailable` (value 0) with the table and its owner untouched when refused; `why` says why a file was refused; for a file that cannot be opened it stays empty, except `NextBuild`, which says "could not open Memory.txt file" ([7.3](../07-source-level-debugging/03-loaders.md)) |
+| `load_map(path, format, why)` | loads a symbol file into the table: `MapFormat::Z88dk`, `Simple` (`SYMBOL = $ADDR`), `NextBuild` (`Memory.txt`), `SjasmplusEqu` (`--sym` / `--exp`), or `Z88dkOrSjasmplus` (`--map`: the first line decides, one read, a pipe works). Returns the symbol count, or `RefusedUnavailable` (value 0) with the table and its owner untouched when refused; `why` says why a file was refused; for a file that cannot be opened it stays empty, except `NextBuild`, which says "could not open Memory.txt file" ([3.9.5.3](09-5-source-level-debugging/03-loaders.md)) |
 | `clear_symbols()` | forgets them all |
 | `lookup(addr)` | the name of `addr` in the memory mapped there now (`source_page(addr)`); a label is paged or unpaged |
 | `lookup_name(name)` | the address of a name; a name-only value (a size, a section bound) resolves here and never names an address |
 | `symbols()` | the table itself, for `disasm_text::apply_symbols()` and for `SymbolTable::resolve()`, which turns an address field's text into an address (hex first, else a symbol; `@name` is always the symbol) |
 
 How the table is keyed, bound and merged, and what each format puts in it, is
-[7.4](../07-source-level-debugging/04-formats.md) ("The symbol table the formats fill"); the z88dk
-placement rules and C names are [7.4.3](../07-source-level-debugging/04-3-z88dk-map.md); the three
-other loaders are 7.4.1, 7.4.2 and 7.4.5.
+[3.9.5.4](09-5-source-level-debugging/04-formats.md) ("The symbol table the formats fill"); the z88dk
+placement rules and C names are [3.9.5.4.3](09-5-source-level-debugging/04-3-z88dk-map.md); the three
+other loaders are 3.9.5.4.1, 3.9.5.4.2 and 3.9.5.4.5.
 
 ### User labels and comments — CAP-ANN
 
@@ -336,7 +336,7 @@ it is not in `.jns`.
 
 The verbs touch no machine state (allowed while running) and each success bumps `state_revision()`. The file,
 the composed reader, where it is recomposed and why the attachment cache holds the toolchain layer only are
-[7.4.6](../07-source-level-debugging/04-6-user-annotations.md).
+[3.9.5.4.6](09-5-source-level-debugging/04-6-user-annotations.md).
 
 ### Source maps — CAP-SRC
 
@@ -358,17 +358,17 @@ supplies the code, filled by a format adapter and replaced only by a complete, s
 | `source_step(by, kind)` | steps by statement: `Into`, `Over`, `Out`, `Back`, `ReverseContinue`; limits `SOURCE_STEP_LIMIT` and `SOURCE_STEP_FRAME_LIMIT` |
 | `executed_source_lines(file)` | the lines of a file any of whose ranges the guest executed (the coverage section, below) |
 
-Where the mechanism lives, in [chapter 7](../07-source-level-debugging/index.md):
+Where the mechanism lives, in [3.9.5](09-5-source-level-debugging/index.md):
 
 | Subject | Page |
 |---|---|
-| What `source_page()` predicts, what the machine records (`Mmu::last_m1()`, `TraceEntry::fetch_space()`, `CallFrame`), `EventFilter::space` and the legacy `page` | [7.1](../07-source-level-debugging/01-which-memory.md) |
-| Ranges, the primary, `lookup_all()`, `resolve()`, aliases, embedded texts, the program identity and `verify_program()` | [7.2](../07-source-level-debugging/02-the-source-map.md) |
-| The adapter contract, content dispatch, `--source-map`, the sidecar search and precedence, ownership, `SidecarLoad::problem` | [7.3](../07-source-level-debugging/03-loaders.md) |
-| Each file format and its producer | [7.4](../07-source-level-debugging/04-formats.md) |
-| `subscribe_source_line()`, `run_to_source_line()`, `source_step()`, Back and Reverse Continue, the call stack's frame rule | [7.5](../07-source-level-debugging/05-breakpoints-steps-history.md) |
-| The load generation, resets, snapshots, rewind, tapes, dot commands | [7.6](../07-source-level-debugging/06-lifetime.md) |
-| Which frontend reads what, the Source tab | [7.7](../07-source-level-debugging/07-frontends.md) |
+| What `source_page()` predicts, what the machine records (`Mmu::last_m1()`, `TraceEntry::fetch_space()`, `CallFrame`), `EventFilter::space` and the legacy `page` | [3.9.5.1](09-5-source-level-debugging/01-which-memory.md) |
+| Ranges, the primary, `lookup_all()`, `resolve()`, aliases, embedded texts, the program identity and `verify_program()` | [3.9.5.2](09-5-source-level-debugging/02-the-source-map.md) |
+| The adapter contract, content dispatch, `--source-map`, the sidecar search and precedence, ownership, `SidecarLoad::problem` | [3.9.5.3](09-5-source-level-debugging/03-loaders.md) |
+| Each file format and its producer | [3.9.5.4](09-5-source-level-debugging/04-formats.md) |
+| `subscribe_source_line()`, `run_to_source_line()`, `source_step()`, Back and Reverse Continue, the call stack's frame rule | [3.9.5.5](09-5-source-level-debugging/05-breakpoints-steps-history.md) |
+| The load generation, resets, snapshots, rewind, tapes, dot commands | [3.9.5.6](09-5-source-level-debugging/06-lifetime.md) |
+| Which frontend reads what, the Source tab | [3.9.5.7](09-5-source-level-debugging/07-frontends.md) |
 
 ### Coverage and the trace
 
@@ -420,7 +420,7 @@ labels the disassembly shows, and for skoolkit the `mem_coverage()` code/data ma
 directory, as skoolkit control files and Ghidra symbol files. They are reads (`peek()`, coverage
 and the symbol table are side-effect free): no machine state changes, and they are allowed while
 the machine runs. `ReReport` carries the counts and notes. The formats, the writers, the directory
-rules and the foreign-reader tests are in [7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md).
+rules and the foreign-reader tests are in [3.9.5.4.7](09-5-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md).
 
 ### Session — CAP-SES
 
@@ -449,7 +449,7 @@ internals directly, through the pointers the constructor publishes into
 | `debugger_reconstruct.cpp` | the loop driver, `reset(Hard)`, `load()`, the cold-boot notifications and the reconstruct contract |
 | `debugger_capture.cpp` | screenshots, bookmarks, `save_snapshot` |
 | `debugger_source.cpp` | CAP-SRC: the source map, program sidecars, `source_step()` |
-| `debugger_reinterop.cpp` | CAP-REX: `export_skoolkit()` and `export_ghidra()`; the writers are `skoolkit_ctl.*` and `ghidra_symbols.*` ([7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md)) |
+| `debugger_reinterop.cpp` | CAP-REX: `export_skoolkit()` and `export_ghidra()`; the writers are `skoolkit_ctl.*` and `ghidra_symbols.*` ([3.9.5.4.7](09-5-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md)) |
 | `debugger_render.cpp` | `render_layer()` |
 | `event_table.*` | `EventTable`: subscriptions, cheap filters, the latch ring, the delivery history |
 | `inspect.cpp`, `result.cpp` | the free functions of `inspect.h` (`key_name_to_matrix()`, `rrrgggbb_to_argb()`, `rgb333_to_argb()`) and `result_name()` |

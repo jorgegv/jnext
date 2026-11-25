@@ -4,7 +4,7 @@
 #
 # WHY. The guide cites code as a file, a colon and a line number. Nothing moved
 # those cites when a cited file changed, so they drifted silently (one merge
-# shifted 17 of chapter 7's). Owner decision (2026-11-02): keep the cites,
+# shifted 17 cites of the source-level debugging pages). Owner decision (2026-11-02): keep the cites,
 # anchor each to a named symbol, and gate them in `make docs-check`.
 #
 # SCOPE. Every *.md under src/doc/developer-guide/ and every diagrams/*.dot.

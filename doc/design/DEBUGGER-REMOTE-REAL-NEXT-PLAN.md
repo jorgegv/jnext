@@ -840,8 +840,8 @@ over plain DZRP.
 - Functional: extend `remote-jnext-func` (or a sibling `remote-source-func`) with a source
   step and a C variable on a z88dk demo.
 - Docs: user guide `06-debugger/functions/14-source-level-debugging.md` and R2.9's new page; the
-  developer guide's `07-source-level-debugging/05-breakpoints-steps-history.md` and
-  `10-c-frames-and-values.md` gain the remote strategy.
+  developer guide's `03-subsystems/09-5-source-level-debugging/05-breakpoints-steps-history.md` (3.9.5.5) and
+  `10-c-frames-and-values.md` (3.9.5.10) gain the remote strategy.
 - **Acceptance.** The functional row green as a targeted row; `make docs-check` green; the
   pages say what a remote source step costs (round trips) and what stays local-only (Back,
   Reverse Continue).

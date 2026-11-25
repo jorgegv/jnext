@@ -67,10 +67,10 @@ the suites at all.
 `make unit-test` does not go looking for test binaries. It runs exactly the
 suites declared in `test/unit-tests.conf`, in parallel (by default one suite
 per CPU), each one bounded by a 300 s timeout that measures the suite, not the
-host's queue. That manifest currently declares **90 suites totalling 6610
-rows**: the suite count is pinned in the file's own `# expect: 90` line, and the
+host's queue. That manifest currently declares **257 suites totalling 18430
+rows**: the suite count is pinned in the file's own `# expect: 257` line, and the
 row total is the sum of the per-suite counts in that same file. The committed
-dashboard, `test/SUBSYSTEM-TESTS-STATUS.md`, reports the same 6610.
+dashboard, `test/SUBSYSTEM-TESTS-STATUS.md`, lists the live counts per subsystem.
 [4.2](02-declared-suites-and-pinned-counts.md) explains what those pins are for.
 
 These suites link the emulator libraries directly and drive the classes through
@@ -112,9 +112,9 @@ $ make regression
 ```
 
 This layer launches the real `jnext` binary headless and looks at what comes
-out of it. It reports **310 rows**, made up of 8 preflight lints, 1 SD-image
-provisioning row, 68 screenshot rows and 233 functional rows. The last two
-numbers come from the `# expect: 68` and `# expect: 233` pins in
+out of it. It reports **319 rows**, made up of 8 preflight lints, 1 SD-image
+provisioning row, 68 screenshot rows and 242 functional rows. The last two
+numbers come from the `# expect: 68` and `# expect: 242` pins in
 `regression_tests.conf` and `functional_tests.conf`, and the arithmetic that
 ties them to the total is the harness's own end-of-run accounting assertion.
 
@@ -207,7 +207,7 @@ with `main` (`origin/main` when there is no local `main`; the remote-run host's 
 `TEST-AFFECTED MISS`, so the map or the conf is fixed on the same branch; with no such base, or in a
 platform tree (SDL-only, Windows, WebAssembly), the check is silent. A docs-only plan ran no suite, so
 every suite that fails is a miss. The planner's rows are
-`TAF-01..10` and `TAF-12..79` in `test/test-affected-selftest.sh` (`make test-affected-selftest`,
+`TAF-01..10` and `TAF-12..80` in `test/test-affected-selftest.sh` (`make test-affected-selftest`,
 part of `make unit-test`), on a hand-written fixture build tree, and `HS-194a..m` in the harness
 self-test.
 

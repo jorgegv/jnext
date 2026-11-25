@@ -51,8 +51,9 @@ carries an ESP cell, so it can never be on invisibly.
 
 **NextPi** starts NextPi under QEMU when JNEXT starts the ZX Next, and holds its directory, the release downloaded on first use, the QEMU program, where the Pi's sound goes and extra QEMU arguments; see [5.10](../05-running-programs/10-the-raspberry-pi-serial-link.md).
 
-**Paths** remembers three directories so the file dialogs open somewhere
-useful: the last directory you loaded a program from, a default SD-card image,
+**Paths** remembers directories and card images so the file dialogs open somewhere
+useful: the last directory you loaded a program from, a default SD-card image, an
+optional **Second SD card image** (the D: card, see [3.3](../03-first-run/03-using-your-own-image.md#a-second-sd-card-d)),
 and where screenshots go. It also holds the two settings **File > Quick
 Screenshot** needs, since that capture never asks: the directory it writes to
 (blank means `~/.jnext/screenshots`) and whether it writes PNG or SCR. Those

@@ -1813,7 +1813,7 @@ struct Ctx {
 
     // ── Z88CDB-01..26 (GH #433, E353-03): the C variable store the adapter fills from the
     // __CDBINFO__ records. Oracle: the committed fixtures (their README "C variables" section and
-    // the maps themselves), the writers cited in doc/developer-guide 7.9, and the decoder's own
+    // the maps themselves), the writers cited in doc/developer-guide 3.9.5.9, and the decoder's own
     // refusals (cdb_record.h). ──
     ctx.sc_cvars = master / "sccz80-cvars" / "prog.map";
     ctx.sd_cvars = master / "sdcc-cvars" / "prog.map";
