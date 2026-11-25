@@ -91,11 +91,15 @@ Hard rules per CLAUDE.md:
   matches the path above. Worktree isolation does NOT sandbox the shell: an
   absolute `cd` lands your commits on main.
 - Do NOT write to main. Commit only on branch <BRANCH>.
-- Do NOT push. The user authorizes pushes separately.
+- Never push, except <BRANCH> when it is your own issue branch `gh<N>-<slug>` (never force),
+  to share it with a remote-run host (CLAUDE.md standing authorization). Any other branch name
+  is never pushed. Never `main`, an epic branch, a tag or a PR.
 - Use `git -C <worktree-path> <cmd>` for git ops (not `cd ... && git ...`).
 - When done, report:
   - List of commit SHAs on <BRANCH>
-  - Triplet status on <BRANCH> (unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S)
+  - Gate results on <BRANCH>: `make test-affected` (and the platform runs it names), the
+    regression rows touched (`make regression-rows`), and `make unit-test` before landing,
+    each with counts and host load
   - Anything that needs reviewer attention
 - Do NOT mark work complete without an independent reviewer agent approving.
 ```
@@ -105,7 +109,7 @@ Hard rules per CLAUDE.md:
 - Each independent function = its own branch.
 - Agents do not write to main.
 - Code review by a different agent than the author.
-- No pushes without explicit user authorization.
+- Pushes only as CLAUDE.md's standing authorization allows.
 
 ## Cleanup
 
@@ -116,8 +120,9 @@ git -C /home/jorgegv/tmp/worktrees/jnext/agent-<ID> status --short   # must be e
 git merge-base --is-ancestor <BRANCH> <TARGET>                   # must succeed
 git worktree remove --force /home/jorgegv/tmp/worktrees/jnext/agent-<ID>   # --force: the tree has submodules
 git -C <TARGET-checkout> branch -d <BRANCH>   # -d, never -D; run where <TARGET> is checked out (the main checkout for main, the epic worktree for an epic sub-issue): -d checks "merged" against that HEAD
+git ls-remote --exit-code --heads origin <BRANCH> && JNEXT_ALLOW_PUSH=1 git push origin --delete <BRANCH>   # only if it was pushed
 ```
 
 Plain `git worktree remove` always refuses here (submodules), hence `--force` — only after the two checks above pass.
 
-**When to clean up (owner standing authorization, CLAUDE.md push rule):** once the issue is CLOSED and its branch is merged into its target, remove its worktrees (author's and the reviewer's detached one) and delete its local branch. For an epic sub-issue the target is the epic branch; the epic branch itself is cleaned up the same way once the epic is closed and merged to `main`. Never clean up a parked, open or unmerged issue, a dirty worktree, or another session's worktree. If either check fails, or a guard still refuses, leave it and list it in the handover.
+**When to clean up (owner standing authorization, CLAUDE.md push rule):** once the issue is CLOSED and its branch is merged into its target, remove its worktrees (author's and the reviewer's detached one) and delete its local branch, and the branch on `origin` if it was pushed. For an epic sub-issue the target is the epic branch; the epic branch itself is cleaned up the same way once the epic is closed and merged to `main`. Never clean up a parked, open or unmerged issue, a dirty worktree, or another session's worktree. If either check fails, or a guard still refuses, leave it and list it in the handover.

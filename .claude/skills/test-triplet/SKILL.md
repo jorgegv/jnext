@@ -1,6 +1,6 @@
 ---
 name: test-triplet
-description: Run the full jnext test triplet (unit + SDL-only unit suites + FUSE Z80 opcodes + screenshot regression) and cache the result. Use when the user says "run the triplet", "full tests", "test everything", "run all tests", or asks for a comprehensive test status before committing/merging/version-bump.
+description: Run the full jnext test triplet (unit + SDL-only unit suites + FUSE Z80 opcodes + screenshot regression) and cache the result. Use when the user says "run the triplet", "full tests", "test everything", "run all tests", or for the LOCAL FALLBACK of the batch gate (CI unavailable). Never before a branch merge (branches run `make test-affected`).
 ---
 
 # Test triplet
@@ -9,9 +9,9 @@ Run all three test layers and produce the canonical triplet line:
 
     unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S
 
-This is the test posture that ends every jnext handover. Result is cached at `.claude/last-test-triplet.txt` so the SessionStart hook can display it next session.
+A handover ends with the CI batch gate; this line ends one only when the local fallback ran instead. Result is cached at `.claude/last-test-triplet.txt` so the SessionStart hook can display it next session.
 
-On `main`, the triplet plus `make unit-test-win`, `make regression-win` and a clean PGO build is the **batch gate** (CLAUDE.md merge protocol step 2). It runs once, after all of a session's landings, and before any push. On a branch, run the targeted suites and rows plus `make unit-test` instead.
+The batch gate is a green CI run on `main`'s tip (CLAUDE.md merge protocol step 2: `test/ci-gate.sh`, `make ci-gate-check`). This skill runs its LOCAL FALLBACK only, when GitHub Actions is down or gives no runner within 2 hours. Then run the whole fallback list of CLAUDE.md step 2, in its order (read it there; this skill covers its unit, SDL, FUSE and regression layers), in a detached worktree of `main`'s tip (`~/tmp/worktrees/jnext/main-gate`), or `remote-run.sh --gate`. On a branch, never run it (unless the change is to those harnesses or to the PGO build itself, CLAUDE.md merge protocol step 2): run `make test-affected` before each review round and `make unit-test` once before landing.
 
 **Expected counts are not restated here** — they go stale. The unit total is
 pinned per suite in `test/unit-tests.conf` and the harness refuses to run if the
@@ -22,7 +22,7 @@ transcription question. FUSE is 1356 and does not move.
 
 ## Inputs
 
-Optional: **worktree path** (default: repo root `/home/jorgegv/src/spectrum/jnext`).
+Target: a detached worktree of `main`'s tip, `~/tmp/worktrees/jnext/main-gate` (create it if missing), unless the user names another. Never the main checkout (step 1's `make clean` wipes its `build/`), never an author's worktree.
 
 ## Steps (sequential — later layers depend on earlier ones)
 
@@ -32,10 +32,9 @@ Optional: **worktree path** (default: repo root `/home/jorgegv/src/spectrum/jnex
 nproc; cat /proc/loadavg; ps -eo pcpu,pid,comm --sort=-pcpu | head -5
 ```
 
-Report it with the result. Contention manufactures failures, never passes: a
-green run under load is *stronger* than one on an idle box, a red one costs one
-re-run. Do not add waiting of your own: a full regression run already waits,
-bounded, for a quiet host, and runs one at a time per host (GH #295).
+Report it with the result. Load, solo re-run, stamp and PENDING rules: CLAUDE.md
+§Testing ("Run the full regression only when it is needed", "Those two rows are
+examples, not the list"). Follow them; this skill does not restate them.
 
 ### 1. Always rebuild — clean, gui-release
 
@@ -118,4 +117,4 @@ unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S
 
 ## When to escalate to the `regression-runner` subagent
 
-If the triplet is part of a larger flow (e.g. pre-merge check across many worktrees, or noisy environment), dispatch `regression-runner` instead — it surfaces new failures and every SKIP, and protects the main context from raw test output. This skill is for ad-hoc triplet runs.
+If the triplet is part of a larger flow (e.g. the fallback batch gate, or a noisy environment), dispatch `regression-runner` instead — it surfaces new failures and every SKIP, and protects the main context from raw test output. This skill is for ad-hoc triplet runs.

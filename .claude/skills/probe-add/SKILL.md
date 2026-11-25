@@ -40,7 +40,7 @@ static const bool g46b_<NAME> = []() {
 
 // At the call site:
 if (g46b_<NAME>) [[unlikely]] {
-  // Log to stderr, following src/peripheral/divmmc.cpp:476-482:
+  // Log to stderr, following the JNEXT_G46B_AUTOMAP_3DXX_TRACE probe in src/peripheral/divmmc.cpp (grep the env var):
   std::fprintf(stderr, "G46B <NAME> pc=%04x sp=%04x ...\n", pc, sp);
 }
 ```
@@ -66,8 +66,8 @@ Single-bool branch + `[[unlikely]]`. No new allocations, no string formatting un
 ```bash
 LANG=C cmake --build build -j$(nproc) > /tmp/probe-build.log 2>&1; echo "status=$?"; tail -5 /tmp/probe-build.log
 
-# Clone the SD master once per investigation; never boot on the master (jnext writes to it). Delete the clone when done.
-mkdir -p ~/tmp/g46b-<name> && { [ -f ~/tmp/g46b-<name>/sd.img ] || cp --reflink=auto ~/.jnext/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<name>/sd.img; }
+# Clone the suites' SD master once per investigation (never the user's card, GH #555; if it is missing, run `make worktree-bootstrap`, which reports how to provision it); never boot on the master (jnext writes to it). Delete the clone when done.
+mkdir -p ~/tmp/g46b-<name> && { [ -f ~/tmp/g46b-<name>/sd.img ] || cp --reflink=auto ~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<name>/sd.img; }
 
 # Probe off (default):
 ./build/jnext --headless --machine next --sdcard $HOME/tmp/g46b-<name>/sd.img --delayed-automatic-exit 3

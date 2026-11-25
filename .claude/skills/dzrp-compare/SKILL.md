@@ -17,7 +17,7 @@ Ask the user (if not specified):
 
 ## Steps
 
-0. Clone the SD master once per investigation and never boot on the master itself (jnext and CSpect write to it): `mkdir -p ~/tmp/g46b-<topic> && cp --reflink=auto ~/.jnext/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<topic>/sd.img`; delete the clone when done.
+0. Clone the suites' SD master once per investigation (never the user's card, GH #555; if it is missing, run `make worktree-bootstrap`, which reports how to provision it) and never boot on the master itself (jnext and CSpect write to it): `mkdir -p ~/tmp/g46b-<topic> && cp --reflink=auto ~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<topic>/sd.img`; delete the clone when done.
 
 1. Start CSpect in DZRP debug mode with the hardened lifecycle from the `cspect-debug` skill, Part 1 (bracketing `pkill -9 mono`, `timeout --kill-after=2s N mono /home/jorgegv/src/spectrum/CSpect3_1_0_0/CSpect.exe -w3 -zxnext -nextrom -debug -mmc=$HOME/tmp/g46b-<topic>/sd.img`, port-11000 listener gate with a 20 s cap).
 

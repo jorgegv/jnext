@@ -27,6 +27,10 @@ Per CLAUDE.md / feedback memory: always create a NEW commit instead of
 amending. If a pre-commit hook failed, the commit didn't happen, and --amend
 would modify the PREVIOUS commit — potentially destroying work.
 
+Matching is textual: a mention in a grep, heredoc, echo or commit message
+blocks too. Write such text with the Write/Edit tools and search it with the
+Grep tool; never use the override for a command that does not amend.
+
 Override (only when the user explicitly says to amend):
     JNEXT_ALLOW_AMEND=1 git commit --amend ...
 EOF

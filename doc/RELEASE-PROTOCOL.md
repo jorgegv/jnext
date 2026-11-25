@@ -86,7 +86,8 @@ before the bump commit**, so the released tag carries its own ChangeLog entry.
 - Private patch bumps (answered `N`) do **not** require a ChangeLog entry.
 
 **Every item is ONE line. No exceptions.** One bullet, one physical line in the
-file, 10-20 words. If it wraps, it is too long — cut it, do not reflow it onto a
+file, well under 20 words (a line that coalesces related features may run
+longer; owner, 2026-11-25). If it wraps, it is too long — cut it, do not reflow it onto a
 second line. Same for the section describing the headline feature: it gets one
 line like everything else, not a paragraph.
 
@@ -386,8 +387,10 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 
 ## 6. Pushing (read before every push)
 
-- **Never `git push` without explicit user authorization.** Local commits,
-  merges, and bump tags stay local until the user says "push". (CLAUDE.md rule.)
+- **Pushes follow CLAUDE.md's push rule.** Its standing authorization covers
+  private batches (after a CLEAN batch gate: the gated commit to `main`, then
+  its tags) and the branches it names; everything else, a public release
+  included, stays local until the user says "push".
 
 - **GitHub only fires tag events for ≤ 3 tags pushed at once.** If you push
   more than three tags in one operation, GitHub creates **zero** tag events and
@@ -410,10 +413,12 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
 
 0. **A release that closes a milestone:** both guide audits of that milestone
    (§2.3) are closed. Open → do them first.
-1. **Green triplet** on `main`: `make unit-test`, FUSE suite, `make regression`
+1. **A CLEAN batch gate** on `main`'s tip, before the bump (CLAUDE.md merge
+   protocol step 2: `make ci-gate-check RUN=<id> SHA=<sha>` exits 0 with
+   `verdict: CLEAN`; the CI run covers every test a release needs). Only when
+   CI cannot run, the local gate list of CLAUDE.md merge protocol step 2
    — no FAIL and no SKIP (a SKIP is a row that was not tested; every harness
-   exits non-zero on one; per CLAUDE.md "Version bumping") — plus `make unit-test-sdl`, as
-   the merge protocol requires. **The regression is not re-run locally when CI
+   exits non-zero on one; per CLAUDE.md "Version bumping"). **The regression is not re-run locally when CI
    already ran it on the same content** (GH #295): on `main`'s tip, *before*
    the bump (the bump changes `version.yaml`, so its commit has a new key),
    `make regression-ci-check` looks up the green `ci.yml` runs (`gh run list`,
@@ -439,7 +444,10 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
    holds `version.yaml`, `releases.yaml`, the metainfo `<release>` entry and
    the re-rendered guides, and nothing else (§3).
 4. Get the user's explicit **"push"** authorization.
-5. Push `main`, then push the single release tag (`git push origin vX.Y.Z`).
+5. Push `main` (the bump commit: the gated content plus the version files),
+   then the batch's private tags in one push, then the release tag on its own
+   (`git push origin vX.Y.Z`); explicit refspecs, no CI run on `main` in
+   progress (§6).
 6. CI sees the tag is in `releases.yaml` → builds all packages → publishes the
    GitHub Release. (Patch bumps skip all of this by design.)
 7. Write the forum announcement — **§8**.
@@ -472,10 +480,13 @@ release", "write the forum post").
 
 Every invocation produces **two** versions of the same announcement:
 
-1. **Rich text** (Markdown) — GitHub, Mastodon, Discord, blog posts.
+1. **Rich text** (Markdown) — GitHub, Mastodon, Discord, blog posts. Emit it
+   raw inside a fenced ```` ```markdown ```` block, never rendered or quoted, so
+   the owner can copy it with the code block's copy button (owner, 2026-11-25).
 2. **phpBB BBCode** — for the [spectrumcomputing.co.uk](https://spectrumcomputing.co.uk)
-   and [z88dk.org](https://z88dk.org) forums. Emit it inside a fenced block so
-   it can be copied verbatim without the renderer mangling the tags.
+   and [z88dk.org](https://z88dk.org) forums. Emit it inside a fenced
+   ```` ```bbcode ```` block so it can be copied verbatim without the renderer
+   mangling the tags.
 
 Same content in both; only the markup differs.
 

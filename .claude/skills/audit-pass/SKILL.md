@@ -31,7 +31,7 @@ stop if the branch or worktree already exists — another session may hold it. T
 
 ## Dispatch — auditors in parallel
 
-Single message, multiple `Agent` calls (all `subsystem-auditor`), one per subsystem, at most 3 running agents in total (auditors + reviewers); queue the rest. Each gets:
+Single message, multiple `Agent` calls (all `subsystem-auditor`), one per subsystem, within the owner's agent cap (`autonomous-run` §Slots, the one place it is written; auditors and reviewers both count); queue the rest. Each gets:
 
 - Subsystem name
 - Worktree path
@@ -70,7 +70,7 @@ JNEXT_ALLOW_MAIN_WRITE=1 git -C /home/jorgegv/src/spectrum/jnext merge --no-ff a
 JNEXT_ALLOW_MAIN_WRITE=1 make bump-patch PUBLIC_RELEASE=n   # from the repo root (session cwd), so the settings.json allow rule matches
 ```
 
-Each audit branch is gated as CLAUDE.md merge protocol step 2 says: its touched suites and rows, and `make unit-test` before its review. The full gate is the batch gate on `main`. Merge one branch at a time and bump after each merge.
+Each audit branch is gated as CLAUDE.md merge protocol step 2 says: its touched suites and rows, `make test-affected` before each review round, and `make unit-test` once, just before landing. The full gate is the batch gate on `main`. Merge one branch at a time and bump after each merge.
 
 ## Final report to user
 
@@ -88,8 +88,8 @@ Each audit branch is gated as CLAUDE.md merge protocol step 2 says: its touched 
 - Subsystems converged across all passes: <list>
 - Subsystems still iterating: <list>
 
-### Batch gate on main (post-merge)
-unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S
+### Batch gate on main
+CI run <id> on <sha>: <verdict> (or "not run yet: N landings local")
 
 ### Next pass
 - Subsystems to audit: <list, excluding converged>
@@ -150,5 +150,5 @@ theatre" failures earlier in the project.
 
 - **No self-review.** If you can't find a distinct agent for review, escalate.
 - **No merge until APPROVE.** REJECTS go back to the auditor on its own branch.
-- **No pushes.** Always local.
+- **Pushes only as CLAUDE.md's standing authorization allows** (after a CLEAN gate).
 - **No main-branch writes by workers.** Only the manager merges to main, and only after APPROVE.

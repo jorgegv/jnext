@@ -26,7 +26,7 @@ of this workflow.
 
 ### Step 1: Reproduce and characterise
 
-- Clone the SD master once per investigation and never boot on the master itself (jnext and CSpect write to it): `mkdir -p ~/tmp/g46b-<topic> && cp --reflink=auto ~/.jnext/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<topic>/sd.img`; delete the clone when done.
+- Clone the suites' SD master once per investigation (never the user's card, GH #555; if it is missing, run `make worktree-bootstrap`, which reports how to provision it) and never boot on the master itself (jnext and CSpect write to it): `mkdir -p ~/tmp/g46b-<topic> && cp --reflink=auto ~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<topic>/sd.img`; delete the clone when done.
 - Run jnext: `./build/jnext --headless --machine next --sdcard $HOME/tmp/g46b-<topic>/sd.img --delayed-screenshot /tmp/jnext.png --delayed-screenshot-time N --delayed-automatic-exit M`
 - Reproduce in CSpect with the hardened lifecycle from the `cspect-debug` skill, Part 1 (`timeout --kill-after` + bracketing `pkill -9 mono`, `-mmc=$HOME/tmp/g46b-<topic>/sd.img`).
 - Capture both screenshots side-by-side and describe the divergence in one paragraph.
@@ -36,7 +36,7 @@ of this workflow.
 Follow the established `JNEXT_G46B_*` env-var pattern (visible in `src/peripheral/divmmc.cpp`, `src/platform/headless_app.cpp`):
 
 - Each probe is gated by an env var (e.g. `JNEXT_G46B_NR07_TRACE`, `JNEXT_G46B_RST08_TRACE`, `JNEXT_G46B_PCMAP`).
-- Each probe logs to stderr (`std::fprintf(stderr, "G46B <NAME> ...")`, as at `src/peripheral/divmmc.cpp:476-482`).
+- Each probe logs to stderr (`std::fprintf(stderr, "G46B <NAME> ...")`, as in the `JNEXT_G46B_AUTOMAP_3DXX_TRACE` probe in `src/peripheral/divmmc.cpp`; grep the env var).
 - Each probe has an atexit summary if cumulative state matters.
 - Probes have **zero cost when env var unset** (single-bool short-circuit at the call site).
 - Probes are **non-mutating** — they log state, they never alter it.

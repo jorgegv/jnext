@@ -15,9 +15,9 @@ The owner is here and directs the work. CLAUDE.md applies in full. You, the main
 ## Steps
 
 1. **Split** the task into units. A unit is one independent change that can be reviewed on its own. It has a measurable success criterion, a name (`<topic>-<n>`), the files it touches, and its dependencies on other units. Units that touch the same files share one branch and worktree, and run one after another (one commit each).
-2. **Show the plan** to the owner: the units, their order, the agents each one uses, and the branch each one merges into. Wait for the go. The run dir is `~/tmp/team/<YYYY-MM-DD>-<topic>/`: the plan, one spec file per unit, briefs, reports and `decisions.md`.
+2. **Show the plan** to the owner: the units, their order, the agents each one uses, and the branch each one merges into. Wait for the go. The run dir is `~/tmp/team/jnext/<YYYY-MM-DD>-<topic>/` (one subdirectory per project): the plan, one spec file per unit, briefs, reports and `decisions.md`.
 3. **Workspaces.** Per unit, a branch off the current target (`main`, or the epic branch for epic work) and a worktree via `worktree-launch`. Each reviewer gets a detached worktree of its own (`rev-<unit>`).
-4. **Dispatch** within the owner's cap: at most 4 running agents, every role counted (owner, 2026-10-11). Queue the rest. A freed slot goes to the unit nearest to landing.
+4. **Dispatch** within the owner's agent cap (`autonomous-run` §Slots, the one place it is written). Queue the rest. A freed slot goes to the unit nearest to landing.
    - Roles: `autorun-planner` (only for a unit that needs a diagnosis or a design), `autorun-implementer`, `autorun-reviewer`; `vhdl-oracle` for read-only spec lookups.
    - Brief the role agents with the unit's spec file in place of an issue. The unit name replaces `gh<N>` in their file names.
 5. **Review.** Every unit gets an independent `autorun-reviewer` with a binary APPROVE / REJECT. A REJECT goes back to the same implementer, and the same reviewer re-reviews.
@@ -39,4 +39,4 @@ The owner is here and directs the work. CLAUDE.md applies in full. You, the main
 |---|---|---|---|---|---|
 ```
 
-Below it: the last batch gate on `main` (unit • sdl • win • FUSE • regression • regression-win) and the landings since then, what is still open, and what needs the owner.
+Below it: the last batch gate on `main` (CI run id, gated sha, `ci-gate-check` verdict) and the landings since then, what is still open, and what needs the owner.

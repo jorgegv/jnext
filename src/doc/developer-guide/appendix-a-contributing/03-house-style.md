@@ -162,3 +162,14 @@ The half that no gate can see is whether the prose is still *true*. When you
 change a subsystem, check whether this guide still describes it correctly — a
 stale paragraph here is the same class of defect as a stale man page, with the
 important difference that nothing will tell you about it.
+
+## Describe the system, not its history
+
+*(Owner decision, 2026-11-05; no gate checks it.)*
+
+The user guide and this developer guide are manuals: they describe what the
+system does now, not how it got there. So a guide page carries no issue or pull
+request numbers and no merge history; that history lives in the issues, the
+commit log and the ChangeLog. When a reader needs a fix from another project, a
+z88dk change for example, give the release version or the nightly date that
+carries it, not the upstream issue number.

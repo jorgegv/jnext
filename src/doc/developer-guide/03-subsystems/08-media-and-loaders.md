@@ -679,7 +679,7 @@ they do under the real `nexload`.
 **The cost.** A miss costs a boot of about 760 frames. A hit costs one
 `stat` of the SD image plus inflating the ~100 KB cache. The key is the image's
 (size, mtime) read after the recording, plus a process-wide write generation
-(`SdCardDevice::host_write_generation()`, bumped by every CMD24 jnext commits and, since GH #558, by every successful `disk_write` of the card engines: the SD card file manager, the file-add and the upgrade):
+(`SdCardDevice::host_write_generation()`, bumped by every CMD24 jnext commits and by every successful `disk_write` of the card engines: the SD card file manager, the file-add and the upgrade):
 an own write drops the in-memory state, and a memo of the last validation
 catches an own write that left the mtime unchanged. The (size, mtime, generation) key replaces the whole-image SHA-256, which cost 0.6-1.2 s per GB on the UI
 thread at every cold boot that loads a program. **Accepted residual:** an

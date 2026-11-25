@@ -60,7 +60,7 @@ All source lives under `cores/zxnext/src/`:
 - **PSG enable** — 28 MHz clock-enable signal for AY chips
 
 ### CPU
-- **T80N** (Z80 compatible + Z80N extensions): `cpu/T80N.vhd`, `cpu/T80_ALU.vhd`
+- **T80N** (Z80 compatible + Z80N extensions): `cpu/t80n.vhd`, `cpu/t80n_alu.vhd`
 - 4 software-selectable speeds; wait states inserted for memory contention
 - Bus shared with ZXN-DMA (daisy-chain arbitration)
 - DMA has Z80-DMA compatibility mode and a burst mode for sampled audio
@@ -73,7 +73,7 @@ All source lives under `cores/zxnext/src/`:
 - External 2 MB SRAM on physical pins; accessed by both CPU and Layer 2 video
 
 ### Video Subsystem (layer priority, bottom to top)
-1. **ULA** (`video/ula.vhd`) — 48K/128K/+3/Pentagon-compatible, attributes, floating bus, contention; Timex hi-colour/hi-res modes
+1. **ULA** (`video/zxula.vhd`, timing in `video/zxula_timing.vhd`) — 48K/128K/+3/Pentagon-compatible, attributes, floating bus, contention; Timex hi-colour/hi-res modes
 2. **LoRes** — 128×96 4-bit or 8-bit; shares ULA layer slot
 3. **Layer 2** — 256×192 / 320×256 / 640×256 8-bit or 4-bit bitmap; DMA-accessible; hardware scroll
 4. **Tilemap** — 40×32 or 80×32 grid of 8×8 glyphs, 4-bit colour; hardware scroll
@@ -84,7 +84,7 @@ Layer priority is programmable via NextREG `0x15`.
 ### NextREG Interface (control plane)
 - Port `0x243B` — register select
 - Port `0x253B` — register data
-- Key registers for emulator: `0x00` (machine ID), `0x01` (core version), `0x02` (reset), `0x03` (machine type + video timing), `0x07` (CPU speed), `0x15` (layer priority), `0x50`-`0x57` (palette), `0x80`-`0x85` (port decode/expansion bus)
+- Key registers for emulator: `0x00` (machine ID), `0x01` (core version), `0x02` (reset), `0x03` (machine type + video timing), `0x07` (CPU speed), `0x15` (layer priority), `0x40`-`0x44` (palette), `0x50`-`0x57` (MMU), `0x80`-`0x85` (port decode/expansion bus)
 - Full register reference: `cores/zxnext/nextreg.txt`
 
 ### Audio
@@ -101,11 +101,11 @@ Layer priority is programmable via NextREG `0x15`.
 - **SPI** (`serial/spi_master.vhd`) — SD/flash/Pi; ports `0xE7` (CS), `0xEB` (data)
 - **I2C** — RTC, HDMI, Pi; ports `0x103B`/`0x113B`
 - **Copper** (`device/copper.vhd`) — display-synchronized co-processor; modifies NextREG state at precise raster positions
-- **IM2** (`device/im2.vhd`) — 14-vector hardware IM2 interrupt controller with daisy-chain priority
+- **IM2** (`device/im2_control.vhd`, `im2_device.vhd`, `im2_peripheral.vhd`) — 14-vector hardware IM2 interrupt controller with daisy-chain priority
 
 ### Input
 - Membrane keyboard matrix (8×5 read via ULA port `0xFE`)
-- PS/2 keyboard (`input/ps2_keyboard.vhd`) with programmable function-key mapping
+- PS/2 keyboard (`input/keyboard/ps2_keyb.vhd`) with programmable function-key mapping
 - PS/2 mouse (Kempston protocol)
 - 2× joystick (Sinclair, Kempston, MD 6-button modes)
 
@@ -139,8 +139,8 @@ Full port map: `cores/zxnext/ports.txt`
 ## Emulator Development Notes
 
 - **VHDL is the spec**: when hardware behavior is ambiguous, trace through the VHDL signal paths — `zxnext.vhd` is the integration point; subsystem files are the ground truth for timing.
-- **Contention model**: ULA contention is implemented in `video/ula.vhd`; the CPU wait-state injection is in `zxnext.vhd`. The contention pattern depends on which machine type is selected (48K vs 128K vs Pentagon).
-- **Video timing**: Pixel counters and display timing are in `video/ula.vhd`. The Copper co-processor hooks into these counters — emulate it as a list of (hpos, vpos, nextreg, value) events executed during raster scan.
+- **Contention model**: ULA contention is implemented in `video/zxula.vhd`; the CPU wait-state injection is in `zxnext.vhd`. The contention pattern depends on which machine type is selected (48K vs 128K vs Pentagon).
+- **Video timing**: Pixel counters and display timing are in `video/zxula_timing.vhd`. The Copper co-processor hooks into these counters — emulate it as a list of (hpos, vpos, nextreg, value) events executed during raster scan.
 - **MMU banking**: MMU slot→page mapping is held in 8 registers (`0x50`–`0x57` in the NextREG space of `zxnext.vhd`). The traditional 128K banking ports modify the same underlying page map.
-- **Interrupt timing**: IM2 vectors are in `device/im2.vhd`; interrupts fire at specific raster line positions relative to the ULA frame counter.
+- **Interrupt timing**: IM2 vectors are in `device/im2_*.vhd`; interrupts fire at specific raster line positions relative to the ULA frame counter.
 - **Board variants**: For emulator purposes, target Issue 2 behavior (Spartan 6) as the reference unless targeting Issue 5 features (XADC, XDNA).

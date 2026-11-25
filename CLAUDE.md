@@ -29,6 +29,7 @@ code comments.
   - VHDL expert
   - GUI developer expert in SDL/QT6
 - When a new feature or bugfix is developed, ALWAYS schedule an additional agent for code review, with the same expertise as the original one. The code review should NEVER be done by the same agent that created the code in the first place. Make the reviewer agent be very critic with the code created, ensuring that code passes tests and that no regressions are introduced. Also review code style and conformance to our best practices.
+- **Status replies** (owner-approved, 2026-10-18; refines the global two-section rule): `[YYYY-MM-DD HH:MM]`, then **Blocked on you** (omit if empty), **Running (N slots)**, **Next, in this order**, **Waiting**, **Epic**; numbered lists, one short line per item.
 
 ## Constraints for development
 
@@ -40,11 +41,12 @@ code comments.
 - Agents should NOT write to the main branch, ever. Only on their own branches and worktrees!
 - **Git worktrees live OUTSIDE the repository directory.** Canonical location: `/home/jorgegv/tmp/worktrees/jnext/<name>` (owner, 2026-10-29: one subdirectory per project, so other projects' worktrees under `~/tmp/worktrees/` are never mistaken for jnext's; `~/tmp/worktrees/<name>` from 2026-08-03 is retired, worktrees still there are finished in place, never moved; the previous sibling `/home/jorgegv/src/spectrum/jnext-worktrees/` is retired, as is the older in-repo `.claude/worktrees/` from 2026-07-19). Never create a worktree checkout inside the repo — even gitignored: anything walking the repository file list also walks the worktrees, which is unneeded work and loads the machine. The traceability generator finds the FPGA checkout from any worktree location on its own — it resolves the worktree's main checkout from its `.git` file and walks up from there — so no `JNEXT_FPGA_SRC` export is needed in worktrees (the env var remains for machines with no sibling checkout, e.g. CI).
 - **NEVER push to origin without explicit user authorization.** This applies to the manager AND every spawned agent. Local commits, rebases, and merges on owned branches/worktrees are fine; `git push`, `git push -u`, `git push --force`, `gh pr create`, and any equivalent are all forbidden unless the user explicitly says "push" or "open a PR". **Standing authorization (owner, 2026-09-29, 2026-10-06 and 2026-11-15) — exactly this, nothing more:** once the batch gate (merge protocol, step 2) is green (CLEAN for the CI gate) on commit `<sha>` of `main` — or, after a red one, its failing rows and suites pass when re-run (merge protocol, "A red batch gate") — with every merge in the batch independently APPROVED and bumped, push `<sha>` to `main` (`<sha>:refs/heads/main`), then all the batch's tags at or before `<sha>` except the newest in one push, then the newest tag on its own (so the newest always gets its tag event; a public release tag, one in `releases.yaml`, is pushed on its own, doc/RELEASE-PROTOCOL.md section 6) (explicit refspecs, only when no CI run on `main` is in progress); push epic branches (`epic<E>-<slug>`, never force) and start a CI run on one (`gh workflow run CI --ref epic<E>-<slug>`) before it merges into `main`; push issue branches (`gh<N>-<slug>`, never force) and start a CI run on one (`gh workflow run CI --ref gh<N>-<slug>`) before it lands (owner, 2026-11-15); push an issue branch (`gh<N>-<slug>`, never force) to run it on a remote-run host (any host set up for the `remote-run` skill; a clone may have none), and push `main`'s tip as a temporary `gate-v<version>` branch (never force) to run the batch gate there, deleting that branch from `origin` right after its gate, green or red; these pushes by the main session (owner, 2026-11-20); by the main session, start CI on that branch (`gh workflow run CI --ref gate-v<version>`, `test/ci-gate.sh dispatch`) as the batch gate, push bisect branches `gate-v<version>-b<k>` (never force) at a commit under test and start CI on them to find what broke a red gate, deleting each right after its run, and push exactly the gated commit to `main` (`<sha>:refs/heads/main`, not the local tip) after a CLEAN gate (owner, 2026-11-21); an agent may push ITS OWN issue branch (`gh<N>-<slug>`, the branch of its worktree, never force) to share it with a remote-run host, never `main`, an epic branch, a tag or another agent's branch (owner, 2026-11-21); comment on, file and edit issues and close them — during an autonomous run; and, after any approved merge is pushed, close the finished issue with its close note; once an issue is closed and its branch merged into its target, remove its clean worktrees and delete its merged local branch, and the branch on `origin` if it was pushed (`git push origin --delete <branch>`; owner, 2026-11-20) (`worktree-launch` §Cleanup). Other branches, force pushes, PRs, unmerged or dirty work, and public releases stay per-message.
+- **The guard hooks (`.claude/hooks/`) match command TEXT, not intent:** a grep, heredoc, echo or commit message that merely contains the push/PR-create or amend words is blocked too. Write such text with Write/Edit and search it with Grep; never use the override for a command that does not push.
 - `doc/design/EMULATOR-DESIGN-PLAN.md` and the `doc/design/TASK*-PLAN.md` family are FROZEN historical artifacts (owner, 2026-08-12): never edit them or offer to. Task status lives in GitHub issues; a superseded plan line is recorded in the issue, or in the developer guide if it describes current behaviour.
 - **Findings an issue surfaces are fixed on that issue's branch**, with their own tests (owner, 2026-09-22, restated 2026-10-03): no follow-up issues, no TODOs, no "fix or file?". "Minimal" means the smallest change per bug, not fewer bugs fixed. File separately only work that is both large AND unrelated, with the evidence. In this repo this overrides the global "mention a secondary issue, do not touch it" rule.
 - When the user tells you to prepare for a session handvover, immediately save your memories
 - **NEVER commit a NextZXOS SD-card image to the repo or post it to GitHub, UNDER ANY CIRCUMSTANCES** (owner, 2026-11-06): neither the standard distribution image nor the minimal one (#458). It is copyrighted material. No fixture, no commit in any branch, no issue or PR attachment, no release asset, no CI artifact (`upload-artifact` paths), no package content, no zipped or encoded copy. Images live only in `~/.jnext/sdcard/`, per-run scratch copies, and the SD-image cache volume of each remote-run host (owned by its dedicated user, never copied off that host; owner, 2026-11-20); tests make them at run time. The CODE that builds, reads or patches an image (e.g. `tools/make-minimal-card`, `tools/fix-sdcard-image.sh`) is public and belongs in the repo; only its output is banned. Every brief for an agent that touches SD images carries this rule.
-- **Every setting configurable in the GUI also has a CLI option that sets it** (owner, 2026-10-29); it may be a non-dedicated option (a generic setter). A feature's minimal enabler flag starts it with sensible defaults, and optional flags modify everything its Preferences panel can. A change that adds a Preferences field adds its row to `src/platform/config_keys.cpp` (reachable through `--set`) and, where a dedicated flag is wanted, its `cli_options.h` entry, in the same change; man page updated, `make cli-check` green.
+- **Every setting configurable in the GUI also has a CLI option that sets it** (owner, 2026-10-29); it may be a non-dedicated option (a generic setter). A feature's minimal enabler flag starts it with sensible defaults, and optional flags modify everything its Preferences panel can. A change that adds a Preferences field adds its row to `src/platform/config_keys.cpp` (reachable through `--set`) and, where a dedicated flag is wanted, its `cli_options.h` entry, in the same change; man page updated, `make cli-check` green. Menu actions are not settings: View > Full Screen and Machine > Pause get no flags (owner, 2026-10-30).
 - When a commit is made, check that the FEATURES.md file is updated to include the new feature if it's a significant one. Ask the user if in doubt of the relevance of the change meriting an update. Pending features and known bugs are NOT tracked in the repo — they live in GitHub issues (https://github.com/jorgegv/jnext/issues); `TODO.md` is only a pointer to that page.
 - When a new development is made that changes any interface in any subsystem, make sure there are enough test cases in that subsystem's test  plan to fully test that new code/interface. Modify the plan if needed and do an independent code review for the new code.
 - When a bug is fixed in any subsystem, make sure there are enough test cases in that subsystem's test  plan to fully test the fixed new code/interface. Modify the plan if needed and do an independent code review for the new test code.
@@ -88,6 +90,8 @@ code comments.
 > license-clean-fixtures / no-new-dependency rules, and the design-doc + use-case
 > requirement for features. A non-compliant PR is not merged.
 
+Show the owner the review conclusions before posting them on an external PR (owner, 2026-11-26).
+
 ### Merging a completed feature/fix to `main`
 
 The single authoritative protocol for landing any implemented change on `main`:
@@ -100,7 +104,7 @@ The single authoritative protocol for landing any implemented change on `main`:
    - **The batch gate is a green GitHub CI run on the commit to be pushed** (owner, 2026-11-21, GH #547). After all of a work session's landings and before any push of `main`:
      1. Put `main`'s tip `<sha>` on `origin` as the temporary branch `gate-v<version>` (`<version>` = `version.yaml` at that tip; never force) and start CI on it: `bash test/ci-gate.sh dispatch gate-v<version> <sha>`.
      2. Wait: `bash test/ci-gate.sh wait <run-id>`. Nothing else waits on it: landings may continue on local `main` and belong to the next batch.
-     3. Verdict: `make ci-gate-check RUN=<run-id> SHA=<sha>` (SHA is mandatory: the run must be on the commit to be pushed). Green = exit 0 and `verdict: CLEAN`: every job succeeded, none skipped or cancelled, no job of the last green `main` run missing. CI runs the local gate list below plus the Qt5 build, macOS, the build matrix and the packages. `gh run rerun <id> --failed` re-runs failed jobs on the OLD commit: use it only to confirm a suspected flake (a timing row), never as the verdict on a fix.
+     3. Verdict: `make ci-gate-check RUN=<run-id> SHA=<sha>` (SHA is mandatory: the run must be on the commit to be pushed). Green = exit 0 and `verdict: CLEAN`: every job succeeded, none skipped or cancelled, no job of the last green `main` run missing. CI runs the local gate list below plus the Qt5 build, macOS, the build matrix and the packages. `gh run rerun <id> --failed` re-runs failed jobs on the OLD commit: use it only to confirm a suspected flake (a timing row) or a known infrastructure failure: a macOS job that never got a runner ("not acquired … capacity", "lost communication"), or a package/flatpak/rpm job whose specnext.com download came back truncated (~12 KB, sha256 mismatch) or missed the SD-image cache; never as the verdict on a fix.
      4. Delete `gate-v<version>` from `origin`, green or red.
      5. Green: publish exactly the gated commit to `main` (`<sha>:refs/heads/main`, not the local tip, which may have moved), then the batch's tags at or before `<sha>`, as step 6.
      - **Sync points only** (owner, 2026-11-21): gate and push at the end of a work session, at a public release, or for an urgent user-facing fix (a reporter waiting, a broken release). Landings in between stay local; the number of landings never triggers a gate. A red gate in a bigger batch costs little more (re-run only the failing rows at each merge commit), and fewer gate runs mean fewer CI runs evicting the build cache.
@@ -178,9 +182,9 @@ The single authoritative protocol for landing any implemented change on `main`:
   - Bug Fixes
   - Internal JNEXT Development: new plans, enhancements to test results, big architectural changes or enhancements, etc.
   - Contributors in this release (owner decision 2026-10-04, from v1.1.0 on): a single `- ` bullet with a comma-separated list of the handles (`@handle`) of everyone other than the owner who CONTRIBUTED since the previous public release: opened an issue or PR, commented on one, reviewed a PR, or tested and reported back (owner, 2026-10-05: "they all contribute"). Every handle is written `@handle` whatever its origin (GitHub, a forum, elsewhere), with no note of where it comes from (owner, 2026-10-07: `@vmorilla, @MickeyG`). No per-person details. **A contributor is LISTED only if an issue they opened was closed between the previous public release and this one** (owner, 2026-11-17); someone who only commented, tested, or opened an issue still open is not listed. An issue filed for a forum requester counts as theirs. An issue counts for the release whose tagged commit contains its fix, not for the one whose window its close time falls in: issues are closed after the push, so a fix that shipped in the previous release earns no second mention. No listed contributor: the section is omitted.
-- Descriptions for each feature/fix should never be more than one line, and should be about 10-20 words maximum
+- Descriptions for each feature/fix should never be more than one line, and short: name the feature, not its mechanism or every flag (well under 20 words). Merge related features into one line; a coalesced line may run longer (owner, 2026-11-25)
 - Trivial fixes, syntax, reformats, documentation, project plan updates, etc. should not appear on the ChangeLog. Only significative features and fixes.
-- The file should only be updated when the user requests it
+- The file should only be updated when the user requests it, except in an autonomous run: each landed issue's line goes into `Unreleased` on `main` at landing (owner, 2026-11-18). Renaming `Unreleased` to a version stays the owner's.
 - The initial version (v0.91.0) should contains a short list of the current features at that time
 - If there are commits after the last tag, and the user requests a ChangeLog update, it should be updated up to the current date, and using "(current date)" as the version identifier in the ChangeLog
 - Don't be overly confident about features: never put an ongoing feature in the ChangeLog if it's still not tested or has known bugs
@@ -215,7 +219,7 @@ The single authoritative protocol for landing any implemented change on `main`:
 
 When the user asks to bump the version, follow these steps in order:
 
-1. Run all unit tests (`make unit-test`) and regression tests (`make regression`) — none must have any FAIL or SKIP. The regression is satisfied without a local run by `make regression-ci-check` (a green CI run on the same content key, checked before the bump) or `make regression-stamp-check` — see doc/RELEASE-PROTOCOL.md §7
+1. The tests pass: a CLEAN CI batch gate on `main`'s tip, checked before the bump (merge protocol step 2: `make ci-gate-check RUN=<id> SHA=<sha>`; `make regression-ci-check` finds the same run for the regression). Only when CI cannot run, the local gate list of merge protocol step 2 — none must have any FAIL or SKIP; a matching `make regression-stamp-check` stands in for its `make regression` — see doc/RELEASE-PROTOCOL.md §7
 2. ~~Update the traceability matrix~~ — **no longer a manual step (GH #196).** It is generated and staleness-gated; `make unit-test` regenerates and fails if the committed copy differs. Commit the regenerated file if it changed.
 3. Update the unit test status report
 4. Update the DEVELOPMENT-SESSIONS document (`doc/DEVELOPMENT-SESSIONS.md`)
@@ -240,7 +244,7 @@ copy appears in a packaging, CI, CMake or mkdocs file.
 ## Building
 
 ```bash
-cmake --build build -j$(nproc) 2>&1 | tail -5
+LANG=C cmake --build build -j$(nproc) > ~/tmp/build.log 2>&1; echo status=$?; tail -5 ~/tmp/build.log
 ```
 
 The build uses CMake with Qt6 UI enabled (`-DENABLE_QT_UI=ON`). The executable is at `build/jnext`.
@@ -587,8 +591,9 @@ exists because the harness shipped once with a bug that appeared *only when a su
 `make regression` depends on `unit-test-build`: the suite runs `build/test/rewind_test`,
 and `make clean` deletes it.
 
-**Agent worktrees: run `make worktree-bootstrap` first.** `roms/*` is git-ignored, so a
-fresh worktree has no SD-card image and cannot run the tests at all.
+**Agent worktrees: run `make worktree-bootstrap` first.** It verifies the suites' SD
+master (`~/.jnext/sdcard/test-suite/`, never the user's card) and the git submodules,
+which `git worktree add` leaves empty, and says how to fix either.
 
 ### FUSE Z80 opcode test suite
 
@@ -646,9 +651,10 @@ ccache -M 20G     # the 5G default thrashes on a tree this size
 **2. Reviewers: run mutation cycles in parallel, not serially.** Reviewer
 mutations are independent by construction (reverting a stencil gate has nothing
 to do with reverting a tab order), yet they are usually run one after another in
-a single build dir. Give each mutation its own build directory (or its own
-worktree) and run them concurrently — ccache is global, so the second and third
-builds are almost free. Mutations are checked with **targeted rows**
+a single build dir. Give each mutation its own detached worktree
+(`git worktree add --detach`, removed after; never a `cp`/`tar` copy) with its own
+build directory, and run 2-3 concurrently: mutants in one shared source tree compile
+each other. ccache is global, so the second and third builds are almost free. Mutations are checked with **targeted rows**
 (`make regression-rows ROWS="<row> ..."`), never full runs (GH #295).
 
 **`JNEXT_TEST_JOBS` caps the suite's lanes; it is no longer a speed trade-off**
@@ -700,10 +706,10 @@ Key options:
 - `--headless` — no display, no audio, runs at max speed
 - `--sdcard FILE` — SD image with ROMs at `/MACHINES/NEXT/`. Optional; if omitted, falls back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img` (the patched image; offers to download the canonical distribution `cspect-next-1gb.img` and produce that patched copy). `--sdcard-download-confirm` / `--sdcard-download-force` control that provisioning
 - `--delayed-screenshot FILE` — save PNG screenshot after delay
-- `--delayed-screenshot-time N` — delay in seconds (default 10)
+- `--delayed-screenshot-time N` — delay in emulated seconds (default 10; machine time, host speed does not matter)
 - `--delayed-screenshot-frames N` — delay in frames (overrides `--delayed-screenshot-time`)
 - `--delayed-screenshot-layers LIST` — layers composed into the screenshot: comma-separated `ula`, `layer2`, `sprites`, `tiles`, `all` (default `all`). An excluded layer is composed as if its hardware enable bit were clear, so the rest still follow NR 0x15 priority and the NR 0x4A fallback colour shows through. Excluding `ula` also removes the **border** (the ULA emits it)
-- `--delayed-automatic-exit N` — exit emulator after N seconds. It is a hard bound: it always fires. If it (or a window close) arrives while a `--delayed-screenshot` is still outstanding — the capture came due but no frame was rendered for it, e.g. the debugger was paused, or the exit delay is simply shorter than the screenshot delay — jnext logs an **error** and **exits non-zero** rather than quietly writing nothing, or writing a stale frame with the wrong layers in it
+- `--delayed-automatic-exit N` — exit emulator after N emulated seconds. It is a hard bound: it always fires. If it (or a window close) arrives while a `--delayed-screenshot` is still outstanding — the capture came due but no frame was rendered for it, e.g. the debugger was paused, or the exit delay is simply shorter than the screenshot delay — jnext logs an **error** and **exits non-zero** rather than quietly writing nothing, or writing a stale frame with the wrong layers in it
 - `--delayed-automatic-exit-frames N` — exit after N frames (overrides `--delayed-automatic-exit` when both are given). Same hard-bound contract as the seconds form, but deterministic: a capture due at frame N is still taken, one due at frame N+1 is not (and errors + exits non-zero)
 - `--load FILE` — load a NEX, TAP, or TZX file at startup
 - `--rtc "YYYY-MM-DD HH:MM:SS"` — pin the RTC to a fixed date/time (deterministic boot screenshots; ISO `T` form also accepted)

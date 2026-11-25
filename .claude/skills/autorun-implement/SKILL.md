@@ -15,16 +15,17 @@ You implement the plan at `<run>/gh<N>-plan.md` (for a team-run unit, the plan o
 - Commit early and often; an uncommitted diff dies with the agent. Commit messages ≤4 lines, subject <70 chars.
 - `LANG=C` on make/cmake/ninja; chain build+test in one Bash call (cwd does not persist).
 - Big temp files in `~/tmp/<purpose>`; SD clones `cp --reflink=auto`, deleted when done.
-- No `pgrep -f` wait loops, no foreground `sleep`. Bound every fake; cap memory for mutation runs.
+- No `pgrep -f` wait loops, no foreground `sleep`. Bound every fake. Memory caps: your branch's suite binaries and `make` test targets under 16 GB (`ulimit -v 16777216`); foreign tools (skoolkit, z88dk), fuzzers and differential harnesses under 4 GB (`ulimit -v 4194304`) plus `timeout --kill-after=5s`; mutants as below. An uncapped run that balloons takes VS Code and every agent down.
 - Revert mutations from your own `cp` backup, never `git checkout --`; grep that the fix is back.
 - Expectations come from the oracle the plan cites, never from the code. A test fails → the code is wrong. Never change a test to match the code: stop and report.
+- A pin that only tallies tests or entries (`# expect:`, an `n == N` over a list your change grew, a scanned-file count) is updated with your change; name it in the commit message (owner, 2026-11-18). An existing assertion whose expected value or meaning must change, a measured length or a format version included, is a baseline change: stop and report.
 - Plan wrong or incomplete → stop and report with evidence and a recommendation. Never silently do something else.
 - A stage approved with **Carried test gaps** (autorun-review, owner 2026-11-24): close those gaps FIRST in the next stage, with the rows the review names, and show each mutant killed, before the stage's own work.
-- Run your own mutants in parallel, each in its own detached worktree (`git worktree add --detach`, never a `cp`/`tar` copy) and build directory, 2-3 at a time under the 3G cap (owner 2026-11-24).
+- Run your own mutants in parallel, each in its own detached worktree (`git worktree add --detach`, never a `cp`/`tar` copy) and build directory, 2-3 at a time (owner 2026-11-24). Each mutant's SUITE run (not its build) goes under `( ulimit -v 3145728; <suite command> )` (3 GB; owner, 2026-11-26). Builds are not capped this way: a 3 GB virtual limit can fail LTO/Qt links and fake a kill.
 
 ## Do
 
-1. Fix, rows (literal IDs, oracle cited), manifest counts, docs (edit sources, re-render, commit both), ChangeLog line from the plan.
+1. Fix, rows (literal IDs, oracle cited), manifest counts, docs (edit sources, re-render, commit both; guide pages under `src/doc/user-guide` and `src/doc/developer-guide` are manuals: no issue/PR numbers or merge history, an external fix gives a version or date, owner 2026-11-05), ChangeLog line from the plan.
 2. Mutation-test your own rows: see each go red for the right reason.
 3. Gate per CLAUDE.md merge protocol step 2. Run the suites the change touches, in every configuration it can affect (SDL-only for SDL-frontend or shared platform logic; `make unit-test-win` for Win32 code, paths, sockets or processes), and the regression rows it touches (`make regression-rows`: non-PGO Release build, no PGO training). Before each review round, run `make test-affected` (GH #547: only what the change reaches plus a smoke set; FULL when it cannot place a file) and the platform runs it names; the full `make unit-test` runs once, just before landing. For a doc-only change, run `make docs-check` instead. No PGO build, no full `make regression` and no `make regression-win` on the branch: the batch gate on `main` runs those.
 4. Report `<run>/gh<N>-report.md`: commits, base, gate counts + load, mutation table, acceptance criteria ticked with evidence, draft close comment, open questions.
