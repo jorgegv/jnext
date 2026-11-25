@@ -3203,9 +3203,11 @@ machine, and cost a closed window nothing.</p>
   rewind's replay loop;</li>
 <li><code>magic_hold_</code>: set when a magic breakpoint fires, released by the resume that
   ends its stop.</li>
+<li><code>verify_hold_</code>: held while a source map attached to a tape program waits for its
+  program (<a href="09-4-execution-control-and-rewind.html">3.9.4</a>).</li>
 </ul>
 <p>Each contributor has its own bit because a shared one would let one owner's
-release clear another's arm. <code>SuspendScope</code> clears all of them. Outside the two
+release clear another's arm. <code>SuspendScope</code> clears all of them. Outside the three
 holds, <code>armed() == attached() || persistent_breakpoints()</code>.</p>
 <p><code>attached</code> and <code>live_raster</code> are two different gates. <code>attached</code> gates the
 step machinery: Step Out's per-instruction test and the <code>STEP_BACK</code> /
@@ -3340,6 +3342,7 @@ loop owners share one statement of them:</p>
 </tr>
 </tbody>
 </table>
+<p>In the browser (WebAssembly) build the paused figure for Qt/SDL-style loops is <code>PumpBudget{0, 0, 10}</code>: while wasm runs no byte can arrive, so the 2 ms drain would be a pure busy-wait. It still answers every command already buffered, bounded by 10 ms.</p>
 <p>The headless branch turns what would be a busy spin on a paused machine into a
 wait. Its one countdown that keeps running is <code>--delayed-automatic-exit</code>,
 charged in wall time at 20 ms a frame, because it is a hard bound and a client

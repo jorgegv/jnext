@@ -3095,7 +3095,7 @@ Available targets:
   sdl-debug        Configure and build the SDL-only frontend in Debug mode ...
   ...
 </code></pre>
-<p>There are 69 documented targets at the time of writing. The sections below
+<p>There are 132 documented targets at the time of writing (2026-11-25). The sections below
 group them into families rather than listing them one by one, because <code>make</code>
 is the authority here and the exact number changes.</p>
 <h2 id="the-self-documenting-convention">The self-documenting convention<a class="headerlink" href="#the-self-documenting-convention" title="Permanent link">&para;</a></h2>
@@ -3153,6 +3153,15 @@ frontend options, <code>make unit-test-sdl</code> runs the declared suites a sec
 the SDL-only configuration (its own <code>build/sdl-unit-test</code> tree, so <code>build/</code> stays
 the Qt one), and <code>make unit-test-dashboard</code> runs the unit tests and refreshes the
 committed per-subsystem status table.</p>
+<p>Two targets run less than the full set, for the rounds of work on a branch.
+<code>make test-affected</code> plans from the build's own depfiles, linker maps and
+<code>test/test-affected.conf</code> which suites a change reaches, runs them with a fixed
+smoke set and the documentation and CLI checks, names the platform runs
+(<code>unit-test-sdl</code>, <code>-win</code>, <code>-wasm</code>) the change needs without running them, and
+falls back to the full <code>make unit-test</code> when a changed file is in no map and no
+rule (it names the file). <code>make regression-rows ROWS="a-func b-func"</code> builds the
+binaries and runs just those rows, on the non-PGO Release build unless
+<code>ROWS_PGO=1</code>. <a href="../04-testing/01-the-test-triplet.html">4.1</a> says where each fits.</p>
 <p>Two more targets run the SDL-only suites on other operating systems.
 <code>make unit-test-sdl</code> also works on macOS, where the test harness needs Homebrew's
 <code>bash</code>, <code>coreutils</code> and <code>grep</code> (<code>brew install bash coreutils grep</code>; the target

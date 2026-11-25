@@ -3174,6 +3174,21 @@ matters mainly when you invoke CMake directly.</p>
 <td>ON</td>
 <td>Run <code>git submodule update --init --recursive</code> at configure time</td>
 </tr>
+<tr>
+<td><code>JNEXT_WERROR</code></td>
+<td>ON</td>
+<td><code>-Werror</code> on every first-party target (packaging builds set OFF; see Compiler warnings)</td>
+</tr>
+<tr>
+<td><code>JNEXT_PGO</code></td>
+<td>OFF</td>
+<td>Profile-guided optimisation stage: <code>OFF</code>, <code>GENERATE</code> or <code>USE</code> (gcc only; see below); <code>JNEXT_PGO_DIR</code> holds the profile</td>
+</tr>
+<tr>
+<td><code>ENABLE_CRT_GL</code></td>
+<td>ON</td>
+<td>The optional OpenGL CRT shader filter of the Qt GUI (Qt 6 with OpenGLWidgets only; <code>src/gui/CMakeLists.txt</code>)</td>
+</tr>
 </tbody>
 </table>
 <h2 id="the-combinations-are-gated-not-assumed">The combinations are gated, not assumed<a class="headerlink" href="#the-combinations-are-gated-not-assumed" title="Permanent link">&para;</a></h2>
