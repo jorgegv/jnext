@@ -60,7 +60,7 @@ Public releases only, from v1.1.0 on (owner decision 2026-10-04). One `- ` bulle
 
 ## Style rules (strict)
 
-- **One line per entry, 10–20 words.** No exceptions.
+- **One line per entry, short: well under 20 words.** Name the feature, not its mechanism or every flag (at most the one or two flags a user would type). Before adding a line, merge into an existing line of the same area. A coalesced line may run longer when it has to (owner, 2026-11-25).
 - **Coalesce similar items.** If 5 commits all touch DMA timing, that's ONE entry.
 - **NO commit IDs.** Don't paste SHAs.
 - **NO trivial fixes.** Reformats, doc tweaks, test name changes, internal renames, project-plan updates, CI tweaks — drop entirely.
@@ -105,13 +105,13 @@ If no commits exist for a section, omit the section (don't leave an empty header
 2. Get commit list: `git log --oneline <last-public-tag>..HEAD`.
 3. For each commit, ask: "would an end-user / developer-user / triager care about this in a changelog?" If no → drop.
 4. Classify the rest into the 4 sections, then build the contributors list.
-5. Coalesce similar items into single 10–20 word lines.
+5. Coalesce similar items into single short lines (Style rules).
 6. Write the new entry at the top of `ChangeLog` (above the previous version's entry). Insert above the previous version header; never overwrite it. Before showing the diff, confirm `git diff --numstat ChangeLog` deletes 0 lines (or only lines of the `Unreleased` section you are rewriting).
-7. Show the diff to the user. **Do NOT commit until they confirm** — per CLAUDE.md, ChangeLog updates are user-requested.
+7. Show the diff to the user. **Do NOT commit until they confirm** — per CLAUDE.md, ChangeLog updates are user-requested (the autonomous-run exception: Hard rules).
 
 ## Hard rules
 
-- **CLAUDE.md says: "The file should only be updated when the user requests it."** Don't pre-empt.
+- **Outside an autonomous run, update only when the user asks** (CLAUDE.md: "The file should only be updated when the user requests it"), and commit only after they confirm the diff. **In an autonomous run** each landed issue's line is added to `Unreleased` and committed on `main` right after its bump (owner, 2026-11-18; `autonomous-run` §Authorized). Renaming `Unreleased` to a version stays the owner's.
 - **Don't push.** Commit locally only.
 - **Don't include "Co-Authored-By"** in the ChangeLog commit message (CLAUDE.md project mandate).
-- **Don't claim work that isn't tested.** If a fix didn't pass the triplet, leave it out.
+- **Don't claim work that isn't tested.** If a fix has not landed with its gates green, leave it out.

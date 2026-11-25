@@ -14,13 +14,19 @@ Ask:
 
 ## The 7 steps
 
+### 0. Public release only
+
+Read doc/RELEASE-PROTOCOL.md §2.2 and §7 first. If the release closes a milestone, both `milestone <M>: ... Guide audit and review` issues must be closed (§2.3). Run `make cli-check` and the §2.2 read of the docs against the running product.
+
 ### 1. Tests must pass
 
-Run both:
-- `LANG=C make unit-test`
+Run all of these:
+- `LANG=C make unit-test` (or run step 3's `make unit-test-dashboard` here: it runs `make unit-test` itself, so the suites do not run twice)
+- `LANG=C make unit-test-sdl`
+- FUSE: `./build/test/fuse_z80_test build/test/fuse`
 - the regression: `LANG=C make regression-ci-check` on `main`'s tip BEFORE the bump (a green CI run on a commit with the same non-doc content satisfies it — doc/RELEASE-PROTOCOL.md §7), else `LANG=C make regression-stamp-check` (a local green stamp), else `LANG=C make regression`
 
-Both must report PASS for every test: no FAIL and no SKIP (CLAUDE.md, owner 2026-10-06). If anything fails, **STOP and report** — bump is not possible until tests are green.
+All must report PASS for every test: no FAIL and no SKIP (CLAUDE.md, owner 2026-10-06). If anything fails, **STOP and report** — bump is not possible until tests are green.
 
 ### 2. Update the traceability matrix
 
@@ -73,9 +79,9 @@ This will:
 - [✓] Version bumped via make bump-<type> (commit <sha>, tag vX.Y.Z)
 
 ### Next
-- NOT pushed. To push, ask the user explicitly. Then:
-    JNEXT_ALLOW_PUSH=1 git push origin main && JNEXT_ALLOW_PUSH=1 git push origin vX.Y.Z
-  (explicit refspecs, CI on main idle; a public release tag is pushed on its own, RELEASE-PROTOCOL.md §6)
+- NOT pushed. Push per CLAUDE.md merge protocol step 6 (the gated sha, then the tags; a
+  public release tag on its own, RELEASE-PROTOCOL.md §6). A public release push needs the
+  user's "push" in the current message.
 ```
 
 ## Hard rules
