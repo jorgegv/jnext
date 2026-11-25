@@ -219,7 +219,7 @@ The single authoritative protocol for landing any implemented change on `main`:
 
 When the user asks to bump the version, follow these steps in order:
 
-1. Run all unit tests (`make unit-test`, `make unit-test-sdl`), the FUSE suite and regression tests (`make regression`) — none must have any FAIL or SKIP. The regression is satisfied without a local run by `make regression-ci-check` (a green CI run on the same content key, checked before the bump) or `make regression-stamp-check` — see doc/RELEASE-PROTOCOL.md §7
+1. The tests pass: a CLEAN CI batch gate on `main`'s tip, checked before the bump (merge protocol step 2: `make ci-gate-check RUN=<id> SHA=<sha>`; `make regression-ci-check` finds the same run for the regression). Only when CI cannot run, the local gate list of merge protocol step 2 — none must have any FAIL or SKIP; a matching `make regression-stamp-check` stands in for its `make regression` — see doc/RELEASE-PROTOCOL.md §7
 2. ~~Update the traceability matrix~~ — **no longer a manual step (GH #196).** It is generated and staleness-gated; `make unit-test` regenerates and fails if the committed copy differs. Commit the regenerated file if it changed.
 3. Update the unit test status report
 4. Update the DEVELOPMENT-SESSIONS document (`doc/DEVELOPMENT-SESSIONS.md`)

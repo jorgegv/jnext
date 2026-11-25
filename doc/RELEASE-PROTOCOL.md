@@ -415,11 +415,10 @@ declared divergence: it is `make verify-flatpak-permissions`, the same target
    (§2.3) are closed. Open → do them first.
 1. **A CLEAN batch gate** on `main`'s tip, before the bump (CLAUDE.md merge
    protocol step 2: `make ci-gate-check RUN=<id> SHA=<sha>` exits 0 with
-   `verdict: CLEAN`; the CI run covers everything below). Only when CI cannot
-   run, the local fallback: `make unit-test`, FUSE suite, `make regression`
+   `verdict: CLEAN`; the CI run covers every test a release needs). Only when
+   CI cannot run, the local gate list of CLAUDE.md merge protocol step 2
    — no FAIL and no SKIP (a SKIP is a row that was not tested; every harness
-   exits non-zero on one; per CLAUDE.md "Version bumping") — plus `make unit-test-sdl`, as
-   the merge protocol requires. **The regression is not re-run locally when CI
+   exits non-zero on one; per CLAUDE.md "Version bumping"). **The regression is not re-run locally when CI
    already ran it on the same content** (GH #295): on `main`'s tip, *before*
    the bump (the bump changes `version.yaml`, so its commit has a new key),
    `make regression-ci-check` looks up the green `ci.yml` runs (`gh run list`,

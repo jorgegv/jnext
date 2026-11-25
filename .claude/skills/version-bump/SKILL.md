@@ -20,17 +20,15 @@ Read doc/RELEASE-PROTOCOL.md §2.2 and §7 first. If the release closes a milest
 
 ### 1. Tests must pass
 
-Run all of these:
-- `LANG=C make unit-test` (or run step 3's `make unit-test-dashboard` here: it runs `make unit-test` itself, so the suites do not run twice)
-- `LANG=C make unit-test-sdl`
-- FUSE: `./build/test/fuse_z80_test build/test/fuse`
-- the regression: `LANG=C make regression-ci-check` on `main`'s tip BEFORE the bump (a green CI run on a commit with the same non-doc content satisfies it — doc/RELEASE-PROTOCOL.md §7), else `LANG=C make regression-stamp-check` (a local green stamp), else `LANG=C make regression`
+On `main`'s tip, BEFORE the bump (doc/RELEASE-PROTOCOL.md §7 step 1):
+- a CLEAN CI batch gate (CLAUDE.md merge protocol step 2): `LANG=C make ci-gate-check RUN=<run-id> SHA=<sha>` exits 0 with `verdict: CLEAN`, and `LANG=C make regression-ci-check` finds that run for the regression. Record the run's URL.
+- Only when CI cannot run: the local gate list of CLAUDE.md merge protocol step 2, in a detached worktree of `main`'s tip; a matching `LANG=C make regression-stamp-check` stands in for its `make regression`.
 
 All must report PASS for every test: no FAIL and no SKIP (CLAUDE.md, owner 2026-10-06). If anything fails, **STOP and report** — bump is not possible until tests are green.
 
 ### 2. Update the traceability matrix
 
-No manual run (GH #196): `make unit-test` in step 1 regenerates `doc/testing/TRACEABILITY-MATRIX.md` and fails if the committed copy differs. If step 1 changed it, commit it (`docs(traceability): refresh for vX.Y.Z`).
+No manual run (GH #196): `make unit-test` (step 3's `make unit-test-dashboard` runs it) regenerates `doc/testing/TRACEABILITY-MATRIX.md` and fails if the committed copy differs. If it changed, commit it (`docs(traceability): refresh for vX.Y.Z`).
 
 ### 3. Update the unit-test status report
 
@@ -71,7 +69,7 @@ This will:
 ## Version bumped: vX.Y.Z
 
 ### Steps
-- [✓] Tests passed (unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S)
+- [✓] Tests passed (CI gate <run-id>: CLEAN; or the local fallback's counts)
 - [✓] Traceability matrix refreshed (commit <sha>)
 - [✓] Unit-test status refreshed (commit <sha>)
 - [✓] DEVELOPMENT-SESSIONS updated (commit <sha>)
@@ -79,9 +77,10 @@ This will:
 - [✓] Version bumped via make bump-<type> (commit <sha>, tag vX.Y.Z)
 
 ### Next
-- NOT pushed. Push per CLAUDE.md merge protocol step 6 (the gated sha, then the tags; a
-  public release tag on its own, RELEASE-PROTOCOL.md §6). A public release push needs the
-  user's "push" in the current message.
+- NOT pushed. Push per doc/RELEASE-PROTOCOL.md §7 step 5: `main` (the bump commit), then
+  the batch's private tags in one push, then a public release tag on its own; explicit
+  refspecs, no CI run on `main` in progress (§6). A public release push needs the user's
+  "push" in the current message.
 ```
 
 ## Hard rules
