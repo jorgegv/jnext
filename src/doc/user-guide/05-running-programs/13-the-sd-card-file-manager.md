@@ -12,8 +12,8 @@ using, however it was made.
 
 The machine is **paused** while the window is open, so that nothing in the guest
 changes the card under your hands, and the status bar shows the paused indicator
-(this is the same pause as **Machine ▸ Pause**). The window is modal: the main window
-takes no keys until you close it. Closing it gives the machine back as it was:
+(this is the same pause as **Machine ▸ Pause**). The window is modal: neither the main window
+nor the debugger window takes keys until you close it. Closing it gives the machine back as it was:
 running if it was running, paused if you had paused it yourself. The one exception
 is a change to the card, described under [Changing the card](#changing-the-card).
 
@@ -25,9 +25,12 @@ SD-card upgrade or go-back actions are working on the card.
 - **The card pane** (left) lists a folder of the card in the slot chosen in the box
   above it: **SD card** or **Second SD card (D:)**. A slot with no card is greyed.
   Names are shown as the card stores them, long names included. A name that holds a
-  character from the Next's character set (code page 437, such as an accented
-  letter) is shown as `%XX`, two hex digits for each such byte, because the host
-  cannot spell it; it still works with every action.
+  character outside plain ASCII (the card stores such names in code page 437, the
+  DOS code page of FAT short names; an accented letter is one) is shown as `%XX`,
+  two hex digits for each such byte, because the host cannot spell it; it works
+  with every action. An entry the card cannot address by any name (a short name
+  repeated behind an earlier entry, or a name holding the byte 7F) is listed but
+  cannot be acted on, and its tooltip says so.
 - **The host pane** (right) is an ordinary folder of your computer, with your
   desktop's own file icons.
 
@@ -35,9 +38,9 @@ Each pane has its own **Up** button and its own **Icons** button, which switches
 pane between a list and an icon view; the other pane is not touched. Double-click a
 folder to enter it. The panes show only the folder you are in, one level at a time.
 
-When the card in the slot changes while the window is open (a program, or the
-**File ▸ Insert SD Card Image…** menu, swapped it), the card pane notices, says so,
-and shows the new card's top folder.
+The card pane always shows what the machine has mounted. If the card in the slot is
+changed from outside the window while it is open (a remote debugger client could
+do it), the pane notices, says so, and shows the new card's top folder.
 
 ## What you can do
 

@@ -1540,8 +1540,8 @@ void MainWindow::create_toolbar() {
     connect(load_btn, &QAction::triggered, this, &MainWindow::on_load_nex);
 
     // GH #558 - the file manager, next to Load; the same action as File > SD Card File Manager...
-    QAction* sd_manager_btn = toolbar->addAction(tr("SD Card File Manager..."));
-    sd_manager_btn->setToolTip(tr("SD Card File Manager"));
+    // (no ellipsis in the button's text: its tooltip is the text, as for every other button)
+    QAction* sd_manager_btn = toolbar->addAction(tr("SD Card File Manager"));
     toolbar_icons::bind(sd_manager_btn, toolbar, QStringLiteral("sd-manager"));
     connect(sd_manager_btn, &QAction::triggered, sd_manager_action_, &QAction::trigger);
 

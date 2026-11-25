@@ -257,7 +257,7 @@ struct Expect { const char* text; const char* icon; const char* on_icon; };
 const std::vector<Expect> MAIN_EXPECT{
     {"Power Reset", "power", ""},     {"Soft Reset", "soft-reset", ""},
     {"P&ause", "pause", "resume"},    {"Load", "load", ""},
-    {"SD Card File Manager...", "sd-manager", ""},
+    {"SD Card File Manager", "sd-manager", ""},
     {"Screenshot", "screenshot", ""}, {"NMI", "nmi", ""}};
 const std::vector<Expect> DEBUG_EXPECT{{"Debug", "debug", ""}};
 
@@ -481,7 +481,6 @@ void test_toolbars() {
             if (a->text() == "NMI") return "Multiface NMI (F9)";
             if (a->text() == "P&ause") return "Pause / resume emulation (Alt+U or Pause)";
             if (a->text() == "Debug") return "Toggle Debugger (Alt+D)";
-            if (a->text() == "SD Card File Manager...") return "SD Card File Manager";   // GH #558: the tip drops the ellipsis
             return a->text();
         };
         for (const Bar& b : bars)
@@ -490,7 +489,7 @@ void test_toolbars() {
                 if (a->toolTip().isEmpty() || a->toolTip() != want_tip(a)) ok = false;
             }
         check("TBI-13", "every toolbar action has a tooltip: its name, or the NMI/Pause/Debug ones naming "
-                        "their keys, or the SD card manager's without its ellipsis", ok, got);
+                        "their keys", ok, got);
     }
 
     // TBI-14 — the buttons show the icon, not the action's text.

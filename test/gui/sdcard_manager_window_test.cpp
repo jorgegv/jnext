@@ -1272,6 +1272,44 @@ int main(int argc, char** argv)
                   saved.data().sdmanager_card.toStdString() + " host=" + saved.data().sdmanager_host_dir.toStdString());
     }
     {
+        // the command line gave card 0 and /MYDIR; the user switches to the second card and enters /GAMES, then closes: the
+        // next visit opens on THAT (the GUI change takes over from the command-line card and card folder)
+        Img a(G), c2(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        rig.emu.sd_card2().mount(c2.p, false);
+        MainWindow win;
+        win.set_debugger(rig.dbg.get());
+        win.set_emulator(&rig.emu);
+        Boxes b;
+        AppConfigData want;
+        want.sdmanager_card = QString::fromStdString(a.p);
+        want.sdmanager_card_dir = QString::fromStdString(sm::encode_card_dir("/MYDIR"));
+        win.apply_startup_config(want, false);
+        win.sd_manager_action()->trigger();
+        SdManagerDialog* d = find_dialog();
+        const bool first_on_cmdline = d && d->slot() == 0 && d->card_dir() == QStringLiteral("/MYDIR");
+        if (d) {
+            wire(*d, b);
+            child<QComboBox>(*d, "slot_combo")->setCurrentIndex(1);
+            auto* card = child<QListView>(*d, "card_view");
+            auto* model = qobject_cast<SdCardModel*>(card->model());
+            int games = -1;
+            for (int r = 0; r < model->rowCount(); ++r) if (model->index(r, 0).data().toString() == "GAMES") games = r;
+            if (games >= 0) Q_EMIT card->doubleClicked(model->index(games, 0));
+            d->accept();
+        }
+        pump_until([&] { return !find_dialog() && !rig.dbg->state().paused; }, 3000);
+        win.sd_manager_action()->trigger();
+        SdManagerDialog* d2 = find_dialog();
+        const bool reopened = d2 && d2->slot() == 1 && d2->card_dir() == QStringLiteral("/GAMES");
+        if (d2) { wire(*d2, b); d2->accept(); }
+        pump_until([&] { return !find_dialog() && !rig.dbg->state().paused; }, 3000);
+        check("SDMW-36", "the card and card folder the window closed on replace the command-line ones for the next visit (second card, /GAMES instead of card 0, /MYDIR)",
+              first_on_cmdline && reopened, std::string("first=") + (first_on_cmdline ? "y" : "n") + " slot=" + (d2 ? std::to_string(d2->slot()) : "none") +
+                  " dir=" + (d2 ? d2->card_dir().toStdString() : ""));
+    }
+    {
         Img a(G);
         Rig rig;
         rig.emu.sd_card().mount(a.p, false);

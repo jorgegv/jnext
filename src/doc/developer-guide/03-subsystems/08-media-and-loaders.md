@@ -2130,7 +2130,7 @@ card's ROOT, because the emulator wins over any remembered or shown state. The t
 `sdcard_manager.card`, `sdcard_manager.card_dir` (stored `%XX`-escaped) and `sdcard_manager.host_dir`, plain `AppConfig`
 fields, settable with `--set` like `paths.last_load_dir`; they are read back only through `resolve_remembered()`, which checks
 them. The message boxes, the text prompts and the trash go through hooks the tests replace (`set_box_hook_for_test`,
-`set_text_hook_for_test`, `set_trash_hook_for_test`); a headless session has no trash. Rows: `SDMW-01..34`
+`set_text_hook_for_test`, `set_trash_hook_for_test`); a headless session has no trash. Rows: `SDMW-01..36`
 (`sdcard_manager_window_test`, offscreen), `AC-104..106` (`app_config_test`).
 
 **The manager in the main window.** `MainWindow` (`src/gui/main_window.cpp`) owns the `SdManagerSession` as a member, so the
@@ -2138,11 +2138,11 @@ session's observer client lives as long as the window and is detached with it; t
 loop owner and outlives the window. `on_sd_manager()` (File ▸ SD Card File Manager..., and the Main toolbar button after
 Load, both without a hotkey) refuses with a box while `card_op_` is set (the eject-work-insert actions own the card then) or
 when there is no `Debugger`, otherwise opens the session (which pauses), builds the dialog with the remembered values
-(`SessionPaths` first, `AppConfig` second, the same order as the Load directory) and shows it with `open()`, application
-modal. The window's `finished` saves what it closed on (`remember_sd_manager()`) and posts `finish_sd_manager()` through a
+(`SessionPaths` first, `AppConfig` second, the same order as the Load directory) and shows it with `setModal(true)` and `show()`, application
+modal: `QDialog::open()` would make it window modal when the dialog has a parent, which blocks only the main window and leaves the debugger window live over a paused machine. The window's `finished` saves what it closed on (`remember_sd_manager()`) and posts `finish_sd_manager()` through a
 zero-delay timer: `SdManagerSession::close()` may reset the machine and must not run inside the dialog's own event delivery or
-a tick. Its result decides the status-bar line (a restart, or a restart that is still paused). Rows: `SDMW-33..34`
-(`sdcard_manager_window_test`: a browse-only visit and a visit that changed the card, through the real action), `SDMENU-16..17`
+a tick. Its result decides the status-bar line (a restart, or a restart that is still paused). Rows: `SDMW-33..36`
+(`sdcard_manager_window_test`: a browse-only visit and a visit that changed the card, through the real action), `SDMENU-16..18`
 (`sdcard_menu_test`: the menu entry and the toolbar button, and the refusal during a card operation), `TBI-10`.
 
 **The glue caches sectors.** FatFs keeps one sector window per volume, so every path lookup
