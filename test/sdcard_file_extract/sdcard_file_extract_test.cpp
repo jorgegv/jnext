@@ -200,11 +200,11 @@ bool populate_bytes(FATFS& fsv, Pokes& pokes) {
              {{u"", "DER     BIN", 0x20, c1, static_cast<uint32_t>(kD1.size())},
               {u"D\u00E9 a long name.bin", "DER     BIN", 0x20, c2, static_cast<uint32_t>(kD2.size())}},
              pokes);
-    // /DUPX: a short-only DER.BIN, then a long name with U+0082 (no CP437 byte spells it, so the listing cannot address it)
-    // whose 8.3 name is the SAME: a typed "D<0x82>R.BIN" resolves to the FIRST entry
+    // /DUPX: a short-only DER.BIN, then a long name D<e-acute>R.BIN
+    // whose 8.3 name is the SAME: FatFs resolves a typed "D<0x82>R.BIN" to the FIRST entry (the listing cannot address the long one)
     hand_dir(fsv, dir_cluster("0:/DUPX"), 2,
              {{u"", "DER     BIN", 0x20, c1, static_cast<uint32_t>(kD1.size())},
-              {u"D\u0082R.BIN", "DER     BIN", 0x20, c2, static_cast<uint32_t>(kD2.size())}},
+              {u"D\u00E9R.BIN", "DER     BIN", 0x20, c2, static_cast<uint32_t>(kD2.size())}},
              pokes);
     hand_dir(fsv, dir_cluster("0:/SFNO"), 2, {{u"", std::string("X\x90Y     BIN"), 0x20, c2, static_cast<uint32_t>(kD2.size())}}, pokes);
     return c1 != 0 && c2 != 0;

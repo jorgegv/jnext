@@ -31,6 +31,7 @@
 #include <QFileSystemModel>
 #include <QItemSelectionModel>
 #include <QLabel>
+#include <QStatusBar>
 #include <QListView>
 #include <QMimeData>
 #include <QPushButton>
@@ -52,6 +53,7 @@
 #include "core/held_files.h"
 #include "core/output_files.h"
 #include "gui/app_config.h"
+#include "gui/main_window.h"
 #include "gui/sdcard_card_model.h"
 #include "gui/sdcard_manager_dialog.h"
 #include "peripheral/sd_card.h"
@@ -1210,6 +1212,69 @@ int main(int argc, char** argv)
         check("SDMW-32", "a drop of host files into a folder named with a code page 437 byte copies them into that folder",
               ok && on_card(K, "/D\x82R/h2.bin") && !on_card(K, "/h2.bin"), b.texts.empty() ? std::string("no box") : b.texts.back());
         rig.session.close(rig.emu);
+    }
+    // The main window's integration (GH #558 S4): File > SD Card File Manager... and the toolbar button open the window
+    // (application modal) over a paused machine; closing it with no change resumes the machine, a change ends in one hard
+    // reset and says so on the status bar; what it closed on is saved to jnext.conf.
+    auto find_dialog = []() -> SdManagerDialog* {
+        for (QWidget* w : QApplication::topLevelWidgets())
+            if (auto* d = qobject_cast<SdManagerDialog*>(w)) return d;
+        return nullptr;
+    };
+    {
+        Img a(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        MainWindow win;
+        win.set_debugger(rig.dbg.get());
+        win.set_emulator(&rig.emu);
+        Boxes b;
+        const fs::path hd = fresh_dir("mw33");
+        AppConfigData want;
+        want.sdmanager_host_dir = QString::fromStdString(hd.string());   // as --set sdcard_manager.host_dir=... would
+        win.apply_startup_config(want, false);
+        win.sd_manager_action()->trigger();
+        SdManagerDialog* d = find_dialog();
+        const bool opened = d && d->isVisible() && d->windowModality() == Qt::ApplicationModal;
+        const bool paused = rig.dbg->state().paused;
+        const bool on_cmdline_dir = d && d->host_dir() == QString::fromStdString(hd.string());
+        if (d) wire(*d, b);
+        win.sd_manager_action()->trigger();   // a second trigger while it is up opens nothing more
+        int dialogs = 0;
+        for (QWidget* w : QApplication::topLevelWidgets()) if (qobject_cast<SdManagerDialog*>(w)) ++dialogs;
+        if (d) d->accept();
+        pump_until([&] { return !rig.dbg->state().paused; }, 3000);
+        QCoreApplication::processEvents();
+        AppConfig saved(AppConfig::default_config_path());
+        saved.load();
+        check("SDMW-33", "File > SD Card File Manager... opens the window, application modal and over a PAUSED machine, once; closing it with no change resumes the machine with no cold boot and saves the card and host folder it closed on",
+              opened && paused && on_cmdline_dir && dialogs == 1 && !rig.dbg->state().paused && rig.boots == 0 && !find_dialog() &&
+                  saved.data().sdmanager_card == QString::fromStdString(a.p) && saved.data().sdmanager_host_dir == QString::fromStdString(hd.string()) &&
+                  saved.data().sdmanager_card_dir == QStringLiteral("/"),
+              std::string("opened=") + (opened ? "y" : "n") + " paused=" + (paused ? "y" : "n") + " boots=" + std::to_string(rig.boots) + " card=" +
+                  saved.data().sdmanager_card.toStdString() + " host=" + saved.data().sdmanager_host_dir.toStdString());
+    }
+    {
+        Img a(G);
+        Rig rig;
+        rig.emu.sd_card().mount(a.p, false);
+        MainWindow win;
+        win.set_debugger(rig.dbg.get());
+        win.set_emulator(&rig.emu);
+        Boxes b;
+        win.sd_manager_action()->trigger();
+        SdManagerDialog* d = find_dialog();
+        if (d) {
+            wire(*d, b);
+            b.say(QStringLiteral("NEWDIR"));
+            d->findChild<QAction*>("card_new_folder")->trigger();   // a card change: asks the warning first (answered Yes)
+            d->accept();
+        }
+        pump_until([&] { return rig.boots > 0 && !rig.dbg->state().paused; }, 3000);
+        const std::string msg = win.statusBar()->currentMessage().toStdString();
+        check("SDMW-34", "closing the window after a card change ends in exactly one hard reset and a running machine, and the status bar says the machine restarts",
+              d && on_card(a.p, "/NEWDIR") && rig.boots == 1 && !rig.dbg->state().paused && msg.find("the machine restarts") != std::string::npos,
+              "boots=" + std::to_string(rig.boots) + " msg=" + msg + " warn=" + std::to_string(b.count("")));
     }
     check("SDMW-18", "the fixture cards are real volumes of the types the rows claim (FAT32 partitioned, FAT16 partitioned)", gt == FS_FAT32 && t16 == FS_FAT16);
     sd_write_journal::forget_all_for_test();

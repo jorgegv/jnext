@@ -2057,7 +2057,7 @@ to a directory outside the tree); `rename()` and `make_dir()` take one component
 under `normalize_dest_path()`'s name rules and never overwrite (an existing name is `DestExists`).
 `FileAddStatus` is the status of all of them. No `ImageLock` is taken: the manager works on images a slot of
 this process has mounted, so the process already holds the lock, and a second `flock` on the same file from
-the same process would be refused. Rows: `SDOPS-01..22` and `SDOPS-24..56` (`sdcard_card_ops_test`),
+the same process would be refused. Rows: `SDOPS-01..22` and `SDOPS-24..58` (`sdcard_card_ops_test`),
 `SDWP-01` for `SdCardDevice::write_protected()` (`sdcard_test`).
 
 **The SD card file manager's logic.** `src/platform/sdcard_manager.{h,cpp}` (namespace `sdmanager`,
@@ -2123,15 +2123,27 @@ directory, then home, and ignores a value that is relative, holds a NUL or (Wind
 (`src/gui/sdcard_card_model.*`) are a view over the logic above and decide nothing. The card pane is a `QListView` on
 `SdCardModel`: one directory as `cardops::list_dir` gives it, shown through `display_name`, every path it hands out built from
 an entry's `open_name` (an entry without one is shown and never acted on), and a drag payload whose lines are `%XX`-escaped
-so a name with a newline, a percent or a high byte survives. A card path is BYTES (code page 437) and a `QString` is Unicode, so every card path that crosses into Qt is carried as Latin-1 (`SdCardModel::card_text` / `card_bytes`, one code point per byte, lossless both ways) and the stored `card_dir` is the `%XX` escape of those bytes; host paths are UTF-8 and display strings are escaped ASCII. The copy engines take that verified path as bytes (`card_path_is_bytes` of `extract_from_image`, `dest_is_bytes` of `add_to_image`; FatFs matches CP437 bytes natively), so no 8.3 alias is ever substituted: an alias can resolve to ANOTHER entry on a card with a duplicate short name. The command line keeps refusing a byte above 0x7E. The host pane is a `QListView` on a read-only `QFileSystemModel`. Every operation first re-reads
+so a name with a newline, a percent or a high byte survives. A card path is BYTES (code page 437) and a `QString` is Unicode, so every card path that crosses into Qt is carried as Latin-1 (`SdCardModel::card_text` / `card_bytes`, one code point per byte, lossless both ways) and the stored `card_dir` is the `%XX` escape of those bytes; host paths are UTF-8 and display strings are escaped ASCII. The copy engines take that verified path as bytes (`card_path_is_bytes` of `extract_from_image`, `dest_is_bytes` of `add_to_image`; FatFs matches CP437 bytes natively), so no 8.3 alias is ever substituted: an alias can resolve to ANOTHER entry on a card with a duplicate short name. The command line keeps refusing a byte above 0x7E. That mode has a precondition, stated in both engine headers: every component of the path is the `open_name` its listing gives for that entry. The engines enforce what they can see: a control byte or DEL is refused, and a component that FatFs resolves to a different directory slot than the entry carrying that name (`resolves_elsewhere()` in `add_to_image`, the slot comparison in `extract_from_image`) is refused with `DestInvalid` / `SourceUnreadable` instead of writing through to, or reading, the other entry. The host pane is a `QListView` on a read-only `QFileSystemModel`. Every operation first re-reads
 `card_slots()` and `held_host_files()`: the card in the slot may have changed under the window, a recording may have started.
 A change while the window is open (polled by a timer, and checked before each operation) resets the card pane to the new
 card's ROOT, because the emulator wins over any remembered or shown state. The three remembered values are
 `sdcard_manager.card`, `sdcard_manager.card_dir` (stored `%XX`-escaped) and `sdcard_manager.host_dir`, plain `AppConfig`
 fields, settable with `--set` like `paths.last_load_dir`; they are read back only through `resolve_remembered()`, which checks
 them. The message boxes, the text prompts and the trash go through hooks the tests replace (`set_box_hook_for_test`,
-`set_text_hook_for_test`, `set_trash_hook_for_test`); a headless session has no trash. Rows: `SDMW-01..32`
+`set_text_hook_for_test`, `set_trash_hook_for_test`); a headless session has no trash. Rows: `SDMW-01..34`
 (`sdcard_manager_window_test`, offscreen), `AC-104..106` (`app_config_test`).
+
+**The manager in the main window.** `MainWindow` (`src/gui/main_window.cpp`) owns the `SdManagerSession` as a member, so the
+session's observer client lives as long as the window and is detached with it; the `Debugger` it was opened on belongs to the
+loop owner and outlives the window. `on_sd_manager()` (File ▸ SD Card File Manager..., and the Main toolbar button after
+Load, both without a hotkey) refuses with a box while `card_op_` is set (the eject-work-insert actions own the card then) or
+when there is no `Debugger`, otherwise opens the session (which pauses), builds the dialog with the remembered values
+(`SessionPaths` first, `AppConfig` second, the same order as the Load directory) and shows it with `open()`, application
+modal. The window's `finished` saves what it closed on (`remember_sd_manager()`) and posts `finish_sd_manager()` through a
+zero-delay timer: `SdManagerSession::close()` may reset the machine and must not run inside the dialog's own event delivery or
+a tick. Its result decides the status-bar line (a restart, or a restart that is still paused). Rows: `SDMW-33..34`
+(`sdcard_manager_window_test`: a browse-only visit and a visit that changed the card, through the real action), `SDMENU-16..17`
+(`sdcard_menu_test`: the menu entry and the toolbar button, and the refusal during a card operation), `TBI-10`.
 
 **The glue caches sectors.** FatFs keeps one sector window per volume, so every path lookup
 re-reads its directory, and an uncached `disk_read` costs an `lseek` plus an 8 KiB stream-buffer

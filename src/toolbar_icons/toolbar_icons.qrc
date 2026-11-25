@@ -9,6 +9,7 @@
     <file alias="pause.svg">../gui/icons/pause.svg</file>
     <file alias="power.svg">../gui/icons/power.svg</file>
     <file alias="resume.svg">../gui/icons/resume.svg</file>
+    <file alias="sd-manager.svg">../gui/icons/sd-manager.svg</file>
     <file alias="screenshot.svg">../gui/icons/screenshot.svg</file>
     <file alias="soft-reset.svg">../gui/icons/soft-reset.svg</file>
 </qresource>

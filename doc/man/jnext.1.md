@@ -1903,7 +1903,9 @@ A directory is copied recursively, in name order:
   directory that cannot be read; a file of 4 GiB or more; a name FAT cannot
   hold (non-ASCII, or one of `" * : < > ? \ |`, or ending in a dot or a space);
   and two names in one directory that differ only in case, which FAT would make
-  one file. Nothing is renamed or silently skipped — hidden files included.
+  one file; and a destination that is another entry's 8.3 alias (`/LONGFI~1.TXT`
+  for a file stored as `Long File Name.txt`), which would write into that entry.
+  Nothing is renamed or silently skipped — hidden files included.
 
 A file or a directory, the copy is **all or nothing**. Every refusal is decided
 before the first byte is written, so a refused copy — including one that does
@@ -2003,8 +2005,9 @@ each byte outside printable ASCII, each `%`, each of `<>:"/\|?*`, a trailing dot
 or space, and a Windows device name's first letter (`CON.TXT` becomes
 `%43ON.TXT`), on every system, as **\--sdcard-export-changes** writes them; each
 such name is listed on standard output. A `.` or `..` component, a trailing dot or
-space and a character outside printable ASCII in the card path are refused (give
-the 8.3 name, or extract the parent directory). A file or directory of that name
+space and a character outside printable ASCII in the card path are refused: give
+the 8.3 name, or extract the parent directory (the only way left when the 8.3 name
+itself holds such a character). A file or directory of that name
 that already exists in the current directory, a symbolic link included, is
 refused and never touched: nothing is overwritten, and nothing is merged into an
 existing directory. It is all or nothing: every problem is found before anything
@@ -3942,7 +3945,8 @@ failure happened rather than a single non-zero status. **\--sdcard-writes-flatte
     forbids, a component that already exists as a file, or a destination that
     already exists as a directory (for a file) or as a file (for a directory).
     For a directory this includes a host name inside it that FAT cannot hold,
-    and two names that differ only in case.
+    and two names that differ only in case. A destination that is the 8.3 alias
+    of a different entry on the card is refused the same way.
     For **\--sdcard-writes-flatten** and **\--sdcard-export-changes** it also
     covers: nothing to compare against (the card was not made by jnext in a way
     that can be rebuilt and no **\--sdcard-export-base** or **\--sdcard-writes**
