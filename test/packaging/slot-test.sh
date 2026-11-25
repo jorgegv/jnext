@@ -11,14 +11,14 @@
 # remote lane, long or short, and runs here only when every lane is busy) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-67. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-70. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=67
+EXPECTED_ROWS=70
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -644,6 +644,47 @@ JNEXT_REMOTE_RUN_HOSTS="hostA hostB" slot env LANG=C make -C "$WT" test-affected
 row SLOT-67 "$([[ $rc -eq 0 && "$(grep -c '^ARGS' "$STATE/rr-calls")" -eq 1 && "$(rr_calls)" == *"HOST=hostA"* \
     && "$(rr_calls)" != *"--fallback-local"* && "$(rr_calls)" == *"BASE_REPO=$WT"* ]] && echo 1 || echo 0)" \
     "first of two free hosts: no --fallback-local, BASE_REPO=<worktree> (rc=$rc)"
+
+# SLOT-68 (GH #564 review): heavy BY CLASS. Every Makefile target whose prerequisites reach the PGO build gui-release
+# (harness-selftest, regression-confirm, fuse-pgo, ...) is in slot.sh's and project.conf's HEAVY_TARGETS, derived
+# from the Makefile's own rule database (make -qp), so a new target that pulls the PGO build in cannot stay local
+pgo_targets() {   # pgo_targets <dir holding Makefile>: every target that reaches gui-release, by prerequisite or recipe-level $(MAKE)
+    LANG=C /usr/bin/make -C "$1" --no-print-directory -f Makefile -qp 2>/dev/null | awk '
+    /^# Not a target/ {skip=1}
+    /^[A-Za-z0-9_][A-Za-z0-9_.-]*:([^=]|$)/ { if (!skip) { t=$0; sub(/:.*/,"",t); cur=t; d=$0; sub(/^[^:]*:/,"",d); dep[t]=dep[t] " " d } }
+    /^\t/ { if (!skip && cur != "" && index($0,"$(MAKE)")) { r=$0; sub(/.*\$\(MAKE\)/,"",r); dep[cur]=dep[cur] " " r } }   # recipe-level $(MAKE) <target>: an edge too
+    /^$/ {skip=0; cur=""}
+    function reach(t, n, i, a) { if (t in seen) return; seen[t]=1; n=split(dep[t],a," "); for (i=1;i<=n;i++) reach(a[i]) }
+    END { for (t in dep) { delete seen; reach(t); if (t != "gui-release" && ("gui-release" in seen)) print t } }' | sort
+}
+pgo=$(pgo_targets "$ROOT")
+pc=$(sed -n 's/^HEAVY_TARGETS="\(.*\)"/\1/p' "$ROOT/.claude/skills/remote-run/project.conf")
+sl=$(sed -n 's/^HEAVY_TARGETS="\(.*\)"/\1/p' "$SLOT")
+miss=""
+for t in $pgo gui-release; do
+    [[ " $sl " == *" $t "* ]] || miss+=" slot.sh:$t"
+    [[ " $pc " == *" $t "* ]] || miss+=" project.conf:$t"
+done
+row SLOT-68 "$([[ -n "$pgo" && "$pgo" == *harness-selftest* && -z "$miss" ]] && echo 1 || echo 0)" \
+    "every Makefile target that depends on gui-release is a heavy target in slot.sh and project.conf (derived from make -qp: $(tr '\n' ' ' <<<"$pgo")missing:$miss)"
+
+# SLOT-69: harness-selftest (PGO build) goes remote with a free lane and runs here with every host busy, like the other heavy targets
+fresh
+slot env LANG=C make -C "$WT" harness-selftest >/dev/null 2>&1
+ok_remote=$([[ "$(rr_calls)" == *" gh900-demo "*" harness-selftest"* && ! -e "$STATE/make-calls" ]] && echo 1 || echo 0)
+rm -f "$STATE/rr-calls" "$STATE/make-calls"
+STUB_BUSY_HOSTS=fakehost slot env LANG=C make -C "$WT" harness-selftest >/dev/null 2>&1
+ok_busy=$([[ -z "$(rr_calls)" && "$(cat "$STATE/make-calls" 2>/dev/null)" == "make -C $WT harness-selftest" ]] && echo 1 || echo 0)
+row SLOT-69 "$([[ $ok_remote -eq 1 && $ok_busy -eq 1 ]] && echo 1 || echo 0)" \
+    "make harness-selftest goes to a free remote lane and runs here with every host busy (remote:$ok_remote busy:$ok_busy)"
+
+# SLOT-70 (GH #564 review 2): the derivation sees a recipe-level $(MAKE) call: a fixture Makefile whose target builds
+# gui-release only from its recipe, one by prerequisite and one by order-only prerequisite are all derived; an unrelated target is not
+FX="$TMP/pgo-fixture"; mkdir -p "$FX"
+printf 'gui-release:\n\t@true\nzz-recipe:\n\t@$(MAKE) --no-print-directory gui-release\nzz-prereq: gui-release\nzz-oo: | gui-release\nzz-other:\n\t@$(MAKE) zz-unrelated\nzz-unrelated:\n\t@true\n' >"$FX/Makefile"
+fx=$(pgo_targets "$FX" | tr '\n' ' ')
+row SLOT-70 "$([[ "$fx" == "zz-oo zz-prereq zz-recipe " ]] && echo 1 || echo 0)" \
+    "a target reaching gui-release by recipe \$(MAKE), prerequisite or order-only prerequisite is derived, an unrelated one is not (got: $fx)"
 
 # ---- thread caps (owner, 2026-11-23): a locally admitted run gets nproc/NSLOTS threads ------------------------
 # Oracle: the measurement in slot.sh's apply_thread_caps comment (6 threads each beat 12 each for two concurrent
