@@ -118,8 +118,9 @@ Step 5 Phase 2 pattern), follow this recipe:
 8. **No Co-Authored-By trailers** in commits. House style.
 9. **Build and run the suite in your own worktree.** The author agent
    builds, runs what the change touches (the suite, `make test-affected`,
-   the regression rows it touches) and commits on its branch; the full
-   gate runs on `main` (CLAUDE.md merge protocol step 2).
+   the regression rows it touches), runs `make unit-test` once just before
+   landing, and commits on its branch; the full gate runs on `main`
+   (CLAUDE.md merge protocol step 2).
 10. **Do NOT patch `src/` to make tests pass.** That belongs to the
     Emulator Bug backlog; see
     §5.
@@ -560,7 +561,8 @@ A few operational rules that bit us during Phase 2 and are easy to forget:
   session.** A relative path to `~/tmp/worktrees/jnext/<name>` is ambiguous once
   the shell cwd changes mid-session.
 - **Sub-agents build and test in their own worktree.** Run
-  `make worktree-bootstrap` first (a fresh worktree has no SD image), then
+  `make worktree-bootstrap` first (it verifies the suites' SD master and the
+  git submodules, and says how to fix either), then
   build, run the touched suites and rows, and commit on the branch. The
   main session merges.
 - **Isolation-worktree agents can escape with absolute `cd`.** The
