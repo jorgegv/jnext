@@ -3,7 +3,7 @@
 ## Unreleased (2026-11-22)
 
 ### User Features
-- SD card file manager (File menu, toolbar): copy, move, rename and delete between the card and a host folder
+- SD card file manager (File menu, toolbar): copy, move, rename and delete files between either card and a host folder, while the machine runs
 - SD cards: upgrades keep your files with a backup; export, import and extract card files (--sdcard-export-changes, --sdcard-import-changes, --sdcard-file-extract)
 - Startup errors show in a window
 - `--esxdos-stub` serves block-streaming calls, so streaming games run
