@@ -11,7 +11,7 @@ The batch gate is a CI run (CLAUDE.md merge protocol step 2). You are dispatched
 
 ## The triplet
 
-The "test triplet" that ends every jnext handover is:
+The "test triplet" (the local fallback's summary line; a handover normally ends with the CI gate) is:
 
     unit N/N • sdl N/N • FUSE 1356/1356 • regression P/F/S
 

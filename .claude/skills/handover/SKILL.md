@@ -1,6 +1,6 @@
 ---
 name: handover
-description: Produce an end-of-session jnext handover memo in the project's established format (branch, HEAD, commits-ahead, test triplet, next-session priorities) and save it as an auto-memory entry. Use when the user says "prepare for handover", "prepare for session handover", "EOD", or similar.
+description: Produce an end-of-session jnext handover memo in the project's established format (branch, HEAD, commits-ahead, batch gate, next-session priorities) and save it as an auto-memory entry. Use when the user says "prepare for handover", "prepare for session handover", "EOD", or similar.
 ---
 
 # Session handover
@@ -17,13 +17,13 @@ Run these in parallel:
 - `git rev-list --count origin/main..HEAD` → commits ahead of origin/main
 - `git log --oneline main..HEAD` → list of session commits
 - `git status --short` → working-tree state
-- `cat .claude/last-test-triplet.txt` if present → last triplet
+- `cat .claude/last-test-triplet.txt` if present → last gate line
 
-## Triplet check
+## Gate check
 
 The end of a session is a sync point for the batch gate (CLAUDE.md merge protocol step 2: a CI run on `main`'s tip, as in `autonomous-run` step 10). If anything landed on `main` since the last pushed CLEAN gate, run it now: `test/ci-gate.sh dispatch gate-v<version> <sha>`, `wait <run-id>`, `make ci-gate-check RUN=<run-id> SHA=<sha>`, then delete the gate branch from `origin`, green or red. On CLEAN, push the gated sha and its tags under the standing authorization. The local `regression-runner` gate is the fallback only, when Actions cannot run. If there is no time for it (the owner is leaving now), write "batch gate not run; N landings unpushed" in the memo.
 
-Write the gate line to `.claude/last-test-triplet.txt` (gitignored; the SessionStart hook shows it): `main <sha> (v<version>) CI gate <run-id> <verdict>, <date>`. The file records whichever gate ran last, CI or the local fallback. If nothing landed and no CLEAN gate covers HEAD's content (`make regression-ci-check`), ask the user whether to run the full triplet; if they say no, note "triplet not freshly verified" in the memo.
+Write the gate line to `.claude/last-test-triplet.txt` (gitignored; the SessionStart hook shows it): `main <sha> (v<version>) CI gate <run-id> <verdict>, <date>`. The file records whichever gate ran last, CI or the local fallback. If nothing landed and no CLEAN gate covers HEAD's content (`make regression-ci-check`), ask the user whether to run the batch gate; if they say no, note "gate not freshly verified" in the memo.
 
 ## Memo content
 
@@ -51,7 +51,7 @@ Body sections (in this order, terse, project conventions):
 Add a one-line index entry at the top of the "## Read first" section in `/home/jorgegv/.claude/projects/-home-jorgegv-src-spectrum-jnext/memory/MEMORY.md`:
 
 ```
-- **[<file>](<file>) ← READ FIRST. <YYYY-MM-DD> EOD — <one-line state>.** <triplet>. <next-priority>.
+- **[<file>](<file>) ← READ FIRST. <YYYY-MM-DD> EOD — <one-line state>.** <gate>. <next-priority>.
 ```
 
 (The "← READ FIRST" marker moves from the previous handover to this one; downgrade the previous one to "(legacy)".)
@@ -60,7 +60,7 @@ Add a one-line index entry at the top of the "## Read first" section in `/home/j
 
 - **NEVER include Co-Authored-by lines** (CLAUDE.md project rule).
 - **Terse but insightful** (CLAUDE.md). Don't write a development diary.
-- **Don't claim a fix is shipped if the triplet didn't confirm it.** Per `feedback_tremendous_claims_proof`, every claim needs proof; if the triplet wasn't run, say so explicitly.
+- **Don't claim a fix is shipped if the gate didn't confirm it.** Per `feedback_tremendous_claims_proof`, every claim needs proof; if the gate wasn't run, say so explicitly.
 - **Push only what the standing authorization covers** (the gated sha and its tags after a CLEAN gate). Anything else stays local: mention "NOT pushed (N ahead of origin)" if commits exist.
 - **Convert relative dates to absolute** (per memory rules).
 
