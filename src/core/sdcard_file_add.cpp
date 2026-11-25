@@ -377,6 +377,9 @@ FileAddStatus card_free_space(const std::string& image_path,
 // Make sure the directory `fat_dir` exists on the card, creating it when it
 // does not. `name` is its last component and `dest_display` the user's whole
 // destination, both for messages. `created` says whether this call made it.
+bool resolves_elsewhere(const std::string& fat_path, const FILINFO& stat_fno);
+std::string resolves_elsewhere_message(const std::string& path);
+
 FileAddStatus ensure_card_dir(MountedCard& card,
                               const std::string& fat_dir,
                               const std::string& name,
