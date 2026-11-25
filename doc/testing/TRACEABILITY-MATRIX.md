@@ -45,7 +45,7 @@ mentions them, so a test can no longer be absent from this document.
 | LoRes                                      |   101 |  101 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | Companion: sdcard_posix_test               |     8 |    8 |    0 |    0 |       0 |          0 |
-| Companion: sdcard_writes_test              |    29 |   29 |    0 |    0 |       0 |          0 |
+| Companion: sdcard_writes_test              |    30 |   30 |    0 |    0 |       0 |          0 |
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | Debugger Graphics decoders                 |    19 |   19 |    0 |    0 |       0 |          0 |
@@ -71,9 +71,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   103 |  103 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6697 | 6697 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6698 | 6698 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6697**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6168**. Rows the 258 suites declared in `test/unit-tests.conf` run live: **18440**.
+Rows the sections above carry: **6698**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6169**. Rows the 258 suites declared in `test/unit-tests.conf` run live: **18442**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 205 suites (12356 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 205 suites (12357 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -250,7 +250,7 @@ These 205 suites (12356 live rows) have no VHDL-derived plan row to map, so they
 | `frame_timer_test` | 6 | host GUI frame-timer contract (Qt timer, not core timing) |
 | `esp_status_test` | 15 | host status-bar ESP indicator (GUI), no core counterpart |
 | `no_sdcard_ui_test` | 4 | --no-sdcard in the window: Insert / Eject SD Card disabled, "SD: none" (host GUI, GH #540) |
-| `sdcard_menu_test` | 14 | File menu card-set actions and their enablement (GH #555): the design in the issue as oracle (host UI, no core counterpart) |
+| `sdcard_menu_test` | 15 | File menu card-set actions and their enablement (GH #555): the design in the issue as oracle (host UI, no core counterpart) |
 | `sdcard_manager_window_test` | 47 | the issue and its decision comments (GH #558) as oracle: the SD card file manager window (two panes, read-only forcing, copy, move, rename, delete, New Folder, drops, what it opens on, the card pane following the card, the window staying modeless and inert during a card operation and the emulator winning), a host GUI feature with no core counterpart |
 | `bug_report_ui_test` | 6 | File > Save Bug Report... in the Qt window (host GUI, GH #492): the menu, the real dialog, the report written |
 | `nex_v13_dialog_test` | 4 | experimental NEX V1.3 warning dialog (GUI), no core counterpart |
@@ -5134,6 +5134,7 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | SDW-27 | with only a kept-file record, for_each_sorted calls its function zero times and empty() is true (the warm-start key never sees the file) | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:863 |
 | SDW-28 | a binding of 2^32 sectors (2 TiB) is refused (sector 0xFFFFFFFF is the kept-file marker), naming the size; one sector less binds | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:879 |
 | SDSLOT-55 | two journals bound to two different images at once are independent: each card reads back its own write at the same sector, and a write to one is not in the other's journal | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:909 |
+| SDCOH-10 | the refusal of a writes file that no longer fits the image says it was made for another image, or the image was changed by another program since, and offers --sdcard-writes-reset | (SD SPI spec; journal format: developer guide) | pass | test/sdcard/sdcard_writes_test.cpp:930 |
 
 ## NMI Source Pipeline — `test/nmi/nmi_test.cpp`
 
