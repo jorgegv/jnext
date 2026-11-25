@@ -16,6 +16,9 @@ matters mainly when you invoke CMake directly.
 | `STATIC_BUILD` | OFF | Link statically; needs static SDL3/Qt6 builds, which distribution packages are not |
 | `MACOS_APP_BUNDLE` | OFF | Build a relocatable `jnext.app` bundle (macOS packaging only) |
 | `GIT_SUBMODULE` | ON | Run `git submodule update --init --recursive` at configure time |
+| `JNEXT_WERROR` | ON | `-Werror` on every first-party target (packaging builds set OFF; see Compiler warnings) |
+| `JNEXT_PGO` | OFF | Profile-guided optimisation stage: `OFF`, `GENERATE` or `USE` (gcc only; see below); `JNEXT_PGO_DIR` holds the profile |
+| `ENABLE_CRT_GL` | ON | The optional OpenGL CRT shader filter of the Qt GUI (Qt 6 with OpenGLWidgets only; `src/gui/CMakeLists.txt`) |
 
 ## The combinations are gated, not assumed
 
