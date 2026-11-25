@@ -710,7 +710,7 @@ int main() {
         const Run cli = run(p2, "/caf\x82.bin");                 // the command line still refuses it, with its advice
         const Run by = run_bytes(p2, "/caf\x82.bin");
         check("SDFX-38", "a path holding a CP437 byte is refused on the command line (unchanged: status 2, the 8.3 advice) and extracted with card_path_is_bytes, under its escaped host name and with its own bytes",
-              bt == FS_FAT32 && is(cli, FileAddStatus::SourceUnreadable) && cli.err.find("8.3") != std::string::npos && empty_dest(cli) &&
+              bt == FS_FAT32 && is(cli, FileAddStatus::SourceUnreadable) && cli.err.find("parent directory") != std::string::npos && empty_dest(cli) &&
                   is(by, FileAddStatus::Ok) && tree_of(by.dest) == Tree{{"caf%82.bin", kLong}},
               info(cli) + " | " + info(by));
         // F1a: the long entry's short name duplicates an earlier entry's: the bytes path acts on THE ENTRY NAMED, never on the other
