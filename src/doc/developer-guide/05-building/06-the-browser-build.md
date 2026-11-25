@@ -62,6 +62,18 @@ Source files carry the same two symbols. The list below is the output of
 - `src/platform/debug_servers.cpp` and `debug_servers.h`: the three socket servers (`--dzrp-port`, `--gdb-port`, `--zrcp-port`) are neither declared nor started, so `esp::make_socket_listener` is never referenced from this file in the browser build (the symbol is still compiled in, through esp01 and `remote::Server::open(address, port)`); the three channel servers are built in every build; and `frame_loop_budget()` returns `PumpBudget{0, 0, 10}` for a paused machine with a client attached, where the native build waits 2 ms for the next command.
 - `src/platform/web/web_controller.cpp`: the exports of the page's debug channels, below.
 - `src/core/nextpi_provisioner.cpp`: compiled out.
+- `src/core/image_lock.cpp`: the cross-process lock file of an SD image (`lock_file_for()` and its
+  `flock` includes) is compiled out: a page has one process.
+- `src/core/sdcard_provisioner.h`: the download policy's `retries` is 0 in the browser build (it
+  has no download, so a retry would only block the page's thread through the backoff).
+- `src/core/output_files.h`: no arm of its own; the page installs its sink under `JNEXT_BROWSER`
+  in `main()` (`player.listFiles()` / `readFile()`).
+- `src/platform/bug_report.cpp`: the report's `os` field is `emscripten`.
+- `src/platform/startup_error_sdl.cpp`: no native dialog (and no SDL include) for a startup error.
+- `src/platform/startup_report.cpp`: the startup layout is never `windowed`.
+- `src/platform/debug_servers.cpp` also carries the browser's pump budget: with a remote attached
+  and the machine paused `frame_loop_budget()` returns `PumpBudget{0, 0, 10}`
+  ([3.9.3](../03-subsystems/09-3-sessions-the-pump-and-reconstruct.md)).
 - `src/core/video_recorder.cpp`: no process to run ffmpeg, so the call fails as a
   missing ffmpeg does.
 - `src/core/sdcard_provisioner_net_web.cpp` and `sdcard_provisioner_net_curl.cpp`: the
