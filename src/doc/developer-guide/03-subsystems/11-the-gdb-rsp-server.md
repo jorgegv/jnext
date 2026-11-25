@@ -66,7 +66,7 @@ memory, `source_location(space, addr)`, as `monitor sym` does) or the PC. The me
 `monitor mmu` (`P04`, `ROM0`, `BOOT`).
 
 `monitor locals [FRAME]`, `monitor globals` and `monitor print [FRAME] PATH` print the C variables the debugger
-facade reads ([7.10](../07-source-level-debugging/10-c-frames-and-values.md)); [7.7](../07-source-level-debugging/07-frontends.md)
+facade reads ([3.9.5.10](09-5-source-level-debugging/10-c-frames-and-values.md)); [3.9.5.7](09-5-source-level-debugging/07-frontends.md)
 has the formats. `pkt_monitor()` (`rsp_server.cpp:822`) hands `print` the raw rest of the packet text, not `split_words()`, because a
 C path may hold spaces; the other two take the words. The reply convention is `monitor src`'s: a content refusal (no C
 variables, no such frame, an unknown name) is an `O` line and `OK`; a wrong argument count or a non-decimal frame is `E01`. Each
@@ -74,7 +74,7 @@ verb asks `c_variables_status()` first and prints its reason when C variables ar
 write is `monitor set var [FRAME] PATH = VALUE` (`monitor_set_var()`, `rsp_server.cpp:1216`). `monitor set` takes a register
 name (`i`, `r`, `im`), and those collide with C names (`i` is a local of `main`), so the C form is gdb's own `set var` spelling:
 `pkt_monitor()` hands `monitor_set_var()` the raw rest after `set var` (a path may hold spaces), a leading decimal word is the frame, the
-path is everything up to the first `=` and the value the trimmed rest. It calls `write_c_value()` ([7.10](../07-source-level-debugging/10-c-frames-and-values.md)):
+path is everything up to the first `=` and the value the trimmed rest. It calls `write_c_value()` ([3.9.5.10](09-5-source-level-debugging/10-c-frames-and-values.md)):
 success prints the value read back (`(int) g_int = 10`) and `OK`; a refusal is one `refused: <why>` line and `E01`, as `monitor set` answers a
 refused register write (a write that did not happen must not answer `OK`); a missing path, value or `=` is `E01` with no line.
 

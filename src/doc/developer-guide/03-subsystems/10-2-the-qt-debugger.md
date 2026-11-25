@@ -168,7 +168,7 @@ restart of the CPU panel's T-state count and draws that one label.
 | Script | the `ScriptHost`'s loaded scripts, their rules and hits, the verdict line and the script log | load, reload, unload, record |
 | Source | `source_location()` (a pointer into the store) for the PC, and the source file it names | the source steps and loads, through `DebuggerManager` |
 | Symbols | `symbols().symbols()` (the toolchain's labels and the user's), `shown_name()`, `source_page()`, `source_map().lookup()`, `state_revision()` | — |
-| Variables | `c_frames()`, `c_locals()`, `c_globals()`, `c_children()`, `c_variables_status()`, `call_stack()`, `mmu_slots()`: the C variables of a call frame and the globals, as a tree, a value editable in place through `write_c_value()` ([7.7](../07-source-level-debugging/07-frontends.md)) | — |
+| Variables | `c_frames()`, `c_locals()`, `c_globals()`, `c_children()`, `c_variables_status()`, `call_stack()`, `mmu_slots()`: the C variables of a call frame and the globals, as a tree, a value editable in place through `write_c_value()` ([3.9.5.7](09-5-source-level-debugging/07-frontends.md)) | — |
 
 Five panels (CPU, Disassembly, Stack, Call Stack, Variables) update only while paused:
 reading the register file every frame while the machine runs produces a blur,
@@ -389,7 +389,7 @@ constants in `src/debugger/`.
 `debug/long_address.h`, by way of `src/debugger/memory_text.h`; `DebuggerWindow` holds one
 `AddressStyle` (Debug > Physical Addresses) and hands it to each panel and to the `BreakpointModel`.
 Which space each view prints, and the columns that were added, are described in
-[7.7](../07-source-level-debugging/07-frontends.md).
+[3.9.5.7](09-5-source-level-debugging/07-frontends.md).
 
 ### The Audio panel
 
@@ -484,12 +484,12 @@ forwarding stays at the five instruction-level keys.
 
 ## Symbols
 
-The Map menu also imports and exports skoolkit control files and Ghidra symbol files: see [7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md).
+The Map menu also imports and exports skoolkit control files and Ghidra symbol files: see [3.9.5.4.7](09-5-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md).
 
 The Map menu loads into the backend's one table with `load_map()`, and the Disassembly, Call Stack and
 Breakpoints panels read `symbols()`. A breakpoint set on a symbol keeps its name in the list, and a symbol
 any other client loads shows in the panels too. What each loader reads is
-[7.4](../07-source-level-debugging/04-formats.md); the Qt side is only the naming:
+[3.9.5.4](09-5-source-level-debugging/04-formats.md); the Qt side is only the naming:
 
 - The panels name an address in the memory that supplies it now (`Debugger::source_page()`), through
   `disasm_text::symbol_namer()` for the disassembly; a Breakpoints row uses its own page when it has one,
@@ -512,7 +512,7 @@ The Disassembly and the Source tab share one menu builder, `add_annotation_actio
 (`src/debugger/annotation_menu.cpp:77`), for Add / Rename Label…, Remove Label and Add / Edit Comment…;
 `DisasmPanel` draws a **Label** column and the first line of a comment, and **Map ▸ Open / Save / Save As
 Annotations** and the quit question about unsaved changes are `DebuggerManager`'s. The mechanism and its rows
-are [7.4.6](../07-source-level-debugging/04-6-user-annotations.md), section 10.
+are [3.9.5.4.6](09-5-source-level-debugging/04-6-user-annotations.md), section 10.
 
 ## Source
 
@@ -521,7 +521,7 @@ source-step buttons; it holds no state of its own beyond the loaded file, its mo
 view was last put, and the sidecar reason `report_sidecars()` gave it. Its refresh, the file search path, the
 highlighter and colour schemes, the gutter and breakpoint rows, the context menu, the selection sync with the
 Disassembly and the Debug > Source actions are described in
-[7.7](../07-source-level-debugging/07-frontends.md), with the mechanism behind each. The menu tree and the
+[3.9.5.7](09-5-source-level-debugging/07-frontends.md), with the mechanism behind each. The menu tree and the
 bindings are pinned by `debugger_accel_test` and `debugger_keymap_test`.
 
 ## Memory coverage

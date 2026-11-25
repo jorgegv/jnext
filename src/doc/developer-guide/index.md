@@ -48,7 +48,7 @@ like eccentricity:
   accepted or rejected.
 
 What the experiment is *not* is code taken on trust. Every change goes through
-the protocol in [chapter 6](06-contributing/index.md) — its own branch and
+the protocol in [Appendix A](appendix-a-contributing/index.md) — its own branch and
 worktree, its targeted tests green, an independent review by someone, or
 something, that did not write it, and the full test triplet green on `main`
 before anything is pushed. This guide is part of the same posture:
@@ -99,8 +99,7 @@ made it stale.
 | 3 | [Subsystems](03-subsystems/index.md) | CPU, memory, video, audio, ports, peripherals, input, media, debug |
 | 4 | [Testing](04-testing/index.md) | The triplet, declared suites, regression, traceability, the gates |
 | 5 | [Building and packaging](05-building/index.md) | Make targets, build configurations, packaging, CI, performance and optimisation |
-| 6 | [Contributing](06-contributing/index.md) | Issues, pull requests, branches and worktrees, house style |
-| 7 | [Source-level debugging](07-source-level-debugging/index.md) | The source map, the file-format adapters, which memory supplied a fetch, line breakpoints and steps, lifetime, fixtures |
+| A | [Contributing](appendix-a-contributing/index.md) | Appendix: issues, pull requests, branches and worktrees, house style |
 
 If you are about to make a change and have time for only one page, read
 [1.3 The rules that shape the code](01-orientation/03-the-rules-that-shape-the-code.md).

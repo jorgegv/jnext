@@ -339,7 +339,7 @@ is provisioned rather than assumed: `make regression` first runs `make z88dk-gdb
 (`test/provision-z88dk-gdb.sh`), which builds z88dk v2.4's client, sha256-pinned,
 into `~/.cache/jnext/tools` when none resolves. The two foreign readers of the reverse-engineering exports are provisioned
 the same way by `make skoolkit` and `make ghidra`; see
-[7.4.7](../07-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md). A run whose
+[3.9.5.4.7](../03-subsystems/09-5-source-level-debugging/04-7-skoolkit-and-ghidra-exports.md). A run whose
 only FAILs are functional rows that failed on a loaded host is recorded as
 pending, and `make regression-confirm` re-runs exactly those rows solo; if they
 all pass the run is stamped, and the stamp names them. Targeted rows run through

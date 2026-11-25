@@ -165,7 +165,7 @@ Read it as a statement of the code, not of the protocols. A blank cell is either
 a capability the protocol has no verb for (DZRP cannot step back, `z88dk-gdb`
 sends no reverse-execution packet) or one a frontend declines (the DSL never
 calls `port_in`, which perturbs the machine). The design's own matrix, with
-that distinction drawn cell by cell, is §7.6 of
+that distinction drawn cell by cell, is §3.9.5.6 of
 `doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md`.
 
 ## In this section
