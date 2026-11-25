@@ -6,7 +6,7 @@
 - SD cards: upgrades keep your files with a backup; export, import and extract card files (--sdcard-export-changes, --sdcard-import-changes, --sdcard-file-extract)
 - Startup errors show in a window
 - `--esxdos-stub` serves block-streaming calls, so streaming games run
-- Browser player: pages can read the files JNEXT writes (listFiles, readFile); old saves reset after a card update
+- Browser player: a JNext link under the screen; pages can read the files JNEXT writes; old saves reset after a card update
 
 ### Developer Features
 - Debugger Audio panel: decoded AY chips, DAC/beeper routing, Tracker, scopes and meters, DAC pacing
