@@ -390,6 +390,54 @@ int main() {
               !m.upgrade_enabled && m.go_back_enabled && m.delete_enabled);
     }
 
+    // ---- SDBAK-11: card_set_status(dir, d, false) is the full status minus the pristine check ----------------
+    // Oracle: the owner's decision on the issue (the menu does no hash) and menu_state's own definition
+    // (it never reads pristine): today's full call, run with no .verified record, is the reference.
+    {
+        const std::string cur = "sn-emulator-26.11a.zip";
+        const char* const distros[4] = {"sn-emulator-24.11.zip", "sn-emulator-26.11a.zip", "sn-emulator-27.01.zip", "not-a-version.zip"};
+        bool same = true, full_hashes = true, none_hash = true;
+        std::string det;
+        for (int k = 0; k < 4; ++k) {
+            for (int withprev = 0; withprev < 2; ++withprev) {
+                const std::string d = tmp("v11");
+                fs::create_directories(d);
+                const std::string raw = (fs::path(d) / sdcard::kImageFileName).string();
+                { std::ofstream f(raw, std::ios::binary); const std::string z(4096, 'k'); f.write(z.data(), 4096); }
+                std::ofstream(raw + ".sha256") << sdcard::sha256_file(raw) << "  " << sdcard::kImageFileName << "\n";
+                std::ofstream(raw + sdcard::kDistroSuffix) << distros[k] << "\n";
+                const std::string card = (fs::path(d) / sdcard::kFixedImageFileName).string();
+                { std::ofstream f(card, std::ios::binary); f << "card"; }
+                std::ofstream(card + sdcard::kDistroSuffix) << distros[k] << "\n";
+                if (withprev) {
+                    const fs::path pv = fs::path(d) / "previous";
+                    fs::create_directories(pv);
+                    { std::ofstream f(pv / sdcard::kFixedImageFileName, std::ios::binary); f << std::string(3000, 'p'); }
+                    std::ofstream(pv / (std::string(sdcard::kFixedImageFileName) + sdcard::kDistroSuffix)) << "sn-emulator-24.11.zip\n";
+                }
+                const uint64_t h0 = carry::pristine_hash_count();
+                const Status lite = card_set_status(d, cur, false);
+                none_hash = none_hash && carry::pristine_hash_count() == h0;
+                fs::remove(raw + ".verified");
+                const Status full = card_set_status(d, cur);
+                full_hashes = full_hashes && full.pristine && carry::pristine_hash_count() == h0 + 1;
+                const bool eq = lite.card_present == full.card_present && lite.card_distro == full.card_distro &&
+                                lite.relation == full.relation && lite.backup == full.backup &&
+                                lite.backup_bytes == full.backup_bytes && lite.backup_distro == full.backup_distro &&
+                                !lite.pristine && lite.pristine_why.empty() && (withprev == 0 || lite.backup_bytes > 0);
+                bool menus = true;
+                for (int s0 = 0; s0 < 2; ++s0) {
+                    const MenuState a = menu_state(lite, s0 != 0), b = menu_state(full, s0 != 0);
+                    menus = menus && a.upgrade_enabled == b.upgrade_enabled && a.go_back_enabled == b.go_back_enabled &&
+                            a.delete_enabled == b.delete_enabled && a.backup_bytes == b.backup_bytes;
+                }
+                if (!eq || !menus) { same = false; det += " [" + std::to_string(k) + "/" + std::to_string(withprev) + "]"; }
+            }
+        }
+        check("SDBAK-11", "card_set_status(dir, d, false) equals the full status in every field but pristine/pristine_why, hashes nothing, and menu_state of the two is identical (older/current/newer/unknown card, with and without a backup)",
+              same && none_hash && full_hashes, det);
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     std::error_code ec;
     fs::remove_all(g_dir, ec);
