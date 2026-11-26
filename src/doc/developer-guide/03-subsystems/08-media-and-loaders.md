@@ -137,6 +137,14 @@ The real-time players cover the pure-EAR turbo loaders too: a TZX Direct
 Recording block (0x15) plays as a TZX block, and WAV playback interpolates the
 edge position inside a sample, which is what DeciLoad's 12k8 loader needs.
 
+TZX playback keeps the last edge of every block visible to the loader (a ROM
+loader times its last bit against it). A pause of 1 ms is all at the level the
+last edge left (TZX 1.20: at least 1 ms of the opposite level, and only then the
+pulse goes low); a longer one holds that level for 1 ms and spends the rest low.
+Before a stop block, a 0x2A that stops, or the end of the tape, a high level is
+held for 1 ms as one pure-tone pulse (`tzx_stop_tail` in `third_party/zot/tzx.c`),
+and the stop is parsed again when it ends, so the stop never hides the edge.
+
 (`fastload_active()` also covers the fast-boot window of a plain Next start;
 see [A frame, end to end](../02-architecture/03-a-frame-end-to-end.md).)
 
@@ -178,7 +186,10 @@ detect-loader fails the `xevious-deciload` tape.
   boundary, the instant a block and its non-zero pause have finished, and only
   when nobody polls. It never stops mid-block and never at a zero-pause join. It
   resumes at the first counted read once polling: the next block from its first
-  pulse. TAP: `TapLoader::set_gap_hold` / `resume`. TZX: ZOT's `hold_request`,
+  pulse. A hold at a stop block restarts the poll run (`Emulator::tzx_deck_update_`),
+  so only reads made after the stop resume it, never those of the load that reached
+  it (FUSE zeroes its loader detection on every stop the same way); a key-release
+  wait that follows does poll, and resumes the deck. TAP: `TapLoader::set_gap_hold` / `resume`. TZX: ZOT's `hold_request`,
   `held`, `tzx_resume()`; a stop block (0x20 pause 0, 0x2A) holds instead of
   ending the tape, and 0x2A stops only on a 48K machine. WAV has no gaps.
 - **Fast mode.** Nothing happens: a polling program never starts a tape that

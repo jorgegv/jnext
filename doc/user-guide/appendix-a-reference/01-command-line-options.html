@@ -5305,8 +5305,11 @@ option alone.</dd>
 overriding the saved GUI preference. While on, the tape deck stops
 in the silent gap between two blocks when no program is reading the
 tape, and resumes when one does, so tapes whose BASIC loader is slow
-between blocks load in real time. It does nothing in fast load mode.
-A <code>.wav</code> has no blocks and is never paused. Off, the deck runs
+between blocks load in real time. A program that reads the keyboard
+port in a tight loop (waiting for a key to be released, for example)
+also counts as reading the tape and starts the deck, so the block
+that then plays is lost to it. It does nothing in fast load mode. A
+<code>.wav</code> has no blocks and is never paused. Off, the deck runs
 straight through, as a real one does (a TZX “stop the tape if in 48K
 mode” block now stops only on a 48K machine, as the TZX
 specification says, whatever this setting is).</dd>
