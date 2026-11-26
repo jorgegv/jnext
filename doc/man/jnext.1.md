@@ -128,13 +128,16 @@ naming the option and the value, and exits with status 1.
     warning dialog instead, with Cancel as the default. `V1.0`-`V1.2` files
     are unaffected either way.
 
-**\--sdcard**, **\--sdcard1** *FILE*
+**\--sdcard** *FILE*
 :   Mount SD-card image *FILE* (`.img`). Optional; see **SD CARD AND ROMS**.
     **\--sdcard1** is the same option, spelt like **\--sdcard2**: each of the
     first card's options (**\--sdcard**, **\--sdcard-readonly**,
     **\--sdcard-writes**, **\--sdcard-writes-reset**,
-    **\--delayed-sdcard-insert-frames**) also takes the spelling with `1`, and an
-    option together with its other spelling is refused (exit status 1).
+    **\--delayed-sdcard-insert-frames**) also takes the spelling with a `1`
+    (**\--sdcard1-readonly**, **\--sdcard1-writes**, **\--sdcard1-writes-reset**,
+    **\--delayed-sdcard1-insert-frames**), and an option together with its other
+    spelling is refused (exit status 1). The `1` spellings are not listed by
+    **\--help**.
     A ZIP archive is not an image and is refused (exit status 1): unzip it
     first. The WebAssembly build extracts the single `.img` inside one.
 
@@ -170,13 +173,13 @@ naming the option and the value, and exits with status 1.
     logs one line. Refused together with **\--sdcard**: an explicit card is
     never offered an upgrade. See **SD CARD AND ROMS**.
 
-**\--sdcard-readonly**, **\--sdcard1-readonly**
+**\--sdcard-readonly**
 :   Open the SD image read-only, so the host file is never modified. The
     emulated machine sees a write-protected card: writes are rejected with the
     SD write-error token rather than silently discarded. Use it when a run must
     not disturb an image other runs share.
 
-**\--sdcard-writes**, **\--sdcard1-writes** *FILE*
+**\--sdcard-writes** *FILE*
 :   Keep the writes the emulated machine makes to the SD card in *FILE*, not in
     the image: the image is opened read-only and never changes, and *FILE*'s
     sectors are laid over it whenever the card is mounted, so the writes
@@ -205,7 +208,7 @@ naming the option and the value, and exits with status 1.
     the host (the ROMs, a snapshot's card identity) do not see the writes. See
     **SD CARD AND ROMS**.
 
-**\--sdcard-writes-reset**, **\--sdcard1-writes-reset**
+**\--sdcard-writes-reset**
 :   Discard the writes kept in the **\--sdcard-writes** *FILE* before the card
     is mounted, the stand-in's file included, so the run starts on the image as
     it is. Requires
@@ -1184,7 +1187,7 @@ naming the option and the value, and exits with status 1.
     of **\--delayed-nmi**, not an override of it: both forms queue into the
     same list, so giving both schedules two presses. Requires **\--headless**.
 
-**\--delayed-sdcard-insert-frames**, **\--delayed-sdcard1-insert-frames** *N* *FILE*
+**\--delayed-sdcard-insert-frames** *N* *FILE*
 :   Insert SD-card image *FILE* after *N* emulated frames, exactly as
     **File > Insert SD Card Image** does (see **SD CARD AND ROMS**). The
     card keeps **\--sdcard-readonly**. The run exits non-zero if the insert

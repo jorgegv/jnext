@@ -3328,6 +3328,24 @@ from the first moment of a start, before recovery, the offer and the upgrade, an
 an upgrade would move are locked too; a held set gets only the lock message. Live card changes take the
 new card's lock before unmounting the old one. Hard links count as separate cards (the harness uses
 one for each parallel row).</p>
+<p>The lock file's body is labelled lines, each ending in a newline: <code>pid:</code>, <code>image:</code> (<code>writes:</code> for a
+writes lock) with the canonical path, and, only while the process serves ZRCP on a socket,
+<code>zrcp_listening_address:</code> and <code>zrcp_listening_port:</code>. <code>DebugServers::start()</code> publishes the address and
+the BOUND port (a <code>--zrcp-port 0</code> run has no other) through <code>sd_locks::set_zrcp_endpoint()</code>, and its
+destructor withdraws them. The endpoint is process-wide state: it rewrites every lock the two slots hold
+(<code>ImageLock::refresh_body()</code>: <code>pwrite</code> then <code>ftruncate</code>, or the Windows file pointer and
+<code>SetEndOfFile</code>; the lock byte lies far past the content, so the body stays readable by the process that
+is refused), and <code>ImageLock::acquire()</code> writes it into every lock taken afterwards, so a live card
+change carries it too. A refusal fills a <code>LockHolder</code> (pid and endpoint) through <code>parse_lock_body()</code>, the
+one reader of the format. It is strict and bounded because any process of the same user, an older jnext or
+a rewrite in flight can be the writer: at most 4 KiB, complete lines only (a last line with no newline is
+dropped, so a rewrite caught half-way never yields a truncated port), a duplicated label dropped, a port
+of decimal digits in 1..65535, an address that is a numeric IP, and anything doubtful is "no endpoint".
+A first line of digits alone is the older unlabelled form: a pid and no endpoint. The holder of the
+default card or of a named one is also found by this lock when <code>--sdcard-file-add</code> is refused it:
+<code>platform/sdcard_forward.*</code> connects to the recorded server (see 3.8, "A copy asked for by another
+process"). A lock directory under another <code>JNEXT_CONFIG_DIR</code> or another user is another lock: such a
+process is not refused and so cannot forward.</p>
 <h2 id="the-suites-own-card">The suites' own card<a class="headerlink" href="#the-suites-own-card" title="Permanent link">&para;</a></h2>
 <p>The suites never read or write <code>~/.jnext/sdcard</code>'s user files: <code>sd_test_state_dir</code> names the
 harness's own master under <code>test-suite/</code>, <code>test_sd_image.h</code> finds it for the unit suites, and

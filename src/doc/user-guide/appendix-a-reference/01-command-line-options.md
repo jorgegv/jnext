@@ -128,8 +128,16 @@ with status 1.
 **--sdcard** *FILE*
 :   Mount SD-card image *FILE* (`.img`). Optional; see [Why JNEXT needs
     an SD-card
-    image](../03-first-run/01-why-jnext-needs-an-sd-card-image.md). A
-    ZIP archive is not an image and is refused (exit status 1): unzip it
+    image](../03-first-run/01-why-jnext-needs-an-sd-card-image.md).
+    **--sdcard1** is the same option, spelt like **--sdcard2**: each of
+    the first card’s options (**--sdcard**, **--sdcard-readonly**,
+    **--sdcard-writes**, **--sdcard-writes-reset**,
+    **--delayed-sdcard-insert-frames**) also takes the spelling with a
+    `1` (**--sdcard1-readonly**, **--sdcard1-writes**,
+    **--sdcard1-writes-reset**, **--delayed-sdcard1-insert-frames**),
+    and an option together with its other spelling is refused (exit
+    status 1). The `1` spellings are not listed by **--help**. A ZIP
+    archive is not an image and is refused (exit status 1): unzip it
     first. The WebAssembly build extracts the single `.img` inside one.
 
 **--sdcard-sha256** *HEX*
@@ -246,7 +254,10 @@ with status 1.
     no download: the slot is empty unless this is given. ROMs are read
     from the first card only. A *FILE* that is not a readable regular
     file, a ZIP archive, or the same file as **--sdcard**, is refused
-    (exit status 1). See **A SECOND SD CARD**.
+    (exit status 1). It also names the card the SD card commands
+    (**--sdcard-file-add**, **--sdcard-file-extract**,
+    **--sdcard-writes-flatten**, **--sdcard-export-changes**,
+    **--sdcard-import-changes**) act on. See **A SECOND SD CARD**.
 
 **--sdcard2-readonly**
 :   Open the second card’s image read-only, as **--sdcard-readonly**
@@ -269,9 +280,12 @@ with status 1.
     Without **--sdcard-file-dest** it lands in the root of the card
     under its own name. Give it once per run. The image written is the
     one **--sdcard** names, or the default-location image when
-    **--sdcard** is omitted (your own card). With **--sdcard-writes**
-    the copy goes into that file instead and the image is not written.
-    See **PUTTING A FILE ON THE CARD**.
+    **--sdcard** is omitted (your own card); **--sdcard2** *FILE* names
+    the second card instead, never both. With **--sdcard-writes**
+    (**--sdcard2-writes** for the second card) the copy goes into that
+    file instead and the image is not written. When another jnext holds
+    the card, the file is copied through that jnext, which must serve
+    ZRCP (**--zrcp-port**). See **PUTTING A FILE ON THE CARD**.
 
 **--sdcard-file-dest** *PATH*
 :   Optional. The path on the card that **--sdcard-file-add**’s *FILE*
@@ -295,14 +309,18 @@ with status 1.
     **--sdcard** is omitted, as a run with the same options would see it
     (with **--sdcard-writes**, through that file). The image is never
     written; the writes file keeps its contents (as for any run given
-    it, it may be compacted). See **GETTING YOUR FILES OUT**.
+    it, it may be compacted). With **--sdcard2** it reads the second
+    card (and **--sdcard2-writes**), never both cards. See **GETTING
+    YOUR FILES OUT**.
 
 **--sdcard-writes-flatten** *OUT*
 :   Write *OUT*, a plain image of the card with the **--sdcard-writes**
     *FILE* laid over it (the card as the machine sees it), and **exit
     without starting emulation**. Any FAT tool (mtools, a loop mount,
-    7-Zip) can open *OUT*. Requires **--sdcard-writes**. An *OUT* that
-    already exists is refused. See **GETTING YOUR FILES OUT**.
+    7-Zip) can open *OUT*. Requires **--sdcard-writes**
+    (**--sdcard2-writes** for the second card, named with
+    **--sdcard2**). An *OUT* that already exists is refused. See
+    **GETTING YOUR FILES OUT**.
 
 **--sdcard-go-back**
 :   Go back to the previous SD card that an upgrade kept in `previous/`
@@ -329,8 +347,9 @@ with status 1.
     jnext made it (the default card, when its original image is still on
     disk and matches), the image named by **--sdcard-export-base**, the
     card itself when there is a **--sdcard-writes** file (so only that
-    file’s changes are exported); with none of these it refuses. See
-    **GETTING YOUR FILES OUT**.
+    file’s changes are exported); with none of these it refuses. It acts
+    on one card: **--sdcard2** names the second one. See **GETTING YOUR
+    FILES OUT**.
 
 **--sdcard-export-base** *FILE*
 :   With **--sdcard-export-changes**: the image the card was made from,
@@ -342,8 +361,9 @@ with status 1.
     without starting emulation**. *DIR* must hold the `CHANGES.txt` the
     export wrote. A file already on the card is replaced, a read-only
     one too; nothing is ever deleted; the attributes (read-only, hidden,
-    system) are restored. All or nothing, as **--sdcard-file-add**. See
-    **GETTING YOUR FILES OUT**.
+    system) are restored. All or nothing, as **--sdcard-file-add**. It
+    acts on one card: **--sdcard2** names the second one. See **GETTING
+    YOUR FILES OUT**.
 
 **--warm-start-regenerate**
 
@@ -1432,7 +1452,10 @@ with status 1.
     (`zrcp: listening on 127.0.0.1:40123`). One client at a time: a
     second connection is told so and closed. A port that cannot be bound
     is a startup error. Works in every frontend, **--headless**
-    included, and alongside **--dzrp-port** and **--gdb-port**.
+    included, and alongside **--dzrp-port** and **--gdb-port**. A second
+    jnext’s **--sdcard-file-add** on a card this jnext has open is
+    copied through this server (see **PUTTING A FILE ON THE CARD**), so
+    the machine that has the card is the one that writes to it.
 
 **--debug-channel** *PROTOCOL*
 :   Browser page only: serve the debugger protocol *PROTOCOL* (`dzrp`,

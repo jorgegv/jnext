@@ -4567,7 +4567,7 @@
 </tr>
 <tr>
 <td><code>~/.jnext/locks/</code></td>
-<td>The locks that keep a second JNEXT off a card or writes file.</td>
+<td>The locks that keep a second JNEXT off a card or writes file. Each file names its holder (<code>pid:</code>, <code>image:</code> or <code>writes:</code>) and, while the holder serves ZRCP, its address and port (<code>zrcp_listening_address:</code>, <code>zrcp_listening_port:</code>): how a second JNEXT's <code>--sdcard-file-add</code> finds it.</td>
 </tr>
 <tr>
 <td><code>~/.jnext/warm-start/</code></td>

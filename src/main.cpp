@@ -1606,8 +1606,7 @@ static int run_main(int argc, char* argv[]) {
                 // exit 0: an empty FILE is an EJECT to the emulator (a script
                 // with an unset variable would pull the card), and a bad N.
                 const bool second = opt->id == cli::OptId::DelayedSdcard2InsertFrames;
-                const char* flag = second ? "--delayed-sdcard2-insert-frames"
-                                          : "--delayed-sdcard-insert-frames";
+                const char* flag = opt->name;   // as typed (--delayed-sdcard1-insert-frames is the first slot's alias)
                 long n = 0;
                 if (!cli::parse_int(v[0], 0, INT_MAX, n)) {
                     startup_report::report("%s: N must be a "

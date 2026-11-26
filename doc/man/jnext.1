@@ -147,6 +147,16 @@ Cancel as the default.
 \f[B]\-\-sdcard\f[R] \f[I]FILE\f[R]
 Mount SD\-card image \f[I]FILE\f[R] (\f[CR].img\f[R]).
 Optional; see \f[B]SD CARD AND ROMS\f[R].
+\f[B]\-\-sdcard1\f[R] is the same option, spelt like
+\f[B]\-\-sdcard2\f[R]: each of the first card\(cqs options
+(\f[B]\-\-sdcard\f[R], \f[B]\-\-sdcard\-readonly\f[R],
+\f[B]\-\-sdcard\-writes\f[R], \f[B]\-\-sdcard\-writes\-reset\f[R],
+\f[B]\-\-delayed\-sdcard\-insert\-frames\f[R]) also takes the spelling
+with a \f[CR]1\f[R] (\f[B]\-\-sdcard1\-readonly\f[R],
+\f[B]\-\-sdcard1\-writes\f[R], \f[B]\-\-sdcard1\-writes\-reset\f[R],
+\f[B]\-\-delayed\-sdcard1\-insert\-frames\f[R]), and an option together
+with its other spelling is refused (exit status 1).
+The \f[CR]1\f[R] spellings are not listed by \f[B]\-\-help\f[R].
 A ZIP archive is not an image and is refused (exit status 1): unzip it
 first.
 The WebAssembly build extracts the single \f[CR].img\f[R] inside one.
@@ -290,6 +300,11 @@ given.
 ROMs are read from the first card only.
 A \f[I]FILE\f[R] that is not a readable regular file, a ZIP archive, or
 the same file as \f[B]\-\-sdcard\f[R], is refused (exit status 1).
+It also names the card the SD card commands
+(\f[B]\-\-sdcard\-file\-add\f[R], \f[B]\-\-sdcard\-file\-extract\f[R],
+\f[B]\-\-sdcard\-writes\-flatten\f[R],
+\f[B]\-\-sdcard\-export\-changes\f[R],
+\f[B]\-\-sdcard\-import\-changes\f[R]) act on.
 See \f[B]A SECOND SD CARD\f[R].
 .TP
 \f[B]\-\-sdcard2\-readonly\f[R]
@@ -319,9 +334,13 @@ card under its own name.
 Give it once per run.
 The image written is the one \f[B]\-\-sdcard\f[R] names, or the
 default\-location image when \f[B]\-\-sdcard\f[R] is omitted (your own
-card).
-With \f[B]\-\-sdcard\-writes\f[R] the copy goes into that file instead
-and the image is not written.
+card); \f[B]\-\-sdcard2\f[R] \f[I]FILE\f[R] names the second card
+instead, never both.
+With \f[B]\-\-sdcard\-writes\f[R] (\f[B]\-\-sdcard2\-writes\f[R] for the
+second card) the copy goes into that file instead and the image is not
+written.
+When another jnext holds the card, the file is copied through that
+jnext, which must serve ZRCP (\f[B]\-\-zrcp\-port\f[R]).
 See \f[B]PUTTING A FILE ON THE CARD\f[R].
 .TP
 \f[B]\-\-sdcard\-file\-dest\f[R] \f[I]PATH\f[R]
@@ -353,6 +372,8 @@ options would see it (with \f[B]\-\-sdcard\-writes\f[R], through that
 file).
 The image is never written; the writes file keeps its contents (as for
 any run given it, it may be compacted).
+With \f[B]\-\-sdcard2\f[R] it reads the second card (and
+\f[B]\-\-sdcard2\-writes\f[R]), never both cards.
 See \f[B]GETTING YOUR FILES OUT\f[R].
 .TP
 \f[B]\-\-sdcard\-writes\-flatten\f[R] \f[I]OUT\f[R]
@@ -360,7 +381,8 @@ Write \f[I]OUT\f[R], a plain image of the card with the
 \f[B]\-\-sdcard\-writes\f[R] \f[I]FILE\f[R] laid over it (the card as
 the machine sees it), and \f[B]exit without starting emulation\f[R].
 Any FAT tool (mtools, a loop mount, 7\-Zip) can open \f[I]OUT\f[R].
-Requires \f[B]\-\-sdcard\-writes\f[R].
+Requires \f[B]\-\-sdcard\-writes\f[R] (\f[B]\-\-sdcard2\-writes\f[R] for
+the second card, named with \f[B]\-\-sdcard2\f[R]).
 An \f[I]OUT\f[R] that already exists is refused.
 See \f[B]GETTING YOUR FILES OUT\f[R].
 .TP
@@ -396,6 +418,7 @@ it (the default card, when its original image is still on disk and
 matches), the image named by \f[B]\-\-sdcard\-export\-base\f[R], the
 card itself when there is a \f[B]\-\-sdcard\-writes\f[R] file (so only
 that file\(cqs changes are exported); with none of these it refuses.
+It acts on one card: \f[B]\-\-sdcard2\f[R] names the second one.
 See \f[B]GETTING YOUR FILES OUT\f[R].
 .TP
 \f[B]\-\-sdcard\-export\-base\f[R] \f[I]FILE\f[R]
@@ -411,6 +434,7 @@ that file) and \f[B]exit without starting emulation\f[R].
 A file already on the card is replaced, a read\-only one too; nothing is
 ever deleted; the attributes (read\-only, hidden, system) are restored.
 All or nothing, as \f[B]\-\-sdcard\-file\-add\f[R].
+It acts on one card: \f[B]\-\-sdcard2\f[R] names the second one.
 See \f[B]GETTING YOUR FILES OUT\f[R].
 .TP
 \f[B]\-\-warm\-start\-regenerate\f[R]
@@ -1679,6 +1703,10 @@ One client at a time: a second connection is told so and closed.
 A port that cannot be bound is a startup error.
 Works in every frontend, \f[B]\-\-headless\f[R] included, and alongside
 \f[B]\-\-dzrp\-port\f[R] and \f[B]\-\-gdb\-port\f[R].
+A second jnext\(cqs \f[B]\-\-sdcard\-file\-add\f[R] on a card this jnext
+has open is copied through this server (see \f[B]PUTTING A FILE ON THE
+CARD\f[R]), so the machine that has the card is the one that writes to
+it.
 .TP
 \f[B]\-\-debug\-channel\f[R] \f[I]PROTOCOL\f[R]
 Browser page only: serve the debugger protocol \f[I]PROTOCOL\f[R]
@@ -2545,6 +2573,43 @@ any \f[CR].DSK\f[R] or \f[CR].P3D\f[R] found at
 \f[CR]CPM\-\f[R]\f[I]X\f[R]\f[CR].\f[R]\f[I]ext\f[R]) as drive
 \f[I]X\f[R], so copying one there is all it takes to have a +3 disk
 available at the next boot.
+.SS A CARD IN USE BY A RUNNING JNEXT
+One jnext holds a card image at a time; a second one is refused it
+(\f[B]\-\-sdcard\-file\-add\f[R] exits 5, the card untouched).
+When the jnext that holds the card serves ZRCP
+(\f[B]\-\-zrcp\-port\f[R]) and runs on the same machine,
+\f[B]\-\-sdcard\-file\-add\f[R] is not refused: it asks that jnext to
+copy the file onto the card it has open (the ZRCP command
+\f[CR]sd\-file\-add\f[R]), and exits with the status of that copy, as if
+it had written the image itself.
+A running guest sees the file, with no pause and no reset.
+.IP
+.EX
+jnext \-\-headless \-\-sdcard card.img \-\-zrcp\-port 10000 &
+jnext \-\-sdcard card.img \-\-sdcard\-file\-add game.nex
+.EE
+.PP
+The card is named as for any run (a relative path is taken from the
+current directory), and the first card or the second one is found by the
+image\(cqs name: a card that is the other one in the running jnext, a
+card the running jnext opened read\-only, a writes file other than the
+running jnext\(cqs, a file that the running jnext itself holds open, and
+a card change in progress (an upgrade or a go back) are each refused
+with exit 5 and a sentence saying why.
+A running jnext that does not serve ZRCP, one that another ZRCP client
+(a debugger) is using, one that listens on an address other than this
+machine\(cqs loopback, one that is too old to have the command and one
+that does not answer are exit 5 too.
+\f[B]\-\-sdcard\-writes\-reset\f[R],
+\f[B]\-\-sdcard2\-writes\-reset\f[R],
+\f[B]\-\-sdcard\-download\-force\f[R], \f[B]\-\-sdcard\-upgrade\f[R] and
+\f[B]\-\-sdcard\-sha256\f[R] act on the card itself and are refused for
+such a copy.
+The holder is found through the lock file the running jnext keeps under
+\f[CR]\(ti/.jnext/locks/\f[R] (see \f[B]FILES\f[R]), so the two must
+share the same \f[CR]JNEXT_CONFIG_DIR\f[R] and user; a jnext of another
+user or another configuration directory does not see the lock and would
+write to the image behind the running one.
 .SS GETTING YOUR FILES OUT
 Four commands, like \f[B]\-\-sdcard\-file\-add\f[R] terminal commands
 that start no emulation, get your files off a card or into one:
@@ -4581,8 +4646,9 @@ and worked examples.
 .SH REMOTE DEBUGGING (ZRCP)
 With \f[B]\-\-zrcp\-port\f[R] \f[I]PORT\f[R], jnext serves the text
 protocol ZEsarUX offers on its \f[CR]\-\-remoteprotocol\-port\f[R]
-(ZRCP), speaking as ZEsarUX 12.0 does: a welcome, then one command per
-line, each answered by its reply and a prompt \- \f[CR]command>\f[R], or
+(ZRCP), speaking as ZEsarUX 12.0 does (with one command of its own,
+\f[CR]sd\-file\-add\f[R], below): a welcome, then one command per line,
+each answered by its reply and a prompt \- \f[CR]command>\f[R], or
 \f[CR]command\(atcpu\-step>\f[R] while the machine is held in cpu\-step
 mode.
 Try it by hand with \f[CR]telnet localhost PORT\f[R] and
@@ -4652,6 +4718,21 @@ saved with the machine paused while running, not at a breakpoint.
 \f[B]\f[CB]smartload\f[B], \f[CB]load\-binary\f[B] and
 \f[CB]save\-binary\f[B] read and write files on the host running
 jnext\f[R], as ZEsarUX\(cqs do.
+.IP \(bu 2
+\f[B]\f[CB]sd\-file\-add\f[B] is jnext\(cqs one own command\f[R]
+(ZEsarUX has no such name): \f[CR]sd\-file\-add\f[R] \f[I]image file
+card\-path\f[R]
+\f[CR][\-\-force] [\-\-card 1|2] [\-\-writes\f[R]\f[I]file\f[R]\f[CR]]\f[R]
+copies the host \f[I]file\f[R] onto the SD card \f[I]image\f[R] this
+jnext has mounted, as \f[CR]\-\-sdcard\-file\-add\f[R] does, and answers
+\f[CR]OK.\f[R]\f[I]text\f[R] or
+\f[CR]Error. [\f[R]\f[I]N\f[R]\f[CR]]\f[R]\f[I]text\f[R] (\f[I]N\f[R]
+the exit status of \f[CR]\-\-sdcard\-file\-add\f[R]).
+Every argument is percent\-encoded (\f[CR]%20\f[R] for a space,
+\f[CR]%25\f[R] for \f[CR]%\f[R]; control bytes too) and the three paths
+are absolute.
+It is what a second jnext\(cqs \f[CR]\-\-sdcard\-file\-add\f[R] sends;
+\f[CR]help sd\-file\-add\f[R] describes it.
 .IP \(bu 2
 \f[B]Declined\f[R]: \f[CR]exit\-emulator\f[R], and the \f[CR]run\f[R]
 options \f[CR]verbose\f[R], \f[CR]no\-stop\-on\-data\f[R] and
@@ -5218,6 +5299,18 @@ file (the Recent Files history, the joystick controller names
 with \f[B]\-\-set\f[R] \f[I]section.key=value\f[R] (see \f[B]Settings
 for \-\-set\f[R]).
 .TP
+\f[CR]\(ti/.jnext/locks/\f[R]
+One small lock file per SD card image and per SD\-writes file a running
+jnext holds, named by a hash of the file\(cqs canonical path.
+The body is labelled lines: \f[CR]pid:\f[R] (the holder\(cqs process),
+\f[CR]image:\f[R] (or \f[CR]writes:\f[R], the canonical path) and, while
+the holder serves ZRCP on a socket, \f[CR]zrcp_listening_address:\f[R]
+and \f[CR]zrcp_listening_port:\f[R] (the bound port), which is how a
+second jnext\(cqs \f[B]\-\-sdcard\-file\-add\f[R] finds the server to
+copy through.
+The lock itself is held by the operating system and goes with the
+process; a file left behind is inert.
+.TP
 \f[CR]\(ti/.jnext/screenshots/\f[R]
 Where \f[B]File > Quick Screenshot\f[R] writes, unless
 \f[CR][screenshot] quick_dir\f[R] says otherwise.
@@ -5343,8 +5436,12 @@ Command\-line usage error \(em \f[B]\-\-sdcard\-file\-dest\f[R] or
 \f[B]\-\-sdcard\-file\-force\f[R] without
 \f[B]\-\-sdcard\-file\-add\f[R], either of the first two given twice or
 with an empty value, or combined with \f[B]\-\-sdcard\-readonly\f[R] or
-\f[B]\-\-load\f[R]; for the three commands above, a missing companion
-(\f[B]\-\-sdcard\-writes\-flatten\f[R] without
+\f[B]\-\-load\f[R]; an SD card command given both \f[B]\-\-sdcard\f[R]
+(or \f[B]\-\-sdcard1\f[R]) and \f[B]\-\-sdcard2\f[R], or a first\-card
+option (\f[B]\-\-sdcard\-readonly\f[R],
+\f[B]\-\-sdcard\-writes\f[R]\&...)
+with \f[B]\-\-sdcard2\f[R]; for the three commands above, a missing
+companion (\f[B]\-\-sdcard\-writes\-flatten\f[R] without
 \f[B]\-\-sdcard\-writes\f[R], \f[B]\-\-sdcard\-export\-base\f[R] without
 \f[B]\-\-sdcard\-export\-changes\f[R]), an empty value, a repeat, or two
 of the commands in one run.
@@ -5400,7 +5497,9 @@ filesystem this build will not mount (an under\-clustered one), or could
 not be written, or, with \f[B]\-\-sdcard\-writes\f[R], the writes file
 could not be written or holds a rewritten partition table or boot
 sector; or another jnext is using the image or the writes file (one
-card, one jnext).
+card, one jnext) and could not take the copy for
+\f[B]\-\-sdcard\-file\-add\f[R] (see \f[B]A CARD IN USE BY A RUNNING
+JNEXT\f[R]).
 For \f[B]\-\-sdcard\-export\-changes\f[R] also: the card, seen through
 its writes file, could not be opened for reading.
 For \f[B]\-\-sdcard\-file\-extract\f[R], any FAT12, FAT16 or FAT32 card
