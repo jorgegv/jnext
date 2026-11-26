@@ -417,7 +417,14 @@ static void table_rows() {
     std::set<std::string> rows;
     int served = 0, declined = 0, unsupported = 0;
     std::string stray;
+    std::string ext;
+    bool        ext_foreign_ok = true;
     for (const auto& t : table) {
+        if (t.extension) {   // jnext's own: pinned by ZRCP-TAB-07, outside the ZEsarUX census
+            ext += std::string(" ") + t.name;
+            if (ls.count(t.name) || t.cls != CommandClass::Served) ext_foreign_ok = false;
+            continue;
+        }
         rows.insert(t.name);
         if (!ls.count(t.name)) stray += std::string(" ") + t.name;
         served += t.cls == CommandClass::Served;
@@ -430,13 +437,23 @@ static void table_rows() {
     std::string both;
     for (const auto& n : pending)
         if (rows.count(n) || !ls.count(n)) both += " " + n;
-    check("ZRCP-TAB-01", "census against ZEsarUX 12.0's ls (125 names): every name is a table "
-                         "row, no row is foreign, none pending; 67 served, 1 declined "
+    check("ZRCP-TAB-01", "census against ZEsarUX 12.0's ls (125 names), over the table's non-extension "
+                         "rows: every name is a table row, no row is foreign, none pending; 67 served, 1 declined "
                          "(exit-emulator), 57 unsupported — §2's 67 / 1 / 57",
               ls.size() == 125 && pending.empty() && missing.empty() && stray.empty() &&
                   both.empty() && served == 67 && declined == 1 && unsupported == 57,
               "missing:" + missing + " stray:" + stray + " both:" + both + " served=" +
                   std::to_string(served) + " unsupported=" + std::to_string(unsupported));
+
+    {
+        const std::string help_all = [] { Rig r; Zc z(r); return z.cmd("help"); }();
+        const std::string ls_all = [] { Rig r; Zc z(r); return z.cmd("ls"); }();
+        check("ZRCP-TAB-07", "the extension rows (jnext-only commands, outside the ZEsarUX census) are exactly "
+                             "{sd-file-add}: not a ZEsarUX ls name, Served, listed by help and ls",
+              ext == " sd-file-add" && ext_foreign_ok && help_all.find("\nsd-file-add ") != std::string::npos &&
+                  ls_all.find("sd-file-add") != std::string::npos,
+              ext);
+    }
 
     Rig rig;
     Zc  c(rig);
