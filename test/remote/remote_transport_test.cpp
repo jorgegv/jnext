@@ -1404,11 +1404,15 @@ static void link_rows() {
         const bool queued = link_until(s3, link, [&] { return link.state() == LinkState::Open; }) &&
                             link.write(big.data(), big.size());
         const bool whole = link_until(s3, link, [&] { return sink.got >= kBig; }, 60000);
+        // The capped link gets a server of its own: s3 has a client already and would refuse it.
+        SinkProtocol sink2;
+        Server       s5(cfg_named("sink2"), sink2);
+        s5.open("127.0.0.1", 0);
         TcpLinkOptions small;
         small.max_output = std::size_t{64} << 10;
-        TcpLink       tiny("127.0.0.1", s3.port(), small);
+        TcpLink       tiny("127.0.0.1", s5.port(), small);
         tiny.open();
-        link_until(s3, tiny, [&] { return tiny.state() == LinkState::Open; });
+        link_until(s5, tiny, [&] { return tiny.state() == LinkState::Open; });
         const bool refused = !tiny.write(big.data(), std::size_t{128} << 10) &&
                              tiny.state() == LinkState::Failed &&
                              tiny.last_error().find("output backlog") != std::string::npos;
