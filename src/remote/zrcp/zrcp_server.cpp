@@ -236,7 +236,8 @@ bool clip_layer(const std::string& name, jnext::dbg::ClipLayer& layer, std::uint
 // ---------------------------------------------------------------------------
 // THE TABLE — alphabetical, as `help` and `ls` print it. Every name ZEsarUX
 // 12.0's `ls` lists is here: 67 served, 1 declined, 57 unsupported
-// (ZRCP-TAB-01).
+// (ZRCP-TAB-01), plus jnext's one own command, `sd-file-add` (`extension`
+// set; ZRCP-TAB-07 pins that set).
 // ---------------------------------------------------------------------------
 
 #define U(name, aliases) \
