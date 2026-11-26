@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <functional>
 #include <memory>
+#include <string>
 
 #include "remote/client_link.h"
 #include "remote/dzrp/dzrp_client.h"
@@ -33,6 +34,11 @@ struct ProbeEnv {
 /// Exit: 0 every step ran; 1 connect / CMD_INIT / a command failed, or the reconnect failed;
 /// 2 usage error. `argv[0]` is the program name.
 int run_probe(int argc, char** argv, std::FILE* out, const ProbeEnv& env);
+
+/// Test support: run the probe with its output captured in a string (a scratch file in the
+/// temp directory, removed afterwards: `tmpfile()` needs the volume root on Windows). `rc` is
+/// the probe's exit status, or -1 when no scratch file could be made.
+std::string run_probe_captured(int argc, char** argv, const ProbeEnv& env, int& rc);
 
 }  // namespace dzrp
 }  // namespace remote

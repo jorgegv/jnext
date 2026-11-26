@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <thread>
 #include <vector>
@@ -520,6 +521,31 @@ int run_probe(int argc, char** argv, std::FILE* out, const ProbeEnv& env) {
     ++p.commands;
     again.close();
     return p.summary(rc);
+}
+
+std::string run_probe_captured(int argc, char** argv, const ProbeEnv& env, int& rc) {
+    namespace fs = std::filesystem;
+    static int counter = 0;
+    std::error_code ec;
+    const fs::path  path = fs::temp_directory_path(ec) /
+                          ("jnext_dzrp_probe_" +
+                           std::to_string(Clock::now().time_since_epoch().count()) + "_" +
+                           std::to_string(++counter) + ".txt");
+    std::FILE* f = std::fopen(path.string().c_str(), "w+b");
+    if (!f) {
+        rc = -1;
+        return {};
+    }
+    rc = run_probe(argc, argv, f, env);
+    std::fflush(f);
+    std::rewind(f);
+    std::string out;
+    char        buf[4096];
+    std::size_t n;
+    while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, n);
+    std::fclose(f);
+    fs::remove(path, ec);
+    return out;
 }
 
 }  // namespace dzrp

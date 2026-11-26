@@ -1418,14 +1418,7 @@ static ProbeRun run_probe_args(std::vector<std::string> args, ProbeEnv env) {
     store.insert(store.end(), args.begin(), args.end());
     std::vector<char*> argv;
     for (auto& a : store) argv.push_back(&a[0]);
-    std::FILE* f = std::tmpfile();
-    r.rc         = run_probe(static_cast<int>(argv.size()), argv.data(), f, env);
-    std::fflush(f);
-    std::rewind(f);
-    char buf[4096];
-    std::size_t n;
-    while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) r.out.append(buf, n);
-    std::fclose(f);
+    r.out = run_probe_captured(static_cast<int>(argv.size()), argv.data(), env, r.rc);
     return r;
 }
 

@@ -1545,15 +1545,8 @@ static void link_rows() {
         const std::string uri = "tcp:127.0.0.1:" + std::to_string(dz.server().port());
         std::string a0 = "dzrp_client_probe", a1 = uri;
         char*       argv[] = {&a0[0], &a1[0]};
-        std::FILE*  f = std::tmpfile();
-        const int   rc = jnext::remote::dzrp::run_probe(2, argv, f, env);
-        std::fflush(f);
-        std::rewind(f);
-        std::string out;
-        char        buf[2048];
-        std::size_t n;
-        while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, n);
-        std::fclose(f);
+        int         rc = -1;
+        const std::string out = jnext::remote::dzrp::run_probe_captured(2, argv, env, rc);
         dbg.remove_service(dz.server());
         check("RLK-PRB-01", "the probe over real TCP to an in-process DzrpServer: exit 0, profile jnext, \"0 failed\"",
               open && rc == 0 && out.find("profile jnext") != std::string::npos &&
