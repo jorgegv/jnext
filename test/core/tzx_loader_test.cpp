@@ -1427,6 +1427,28 @@ int main(int argc, char** argv) {
                   std::to_string(no_hold1) + std::to_string(hold1) + std::to_string(no_hold2) + std::to_string(hold2));
         }
 
+        {   // TZXP-15
+            // The poll run is restarted by a hold only: a program that polls through a
+            // 1000 ms gap (while the deck PLAYS) keeps its run, so no gap hold happens.
+            auto b10p = [](const Bytes& body, uint32_t pause) {
+                return concat({{0x10}, le16(pause), le16(static_cast<uint32_t>(body.size())), body});
+            };
+            const std::string path = write_file("p15.tzx", concat({kHeader, b10p(tap_body(0xFF, {1, 2, 3, 4, 5}), 1000),
+                                                                    b10p(tap_body(0xFF, {6, 7, 8, 9}), 1000)}));
+            auto emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0; cfg.tape_auto_play = true;
+            const bool ok = emu->init(cfg) && emu->load_tzx(path, false);
+            const Bytes prog = {0xF3, 0xED, 0x78, 0x18, 0xFC};   // IN A,(C); JR: polls for ever
+            for (size_t i = 0; i < prog.size(); ++i) emu->mmu().write(uint16_t(0x8000 + i), prog[i]);
+            auto r = emu->cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0x9000; r.BC = 0xFFFE; r.IFF1 = r.IFF2 = 0;
+            emu->cpu().set_registers(r);
+            log_out.str("");
+            for (int i = 0; i < 160; ++i) emu->run_frame();      // block A ends ~frame 100, its gap is 50 frames
+            const bool no_hold = log_out.str().find("TZX: deck held") == std::string::npos;
+            check("TZXP-15", "a program that polls the port through a block's 1000 ms gap does not make the deck hold there (only a hold restarts the poll run)",
+                  ok && no_hold && emu->tzx_tape().is_playing());
+        }
         // ROM level: the 48K ROM's LD-BYTES in real time is the consumer.
         const Bytes body5 = tap_body(0xFF, {1, 2, 3, 4, 5});
         const Bytes follow = b10(tap_body(0x00, Bytes(17, 0x20)));
