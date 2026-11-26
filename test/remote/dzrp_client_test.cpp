@@ -10,7 +10,7 @@
 // no VHDL counterpart.
 //
 //   DZC-FR-*    framing: both length conventions, the cap, the chunk timeout, the serial preamble.
-//   DZC-SES-*   the session: CMD_INIT, sequence numbers, the window, timeouts, notifications.
+//   DZC-SES-*   the session: CMD_INIT, sequence numbers, the window, timeouts, notifications, detach_link.
 //   DZC-ID-*    the identity rule: which remote is which profile.
 //   DZC-GATE-*  the send gate: nothing outside the profile's set, nothing to a running program.
 //   DZC-WAIT-*  the wait hook that lets a client talk to a server on its own thread.
@@ -666,9 +666,10 @@ static void session_rows() {
             bring_up(*c, s);
             return c->state();
         };
-        const SessionState v21 = run(2, 1, 0), v30 = run(3, 0, 0), v23 = run(2, 3, 0);
-        check("DZC-SES-03", "version gate for jnext: 2.1.0 fails, 3.0.0 fails, 2.3.0 is Ready",
-              v21 == SessionState::Failed && v30 == SessionState::Failed && v23 == SessionState::Ready);
+        const SessionState v21 = run(2, 1, 0), v30 = run(3, 0, 0), v32 = run(3, 2, 0), v23 = run(2, 3, 0);
+        check("DZC-SES-03", "version gate for jnext: 2.1.0, 3.0.0 and 3.2.0 fail, 2.3.0 is Ready",
+              v21 == SessionState::Failed && v30 == SessionState::Failed && v32 == SessionState::Failed &&
+                  v23 == SessionState::Ready);
     }
     // SES-04
     {
@@ -989,6 +990,30 @@ static void session_rows() {
     }
 }
 
+// SES-21 (a row the plan did not list): detach_link, the one door past the gate, is closed while a
+// command is in flight or queued, and otherwise hands over the LIVE link without a CMD_CLOSE.
+static void detach_row() {
+    Script s;
+    hold(s);
+    auto c = make_client(s);
+    bring_up(*c, s);
+    std::uint32_t t = 0;
+    c->submit(CMD_GET_REGISTERS, {}, t);
+    s.service();
+    const bool refused = c->detach_link() == nullptr && c->state() == SessionState::Ready;
+    s.release(0);
+    spin(*c, s, [&] { return c->done(t); });
+    c->take(t);
+    auto link = c->detach_link();
+    s.service();
+    const std::size_t before = s.ids.size();
+    link->write(Bytes{0, 0, 0, 0, 1, 3}.data(), 6);   // a raw CMD_GET_REGISTERS, seq 1
+    s.service();
+    check("DZC-SES-21", "detach_link refuses while a command is in flight; once idle it hands over the live link (state Closed, no CMD_CLOSE sent) which still carries bytes",
+          refused && link && c->state() == SessionState::Closed && link->state() == LinkState::Open &&
+              std::count(s.ids.begin(), s.ids.end(), static_cast<int>(CMD_CLOSE)) == 0 && s.ids.size() == before + 1);
+}
+
 // ==============================================================================================
 // DZC-ID - the identity rule
 // ==============================================================================================
@@ -1277,13 +1302,13 @@ static void log_rows() {
                   fmt_log(cat(str("$h1"), Bytes{0, 0x0A})) == "0A");
     }
     {
-        Bytes no_nul = str("abc$u1");   // no NUL: the whole payload is the format string, no data
+        Bytes no_nul = str("abc$u1");   // no NUL: the whole payload is the format string, and there is no data
         Bytes big(4000, 'x');
         big.push_back(0);
         const bool short_data = fmt_log(cat(str("a$u2b"), Bytes{0, 0x01})) == "a<?>b";
         const bool dollar_end = fmt_log(cat(str("x$"), Bytes{0})) == "x$";
         const bool bad_seq = fmt_log(cat(str("$x1"), Bytes{0, 5})) == "$x1";
-        const bool nonul = fmt_log(no_nul) == "abc$u1";
+        const bool nonul = fmt_log(no_nul) == "abc<?>";
         const bool huge = fmt_log(big).size() <= 1024;
         const bool empty = fmt_log(Bytes{}).empty();
         check("DZC-LOG-03", "malformed NTF_LOG: short data prints <?>, a trailing $ and an unknown sequence print literally, a missing NUL and an empty payload read nothing past the end, a 4000-byte string is cut to 1024",
@@ -1493,6 +1518,7 @@ int main() {
     std::printf("dzrp_client_test - the DZRP client over memory links (GH #511)\n");
     framing_rows();
     session_rows();
+    detach_row();
     identity_rows();
     gate_rows();
     wait_rows();

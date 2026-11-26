@@ -57,6 +57,7 @@
 
 #include "remote/dzrp/dzrp_frame.h"
 #include "remote/dzrp/dzrp_server.h"
+#include "remote/dzrp/dzrp_session.h"
 #include "remote/fake_transport.h"
 #include "remote/transport.h"
 
@@ -72,6 +73,7 @@
 #include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -918,6 +920,95 @@ static void session_rows() {
                   log.count("CMD_INIT from \"" + kept + "\" (DZRP 2.2.0)") == 1 &&
                   log.count("\"" + kept + "\" kind=") == 1 &&
                   log.count(name.substr(0, 65)) == 0);
+    }
+}
+
+// ── DZRP-SES-15..18 — a session with oneself is refused (GH #511) ──────────
+//
+// The DZRP client of THIS process ends its CMD_INIT program name with
+// ` (session <token>)` (dzrp_session.h); a server of the same process refuses it,
+// because both would run on one thread. Oracle: the client/server session design
+// (D17, D-f of the plan) and the attach semantics of DZRP-SES-02/14.
+
+static std::string own_name(const std::string& prefix) {
+    return prefix + " (session " + process_session_token() + ")";
+}
+
+/// The program name in a CMD_INIT reply: payload bytes 5.. up to the NUL.
+static std::string reply_name(const Resp& r) {
+    return r.payload.size() > 5 ? std::string(r.payload.c_str() + 5) : std::string();
+}
+
+static void self_session_rows() {
+    {
+        LogTap log;
+        Rig    rig;
+        Dz     c(rig);
+        const bool running = !rig.dbg->state().paused;
+        const Resp r = c.init(2, 2, 0, own_name("jnext v" JNEXT_VERSION_STRING));
+        check("DZRP-SES-15", "a CMD_INIT whose name ends with this process's session token, on a "
+                             "RUNNING machine, is answered error 1 echoing the token; nothing is "
+                             "attached and the machine is still running",
+              running && !r.payload.empty() && r.payload[0] == 1 &&
+                  reply_name(r) == own_name("jnext v" JNEXT_VERSION_STRING) &&
+                  log.count("ATTACH client") == 0 && !rig.dbg->state().paused);
+    }
+    {
+        LogTap log;
+        Rig    rig;
+        Dz     c(rig);
+        const std::string suffix = own_name("");
+        const std::string name   = std::string(100 - suffix.size(), 'a') + suffix;
+        const Resp r = c.init(2, 2, 0, name);
+        check("DZRP-SES-16", "the token at the end of a 100-byte name is still refused: the RAW "
+                             "payload is read, not the 64-byte display name",
+              name.size() == 100 && !r.payload.empty() && r.payload[0] == 1 &&
+                  log.count("ATTACH client") == 0);
+    }
+    {
+        // Lookalikes attach normally, each on its own rig. (An uppercased token that has no
+        // letter is the token itself, so a variant with a different token covers that case.)
+        const std::string tok = process_session_token();
+        std::string upper = tok;
+        for (char& ch : upper) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+        const std::vector<std::string> names = {
+            "x (session " + upper + ")",
+            "x (session " + tok.substr(1) + ")",
+            "x (session a" + tok + ")",
+            own_name("x") + " tail",
+            "x (session 0123456789abcdef)",
+        };
+        bool        all = true;
+        std::string why;
+        for (std::size_t i = 0; i < names.size(); ++i) {
+            if (i == 0 && upper == tok) continue;   // no letter in the token: vacuous, see above
+            Rig rig;
+            Dz  c(rig);
+            const Resp r = c.init(2, 2, 0, names[i]);
+            if (r.payload.empty() || r.payload[0] != 0 || reply_name(r) != jnext_name()) {
+                all = false;
+                why += " [" + std::to_string(i) + "]";
+            }
+        }
+        check("DZRP-SES-17", "lookalike names attach normally (error 0, the plain \"jnext v<ver>\" "
+                             "reply): the token in uppercase, 15 and 17 hex digits, the token not "
+                             "at the end, another process's token",
+              all, why);
+    }
+    {
+        LogTap log;
+        Rig    rig;
+        Dz     c(rig);
+        c.init(2, 2, 0, "gui");
+        const bool paused = rig.dbg->state().paused;
+        const Resp again = c.init(2, 2, 0, own_name("gui"));
+        const Resp regs  = c.cmd(CMD_GET_REGISTERS);
+        check("DZRP-SES-18", "a repeated CMD_INIT carrying this process's token on an open session "
+                             "is refused (error 1) and leaves the session, its client and its pause "
+                             "as they were",
+              paused && !again.payload.empty() && again.payload[0] == 1 &&
+                  rig.dbg->state().paused && regs.payload.size() >= 4 &&
+                  log.count("ATTACH client") == 1 && log.count("DETACH client") == 0);
     }
 }
 
@@ -3123,6 +3214,7 @@ int main() {
     std::printf("dzrp_adapter_test — the DZRP adapter over T's fake transport (GH #12)\n");
     framing_rows();
     session_rows();
+    self_session_rows();
     supported_rows();
     register_rows();
     memory_rows();

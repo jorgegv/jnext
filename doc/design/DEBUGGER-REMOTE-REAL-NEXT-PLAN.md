@@ -37,9 +37,9 @@ are sub-issues of their own; R6 is one placeholder sub-issue, opened only if R5.
 
 #### Sub-issue 1: DZRP client core (framing, session, TCP link)
 
-- [ ] **R0.2** DZRP client framing: command encoder and response/notification parser in `dzrp_frame.*`, cross-checked against the server's parser
-- [ ] **R0.3** DZRP client session core (`DzrpClient`): CMD_INIT/CLOSE, sequence numbers 1..15, pipelining window, timeouts, NTF_PAUSE/NTF_LOG, profiles, send gate, wait hook, session token
-- [ ] **R0.4** Client links: outbound TCP over `esp::make_socket_transport`, an in-memory link pair for the suites, and the `test/dzrp_client_probe` driver R0.5 runs
+- [x] **R0.2** DZRP client framing: command encoder and response/notification parser in `dzrp_frame.*`, cross-checked against the server's parser
+- [x] **R0.3** DZRP client session core (`DzrpClient`): CMD_INIT/CLOSE, sequence numbers 1..15, pipelining window, timeouts, NTF_PAUSE/NTF_LOG, profiles, send gate, wait hook, session token
+- [x] **R0.4** Client links: outbound TCP over `esp::make_socket_transport`, an in-memory link pair for the suites, and the `test/dzrp_client_probe` driver R0.5 runs
 
 #### Sub-issue 2: early hardware checkpoint on the KS2 (board issue 4, the Kickstarter 2 board) (owner)
 
@@ -394,7 +394,7 @@ cannot be read back (`Z80RegistersZxNextDecoder` returns NaN).
   |---|---|---|---|---|
   | `"jnext v..."`, 2.2.0 or later | any | jnext | from `CMD_GET_SUPPORTED_COMMANDS` | normal (40/41) |
   | `"dezogif ..."`, 2.1.0 | TCP | dezogif_ng (only its WiFi build has TCP, §2.4a) | fixed, §2.4 | simple (13/14) |
-  | `"dezogif ..."`, 2.1.0 | serial | ambiguous: dezogif_ng UART build or the upstream at DZRP 2.1.0 | the intersection: §2.4's set minus 7, 18, 19; Pause by the NMI button only, unless the user declares the stub is dezogif_ng (`remote.stub`, R4.4), which selects the dezogif_ng set | simple |
+  | `"dezogif ..."`, 2.1.0 | serial | ambiguous: dezogif_ng UART build or the upstream at DZRP 2.1.0 | the intersection: §2.4's set minus 7, 18, 19, 40 and 41 (the upstream at the fork point, `dee4255`, answers every id above 23 with `cmd_not_supported`, which resets its session); Pause by the NMI button only, unless the user declares the stub is dezogif_ng (`remote.stub`, R4.4), which selects the dezogif_ng set | simple |
   | `"dezogif ..."`, 2.2.0 or later | any | dezogif 2.2 (the upstream today, a future dezogif_ng) | from `CMD_GET_SUPPORTED_COMMANDS`, safe at 2.2.0 | simple (no 40/41 in the bitfield); normal if the bitfield ever has 40/41 |
   | anything else | any | refused, naming the remote | none | n/a |
 
@@ -476,7 +476,7 @@ changes nothing a user sees.
   remote refused, sequence wrap 15 -> 1, a reply with a wrong sequence number (protocol error,
   link closed), timeout, NTF_PAUSE between a command and its reply, CMD_CLOSE on teardown. Gate
   rows: with the dezogif_ng profile, asking for command 24, 25 or 42 sends nothing; with the
-  ambiguous serial profile, asking for 7, 18 or 19 sends nothing; with a dezogif profile and the
+  ambiguous serial profile, asking for 7, 18, 19, 40 or 41 sends nothing; with a dezogif profile and the
   program running, any command but 7 sends nothing. Identity rows: each line of §3's table,
   including the same `"dezogif v2.2.1"` answer over TCP and over serial giving two profiles.
   Wait-hook rows: a blocking read to an in-process `DzrpServer` over the memory pair completes
@@ -942,7 +942,7 @@ protocol path against the real stub running in jnext.
   twin compiles in `make unit-test-win` and its behaviour is tested only on hardware (stated in
   the suite's comment and in §12).
 - **Acceptance.** Over a pty pair the session of R4.1's acceptance runs with the 0xA5 pre-stage
-  and 921600 configured; the ambiguous profile never sends 7, 18 or 19 unless `remote.stub`
+  and 921600 configured; the ambiguous profile never sends 7, 18, 19, 40 or 41 unless `remote.stub`
   declares dezogif_ng; `make unit-test-win` builds the Windows twin.
 - **Depends on.** R4.1.
 
@@ -1161,7 +1161,7 @@ for R5. The owner later withdrew an idea of a dezogif_ng git submodule; the plan
 | D16 | Remote verbs a target cannot serve return `Result::Unsupported` and are greyed with a reason | the facade's rule "every verb that can refuse says so" | hiding panels |
 | D17 | Blocking waits call a wait hook (the local facade's `pump()`); connect and `CMD_INIT` are asynchronous; a session with oneself is refused by a per-process session token | single-threaded, an in-process server is drained only by the local `pump()` (`transport.h` `Server`); a self-session has no use | a client thread (architecture §5's reasons against threads hold); asynchronous panels; detecting self by address and port (misses a LAN address of the same host) |
 | D18 | On a dezogif profile, nothing but `CMD_PAUSE` is sent while the program runs; breakpoint edits are an absorbed pause, or queued without Pause | any byte breaks the running program or goes unanswered (`ASYNCHRONOUS-BREAK-DESIGN.md`, "BREAK ON ANY BYTE") | DeZog's way, sending `CMD_SET_BREAKPOINTS` at once (an unannounced break with the async break, a timeout without it) |
-| D19 | The 2.1.0 `"dezogif"` identity is resolved by the link: TCP = dezogif_ng; serial = a conservative profile (no 7, 18, 19) unless the user declares dezogif_ng (`remote.stub`) | both forks answer 2.1.0 `"dezogif v2.2.1"`, and only dezogif_ng has a TCP transport (§2.4a) | a probe command to tell them apart (every candidate costs a session on one of them); always asking the user |
+| D19 | The 2.1.0 `"dezogif"` identity is resolved by the link: TCP = dezogif_ng; serial = a conservative profile (no 7, 18, 19, 40, 41) unless the user declares dezogif_ng (`remote.stub`) | both forks answer 2.1.0 `"dezogif v2.2.1"`, and only dezogif_ng has a TCP transport (§2.4a) | a probe command to tell them apart (every candidate costs a session on one of them); always asking the user |
 | D20 | The emulated-rig rows use vendored prebuilt dezogif_ng ROMs, pinned by build number and sha256 with their MIT notice; no submodule | owner, Q4 (2026-11-18): no sjasmplus dependency, and a test of a binary the owner also runs on the KS2 | building the ROMs from source (a new pinned toolchain); a git submodule (the owner withdrew that idea) |
 | D21 | Upload is part of the PoC and is greyed on the dezogif 2.2 profile | owner, Q5; that stub advertises neither 5 nor 26, and a `CMD_SET_SLOT` + `CMD_WRITE_MEM` path would be designed blind against an untested stub | the `SET_SLOT` + `WRITE_MEM` fallback now (revisited when such a stub is on hand) |
 | D22 | R0.5 sends one unsupported command (24), last and once, through a test-only gate bypass in the probe | owner, Q10: confirm the silent reset on the KS2 at the cost of one session; the product client keeps no bypass | not exercising it (the round-2 plan) |

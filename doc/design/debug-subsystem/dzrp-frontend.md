@@ -73,6 +73,11 @@
 > - v1.9 (2026-10-03): DZRP 2.2.0's late additions `CMD_SET_NEXTREGS` (27)
 >   and `CMD_READ_MEM_BLOCKS` (28) served — current DeZog 3.8 reads all memory
 >   with 28. §2 rows 24, 27, 28; §16 records the use case and the decisions.
+> - v1.10 (2026-11-26): `CMD_INIT` answers error 1, echoing the token in the reply
+>   name (`jnext v<ver> (session <token>)`), to a client whose program name ends with
+>   this process's session token: it is the process's own DZRP client, and a session
+>   with oneself would deadlock the one emulation thread. Every other client, and the
+>   normal reply name, are unchanged. The client half is epic #486.
 
 Every claim below carries a `file:line` citation. Sources and their versions:
 

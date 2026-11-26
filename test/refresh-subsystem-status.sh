@@ -278,6 +278,7 @@ BEGIN {
     M["remote_transport_test"]         = "Debugger socket transport (GH #287)"
     M["remote_pipe_test"]              = "Browser page debug channel (GH #545)"
     M["dzrp_adapter_test"]             = "DZRP remote debugger adapter (GH #12)"
+    M["dzrp_client_test"]              = "DZRP remote debugger client (GH #511)"
     M["gdb_rsp_test"]                  = "GDB RSP remote debugger adapter (GH #281)"
     M["script_parse_test"]             = "Debugger DSL front end (GH #26)"
     M["script_eval_test"]              = "Debugger DSL evaluator (GH #26)"
