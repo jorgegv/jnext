@@ -923,7 +923,7 @@ static void session_rows() {
     }
 }
 
-// ── DZRP-SES-15..18 — a session with oneself is refused (GH #511) ──────────
+// ── DZRP-SES-15..18 - a session with oneself is refused (GH #511) ──────────
 //
 // The DZRP client of THIS process ends its CMD_INIT program name with
 // ` (session <token>)` (dzrp_session.h); a server of the same process refuses it,

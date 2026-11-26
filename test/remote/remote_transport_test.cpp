@@ -1212,7 +1212,7 @@ static void pump_rows() {
     srv.stop();
 }
 
-// ── RLK — the client links (GH #511) ───────────────────────────────────────
+// ── RLK - the client links (GH #511) ───────────────────────────────────────
 
 using jnext::remote::ClientLink;
 using jnext::remote::LinkKind;

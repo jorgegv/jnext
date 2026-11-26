@@ -62,7 +62,7 @@ constexpr std::uint8_t DZRP_VERSION_MAJOR = 2;
 constexpr std::uint8_t DZRP_VERSION_MINOR = 2;
 constexpr std::uint8_t DZRP_VERSION_PATCH = 0;
 
-/// `CMD_INIT`'s machine type: ZXNEXT, for every `--machine` (design §5.1 — the
+/// `CMD_INIT`'s machine type: ZXNEXT, for every `--machine` (design §5.1 - the
 /// MMU is the Next's in every mode; CSpect "will always return ZXNEXT" too).
 constexpr std::uint8_t DZRP_MACHINE_ZXNEXT = 4;
 
