@@ -5021,7 +5021,11 @@ void test_boot_format_loaders() {
     // BOOT-DECI-01 — TZX 0x15 Direct Recording: EAR level as a
     // function of time must equal sample[(t - t0) / sample_tstates],
     // MSB-first, honouring used_bits in the final byte; after the
-    // last sample (pause=0) the tape ends at level 0.
+    // last sample (pause=0) the tape ends at level 0. GH #567: a high
+    // last sample is held for 1 ms (3500 T) first, so the loader sees
+    // the block's last edge before the tape stops (TZX 1.20 pause rule,
+    // libspectrum tape.c do_tail_pause, FUSE tape_stop() keeping the
+    // level); a low last sample stops at once.
     {
         // 13 samples: 0xB2 = 1,0,1,1,0,0,1,0 then 0x58 top 5 = 0,1,0,1,1.
         static const uint8_t tzx_direct[] = {
@@ -5043,18 +5047,22 @@ void test_boot_format_loaders() {
         for (uint64_t t = t0; ok && t < t0 + 13 * 77 + 200; t += 7) {
             int lvl = tzx_update(&p, t);
             int idx = static_cast<int>((t - t0) / 77);
-            int want = (idx < 13) ? expected[idx] : 0;
+            int want = (idx < 13) ? expected[idx] : (t < t0 + 13 * 77 + 3500 ? 1 : 0);
             if (lvl != want) {
                 ok = false;
                 bad = fmt("t=%llu idx=%d got=%d want=%d",
                           static_cast<unsigned long long>(t), idx, lvl, want);
             }
         }
-        if (ok && tzx_is_playing(&p)) { ok = false; bad = "still playing after last sample"; }
+        // Past the 1 ms tail the deck has stopped, at level 0.
+        if (ok) {
+            const int lv = tzx_update(&p, t0 + 13 * 77 + 3500);
+            if (tzx_is_playing(&p) || lv != 0) { ok = false; bad = "not stopped at level 0 after the 1 ms tail"; }
+        }
         check("BOOT-DECI-01",
               "TZX 0x15 Direct Recording: EAR(t) = sample[(t-t0)/77] "
               "MSB-first with used_bits=5 in the last byte; level 0 and "
-              "stopped after the final sample (TZX spec v1.20 block 0x15)",
+              "stopped after the final sample's 1 ms hold (TZX spec v1.20 block 0x15)",
               ok, bad);
     }
 
