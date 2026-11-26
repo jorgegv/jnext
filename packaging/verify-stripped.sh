@@ -10,7 +10,12 @@
 #   ELF      no .symtab and no .debug_* section          (readelf)
 #   PE       no COFF symbol and no .debug_* section      (<arch>-w64-mingw32-objdump)
 #   Mach-O   no __DWARF segment (otool); an executable defines no symbol but
-#            __mh_execute_header, a dylib or bundle no local one (nm -U)
+#            __mh_execute_header and weak ones (dyld coalesces those, so
+#            strip keeps them), a dylib or bundle no local one (nm -m -U)
+#
+# 0xcafebabe opens both a universal Mach-O and a Java class file; the word
+# after it tells them apart (a universal binary's arch count is small, a class
+# file's major version is 45 or more), and a class file is not a binary.
 #
 # A <path> holding no binary at all fails too: a check of nothing is not a pass.
 #
@@ -24,7 +29,7 @@ READELF=${READELF:-readelf}
 NM=${NM:-nm}
 OTOOL=${OTOOL:-otool}
 
-WORK=$(mktemp -d)
+WORK=$(mktemp -d)   # honours TMPDIR; a Windows zip is ~100 MB unpacked
 trap 'rm -rf "$WORK"' EXIT
 
 bad=0
@@ -36,7 +41,11 @@ magic() {
     m=$(od -An -tx1 -N 4 "$1" 2>/dev/null | tr -d ' \n')
     case "$m" in
         7f454c46) echo elf ;;
-        feedface|feedfacf|cefaedfe|cffaedfe|cafebabe) echo macho ;;
+        feedface|feedfacf|cefaedfe|cffaedfe) echo macho ;;
+        cafebabe)
+            local n
+            n=$(od -An -tx1 -j 4 -N 4 "$1" 2>/dev/null | tr -d ' \n')
+            if [ -n "$n" ] && [ "$((16#$n))" -lt 45 ]; then echo macho; else echo other; fi ;;
         4d5a*)
             local off pe mach
             off=$(od -An -tu4 -j 0x3c -N 4 "$1" 2>/dev/null | tr -d ' ')
@@ -72,16 +81,21 @@ check_pe() {
     return 0
 }
 
+# nm -m prints one line per symbol, "<addr> (<seg>,<sect>) <kind> <name>",
+# kind being "external", "weak external" or "non-external" (a local symbol); a
+# universal binary adds per-arch headers, which are not symbol lines.
 check_macho() {
-    local l s
+    local l h s syms
     l=$("$OTOOL" -l "$1") || { fail "$1" "otool -l failed"; return; }
+    h=$("$OTOOL" -hv "$1") || { fail "$1" "otool -hv failed"; return; }
+    s=$("$NM" -m -U "$1") || { fail "$1" "$NM -m -U failed"; return; }
     grep -q 'segname __DWARF' <<<"$l" && fail "$1" "has a __DWARF segment"
-    s=$("$NM" -U "$1" 2>/dev/null) || s=""
-    if grep -qw EXECUTE <<<"$("$OTOOL" -hv "$1")"; then
-        [ -n "$(grep -v '[[:space:]]__mh_execute_header$' <<<"$s")" ] \
-            && fail "$1" "defines symbols other than __mh_execute_header"
+    syms=$(grep -E '^[0-9a-f]+ \(' <<<"$s" || true)
+    if grep -qw EXECUTE <<<"$h"; then
+        [ -n "$(grep -v -e ' weak external ' -e ' __mh_execute_header$' <<<"$syms")" ] \
+            && fail "$1" "defines symbols other than __mh_execute_header and weak ones"
     else
-        grep -qE '^[0-9a-f]* [a-z] ' <<<"$s" && fail "$1" "has local symbols"
+        grep -q ' non-external ' <<<"$syms" && fail "$1" "has local symbols"
     fi
     return 0
 }

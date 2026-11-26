@@ -107,8 +107,9 @@ link).
 `packaging/verify-stripped.sh <package|dir|binary>` is the check: it unpacks an
 `.rpm`, `.deb` or `.zip`, finds the ELF, PE and Mach-O files by their magic
 bytes, and fails on a symbol table (a Mach-O executable may keep only
-`__mh_execute_header`, a dylib its exported symbols) or debug sections, and
-on a package with no binary in it. `package-rpm`, `package-deb`,
+`__mh_execute_header` and the weak definitions dyld coalesces, a dylib its
+exported symbols), on debug sections, on a tool that cannot read a binary,
+and on a package with no binary in it. `package-rpm`, `package-deb`,
 `package-win*` and `verify-macos-dmg` run it on what they produce, the package
 rows of `make package-test` run it on each artifact, and
 `test/packaging/verify-stripped-test.sh` pins its decisions with stubbed tools.
