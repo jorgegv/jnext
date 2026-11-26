@@ -114,7 +114,9 @@ bool numeric_ip(const std::string& v)
 struct Endpoint { std::string address; uint16_t port = 0; };
 std::mutex& ep_mu() { static std::mutex m; return m; }
 Endpoint& ep() { static Endpoint e; return e; }
-[[maybe_unused]] Endpoint endpoint_now() { std::lock_guard<std::mutex> g(ep_mu()); return ep(); }
+#ifndef __EMSCRIPTEN__
+Endpoint endpoint_now() { std::lock_guard<std::mutex> g(ep_mu()); return ep(); }
+#endif
 
 }  // namespace
 
@@ -214,23 +216,20 @@ void ImageLock::release()
 #endif
 }
 
+#ifndef __EMSCRIPTEN__
 namespace {
 // The labelled body of a lock on `key` as this process would write it now.
 std::string lock_body(ImageLock::Kind kind, const std::string& key)
 {
-#ifdef __EMSCRIPTEN__
-    (void)kind; (void)key;
-    return {};
-#else
     std::string b = "pid: " + std::to_string(this_pid()) + "\n" +
                     (kind == ImageLock::Kind::Writes ? "writes: " : "image: ") + key + "\n";
     const Endpoint e = endpoint_now();
     if (e.port != 0)
         b += "zrcp_listening_address: " + e.address + "\nzrcp_listening_port: " + std::to_string(e.port) + "\n";
     return b;
-#endif
 }
 }  // namespace
+#endif
 
 void ImageLock::refresh_body()
 {
