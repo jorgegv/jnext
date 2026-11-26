@@ -121,7 +121,7 @@ struct Probe {
 };
 
 // One run of the probe on a fresh private clone. `through_server`: the file is added not by calling the engine but by
-// a client of the running jnext, as `jnext --sdcard-file-add` is when the card is held (SDCOH-07): the lock file names the
+// a client of the running jnext, as `jnext --sdcard-file-add` is when the card is held (SDCOH-R01): the lock file names the
 // ZRCP server of a real DebugServers, a std::thread runs the client, and this thread pumps the debugger.
 Probe run_probe(bool through_server, const fs::path& scratch, const Bytes& data) {
     Probe r;
@@ -241,7 +241,7 @@ int main() {
         std::error_code mk;
         fs::create_directories(scratch, mk);
     }
-    // the locks of SDCOH-07 live in the scratch directory, never in the user's state dir
+    // the locks of SDCOH-R01 live in the scratch directory, never in the user's state dir
 #ifdef _WIN32
     _putenv_s("JNEXT_CONFIG_DIR", (scratch / "state").string().c_str());
 #else
@@ -268,7 +268,7 @@ int main() {
         std::string detail = "copied=" + std::to_string(p.copied) + " nex=" + std::to_string(p.nex_on_card) + " booted=" + std::to_string(p.booted) +
                              " first@" + std::to_string(p.first_frame) + " c1=" + std::to_string(p.c1) + " add=" + std::to_string(p.add_ok) +
                              p.extra + " second@" + std::to_string(p.second_frame) + " c2=" + std::to_string(p.c2) + " a2=" + std::to_string(p.a2);
-        check("SDCOH-07",
+        check("SDCOH-R01",
               "real NextZXOS: the same probe, with the file added by a client of the running jnext (the lock file names its ZRCP server, "
               "the client sends sd-file-add over the socket, the server runs the manager's logic) while the machine runs: the first F_OPEN fails, "
               "the machine is never paused and no reset is requested, the second F_OPEN succeeds and F_READ returns the 16 bytes",

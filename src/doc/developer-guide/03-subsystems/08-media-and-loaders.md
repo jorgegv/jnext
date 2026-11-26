@@ -2139,7 +2139,7 @@ source is a file the emulator holds (status 2). Then `add_to_image()` in string 
 must mean what the offline one means (the destination is the path the source becomes, the root by default, directories
 created), where `run_transfer()` copies into an existing folder under the host leaf name and asks questions. Its failures keep
 their statuses (2, 3, 4, 6), and success is `file_add_success_text()`, the one sentence the command line prints too. A running
-guest sees the file at once: `SdCardDevice` keeps no cache and the server runs on the emulation thread (`SDCOH-07`). Rows `SDRA-01..15`
+guest sees the file at once: `SdCardDevice` keeps no cache and the server runs on the emulation thread (`SDCOH-R01`). Rows `SDRA-01..15`
 (`sdcard_manager_test`).
 
 The client is `platform/sdcard_forward.*`. `--sdcard-file-add` calls it only at a lock refusal that is "held by another

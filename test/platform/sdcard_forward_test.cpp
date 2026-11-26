@@ -8,7 +8,7 @@
 // size, only the exact reply forms are believed). A real ZrcpServer on a real loopback socket (port 0) is pumped on
 // the main thread while the client runs on a std::thread; "a fake listener" is a raw esp listener the main thread
 // serves by hand. No card is touched here: the server's hook is a stub (the real one is sdmanager::remote_add,
-// tested by SDRA-* and, with a running guest, by SDCOH-07).
+// tested by SDRA-* and, with a running guest, by SDCOH-R01).
 //
 // Run: ./build/test/sdcard_forward_test
 
