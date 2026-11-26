@@ -18,7 +18,6 @@ extern "C" {
 #include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <iterator>
 #include <map>
 #include <set>
 
@@ -714,10 +713,15 @@ bool parse_i64(const std::string& s, int64_t& v) {
 
 // True when the record exists, is exactly in the grammar, and names this digest, size and mtime.
 bool verified_record_valid(const std::string& raw, const std::string& want, const Stamp& now) {
-    std::ifstream f(raw + ".verified", std::ios::binary);
+    const std::string rec = raw + ".verified";
+    std::error_code ec;
+    if (!fs::is_regular_file(rec, ec)) return false;   // a directory would make the read throw
+    std::ifstream f(rec, std::ios::binary);
     if (!f) return false;
-    std::string body((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    if (f.bad() || body.size() > 256 || body.empty() || body.back() != '\n') return false;
+    char buf[257];
+    f.read(buf, sizeof buf);   // a record is under 120 bytes: a longer file is not one
+    std::string body(buf, static_cast<size_t>(f.gcount()));
+    if (body.size() > 256 || body.empty() || body.back() != '\n') return false;
     body.pop_back();
     if (body.find('\n') != std::string::npos) return false;
     const size_t a = body.find(' ');
