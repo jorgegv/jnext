@@ -64,7 +64,7 @@ that fails answers `Error evaluating parsed string: CVAR(path)`, with no reason 
 `monitor print` show the reason). A condition with no `PC=` first term is checked at every instruction, so one with a `CVAR`
 builds the C frames each time: `help set-breakpoint` says to put a `PC=` term first.
 
-The write is the same extension on the one assignment verb: `set-register CVAR(path)=value` (`cmd_set_register()`, `zrcp_server.cpp:1190`) writes
+The write is the same extension on the one assignment verb: `set-register CVAR(path)=value` (`cmd_set_register()`, `zrcp_server.cpp:1200`) writes
 a C variable of frame 0 through `write_c_value()` ([3.9.5.10](09-5-source-level-debugging/10-c-frames-and-values.md)). The table's census (`ZRCP-TAB-01`)
 pins the command names to ZEsarUX's `ls` over every row that is not an extension, so no `set-cvar` could be added; the one
 exception is `sd-file-add` (below). Success answers the register line, and every failure (no `)` or `=`, an

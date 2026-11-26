@@ -90,8 +90,8 @@ the SDL-only and Windows trees test it): an absolute name; then the map's direct
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading `..` is dropped.
 `DebuggerManager` owns the list: `set_source_dirs()` (`debugger_manager.cpp:363`) takes the
-configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3578`, fed by
-`apply_startup_config()`, `:3348`: the saved list with the command line's `--source-dir` or
+configured one (`MainWindow::push_source_dirs()`, `main_window.cpp:3585`, fed by
+`apply_startup_config()`, `:3355`: the saved list with the command line's `--source-dir` or
 `paths.source_dirs` value over it), and **Locate File...** (`SourcePanel::locate_file()`, `source_panel.cpp:460`)
 adds to a second, session-only list through `DebuggerManager::on_source_dir_located()` (`debugger_manager.cpp:375`). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
@@ -430,12 +430,12 @@ DSL, it first translates it (`translate_condition()`, `zrcp_condition.cpp`), and
 echoes `CVAR(path)` with the path's case kept. Conditions compile through the same translation, so a breakpoint may carry it
 (`PC=8D3EH AND CVAR(a)=2`); a read that fails is ZEsarUX's `Error evaluating parsed string`, with no reason. A condition with no
 `PC=` first term is checked at every instruction, and a `CVAR` in it builds the C frames each time: put a `PC=` term first.
-The write is `set-register CVAR(path)=value` (`cmd_set_register()`, `zrcp_server.cpp:1190`): the command table's census pins ZEsarUX's
+The write is `set-register CVAR(path)=value` (`cmd_set_register()`, `zrcp_server.cpp:1200`): the command table's census pins ZEsarUX's
 `ls`, so no command can be added, and the extension is a branch of the one assignment verb. It takes the path up to the first `)`, then `=`, and
 the trimmed rest as the value (a value ZRCP's `parse_number()` reads, decimal or `nnnnH`, is converted to decimal text; anything else, `-5`,
 a fraction, `'A'`, `0x10`, goes as typed) and calls `write_c_value()` in frame 0. Success answers `set-register`'s own register line; every failure
 is ZEsarUX's `Error changing register`, with no reason.
-`smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2652`) calls
+`smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2723`) calls
 `Debugger::load()` (`debugger_reconstruct.cpp:469`), which calls `load_program_sidecars()` after a successful load
 (`load_program_sidecars()`, `debugger_reconstruct.cpp:530-534`), so a program loaded over ZRCP gets its symbols and
 source map like `--load`, and a refused sidecar is logged to every client as a Warn line.
