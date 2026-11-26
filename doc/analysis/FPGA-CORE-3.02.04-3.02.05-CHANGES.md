@@ -54,7 +54,7 @@ like the newer core.
 
 ## 2. 3.02.04 (`origin/30204`, released)
 
-Changelog entry: 04:`changelog.md:19`. The fixes in 2.3 and 2.4 are not in it.
+Changelog entry: 04:`changelog.md:19`. It includes the MD six-button fix (2.4). The NR 0x0A lock (2.3) and the SPI master fix (2.4) are not in it.
 
 ### 2.1 Version and boot ROM
 
@@ -70,7 +70,7 @@ Changelog entry: 04:`changelog.md:19`. The fixes in 2.3 and 2.4 are not in it.
     - it uses the NR 0x0A lock (2.3), with a longer timeout and a stack moved "to a safer location for large legacy firmwares" (a1ccea8).
   - It is now z88dk-built code. I did not disassemble it, so its exact SD, flash and NextREG sequence is unknown.
   - Licence (`tbblue.zip` README): from 30204 the boot code is GPL3 with a freeware FZX font. Earlier boot code contains the Sinclair ROM font and is usable only under Amstrad's permission for non-commercial emulators.
-  - 3.02.05 adds `tbblue.zip` (228cf78) with `boot-30100.bin`, `boot-30204.bin`, their AB variants and the deprecated `boot-30204rc*.bin` ("retained for use by existing emulators"). It is on `30205` only.
+  - 3.02.05 adds `tbblue.zip` (228cf78). It holds `boot-30100.bin`, `boot-30200-ab.bin`, `boot-30204.bin`, `boot-30204-ab.bin`, the deprecated `boot-30204rc.bin` and `boot-30204rc-ab.bin` ("retained for use by existing emulators"), `README.md` and `GPL3-LICENSE`. It is on `30205` only.
 - **jnext impact**: the user would see the new boot screens and the SD choice. Running `boot-30204.bin` needs:
   - the 8K overlay (2.2);
   - a second SD socket, which jnext has (`core/emulator.cpp:7113-7114`);
@@ -80,7 +80,13 @@ Changelog entry: 04:`changelog.md:19`. The fixes in 2.3 and 2.4 are not in it.
 ### 2.2 Boot ROM overlay reduced to 8K
 
 13f1f1e: `cpu_di` takes the boot ROM when `cpu_a(15 downto 13) = "000"` (04:`zxnext.vhd:2143`), not `cpu_a(15 downto 14) = "00"` (03: `:1856`).
-- Reads of 0x2000-0x3FFF now go through the normal decode. In config mode that is the upper 8K of the NR 0x04 bank (04:`:3338-3339`). Before, they read a mirror of the 8K ROM, which is addressed by `cpu_a(12:0)` (04:`:3497`).
+- Reads of 0x2000-0x3FFF now go through the normal decode (04:`:3323-3339`), in this order:
+  1. the Multiface ROM/RAM if it is paged in;
+  2. else the RAM page if MMU slot 1 maps RAM;
+  3. else, in config mode, the upper 8K of the NR 0x04 bank (`:3338-3339`);
+  4. else the ROM.
+
+  Before, they read a mirror of the 8K ROM, which is addressed by `cpu_a(12:0)` (04:`:3497`).
 - Writes are unaffected.
 - **jnext**: `memory/mmu.h:213-219` and `:1627-1637` implement the 16K window with the mirror. This change and the new boot ROM go together: the 3.02.04 FPGA never runs the old boot code.
 
@@ -99,7 +105,9 @@ Changelog entry: 04:`changelog.md:19`. The fixes in 2.3 and 2.4 are not in it.
   - **jnext**: matches. `SpiMaster` exchanges exactly one byte per port access and models no wait (`peripheral/spi.h:94-105`).
 - **MD six-button identification** (c833fbd, 04:`input/md6_joystick_connector_x2.vhd:138-170`): a pad counts as six-button only if it also showed the three-button signature (pins 3 and 4 low) earlier in the same scan. 3.02.03 tested pins 1 and 2 only (03: `:158`, `:161`). This fixes Atari digital paddles being taken for six-button pads.
   - **jnext**: `input/md6_connector_x2.cpp:194-207` has the 3.02.03 test.
-  - Its model has no pin-level three-button signature: phases 4/5 latch START/A unconditionally (`:165-177`). Every host gamepad is a real MD pad, so no program sees a difference. Adopting it is for fidelity only.
+  - jnext sets its six-button flag when UP and DOWN are both active at phase 8/9 (`:194-203`); the 3.02.04 rule would also require the three-button signature.
+  - Its model has no pin-level three-button signature: phases 4/5 latch START/A unconditionally (`:165-177`).
+  - A host gamepad cannot hold UP and DOWN together, so it is unaffected. Only a keyboard-mapped joystick could, so for programs the difference is practically invisible and adopting the rule is for fidelity.
 
 ### 2.5 Membrane hotkey regression
 
@@ -107,19 +115,29 @@ Changelog entry: 04:`changelog.md:19`. The fixes in 2.3 and 2.4 are not in it.
 - While NMI + a digit is held, the loop A11 -> A12 -> CHECK sets, then clears, the latch on each pass.
 - `zxnext.vhd` edge-detects `hotkeys_0` (04:`:6862-6883`), so one press gives several pulses: F7 scanlines and F8 CPU speed step more than once.
 - Fixed in 3.02.05 (3.1). Derived from the code and the 3.02.05 commit message, not tested on hardware.
-- **jnext**: not affected and no change needed. `input/emu_fnkeys.h:77-85` models the 3.02.03 FSM and emits each side effect once, on entry to MF_DONE.
+- **jnext**: not affected and no change needed.
+  - `input/emu_fnkeys.h:77-85` keeps the 3.02.03 states, including MF_CHECK.
+  - Side effects fire on a rising edge of a `local_fnkeys_` bit while the FSM is in MF_ROW_A11/A12 (`input/emu_fnkeys.cpp:68-113`, called from `tick()` at `:274`; comment `:266-273`). The header prose at `emu_fnkeys.h:56-58` says MF_DONE and is stale.
+  - Host F-keys reach it only through `simulate_mf_fkey_press()` (`emu_fnkeys.cpp:307-330`), which holds M1 for exactly one A11/A12 pass. With the 3.02.03 latch that gives one edge per press.
 
 ### 2.6 Z80N variants (and a pre-existing jnext divergence)
 
 6d417a5 and the Pi debug commits add `cpu/t80n-complete/`, `cpu/t80n-debug/` and `cpu/t80n-complete-debug/`. The old core moves unchanged to `cpu/t80n/`.
 - `t80n-debug` (issue 4/5) is `t80n` plus a register read/write port. Its ALU and microcode differ only in entity names, so it executes like the 3.02.03 core.
-- `t80n-complete` adds MEMPTR tracking and undocumented-flag fixes, among them X/Y from MEMPTR for BIT n,(HL) (`t80n_alu_complete.vhd:293-299`), X/Y for LD A,I/R, IN r,(C) and CPI/CPD, and the block I/O flags.
+- `t80n-complete` adds MEMPTR tracking (`SetWZ`, `LDW`) and undocumented-flag fixes. From the diff against `t80n/`, in `cpu/t80n-complete/`:
+  - X/Y from WZ for BIT n,(HL)/(IX+d) (`t80n_alu_complete.vhd:293-299`);
+  - X/Y for LD A,I and LD A,R (`t80n_complete.vhd:1244-1245`, `:1259-1260`);
+  - X/Y for IN r,(C) (`:1294-1295`);
+  - X/Y for the `I_BC` (block compare) case (`:1337-1341`);
+  - N/C/H/P for the `I_BTR` (block I/O) case (`:678-686`).
+
+  The instruction names for `I_BC`/`I_BTR` come from the T80 signal naming; I did not trace them through the microcode.
   - No released build uses it: issue 4/5 used it until b534c56, and the release uses `"10"`.
 - **jnext**: no change follows from the release. A divergence from the 3.02.03 VHDL showed up, though, and it is not caused by any version:
   - jnext's standard opcodes come from the vendored FUSE core, whose BIT n,(HL) takes X/Y from MEMPTR (`third_party/fuse-z80/z80_macros.h:207-213`);
   - every shipped T80N forces X=Y=0 there (03:`cpu/t80n_alu.vhd:287-292`).
 
-  So for flags, jnext behaves like `t80n-complete` and like real Z80 silicon, not like the Next's CPU. I verified this for BIT n,(HL) only; for the other cases it is an inference from FUSE passing its MEMPTR/X/Y test suite.
+  So for flags, jnext behaves like `t80n-complete` and like real Z80 silicon, not like the Next's CPU. I verified this for BIT n,(HL) only (FUSE `z80_cb.c:277-281` uses `BIT_MEMPTR`). For the other cases above, jnext's behaviour is **not verified**: it is an inference from FUSE passing its MEMPTR/X/Y test suite.
 
 ### 2.7 Pi debug control (issue 4, 5 only)
 
@@ -132,6 +150,7 @@ See the prior document for the protocol.
   - read as 0 where the slave is not built (04:`:6723`).
 
   On issue 2 a program reads 0 as before, so jnext's full NR 0xA0 reset (`core/emulator.cpp:635`) is indistinguishable there.
+- On issue 2 the stored bit still switches the Pi GPIO 7-11 routing: GPIO 7/8 become inputs and the master-mode MISO is masked (04:`:2568-2600`). This is invisible in jnext, which attaches SPI devices only to the two SD selects (`core/emulator.cpp:7113-7114`).
 - **jnext**: not emulated. #393, blocked on a QEMU SPI link.
 
 ## 3. 3.02.05 (`origin/30205`, unreleased, work in progress)
@@ -141,7 +160,9 @@ Latest commit 2026-11-16, no changelog entry, no bitstreams; recheck before rely
 ### 3.1 Changes that reach jnext
 
 - **Version** (90f139e): NR 0x0E = 0x05 in all three tops.
-- **Hotkey fix** (991d9d4): `S_MF_CHECK` removed from both FSM variants, so the latch is never cleared mid-press and each activation gives one edge (05:`emu_fnkeys.vhd:63`, `:118-165`, `:167-217`). It restores the 3.02.03 behaviour. jnext: no change (2.5).
+- **Hotkey fix** (991d9d4): `S_MF_CHECK` is removed from both FSM variants, so the latch is never cleared mid-press and each activation gives one edge (05:`emu_fnkeys.vhd:63`, `:118-165`, `:167-217`).
+  - This restores the 3.02.03 behaviour, one edge per press, but not the 3.02.03 FSM: the M1 release is now tested in S_MF_ROW_A12, and the latch is also cleared in S_RESET_CHECK.
+  - jnext keeps MF_CHECK; there is no observable difference (2.5).
 - **Boot code archive** (228cf78): see 2.1.
 
 Everything else on `30205` (HDMI v3, the AB core) is in section 5.
@@ -165,7 +186,13 @@ Already matching: the SPI master fix, the hotkey behaviour (do not reproduce the
 
 A core-by-board selector is #394.
 
-**C. Independent of version (owner's call).** The BIT n,(HL) flag divergence, and probably the other cases, in 2.6.
+**C. Independent of version (owner's call).**
+- The BIT n,(HL) flag divergence in 2.6, and possibly the unverified other cases listed there.
+- The F-key long-press timer:
+  - In the VHDL, every top passes `CLOCK_EN_PERIOD_MS => 10` and `BUTTON_PERIOD_MS => 1000` (03:`zxnext_top_issue2.vhd:1961-1962`), and `PERIOD` = 1000 / 10 = 100 enable ticks (04:`input/membrane/emu_fnkeys.vhd:57`).
+  - The enable `CLK_28_DEBOUNCE_EN` has a 9.36 ms period (04:`zxnext_top_issue2.vhd:1218`), so the real short/long-press threshold is about 936 ms.
+  - jnext's `EmuFnKeys` defaults to 2000 ticks, and its header says "2000ms ... 1ms" (`input/emu_fnkeys.h:72-73`, `:88-89`, `:243`; used at `emu_fnkeys.cpp:128`). Both the default and the text are wrong; it should be 100 ticks of a 9.36 ms enable.
+  - No user-visible effect today: only `simulate_mf_fkey_press` and the tests drive the FSM, and they never time a long press.
 
 ## 5. Not relevant to jnext
 
@@ -179,7 +206,7 @@ One line each: these touch nothing jnext emulates on issue 2 (video output encod
 - `zxula_timing.vhd` (3.02.05): only the HDMI window constants move and gain 60 Hz variants (05:`:276-391`); the ULA counters and timing are unchanged.
 - HDMI reset no longer pulsed on a scandoubler change (05:`zxnext.vhd:7449`).
 - Anti-brick core (machine id 0xFA): DMA and sprites left out (2b42b0d, dd770ec); the DivMMC/Multiface exclusion of a8acb4e was commented out again.
-- PS/2 keymap: expansion bus on/off moves from F11/F12 to F5/F6, and F12 becomes a second PS/2 reset (6b33c4f). jnext has no PS/2 keymap model (`core/emulator.cpp:2917-2927`).
+- PS/2 keymap: expansion bus on/off moves from F11/F12 to F5/F6, and F12 becomes a second PS/2 reset (6b33c4f). jnext has no PS/2 keymap model (`core/emulator.cpp:2917-2927`), and its SDL frontend already sends host F5/F6 to the F-key FSM (`platform/sdl_app.cpp:205-211`).
 - Flash/SD SPI pin isolation in the top levels (0c06f07). jnext's SPI devices are separate per select anyway.
 - Pi debug plumbing inside the core: bus arbiter, SRAM port C, BRAM and NextREG arbitration. It includes a bank 7 read latch its author marks "unexplainable" (04:`zxnext.vhd:7313`), issue 4/5 builds only.
 - Debug-wedge CPU register port (`cpu/readme.txt`), issue 4/5.
