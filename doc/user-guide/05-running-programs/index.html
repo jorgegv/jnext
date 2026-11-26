@@ -4702,8 +4702,8 @@ files on its card. A copy that cannot be completed is refused or undone
 as a whole, never left half-done; the <strong>jnext(1)</strong> man page, under PUTTING A
 FILE ON THE CARD, lists exactly what is refused and why.</p>
 <p>If a JNEXT is already running on that card, the same command copies the file <em>through</em>
-it: start the running one with <code>--zrcp-port 10000</code> (and <code>--sdcard card.img</code>) and run
-<code>jnext --sdcard card.img --sdcard-file-add game.nex</code> from another terminal. The running
+it: start the running one with <code>--zrcp-port 10000</code> (and <code>--sdcard mycard.img</code>) and run
+<code>jnext --sdcard mycard.img --sdcard-file-add game.nex</code> from another terminal. The running
 JNEXT writes the file onto the card it has open and the second one exits with the status
 of that copy, so a NextZXOS that is running sees the file in its Browser without a reset.
 If the running JNEXT does not serve ZRCP, is busy with a debugger or an upgrade, or has

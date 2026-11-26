@@ -4770,7 +4770,7 @@ the machine by hand.</p>
   <code>--sdcard-file-add</code> does: <code>sd-file-add image file card-path [--force] [--card 1|2]
   [--writes file]</code>. The three paths are absolute, and every argument is
   percent-encoded: <code>%20</code> for a space, <code>%25</code> for <code>%</code>, <code>%0A</code> for a newline.
-  <code>sd-file-add /home/me/card.img /home/me/game.nex /GAMES/game.nex --card 1</code> is
+  <code>sd-file-add /home/me/mycard.img /home/me/game.nex /GAMES/game.nex --card 1</code> is
   answered <code>OK. Copied '...'</code> or <code>Error. [N] text</code>, where <em>N</em> is the exit status
   <code>--sdcard-file-add</code> would give (2 the file, 3 the card path, 4 it exists, 5 the card
   cannot take it, 6 no room). A second JNEXT's <code>--sdcard-file-add</code> sends exactly this

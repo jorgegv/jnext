@@ -157,7 +157,7 @@ the machine by hand.
   `--sdcard-file-add` does: `sd-file-add image file card-path [--force] [--card 1|2]
   [--writes file]`. The three paths are absolute, and every argument is
   percent-encoded: `%20` for a space, `%25` for `%`, `%0A` for a newline.
-  `sd-file-add /home/me/card.img /home/me/game.nex /GAMES/game.nex --card 1` is
+  `sd-file-add /home/me/mycard.img /home/me/game.nex /GAMES/game.nex --card 1` is
   answered `OK. Copied '...'` or `Error. [N] text`, where *N* is the exit status
   `--sdcard-file-add` would give (2 the file, 3 the card path, 4 it exists, 5 the card
   cannot take it, 6 no room). A second JNEXT's `--sdcard-file-add` sends exactly this

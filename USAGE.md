@@ -2192,8 +2192,8 @@ copy the file onto the card it has open (the ZRCP command
 written the image itself. A running guest sees the file, with no pause
 and no reset.
 
-    jnext --headless --sdcard card.img --zrcp-port 10000 &
-    jnext --sdcard card.img --sdcard-file-add game.nex
+    jnext --headless --sdcard mycard.img --zrcp-port 10000 &
+    jnext --sdcard mycard.img --sdcard-file-add game.nex
 
 The card is named as for any run (a relative path is taken from the
 current directory), and the first card or the second one is found by the
