@@ -205,7 +205,9 @@ struct Script {
     void close() {
         if (t) t->close();
     }
-    void release(std::size_t i, const Bytes& payload = {}) { reply(held.at(i).seq, payload); }
+    void release(std::size_t i, const Bytes& payload = {}) {
+        if (i < held.size()) reply(held[i].seq, payload);
+    }
 
     Bytes init_reply() const {
         if (raw_init) return init_raw;
@@ -1007,8 +1009,10 @@ static void detach_row() {
     auto link = c->detach_link();
     s.service();
     const std::size_t before = s.ids.size();
-    link->write(Bytes{0, 0, 0, 0, 1, 3}.data(), 6);   // a raw CMD_GET_REGISTERS, seq 1
-    s.service();
+    if (link) {
+        link->write(Bytes{0, 0, 0, 0, 1, 3}.data(), 6);   // a raw CMD_GET_REGISTERS, seq 1
+        s.service();
+    }
     check("DZC-SES-21", "detach_link refuses while a command is in flight; once idle it hands over the live link (state Closed, no CMD_CLOSE sent) which still carries bytes",
           refused && link && c->state() == SessionState::Closed && link->state() == LinkState::Open &&
               std::count(s.ids.begin(), s.ids.end(), static_cast<int>(CMD_CLOSE)) == 0 && s.ids.size() == before + 1);
@@ -1241,7 +1245,9 @@ static void wait_rows() {
         c->set_wait_hook([&] { ++hooks; rig.pump(); });
         rig_up(*c, rig);
         hooks = 0;
+        g_auto_ms = 10;   // a hook that is never called ends in a Timeout row, not in a hang
         const Reply r = c->request(CMD_GET_REGISTERS);
+        g_auto_ms = 0;
         check("DZC-WAIT-01", "hook = Debugger::pump: request(CMD_GET_REGISTERS) completes Ok, its PC is the rig's 0x8000 and the hook ran",
               r.status == Status::Ok && r.payload.size() >= 2 && r.payload[0] == 0x00 && r.payload[1] == 0x80 && hooks >= 1);
     }
