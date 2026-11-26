@@ -962,7 +962,7 @@ row('WIDGET-34', 'mount() with creditIn: the credit is the host\'s last child, t
   must(page.msgs.length === 0, page.msgs.join('; '));
 });
 
-// The widget with the NMI button (4 buttons), at the width the row asks for.
+// The widget with the NMI button (5 buttons), at the width the row asks for.
 const narrowPage = (name, attrs) => { pages[name] = `<!doctype html><body><div class="jnext-widget" data-nmi data-file="${BURL}/red.nex" ${attrs}></div><script src="jnext-widget.js"></script></body>`; };
 const toolsGeo = (page) => page.evaluate(() => {
   const e = document.querySelector('.jnext-widget'), R = (el) => { const b = el.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height, cy: (b.top + b.bottom) / 2 }; };
@@ -981,7 +981,7 @@ row('WIDGET-35', 'toolbar widths (with the NMI button): at the default 640 the b
   const wide = await toolsGeo(a);
   await a.context().close();
   must(a.msgs.length === 0, a.msgs.join('; '));
-  must(wide.n === 4, 'buttons ' + wide.n);
+  must(wide.n === 5, 'buttons ' + wide.n);
   must([...wide.btns, wide.status, wide.credit].every((x) => Math.abs(x.cy - wide.credit.cy) <= 1) && wide.tools.h < 40, 'default width is not one row ' + JSON.stringify(wide));
   // 320
   narrowPage('w35b.html', 'data-width="320"');
