@@ -1,6 +1,6 @@
 // JNEXT widget: a ready-made player for a web page. Plain script, no
 // dependencies, ASCII. Every element with class "jnext-widget" becomes a
-// framed player (title bar, progress bar, toolbar, status line) built on
+// framed player (title bar, progress bar, toolbar, status line, and the JNext link at the toolbar's end) built on
 // jnext.mount(). If `jnext` is not loaded yet, the script loads
 // jnext-@PROJECT_VERSION@.js from the directory it was loaded from.
 //
@@ -62,8 +62,8 @@
     W + '.jw-stage{all:initial;display:block;position:relative;box-sizing:border-box;background:#000}' +
     W + '.jw-progress{all:initial;display:block;position:absolute;z-index:2;left:0;bottom:0;height:4px;width:0;' +
       'background:var(--jw-accent);transition:width .15s}' +
-    W + '.jw-tools{all:initial;display:flex;box-sizing:border-box;align-items:center;gap:6px;padding:6px 8px;' +
-      'background:var(--jw-bar);border-top:1px solid var(--jw-line)}' +
+    W + '.jw-tools{all:initial;display:flex;box-sizing:border-box;align-items:center;flex-wrap:wrap;gap:6px;padding:6px 8px;' +
+      'background:var(--jw-bar);color:var(--jw-fg);border-top:1px solid var(--jw-line)}' +
     W + '.jw-btn{all:initial;display:inline-block;box-sizing:border-box;padding:4px 10px;cursor:pointer;' +
       'background:var(--jw-btn);color:var(--jw-fg);border:1px solid var(--jw-line);border-radius:6px;' +
       'font:13px/1.3 system-ui,sans-serif}' +
@@ -71,7 +71,7 @@
     W + '.jw-btn:focus-visible{outline:2px solid var(--jw-accent)}' +
     W + '.jw-btn[disabled]{opacity:.45;cursor:default}' +
     W + '.jw-btn[aria-pressed="true"]{border-color:var(--jw-accent)}' +
-    W + '.jw-status{all:initial;display:block;flex:1;min-width:0;overflow:hidden;white-space:nowrap;' +
+    W + '.jw-status{all:initial;display:block;flex:1;min-width:8ch;overflow:hidden;white-space:nowrap;' +
       'text-overflow:ellipsis;text-align:right;color:var(--jw-fg);font:12px/1.3 ui-monospace,monospace}' +
     W + '.jw-status.jw-error{color:var(--jw-err)}' +
     // The panel that asks the visitor for the NextZXOS file (built by the player, inside its overlay):
@@ -91,10 +91,13 @@
     W + '.jnext-player{all:initial;display:block;box-sizing:content-box}' +
     W + '.jnext-overlay{all:initial;box-sizing:border-box}' +
     W + 'canvas{all:initial;display:block}' +
+    // The JNext link mount() puts at the end of the toolbar: its inline styles stay, a page's rules for
+    // div and a (any property) go; the SVG icon's own attributes are left alone.
+    W + '.jnext-credit{all:initial}' +
+    W + '.jnext-credit a{all:initial}' +
+    W + '.jnext-credit a:focus-visible{outline:2px solid var(--jw-accent)}' +
     W + '.jw-frame:fullscreen{display:flex;flex-direction:column;border-radius:0}' +
-    W + '.jw-frame:fullscreen .jw-stage{flex:1 1 0;min-height:0}' +
-    // The attribution mount() adds goes below the toolbar in fullscreen, so the screen stays between the title bar and it.
-    W + '.jw-frame:fullscreen .jnext-credit{order:9}';
+    W + '.jw-frame:fullscreen .jw-stage{flex:1 1 0;min-height:0}';
 
   function injectCss() {
     if (document.getElementById('jnext-widget-css')) return;
@@ -235,6 +238,7 @@
     }
     if (el.hasAttribute('data-keep-writes') && el.getAttribute('data-keep-writes') !== 'false') options.keepWrites = true;
 
+    options.creditIn = ui.tools;   // the JNext link goes at the right end of the toolbar, after the status line
     var p = jnext.mount(ui.stage, options);
     // The API's own overlay (its text and its click are the API's): only its looks are set here.
     var ov = ui.stage.querySelector('.jnext-overlay');
@@ -257,7 +261,7 @@
       ui.player = pl;
       el.jnextPlayer = pl;
       ui.bar.style.width = '0';
-      for (var i = 0; i < ui.tools.children.length; i++) ui.tools.children[i].disabled = false;
+      for (var i = 0; i < ui.tools.children.length; i++) if (ui.tools.children[i].tagName === 'BUTTON') ui.tools.children[i].disabled = false;
       // Card source none has no Multiface ROM: the NMI button stays off.
       if (ui.nmiBtn && el.getAttribute('data-card-source') === 'none') ui.nmiBtn.disabled = true;
       ui.say('click the screen to start');

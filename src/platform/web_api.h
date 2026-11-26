@@ -7,7 +7,7 @@
 //
 // jnext_api.js carries no flag spelling and no --set key. It hands the whole
 // options object to build_argv() (through jnext_web_argv()), with these changes
-// made on its side: every function value becomes `true`, `file` becomes its
+// made on its side: every function value and every DOM element (creditIn) becomes `true`, `file` becomes its
 // in-memory path, `keepWrites` (a boolean to the page) becomes the in-memory
 // path of the writes file (or is dropped when false), and the internal `$card`
 // row, {path, sha256} of the SD card the page layer made, is ADDED. A page never
@@ -61,6 +61,9 @@ inline constexpr Option WEB_OPTIONS[] = {
     { "poster", Kind::Host, std::nullopt, std::nullopt, std::nullopt, false,
       "a picture the page shows before the click",
       "A picture shown in the player area before the player is started" },
+    { "creditIn", Kind::Host, std::nullopt, std::nullopt, std::nullopt, false,
+      "an element of the page that holds the JNext link",
+      "An element of the page (its controls bar) that holds the JNext link, at its end, instead of a row under the player" },
     { "keepWrites", Kind::Flag, cli::OptId::SdcardWrites, std::nullopt, std::nullopt, false, nullptr,
       "Keep the guest's writes to the card (saves, high scores) in this browser across reloads" },
     { "file", Kind::Flag, cli::OptId::Load, std::nullopt, std::nullopt, false, nullptr,

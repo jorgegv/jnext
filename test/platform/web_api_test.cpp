@@ -622,6 +622,19 @@ int main()
               r.ok ? join(r.argv) : r.why);
     }
 
+    // --- WAPI-CREDIT-01: creditIn is the page layer's true and adds nothing to argv ----------------
+    {
+        const Result r = run("{" + IMG + ",\"creditIn\":true}");
+        check("WAPI-CREDIT-01", "creditIn:true is accepted and adds nothing to the command line; a string, a number, null, {} and [] are refused naming creditIn",
+              r.ok && r.argv == Argv{"--sdcard", "/sdcard/image.img", "--sdcard-sha256", HEX} &&
+              refused_naming("{" + IMG + ",\"creditIn\":\"#c\"}", "creditIn") &&
+              refused_naming("{" + IMG + ",\"creditIn\":5}", "creditIn") &&
+              refused_naming("{" + IMG + ",\"creditIn\":null}", "creditIn") &&
+              refused_naming("{" + IMG + ",\"creditIn\":{}}", "creditIn") &&
+              refused_naming("{" + IMG + ",\"creditIn\":[]}", "creditIn"),
+              r.ok ? join(r.argv) : r.why);
+    }
+
     // --- WAPI-CFILE-01: the start form of a program on the card (GH #510) --------------------------
     {
         const Result r = run("{" + IMG + ",\"$serveDir\":true,\"file\":\"/media/0-card/main.nex\"}");
