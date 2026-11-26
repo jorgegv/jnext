@@ -1459,7 +1459,7 @@ int main() {
             (void)chk(c);
             std::string body = slurp(rec);
             const bool endsnl = !body.empty() && body.back() == '\n';
-            body.pop_back();
+            if (!body.empty()) body.pop_back();
             spit(rec, body);
             const R a = chk(c);
             const R b = chk(c);
