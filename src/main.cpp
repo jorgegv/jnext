@@ -2542,23 +2542,9 @@ static int run_main(int argc, char* argv[]) {
             return static_cast<int>(st);
         }
         // In journal mode the copy is in the writes file, not the image.
-        const std::string kept = sdcard_writes_file.empty()
-            ? std::string()
-            : ", kept in " + sdcard_writes_file + " (the image is not written)";
-        if (summary.is_dir) {
-            std::fprintf(stdout,
-                         "Copied directory '%s' to '%s' in %s (%u file(s), "
-                         "%u new director%s)%s\n",
-                         sdcard_file_add.c_str(), summary.dest.c_str(),
-                         sd_card_image.c_str(), summary.files,
-                         summary.dirs_created,
-                         summary.dirs_created == 1 ? "y" : "ies",
-                         kept.c_str());
-        } else {
-            std::fprintf(stdout, "Copied '%s' to '%s' in %s%s\n",
-                         sdcard_file_add.c_str(), summary.dest.c_str(),
-                         sd_card_image.c_str(), kept.c_str());
-        }
+        std::fprintf(stdout, "%s\n",
+                     sdcard::file_add_success_text(sdcard_file_add, sd_card_image, sdcard_writes_file,
+                                                   summary).c_str());
         return 0;
     }
 

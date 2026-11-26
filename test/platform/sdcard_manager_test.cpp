@@ -49,6 +49,7 @@
 #include "peripheral/sd_card.h"
 #include "peripheral/sd_write_journal.h"
 #include "platform/emulator_boot.h"
+#include "remote/zrcp/zrcp_server.h"
 #include "../row_id.h"
 #include "../scratch_dir.h"
 
@@ -1814,6 +1815,172 @@ int main() {
         const bool h2c_stale = h2c(false, true) && h2c(true, true);
         check("SDMT-38", "a card entry that changes while the overwrite question is open (renamed away and re-created under its name) is refused after the answer with 'changed on the card since it was listed', copy and move, in both directions: nothing is trashed, extracted or replaced; with no change the same answer proceeds",
               ctl && c2h_stale && h2c_stale, std::string(ctl ? "ctl=1 " : "ctl=0 ") + (c2h_stale ? "c2h=1 " : "c2h=0 ") + (h2c_stale ? "h2c=1 " : "h2c=0 ") + diag);
+    }
+
+    // ======================= remote_add: a copy asked for by another process (GH #568) =======================
+    // Oracle: the owner's design on the issue (the card is named by image and number, the writes file must agree,
+    // the manager's own read-only and held-file refusals apply, the copy means what --sdcard-file-add means) and the
+    // contract in sdcard_manager.h. Card contents are read back with extract_from_image / list_dir (independent of
+    // the writer). IDs SDRA-*: the SDMT-3x numbers of the plan are taken by earlier rows.
+    {
+        using jnext::remote::zrcp::SdFileAddReply;
+        using jnext::remote::zrcp::SdFileAddRequest;
+        auto req = [](const std::string& img, const fs::path& h, const std::string& dest, int slot = -1) {
+            SdFileAddRequest r;
+            r.image = img;
+            r.host = h.string();
+            r.card_path = dest;
+            r.slot = slot;
+            return r;
+        };
+        auto mount2 = [](Emulator& emu, const std::string& a, const std::string& b) {
+            EmulatorConfig cfg;
+            cfg.type = MachineType::ZX48K;
+            emu.init(cfg);
+            emu.sd_card().mount(a, false);
+            if (!b.empty()) emu.sd_card2().mount(b, false);
+        };
+        auto unmount = [](Emulator& emu) { emu.sd_card().unmount(); emu.sd_card2().unmount(); };
+        const std::string none;
+        {
+            Img a(G), b(G);
+            Emulator emu;
+            mount2(emu, a.p, b.p);
+            const std::string sb = sha_file(b.p);
+            const SdFileAddReply r = sm::remote_add(emu, req(a.p, host / "one.bin", "/X1.BIN", 0), none);
+            sdcard::AddSummary want;
+            want.dest = "/X1.BIN";
+            check("SDRA-01", "a card-1 add lands: the file is on card 1 with its bytes, the reply is the offline sentence byte for byte, card 2 is byte-identical",
+                  r.status == 0 && r.text == sdcard::file_add_success_text((host / "one.bin").string(), a.p, "", want) &&
+                      extracted(a.p, "/X1.BIN") == Tree{{"X1.BIN", kOne}} && sha_file(b.p) == sb,
+                  std::to_string(r.status) + " " + r.text);
+            const std::string sa = sha_file(a.p);
+            const SdFileAddReply r2 = sm::remote_add(emu, req(b.p, host / "two.bin", "/NEW/X2.BIN", 1), none);
+            check("SDRA-02", "a card-2 add (slot 1) lands on card 2, directories created, and card 1 is byte-identical",
+                  r2.status == 0 && extracted(b.p, "/NEW/X2.BIN") == Tree{{"X2.BIN", kTwo}} && sha_file(a.p) == sa, r2.text);
+            const std::string sa2 = sha_file(a.p), sb2 = sha_file(b.p);
+            const SdFileAddReply m1 = sm::remote_add(emu, req(a.p, host / "one.bin", "/M1.BIN", 1), none);
+            const SdFileAddReply m2 = sm::remote_add(emu, req(b.p, host / "one.bin", "/M2.BIN", 0), none);
+            check("SDRA-03", "a slot mismatch is refused both ways, 5, 'is card 1' / 'is card 2', and nothing is written",
+                  m1.status == 5 && m1.text == a.p + " is card 1 in the running jnext" && m2.status == 5 &&
+                      m2.text == b.p + " is card 2 in the running jnext" && sha_file(a.p) == sa2 && sha_file(b.p) == sb2,
+                  m1.text + " | " + m2.text);
+            Img third(G);
+            const SdFileAddReply nm = sm::remote_add(emu, req(third.p, host / "one.bin", "/N.BIN"), none);
+            emu.sd_card2().unmount();
+            const SdFileAddReply em = sm::remote_add(emu, req(b.p, host / "one.bin", "/N.BIN"), none);
+            check("SDRA-04", "an image mounted in neither slot (a third image, and one whose slot is now empty) is refused, 5, 'not mounted'",
+                  nm.status == 5 && nm.text.find("is not mounted in this jnext") != std::string::npos && em.status == 5 &&
+                      em.text.find("is not mounted in this jnext") != std::string::npos && !on_card(third.p, "/N.BIN"),
+                  nm.text + " | " + em.text);
+            unmount(emu);
+        }
+        {
+            Img a(G);
+            Emulator emu;
+            EmulatorConfig cfg;
+            cfg.type = MachineType::ZX48K;
+            emu.init(cfg);
+            emu.sd_card().mount(a.p, true);   // --sdcard-readonly
+            const std::string sa = sha_file(a.p);
+            const SdFileAddReply r = sm::remote_add(emu, req(a.p, host / "one.bin", "/RO1.BIN"), none);
+            check("SDRA-05", "a write-protected slot is refused, 5, with the manager's sentence, nothing written",
+                  r.status == 5 && r.text == "the card is read-only in the running jnext: the card is write-protected in this session (--sdcard-readonly)" &&
+                      sha_file(a.p) == sa, r.text);
+            emu.sd_card().unmount();
+            emu.sd_card().mount(a.p, false);
+            emu.sd_card().set_read_overlay(100, 4, [](uint32_t, uint8_t*) { return false; });
+            const SdFileAddReply o = sm::remote_add(emu, req(a.p, host / "one.bin", "/RO2.BIN"), none);
+            check("SDRA-06", "a slot under a NEX read overlay is refused, 5, with the emulator's own change-refusal reason",
+                  o.status == 5 && o.text.find("read-only in the running jnext: ") != std::string::npos &&
+                      o.text.find(emu.sd_card_change_refusal(0)) != std::string::npos && !emu.sd_card_change_refusal(0).empty() &&
+                      sha_file(a.p) == sa, o.text);
+            emu.sd_card().unmount();
+        }
+        {
+            const fs::path d = fresh_dir("ra-journal");
+            const std::string ia = (d / "a.img").string(), w = (d / "a.sdw").string(), w2 = (d / "other.sdw").string();
+            fs::copy_file(G, ia, fs::copy_options::overwrite_existing);
+            sd_write_journal::Binding bd;
+            bd.bytes = fs::file_size(ia);
+            bd.sha256.fill(0x5C);
+            std::string why;
+            const bool bound = sd_write_journal::bind(ia, w, bd, false, why);
+            Emulator emu;
+            mount2(emu, ia, none);
+            const std::string si = sha_file(ia);
+            SdFileAddRequest q = req(ia, host / "one.bin", "/J1.BIN");
+            const SdFileAddReply r = sm::remote_add(emu, q, none);
+            const auto info = sd_write_journal::peek_file(w);
+            SdFileAddRequest q2 = req(ia, host / "two.bin", "/J2.BIN");
+            q2.writes_given = true;
+            q2.writes = (d / "sub" / ".." / "a.sdw").string();
+            fs::create_directories(d / "sub");
+            const SdFileAddReply r2 = sm::remote_add(emu, q2, none);
+            check("SDRA-07", "with a writes file bound, an add with no writes option lands in it and leaves the image byte-identical, and the same file spelt dir/../W is accepted",
+                  bound && r.status == 0 && r.text.find(", kept in " + w) != std::string::npos && info.is_journal && !info.sectors.empty() &&
+                      sha_file(ia) == si && r2.status == 0, why + r.text + r2.text);
+            const std::string wsha = sha_file(w);
+            SdFileAddRequest q3 = req(ia, host / "one.bin", "/J3.BIN");
+            q3.writes_given = true;
+            q3.writes = w2;
+            const SdFileAddReply r3 = sm::remote_add(emu, q3, none);
+            check("SDRA-08", "a request naming another writes file than the slot's is refused, 5, naming the slot's file; neither file nor image changes",
+                  r3.status == 5 && r3.text.find("keeps this card's writes in " + w) != std::string::npos && sha_file(w) == wsha &&
+                      sha_file(ia) == si && !fs::exists(w2), r3.text);
+            unmount(emu);
+            sd_write_journal::forget_all_for_test();
+            Img plain(G);
+            Emulator emu2;
+            mount2(emu2, plain.p, none);
+            SdFileAddRequest q4 = req(plain.p, host / "one.bin", "/J4.BIN");
+            q4.writes_given = true;
+            q4.writes = w2;
+            const std::string sp = sha_file(plain.p);
+            const SdFileAddReply r4 = sm::remote_add(emu2, q4, none);
+            check("SDRA-09", "a request naming a writes file for a slot that has none is refused, 5, 'no writes file', nothing written",
+                  r4.status == 5 && r4.text.find("with no writes file") != std::string::npos && sha_file(plain.p) == sp && !fs::exists(w2),
+                  r4.text);
+            unmount(emu2);
+        }
+        {
+            Img a(G);
+            Emulator emu;
+            mount2(emu, a.p, none);
+            const std::string sa = sha_file(a.p);
+            const SdFileAddReply self = sm::remote_add(emu, req(a.p, fs::path(a.p), "/SELF.IMG"), none);
+            const SdFileAddReply folder = sm::remote_add(emu, req(a.p, fs::path(a.p).parent_path(), "/FOLDER"), none);
+            check("SDRA-10", "the mounted image itself, and the folder holding it, are refused as the source: 2, 'a file the emulator is using', nothing written",
+                  self.status == 2 && self.text.find("is, or holds, a file the emulator is using") != std::string::npos &&
+                      folder.status == 2 && folder.text.find("is, or holds, a file the emulator is using") != std::string::npos &&
+                      sha_file(a.p) == sa, self.text + " | " + folder.text);
+            write_host_file(host / "A.BIN", kNewA);
+            SdFileAddRequest q = req(a.p, host / "A.BIN", "/MYDIR/A.BIN");
+            const SdFileAddReply ex = sm::remote_add(emu, q, none);
+            const std::string s1 = sha_file(a.p);
+            q.force = true;
+            const SdFileAddReply fo = sm::remote_add(emu, q, none);
+            check("SDRA-11", "an existing destination without force is 4 and untouched; with force it is replaced",
+                  ex.status == 4 && s1 == sa && fo.status == 0 && extracted(a.p, "/MYDIR/A.BIN") == Tree{{"A.BIN", kNewA}},
+                  ex.text + " | " + fo.text);
+            const SdFileAddReply hi = sm::remote_add(emu, req(a.p, host / "one.bin", "/CAF\xE9.TXT"), none);
+            check("SDRA-12", "a card path with a byte above 0x7E is 3 as offline (string mode, never byte mode)",
+                  hi.status == 3 && !on_card(a.p, "/CAF\xE9.TXT"), hi.text);
+            const Tree odd_before = extracted(a.p, "/ODD");
+            const SdFileAddReply al = sm::remote_add(emu, req(a.p, host / "one.bin", "/ODD/NAME~1"), none);
+            check("SDRA-13", "a name that is another entry's 8.3 alias is refused, 3, and the other entries are untouched",
+                  al.status == 3 && extracted(a.p, "/ODD") == odd_before && !on_card(a.p, "/ODD/one.bin"),
+                  std::to_string(al.status) + " " + al.text);
+            const std::string before_busy = sha_file(a.p);
+            const SdFileAddReply bz = sm::remote_add(emu, req(a.p, host / "one.bin", "/BUSY.BIN"), "an upgrade or a go back");
+            check("SDRA-14", "a non-empty busy reason is refused, 5, 'a card operation owns the SD card', nothing written",
+                  bz.status == 5 && bz.text.find("a card operation owns the SD card (an upgrade or a go back)") == 0 &&
+                      sha_file(a.p) == before_busy, bz.text);
+            const SdFileAddReply miss = sm::remote_add(emu, req(a.p, host / "nope.bin", "/MISS.BIN"), none);
+            check("SDRA-15", "a missing host file is 2 with the engine's text, nothing written",
+                  miss.status == 2 && !miss.text.empty() && sha_file(a.p) == before_busy, miss.text);
+            unmount(emu);
+        }
     }
 
     std::error_code ec;
