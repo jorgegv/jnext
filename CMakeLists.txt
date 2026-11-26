@@ -909,6 +909,19 @@ install(DIRECTORY doc/user-guide DESTINATION .)
 # matter what macdeployqt prints or returns.
 install(CODE "
     set(_app \"\${CMAKE_INSTALL_PREFIX}/jnext.app\")
+    # Strip the executable (GH #572; cpack sets CMAKE_INSTALL_DO_STRIP through
+    # CPACK_STRIP_FILES). Done here, before macdeployqt and codesign, so the
+    # signature below covers the stripped file whatever CMake's own install
+    # rules do with a MACOSX_BUNDLE target.
+    if(CMAKE_INSTALL_DO_STRIP)
+        execute_process(
+            COMMAND \"${CMAKE_STRIP}\" \"\${_app}/Contents/MacOS/jnext\"
+            TIMEOUT 300
+            RESULT_VARIABLE _rc)
+        if(NOT _rc EQUAL 0)
+            message(FATAL_ERROR \"strip failed or timed out (result: \${_rc})\")
+        endif()
+    endif()
     if(NOT \"${JNEXT_MACDEPLOYQT}\" STREQUAL \"\")
         message(STATUS \"Deploying dependencies into \${_app}\")
         execute_process(
@@ -1050,6 +1063,11 @@ set(CPACK_PACKAGE_CONTACT "zx@jogv.es")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Real-time ZX Spectrum Next emulator with an integrated debugger")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/jorgegv/jnext")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
+# Ship stripped binaries (GH #572): cpack installs with CMAKE_INSTALL_DO_STRIP
+# set, so the rpm and deb carry no symbol table. The macOS bundle's executable
+# is stripped by its install(CODE) step above, before it is signed.
+# packaging/verify-stripped.sh checks every package the package-* recipes build.
+set(CPACK_STRIP_FILES ON)
 if(APPLE AND MACOS_APP_BUNDLE)
     # A .dmg is a drag-and-drop volume, not a filesystem root: the bundle and
     # the docs sit at the top level. The /usr prefix used by the Linux packages
