@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 - Release packages ship stripped executables (rpm, deb, Windows zips, macOS dmg): smaller downloads
+- File menu opens instantly; the SD card's original image is no longer checksummed on every open
 
 ## v1.4.0 (2026-11-25)
 
