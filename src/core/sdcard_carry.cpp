@@ -715,7 +715,7 @@ bool parse_i64(const std::string& s, int64_t& v) {
 bool verified_record_valid(const std::string& raw, const std::string& want, const Stamp& now) {
     const std::string rec = raw + ".verified";
     std::error_code ec;
-    if (!fs::is_regular_file(rec, ec)) return false;   // a directory would make the read throw
+    if (!fs::is_regular_file(rec, ec)) return false;   // not a FIFO or other special file: opening one could block
     std::ifstream f(rec, std::ios::binary);
     if (!f) return false;
     char buf[257];

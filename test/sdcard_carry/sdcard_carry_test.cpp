@@ -1471,25 +1471,30 @@ int main() {
             const std::string rec = raw_of(c) + ".verified";
             (void)chk(c);
             const std::string good = slurp(rec);   // "<digest> <size> <mtime>\n"
-            const size_t a1 = good.find(' '), a2 = good.find(' ', a1 + 1);
-            const std::string dg = good.substr(0, a1), sz = good.substr(a1 + 1, a2 - a1 - 1), mt = good.substr(a2 + 1);   // mt ends in \n
-            std::string up = dg;
-            for (char& ch : up) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
-            const std::string variants[] = {
-                up + " " + sz + " " + mt,                                 // uppercase hex
-                dg.substr(1) + " " + sz + " " + mt,                       // 63-digit digest
-                dg + " " + sz + "\n",                                     // two fields
-                dg + " 18446744073709555712 " + mt,                       // 2^64 + 4096: overflows uint64, would wrap to the real size
-                good + "trailing\n",                                      // text after the line
-            };
-            bool all = true;
-            std::string det;
-            for (const std::string& v : variants) {
-                spit(rec, v);
-                const R r = chk(c);
-                if (!(r.ok && r.hashes == 1)) { all = false; det += " [" + dump(r) + "]"; }
+            const size_t a1 = good.find(' '), a2 = a1 == std::string::npos ? a1 : good.find(' ', a1 + 1);
+            bool all = a2 != std::string::npos;   // no record written: a clean FAIL below, never an abort
+            std::string det = all ? "" : " [no record was written]";
+            if (all) {
+                const std::string dg = good.substr(0, a1), sz = good.substr(a1 + 1, a2 - a1 - 1), mt = good.substr(a2 + 1);   // mt ends in \n
+                std::string up = dg;
+                for (char& ch : up) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+                std::vector<std::string> variants = {
+                    up + " " + sz + " " + mt,                                 // uppercase hex
+                    dg.substr(1) + " " + sz + " " + mt,                       // 63-digit digest
+                    dg + " " + sz + "\n",                                     // two fields
+                    dg + " 18446744073709555712 " + mt,                       // 2^64 + 4096: overflows uint64, would wrap to the real size
+                    good + "trailing\n",                                      // text after the line
+                };
+                // A negative tick written as its unsigned form (2^64 - n) is out of int64 range: not the record. Where ticks
+                // are positive (Windows) there is no such form, so no variant.
+                if (mt[0] == '-') variants.push_back(dg + " " + sz + " " + std::to_string(static_cast<uint64_t>(std::stoll(mt))) + "\n");
+                for (const std::string& v : variants) {
+                    spit(rec, v);
+                    const R r = chk(c);
+                    if (!(r.ok && r.hashes == 1)) { all = false; det += " [" + dump(r) + "]"; }
+                }
             }
-            check("SDCARRY-22B", "records that are uppercase hex, a 63-digit digest, two fields, an overflowing size or have text after the line are ignored: each is hashed once and the verdict is true",
+            check("SDCARRY-22B", "records that are uppercase hex, a 63-digit digest, two fields, an overflowing size, an out-of-range mtime or have text after the line are ignored: each is hashed once and the verdict is true",
                   all, det);
         }
         {   // SDCARRY-22C
