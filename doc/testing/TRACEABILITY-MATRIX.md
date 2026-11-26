@@ -73,7 +73,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |   103 |  103 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6700 | 6700 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6700**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6171**. Rows the 258 suites declared in `test/unit-tests.conf` run live: **18454**.
+Rows the sections above carry: **6700**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6171**. Rows the 259 suites declared in `test/unit-tests.conf` run live: **18506**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 205 suites (12367 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 206 suites (12419 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -112,11 +112,12 @@ These 205 suites (12367 live rows) have no VHDL-derived plan row to map, so they
 | `sdcard_carry_test` | 57 | SD card comparison / carry-over engine and rescue verbs (GH #555): the design in the issue and its plan as oracle, the hand-rolled FAT32 reader as the foreign reader (host feature, no core counterpart) |
 | `sdcard_upgrade_test` | 35 | SD card upgrade flow (GH #555): the design in the issue and its plan as oracle, the hand-rolled FAT32 reader as the foreign reader (host feature, no core counterpart) |
 | `sdcard_backup_test` | 23 | SD card backup, go back, delete and the File-menu state (GH #555): the design in the issue as oracle (host feature, no core counterpart) |
-| `image_lock_test` | 10 | SD card image lock (GH #555): one jnext per card; the design in the issue as oracle (host feature, no core counterpart) |
+| `image_lock_test` | 22 | SD card image lock (GH #555): one jnext per card; the design in the issue as oracle (host feature, no core counterpart) |
 | `sdcard_swap_lock_test` | 6 | the live SD card change takes and drops the image lock (GH #555): the design in the issue as oracle (host feature, no core counterpart) |
 | `sdcard_file_extract_test` | 41 | FatFs R0.15b and the FAT specification as oracle, with the issue and its plan (GH #557): host copy OUT of an SD card image, a host feature with no core counterpart; the core never reads a filesystem, only SPI blocks, which `## SD Card` traces |
 | `sdcard_card_ops_test` | 59 | FatFs R0.15b and the FAT specification as oracle, with the issue and its plan (GH #558): host-side file operations on an SD card image for the SD card file manager, a host feature with no core counterpart; the core never reads a filesystem, only SPI blocks, which `## SD Card` traces |
-| `sdcard_manager_test` | 47 | the issue and its decision comments (GH #558) and the guest's SPI view of the card and the FAT32 layout (SD Physical Layer spec, fatgen103) as oracle: the SD card file manager's host-side logic (the copy, move and delete runs, the listed-identity check, what the window opens on, the machine seeing the manager's changes and the manager the machine's), a host feature with no core counterpart |
+| `sdcard_manager_test` | 62 | the issue and its decision comments (GH #558) and the guest's SPI view of the card and the FAT32 layout (SD Physical Layer spec, fatgen103) as oracle: the SD card file manager's host-side logic (the copy, move and delete runs, the listed-identity check, what the window opens on, the machine seeing the manager's changes and the manager the machine's), a host feature with no core counterpart |
+| `sdcard_forward_test` | 13 | the issue and its decision comments (GH #568) and the lock-file format of core/image_lock.h as oracle: jnext --sdcard-file-add forwarded to the running jnext that holds the card (the client, hostile servers, the endpoint DebugServers publishes in the card locks), a host feature with no core counterpart |
 | `image_lock_posix_test` | 2 | SD card image lock, symlink and hard-link rows (POSIX, GH #555); same oracle (host feature, no core counterpart) |
 | `sdcard_file_extract_posix_test` | 1 | SDFX-P01 moved out of sdcard_file_extract_test (a symbolic link needs POSIX, GH #557); same oracle |
 | `sdcard_provisioner_test` | 189 | jnext SD-image download/patch policy (host side) |
@@ -191,7 +192,7 @@ These 205 suites (12367 live rows) have no VHDL-derived plan row to map, so they
 | `costly_optimizations_test` | 6 | the costly-optimisation registry parser (GH #496): a host-side command-line value list, no hardware counterpart |
 | `halt_batch_observer_test` | 13 | cycle-batching equivalence with an ESP-01 or a debugger client attached (GH #489): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `halt_batch_observer_native_test` | 3 | cycle-batching equivalence with an ESP-01 attached (GH #489): the rows that need a live ESP worker thread; batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
-| `sdcard_live_change_test` | 1 | real NextZXOS answering the esxDOS F_OPEN as oracle (GH #558): a file the SD card manager adds to the card while the machine runs is found by the guest, a host GUI feature with no core counterpart |
+| `sdcard_live_change_test` | 2 | real NextZXOS answering the esxDOS F_OPEN as oracle (GH #558): a file the SD card manager adds to the card while the machine runs is found by the guest, a host GUI feature with no core counterpart |
 | `call_stack_fetch_test` | 14 | debugger call-stack tracker fed from the CPU's M1 fetch buffer (GH #489): frames through the emulator path; the oracle is Z80/Z80N instruction semantics and the interrupt response, the tracker itself being jnext-internal |
 | `call_stack_reconstruct_test` | 11 | debugger call-stack tracker rebuild from the stack (GH #498): the oracle is the Z80 CALL / RST encodings (UM0080), the tracker itself being jnext-internal |
 | `debug_pre_block_test` | 12 | debugger per-instruction armed block skipped while idle (GH #498): the cached gate against its recomputation, and the block run vs skipped on the same program; jnext-internal |
@@ -240,7 +241,7 @@ These 205 suites (12367 live rows) have no VHDL-derived plan row to map, so they
 | `script_events_test` | 169 | debugger scripting language engine (GH #26, jnext-internal); the T80N core has no debugger |
 | `script_record_test` | 35 | debugger session recorder (GH #20 / #26 WP6, jnext-internal); the T80N core has no debugger |
 | `bp_script_test` | 48 | Breakpoints panel breakpoint file, .jds codec (GH #376, jnext-internal); the T80N core has no debugger |
-| `zrcp_adapter_test` | 232 | ZRCP remote-debugger adapter (GH #280; ZEsarUX 12.0 transcripts, jnext-internal); the T80N core has no debugger |
+| `zrcp_adapter_test` | 242 | ZRCP remote-debugger adapter (GH #280; ZEsarUX 12.0 transcripts, jnext-internal); the T80N core has no debugger |
 | `crt_shader_policy_test` | 18 | OpenGL CRT shader decision rules: style numbers, fullscreen placement, ARGB-to-GL byte order (host GUI) |
 | `app_config_test` | 182 | jnext.conf schema/precedence (host settings file) |
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
@@ -250,7 +251,7 @@ These 205 suites (12367 live rows) have no VHDL-derived plan row to map, so they
 | `frame_timer_test` | 6 | host GUI frame-timer contract (Qt timer, not core timing) |
 | `esp_status_test` | 15 | host status-bar ESP indicator (GUI), no core counterpart |
 | `no_sdcard_ui_test` | 4 | --no-sdcard in the window: Insert / Eject SD Card disabled, "SD: none" (host GUI, GH #540) |
-| `sdcard_menu_test` | 18 | File menu card-set actions and their enablement (GH #555): the design in the issue as oracle (host UI, no core counterpart) |
+| `sdcard_menu_test` | 19 | File menu card-set actions and their enablement (GH #555): the design in the issue as oracle (host UI, no core counterpart) |
 | `sdcard_manager_window_test` | 53 | the issue and its decision comments (GH #558) as oracle: the SD card file manager window (two panes, read-only forcing, copy, move, rename, delete, New Folder, drops, what it opens on, the card pane following the card, the window staying modeless and inert during a card operation and the emulator winning), a host GUI feature with no core counterpart |
 | `bug_report_ui_test` | 6 | File > Save Bug Report... in the Qt window (host GUI, GH #492): the menu, the real dialog, the report written |
 | `nex_v13_dialog_test` | 4 | experimental NEX V1.3 warning dialog (GUI), no core counterpart |
