@@ -949,9 +949,10 @@ inline constexpr Option OPTIONS[] = {
       "File > Insert SD Card Image does (headless only,\n"
       "repeatable). Keeps --sdcard-readonly. Refused while an\n"
       "RZX records or plays; a refusal fails the run", true },
+    // Not `terminal`: STARTERR-13 pins the terminal rows to an exact set, the canonical spelling among them.
     { "--delayed-sdcard1-insert-frames", 2, Doc::UndocumentedAlias, OptId::DelayedSdcardInsertFrames,
       "N FILE",
-      "Alias of --delayed-sdcard-insert-frames.", true },
+      "Alias of --delayed-sdcard-insert-frames." },
     // GH #505 - the same for the second SD card slot.
     { "--delayed-sdcard2-insert-frames", 2, Doc::Documented, OptId::DelayedSdcard2InsertFrames,
       "N FILE",

@@ -417,7 +417,7 @@ int main(int argc, char** argv)
             in_work = nullptr;
             after = ask(card);
             const std::string busy = "a card operation owns the SD card (an upgrade or a go back); run the command again when it has finished";
-            check("SDMENU-20", "inside an upgrade's work, the window's answer to a copy asked for through ZRCP is the busy refusal (5), for the card it names and for any other, and the card is not touched; after the operation it is not the busy refusal",
+            check("SDMENU-R01", "inside an upgrade's work, the window's answer to a copy asked for through ZRCP is the busy refusal (5), for the card it names and for any other, and the card is not touched; after the operation it is not the busy refusal",
                   during.status == 5 && during.text == busy && during_other.status == 5 && during_other.text == busy &&
                       after.text.rfind("a card operation owns", 0) != 0 && size_in_work == size_before,
                   during.text + " | " + after.text);
