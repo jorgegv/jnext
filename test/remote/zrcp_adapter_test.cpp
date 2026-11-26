@@ -522,6 +522,15 @@ static void table_rows() {
 // zrcp_format.h (percent encoding); ZEsarUX has no such command.
 // ===========================================================================
 
+// A path the server's is_absolute() accepts on this host: a Windows path needs a drive.
+static std::string A(const std::string& posix_abs) {
+#ifdef _WIN32
+    return "C:" + posix_abs;
+#else
+    return posix_abs;
+#endif
+}
+
 static void sd_file_add_rows() {
     {
         std::string all;
@@ -555,43 +564,48 @@ static void sd_file_add_rows() {
         SdFileAddRequest got;
         int calls = 0;
         rig.zrcp->set_sd_file_add([&](const SdFileAddRequest& r) { got = r; ++calls; return SdFileAddReply{0, "ok"}; });
-        c.cmd("sd-file-add /a%20b.img /h/p%25.bin /DOT/P --force --card 2 --writes /w%0Aj");
+        c.cmd("sd-file-add " + A("/a%20b.img") + " " + A("/h/p%25.bin") + " /DOT/P --force --card 2 --writes " + A("/w%0Aj"));
         check("ZRCP-SDA-01", "the hook gets the exact decoded request: image, file, card path, force, slot 1, writes",
-              calls == 1 && got.image == "/a b.img" && got.host == "/h/p%.bin" && got.card_path == "/DOT/P" && got.force &&
-                  got.slot == 1 && got.writes_given && got.writes == "/w\nj",
+              calls == 1 && got.image == A("/a b.img") && got.host == A("/h/p%.bin") && got.card_path == "/DOT/P" && got.force &&
+                  got.slot == 1 && got.writes_given && got.writes == A("/w\nj"),
               got.image + "|" + got.host + "|" + got.card_path + "|" + got.writes);
-        c.cmd("sd-file-add /a.img /h/p.bin /P");
+        c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p.bin") + " /P");
         check("ZRCP-SDA-02", "the plain form gives slot -1, no force and no writes",
-              calls == 2 && got.slot == -1 && !got.force && !got.writes_given && got.image == "/a.img");
-        const char* bad[] = {"sd-file-add /a.img /h", "sd-file-add /a.img /h /P /Q", "sd-file-add /a.img /h /P --card 3",
-                             "sd-file-add /a.img /h /P --card x", "sd-file-add /a.img /h /P --force --force",
-                             "sd-file-add /a.img /h /P --bogus", "sd-file-add /a.img /h /P%00", "sd-file-add /a.img /h /P%",
-                             "sd-file-add /a.img /h /P --card 1 --card 2", "sd-file-add /a.img /h /P --writes",
-                             "sd-file-add /a.img  /h /P", "sd-file-add"};
+              calls == 2 && got.slot == -1 && !got.force && !got.writes_given && got.image == A("/a.img"));
+        const std::string I = A("/a.img"), H = A("/h"), P = " /P";
+        const std::string bad[] = {"sd-file-add " + I + " " + H, "sd-file-add " + I + " " + H + P + " /Q",
+                                   "sd-file-add " + I + " " + H + P + " --card 3", "sd-file-add " + I + " " + H + P + " --card x",
+                                   "sd-file-add " + I + " " + H + P + " --force --force", "sd-file-add " + I + " " + H + P + " --bogus",
+                                   "sd-file-add " + I + " " + H + " /P%00", "sd-file-add " + I + " " + H + " /P%",
+                                   "sd-file-add " + I + " " + H + P + " --card 1 --card 2", "sd-file-add " + I + " " + H + P + " --writes",
+                                   "sd-file-add " + I + "  " + H + P, "sd-file-add"};
         bool all = true;
         std::string first;
-        for (const char* l : bad) {
+        for (const std::string& l : bad) {
             const std::string r = c.cmd(l);
-            if (!starts_with(r, "Error. [1] ")) { all = false; first += std::string(" ") + l + " -> " + esc(r); }
+            if (!starts_with(r, "Error. [1] ")) { all = false; first += " " + l + " -> " + esc(r); }
         }
         check("ZRCP-SDA-03", "wrong arity, a bad or repeated option, a bad --card value, an empty token, a NUL and a bad "
                              "escape are each Error [1] and never reach the hook",
               all && calls == 2, first);
-        const std::string ri = c.cmd("sd-file-add a.img /h/p /P");
-        const std::string rh = c.cmd("sd-file-add /a.img h/p /P");
-        const std::string rw = c.cmd("sd-file-add /a.img /h/p /P --writes w.jsdw");
+        const std::string ri = c.cmd("sd-file-add a.img " + A("/h/p") + " /P");
+        const std::string rh = c.cmd("sd-file-add " + A("/a.img") + " h/p /P");
+        const std::string rw = c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p") + " /P --writes w.jsdw");
         check("ZRCP-SDA-04", "a relative image, file or writes path is Error [1] naming which one, and the hook is not called",
               starts_with(ri, "Error. [1] ") && ri.find("image") != std::string::npos &&
                   starts_with(rh, "Error. [1] ") && rh.find("file path") != std::string::npos &&
                   starts_with(rw, "Error. [1] ") && rw.find("writes") != std::string::npos && calls == 2,
               esc(ri) + esc(rh) + esc(rw));
         rig.zrcp->set_sd_file_add([](const SdFileAddRequest&) { return SdFileAddReply{0, "Copied x"}; });
-        const std::string r0 = c.cmd("sd-file-add /a.img /h/p /P");
+        const std::string r0 = c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p") + " /P");
         rig.zrcp->set_sd_file_add([](const SdFileAddRequest&) { return SdFileAddReply{4, "exists\nline2 100%"}; });
-        const std::string r4 = c.cmd("sd-file-add /a.img /h/p /P");
-        check("ZRCP-SDA-06", "hook replies {0,\"Copied x\"} and {4,\"exists\\nline2 100%\"} come out as 'OK. Copied x' and "
-                             "'Error. [4] exists%0Aline2 100%25', each ending at its prompt",
-              r0 == "OK. Copied x\ncommand> " && r4 == "Error. [4] exists%0Aline2 100%25\ncommand> ", esc(r0) + esc(r4));
+        const std::string r4 = c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p") + " /P");
+        rig.zrcp->set_sd_file_add([](const SdFileAddRequest&) { return SdFileAddReply{0, "Copied 100%\nx"}; });
+        const std::string r0e = c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p") + " /P");
+        check("ZRCP-SDA-06", "hook replies {0,\"Copied x\"}, {0,\"Copied 100%\\nx\"} and {4,\"exists\\nline2 100%\"} come out as 'OK. Copied x', "
+                             "'OK. Copied 100%25%0Ax' and 'Error. [4] exists%0Aline2 100%25', each ending at its prompt",
+              r0 == "OK. Copied x\ncommand> " && r0e == "OK. Copied 100%25%0Ax\ncommand> " &&
+                  r4 == "Error. [4] exists%0Aline2 100%25\ncommand> ", esc(r0) + esc(r0e) + esc(r4));
         const std::string h = c.cmd("help sd-file-add");
         check("ZRCP-SDA-07", "help sd-file-add gives the syntax line with the options and says it is a jnext command",
               starts_with(h, "Syntax: sd-file-add image file card-path [--force] [--card 1|2] [--writes file]\n\nDescription\n") &&
@@ -601,7 +615,7 @@ static void sd_file_add_rows() {
     {
         Rig rig;
         Zc  c(rig);
-        const std::string r = c.cmd("sd-file-add /a.img /h/p /P");
+        const std::string r = c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p") + " /P");
         check("ZRCP-SDA-05", "with no hook installed the reply is Error [5] sd-file-add is not available in this jnext",
               r == "Error. [5] sd-file-add is not available in this jnext\ncommand> ", esc(r));
     }
