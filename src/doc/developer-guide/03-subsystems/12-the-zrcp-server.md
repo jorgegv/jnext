@@ -74,7 +74,7 @@ empty path or value, a refusal of the facade) is ZEsarUX's `Error changing regis
 
 `sd-file-add image file card-path [--force] [--card 1|2] [--writes file]` copies a host file onto an SD card image the
 running jnext has mounted, with the meaning of `--sdcard-file-add`; it is what a second jnext's `--sdcard-file-add`
-sends when the card is in use ([3.8](08-media-and-loaders.md)). It is an owner-approved exception to the rule that the table
+sends when the card is in use ([3.8](08-media-and-loaders.md)). It is a deliberate, single exception to the rule that the table
 carries ZEsarUX's names only: its row has `extension` set (`CommandDef`, `CommandInfo`), `ZRCP-TAB-01`'s census reads
 every other row against ZEsarUX's `ls` unchanged, and `ZRCP-TAB-07` pins the extension set to exactly this one name. `help`, `ls`
 and the dispatcher read the same table, so the single-source property holds.

@@ -3629,7 +3629,7 @@ echoes <code>CVAR(path)</code> with the path's case kept. Conditions compile thr
 (<code>PC=8D3EH AND CVAR(a)=2</code>); a read that fails is ZEsarUX's <code>Error evaluating parsed string</code>, with no reason. A condition with no
 <code>PC=</code> first term is checked at every instruction, and a <code>CVAR</code> in it builds the C frames each time: put a <code>PC=</code> term first.
 The write is <code>set-register CVAR(path)=value</code> (<code>cmd_set_register()</code>, <code>zrcp_server.cpp:1200</code>): the command table's census pins ZEsarUX's
-<code>ls</code>, so no command can be added, and the extension is a branch of the one assignment verb. It takes the path up to the first <code>)</code>, then <code>=</code>, and
+<code>ls</code> (<code>sd-file-add</code> is the one exception, see <a href="../12-the-zrcp-server.html">3.10</a>), so no other command can be added, and the extension is a branch of the one assignment verb. It takes the path up to the first <code>)</code>, then <code>=</code>, and
 the trimmed rest as the value (a value ZRCP's <code>parse_number()</code> reads, decimal or <code>nnnnH</code>, is converted to decimal text; anything else, <code>-5</code>,
 a fraction, <code>'A'</code>, <code>0x10</code>, goes as typed) and calls <code>write_c_value()</code> in frame 0. Success answers <code>set-register</code>'s own register line; every failure
 is ZEsarUX's <code>Error changing register</code>, with no reason.
