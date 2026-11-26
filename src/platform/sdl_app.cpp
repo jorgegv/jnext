@@ -26,6 +26,7 @@
 #include "platform/host_modifier.h"   // GH #403
 #include "core/emulator_config.h"
 #include "core/log.h"
+#include "platform/sdcard_manager.h"
 #include "core/output_files.h"   // GH #553
 #include "debug/source_file.h"   // GH #344: program_loads_later
 #include <cmath>
@@ -263,7 +264,9 @@ bool SdlApp::init(int /*argc*/, char* /*argv*/[]) {
     debugger_->set_loop_driver(driver);
     host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
     // GH #12 (WP-5) — the socket debugger servers, on this loop's pump.
-    if (!debug_servers_.start(*debugger_, config_)) return false;
+    if (!debug_servers_.start(*debugger_, config_,
+            [this](const jnext::remote::zrcp::SdFileAddRequest& r) { return sdmanager::remote_add(emulator_, r, {}); }))
+        return false;
     // GH #26 WP5 — Alt+1..Alt+8 are the script host keys (host_key_wiring.h),
     // as in the Qt window: the backend exists now, the Router was bound above.
     wire_script_keys(key_router_, *debugger_);

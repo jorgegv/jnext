@@ -1,5 +1,6 @@
 #include "platform/debug_servers.h"
 
+#include "core/image_lock.h"
 #include "core/log.h"
 #include "remote/dzrp/dzrp_server.h"
 #include "remote/gdb/rsp_server.h"
@@ -12,9 +13,12 @@ using jnext::dbg::ServiceHint;
 DebugServers::DebugServers() = default;
 
 // Out of line: the servers are only forward-declared in the header.
-DebugServers::~DebugServers() = default;
+DebugServers::~DebugServers() {
+    if (endpoint_published_) sdcard::sd_locks::set_zrcp_endpoint(std::string(), 0);
+}
 
-bool DebugServers::start(jnext::dbg::Debugger& dbg, const EmulatorConfig& cfg) {
+bool DebugServers::start(jnext::dbg::Debugger& dbg, const EmulatorConfig& cfg,
+                         jnext::remote::zrcp::SdFileAdd sd_file_add) {
     // The page channels first, in every build (the browser has no other way in).
     // `open()` logs `<name>: listening on channel:0`, like the socket ones.
     const auto open_channel = [&](auto& server, std::unique_ptr<jnext::remote::PipeChannel>& ch,
@@ -39,6 +43,7 @@ bool DebugServers::start(jnext::dbg::Debugger& dbg, const EmulatorConfig& cfg) {
     }
     if (cfg.zrcp_channel) {
         zrcp_ch_server_ = std::make_unique<jnext::remote::zrcp::ZrcpServer>(dbg);
+        zrcp_ch_server_->set_sd_file_add(sd_file_add);
         if (!open_channel(zrcp_ch_server_, zrcp_ch_, "zrcp")) return false;
     }
 #ifdef __EMSCRIPTEN__
@@ -88,7 +93,11 @@ bool DebugServers::start(jnext::dbg::Debugger& dbg, const EmulatorConfig& cfg) {
                                    s->server().last_error());
             return false;
         }
+        s->set_sd_file_add(std::move(sd_file_add));
         dbg.add_service(s->server());
+        // The BOUND port (a --zrcp-port 0 run has no other), so a second jnext can find this server.
+        sdcard::sd_locks::set_zrcp_endpoint(cfg.debug_listen_address, s->server().port());
+        endpoint_published_ = true;
         zrcp_ = std::move(s);
     }
     return true;
