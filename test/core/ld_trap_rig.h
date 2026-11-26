@@ -48,6 +48,8 @@ struct Result {
     size_t block = 0;            // TAP current_block()
     uint8_t border = 0;
     int frames = 0;
+    bool deck_held = false;      // TZX deck held after the extra frames (GH #567)
+    int deck_offset = 0;         // TZX deck offset after the extra frames
 };
 
 inline Bytes caller(const Case& c) {
@@ -68,7 +70,7 @@ inline Bytes caller(const Case& c) {
 }
 
 // fast=true: the trap; false: the ROM routine, tape in real time.
-inline Result run(const Case& c, bool fast, int budget_frames) {
+inline Result run(const Case& c, bool fast, int budget_frames, int extra_frames = 0) {
     Result res;
     auto emu = std::make_unique<Emulator>();
     EmulatorConfig cfg;
@@ -97,8 +99,15 @@ inline Result run(const Case& c, bool fast, int budget_frames) {
         emu->run_frame();
         if (emu->cpu().pc() == jr) { res.reached = true; break; }
     }
+    // Frames past the caller's JR $ (no more tape reads): where the deck is left.
+    for (int i = 0; i < extra_frames; ++i) emu->run_frame();
     res.r = emu->cpu().get_registers();
     for (uint16_t i = 0; i < 32; ++i) res.mem.push_back(emu->mmu().peek(static_cast<uint16_t>(0xA000 + i)));
+    if (c.tzx) {
+        const auto d = emu->tzx_tape().deck_state(emu->monotonic_tstates());
+        res.deck_held = d.held;
+        res.deck_offset = d.offset;
+    }
     res.at_end = c.tzx ? emu->tzx_tape().at_end() : emu->tape().at_end();
     res.block = emu->tape().current_block();
     res.border = emu->renderer().ula().get_border();
