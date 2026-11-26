@@ -55,7 +55,7 @@ if want sdcard-card-choice-func; then
             timeout --foreground --kill-after=5s 120s "$JNEXT" "$@" ) > "$W/$label.log" 2>&1 || TRY_RC=$?
         [[ "$TRY_RC" == "$want" ]] || faults+=("$label: exit $TRY_RC, wanted $want: $(head -c 300 "$W/$label.log")")
     }
-    log_has() { grep -qF "$2" "$W/$1.log" || faults+=("$1: the output lacks '$2': $(head -c 300 "$W/$1.log")"); }
+    log_has() { grep -qF -- "$2" "$W/$1.log" || faults+=("$1: the output lacks '$2': $(head -c 300 "$W/$1.log")"); }
     hold() {   # hold <label> <cfg> <args...>: a headless jnext holding its cards (no ZRCP)
         local label=$1 cfg=$2; shift 2
         JNEXT_CONFIG_DIR="$cfg" "$JNEXT" --headless --machine 48k --rewind-buffer-size 0 "$@" \
@@ -165,7 +165,7 @@ if want sdcard-card-choice-func; then
     # 10. each alias behaves like its option
     run a-ro1 1 "$CFGE" --sdcard1 "$BASE/a.img" --sdcard1-readonly --sdcard-file-add p.bin
     run a-ro0 1 "$CFGE" --sdcard "$BASE/a.img" --sdcard-readonly --sdcard-file-add p.bin
-    [[ "$(cat "$W/a-ro1.log")" == "$(cat "$W/a-ro0.log")" ]] || faults+=("a-ro: --sdcard1-readonly and --sdcard-readonly refuse differently")
+    [[ "$(grep -v '^\[' "$W/a-ro1.log")" == "$(grep -v '^\[' "$W/a-ro0.log")" ]] || faults+=("a-ro: --sdcard1-readonly and --sdcard-readonly refuse differently")
     log_has a-ro1 "--sdcard-file-add cannot be combined with --sdcard-readonly"
     a0=$(sha "$BASE/a.img")
     run a-wr 0 "$CFGE" --sdcard1 "$BASE/a.img" --sdcard1-writes "$BASE/wa.jsdw" --sdcard-file-add p.bin --sdcard-file-dest /AW.BIN

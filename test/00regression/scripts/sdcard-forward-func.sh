@@ -103,7 +103,7 @@ if want sdcard-forward-func; then
         return 1
     }
     mt() { LANG=C mtype -i "$1@@$2" "::$3" 2>/dev/null || true; }   # mt <card> <offset> <path>
-    log_has() { grep -qF "$2" "$W/$1.log" || faults+=("$1: the output lacks '$2': $(head -c 300 "$W/$1.log")"); }
+    log_has() { grep -qF -- "$2" "$W/$1.log" || faults+=("$1: the output lacks '$2': $(head -c 300 "$W/$1.log")"); }
 
     # 1-5. card 1: the lock file, a relative forward, a symlink, exists/force, empty/big/tree
     hold h1 --sdcard "$BASE/a.img"
