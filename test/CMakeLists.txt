@@ -1978,7 +1978,7 @@ add_test(NAME raster_state_tests COMMAND raster_state_test)
 # real Debugger over a 48K Emulator, so it links the emulator like
 # debugger_backend_test (minus jnext_platform: no loop owner is driven).
 if(NOT EMSCRIPTEN)
-    add_executable(remote_transport_test remote/remote_transport_test.cpp)
+    add_executable(remote_transport_test remote/remote_transport_test.cpp remote/dzrp_probe.cpp)
     target_link_libraries(remote_transport_test PRIVATE
         jnext_remote
         jnext_core jnext_cpu jnext_memory jnext_video
@@ -2000,6 +2000,25 @@ target_link_libraries(dzrp_adapter_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(dzrp_adapter_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME dzrp_adapter_tests COMMAND dzrp_adapter_test)
+# GH #511 (epic #486) - the DZRP CLIENT: framing, session, profiles and the gate over memory links
+# against scripted peers and a real DzrpServer. No socket anywhere, so it runs in every
+# configuration, WebAssembly under node included; the TCP link rows are in remote_transport_test.
+add_executable(dzrp_client_test remote/dzrp_client_test.cpp remote/dzrp_probe.cpp)
+target_link_libraries(dzrp_client_test PRIVATE
+    jnext_remote
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(dzrp_client_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME dzrp_client_tests COMMAND dzrp_client_test)
+# dzrp_client_probe - test-support BINARY (GH #511), the R0.5 checkpoint tool a human runs against a
+# real Next: not an add_test(), invisible to test/unit-tests.conf (the sdfile_tool pattern). It is not
+# packaged and not built for WebAssembly.
+if(NOT EMSCRIPTEN)
+    add_executable(dzrp_client_probe remote/dzrp_client_probe.cpp remote/dzrp_probe.cpp)
+    target_link_libraries(dzrp_client_probe PRIVATE jnext_remote spdlog::spdlog)
+    target_include_directories(dzrp_client_probe PRIVATE ${CMAKE_SOURCE_DIR}/src)
+endif()
 # GH #545 - the browser page's debug channel: remote::PipeChannel (the second esp::EspListener,
 # fed by the host) through the real Server, and DebugServers serving DZRP / ZRCP / GDB over it.
 # Plain C++ with no socket, so it runs in every configuration, WebAssembly under node included.

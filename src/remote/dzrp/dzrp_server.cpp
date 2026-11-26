@@ -4,6 +4,7 @@
 #include <cctype>
 
 #include "core/log.h"
+#include "remote/dzrp/dzrp_session.h"
 #include "version.h"
 
 namespace jnext {
@@ -462,7 +463,7 @@ void DzrpServer::execute(const Command& cmd) {
 void DzrpServer::cmd_init(const Command& cmd) {
     std::vector<std::uint8_t> out = {0, DZRP_VERSION_MAJOR, DZRP_VERSION_MINOR,
                                      DZRP_VERSION_PATCH, DZRP_MACHINE_ZXNEXT};
-    const std::string name = std::string("jnext v") + JNEXT_VERSION_STRING;
+    std::string name = std::string("jnext v") + JNEXT_VERSION_STRING;
     auto finish = [&](std::uint8_t err) {
         out[0] = err;
         out.insert(out.end(), name.begin(), name.end());
@@ -476,6 +477,20 @@ void DzrpServer::cmd_init(const Command& cmd) {
         Log::debugger()->warn("dzrp: malformed CMD_INIT: payload is {} bytes, needs the "
                               "3-byte version",
                               cmd.payload.size());
+        finish(1);
+        return;
+    }
+
+    // A session with oneself would deadlock the emulation thread (this server is pumped by
+    // the same thread that runs the client): refuse a client whose program name ends with
+    // THIS process's session token, echoing the token so the client can tell. Read from the
+    // RAW payload (printable_name() caps at 64 bytes), and before anything is attached or
+    // paused; an open session is left untouched.
+    if (name_carries_token(cmd.payload.data() + 3, cmd.payload.size() - 3,
+                           process_session_token())) {
+        Log::debugger()->warn("dzrp: CMD_INIT from this process's own DZRP client - refused "
+                              "(a session with oneself)");
+        name = client_program_name(process_session_token());
         finish(1);
         return;
     }

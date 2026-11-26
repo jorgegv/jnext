@@ -1,11 +1,16 @@
 #pragma once
 
 // ---------------------------------------------------------------------------
-// DZRP framing (GH #12, epic #276 package D, WP-1).
+// DZRP framing (GH #12, epic #276 package D, WP-1; client half GH #511).
 //
 // The DeZog Remote Protocol's byte-level frames, and nothing else: no command
-// is interpreted here. `DzrpServer` (dzrp_server.h) feeds this parser from its
-// `remote::Connection` and writes what `encode_response()` builds.
+// is interpreted here. Both directions live here:
+//
+//   server half  `FrameParser` reads COMMANDS, `encode_response()` builds
+//                RESPONSES. `DzrpServer` (dzrp_server.h) uses them.
+//   client half  `encode_command()` builds COMMANDS, `ResponseParser` reads
+//                RESPONSES and notifications. `DzrpClient` (dzrp_client.h)
+//                uses them.
 //
 // Design: doc/design/debug-subsystem/dzrp-frontend.md §4.2 item 5. Spec:
 // DeZog `design/DeZogProtocol.md` (DZRP 2.2.0), "Data Format".
@@ -116,6 +121,79 @@ private:
     std::string   error_;
     Command       cmd_;
     TimePoint     last_progress_{};
+};
+
+/// A command frame (the client's half): length = `n` (the PAYLOAD only), then `seq`, `id`, the
+/// payload. EMPTY when `seq` is 0 (reserved for notifications: nothing could answer it) or
+/// `n` exceeds `MAX_PAYLOAD_BYTES`, so a client can never build a frame the server refuses.
+std::vector<std::uint8_t> encode_command(std::uint8_t seq, std::uint8_t id,
+                                         const std::uint8_t* payload, std::size_t n);
+std::vector<std::uint8_t> encode_command(std::uint8_t seq, std::uint8_t id,
+                                         const std::vector<std::uint8_t>& payload);
+
+/// One complete response frame. For a notification (`seq` 0) `payload[0]` is the
+/// notification id.
+struct Response {
+    std::uint8_t              seq = 0;
+    std::vector<std::uint8_t> payload;
+    bool notification() const { return seq == 0; }
+};
+
+/// The incremental response parser (the client's half). Same shape as `FrameParser`:
+/// feed at most `wanted()` bytes at a time; it holds one frame, never more.
+///
+/// The length field counts FROM THE SEQ BYTE, so it is refused when 0 ("no sequence
+/// byte") and when above `MAX_PAYLOAD_BYTES` (the cap the server applies to its own
+/// replies), as soon as the 4 length bytes are in. A notification of length 1 (seq 0,
+/// no id byte) is refused.
+///
+/// `Options::preamble` (the serial dezogif stub, which prefixes every frame with
+/// junk and an 0xA5 marker): BETWEEN frames, every byte up to and including the first
+/// 0xA5 is dropped. The hunt survives across `feed` calls, so an 0xA5 that ends one
+/// chunk is not lost. An 0xA5 inside a frame is data. While hunting, `wanted()` is 1
+/// and `partial()` is false.
+class ResponseParser {
+public:
+    using TimePoint = std::chrono::steady_clock::time_point;
+    struct Options {
+        bool preamble = false;
+    };
+
+    ResponseParser() = default;
+    explicit ResponseParser(Options o) : opt_(o), hunting_(o.preamble) {}
+
+    std::size_t wanted() const;
+    std::size_t feed(const std::uint8_t* data, std::size_t n, TimePoint now);
+    bool        ready() const { return ready_; }
+    Response    take();
+    bool               failed() const { return !error_.empty(); }
+    const std::string& error() const { return error_; }
+    /// A frame has started (its marker or first byte arrived) and is not complete.
+    bool partial() const { return started_ && !ready_ && !failed(); }
+    /// A partial frame has made no progress for `CHUNK_TIMEOUT`.
+    bool stalled(TimePoint now) const;
+    /// Bytes of the current frame received so far (length field included).
+    std::size_t received() const { return hdr_have_ + body_have_; }
+    /// Junk bytes dropped before a frame's marker (the 0xA5 itself is not counted).
+    std::size_t swallowed() const { return swallowed_; }
+    /// Forget everything: a new connection starts here.
+    void reset();
+
+private:
+    void start_next();
+
+    Options       opt_;
+    bool          hunting_ = false;   // between frames, looking for 0xA5 (preamble only)
+    bool          started_ = false;   // a frame is in progress
+    std::uint8_t  hdr_[4]  = {};
+    std::size_t   hdr_have_  = 0;
+    std::uint32_t length_    = 0;     // body length, from the seq byte
+    std::size_t   body_have_ = 0;
+    bool          ready_     = false;
+    std::string   error_;
+    Response      resp_;
+    TimePoint     last_progress_{};
+    std::size_t   swallowed_ = 0;
 };
 
 /// A response frame: length = 1 + `n` (it counts from the seq byte), then `seq`,
