@@ -1182,7 +1182,7 @@ add_test(NAME halt_batch_boot_tests COMMAND halt_batch_boot_test)
 if(NOT EMSCRIPTEN)   # a native suite: it copies a gigabyte card and boots NextZXOS from the host file system
 add_executable(sdcard_live_change_test sdcard_live_change/sdcard_live_change_test.cpp)
 target_link_libraries(sdcard_live_change_test PRIVATE
-    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_platform jnext_core jnext_cpu jnext_memory jnext_video
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(sdcard_live_change_test PRIVATE ${CMAKE_SOURCE_DIR}/src)

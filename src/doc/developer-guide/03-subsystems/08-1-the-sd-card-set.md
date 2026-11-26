@@ -135,6 +135,25 @@ an upgrade would move are locked too; a held set gets only the lock message. Liv
 new card's lock before unmounting the old one. Hard links count as separate cards (the harness uses
 one for each parallel row).
 
+The lock file's body is labelled lines, each ending in a newline: `pid:`, `image:` (`writes:` for a
+writes lock) with the canonical path, and, only while the process serves ZRCP on a socket,
+`zrcp_listening_address:` and `zrcp_listening_port:`. `DebugServers::start()` publishes the address and
+the BOUND port (a `--zrcp-port 0` run has no other) through `sd_locks::set_zrcp_endpoint()`, and its
+destructor withdraws them. The endpoint is process-wide state: it rewrites every lock the two slots hold
+(`ImageLock::refresh_body()`: `pwrite` then `ftruncate`, or the Windows file pointer and
+`SetEndOfFile`; the lock byte lies far past the content, so the body stays readable by the process that
+is refused), and `ImageLock::acquire()` writes it into every lock taken afterwards, so a live card
+change carries it too. A refusal fills a `LockHolder` (pid and endpoint) through `parse_lock_body()`, the
+one reader of the format. It is strict and bounded because any process of the same user, an older jnext or
+a rewrite in flight can be the writer: at most 4 KiB, complete lines only (a last line with no newline is
+dropped, so a rewrite caught half-way never yields a truncated port), a duplicated label dropped, a port
+of decimal digits in 1..65535, an address that is a numeric IP, and anything doubtful is "no endpoint".
+A first line of digits alone is the older unlabelled form: a pid and no endpoint. The holder of the
+default card or of a named one is also found by this lock when `--sdcard-file-add` is refused it:
+`platform/sdcard_forward.*` connects to the recorded server (see 3.8, "A copy asked for by another
+process"). A lock directory under another `JNEXT_CONFIG_DIR` or another user is another lock: such a
+process is not refused and so cannot forward.
+
 ## The suites' own card
 
 The suites never read or write `~/.jnext/sdcard`'s user files: `sd_test_state_dir` names the

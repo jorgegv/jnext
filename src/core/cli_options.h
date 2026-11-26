@@ -303,6 +303,11 @@ inline constexpr Option OPTIONS[] = {
     { "--sd-card", 1, Doc::UndocumentedAlias, OptId::Sdcard,
       "FILE",
       "Back-compatibility alias for --sdcard (hidden)." },
+    // GH #568: the first card's options also take the spelling that names the card's number, the way
+    // --sdcard2 names the second one. Same option, same arity: only the spelling differs.
+    { "--sdcard1", 1, Doc::Documented, OptId::Sdcard,
+      "FILE",
+      "Alias of --sdcard." },
     { "--sdcard-download-confirm", 0, Doc::Documented, OptId::SdcardDownloadConfirm,
       "",
       "Skip the download prompt and proceed automatically" },
@@ -325,6 +330,9 @@ inline constexpr Option OPTIONS[] = {
     { "--sdcard-readonly", 0, Doc::Documented, OptId::SdcardReadonly,
       "",
       "Open the SD image read-only; the host file is never written" },
+    { "--sdcard1-readonly", 0, Doc::Documented, OptId::SdcardReadonly,
+      "",
+      "Alias of --sdcard-readonly." },
     // GH #269 — the copy-and-exit SD-card mode. No emulation is started; the
     // exit status says what happened (see jnext(1) EXIT STATUS).
     { "--sdcard-file-add", 1, Doc::Documented, OptId::SdcardFileAdd,
@@ -420,12 +428,18 @@ inline constexpr Option OPTIONS[] = {
       "file the esxDOS stand-in holds for a directly loaded NEX,\n"
       "stored when the program closes it. Excludes\n"
       "--sdcard-readonly; --sdcard-file-add then copies into FILE." },
+    { "--sdcard1-writes", 1, Doc::Documented, OptId::SdcardWrites,
+      "FILE",
+      "Alias of --sdcard-writes." },
     { "--sdcard-writes-reset", 0, Doc::Documented, OptId::SdcardWritesReset,
       "",
       "Discard the writes kept in the --sdcard-writes FILE (the\n"
       "stand-in's file included) before the card is mounted. Needs\n"
       "--sdcard-writes. A file that is\n"
       "not a jnext SD-writes file is refused, never removed." },
+    { "--sdcard1-writes-reset", 0, Doc::Documented, OptId::SdcardWritesReset,
+      "",
+      "Alias of --sdcard-writes-reset." },
     { "--no-sdcard", 0, Doc::Documented, OptId::NoSdcard,
       "",
       "Run a directly loaded NEX with no SD card: no NextZXOS, no\n"
@@ -933,6 +947,9 @@ inline constexpr Option OPTIONS[] = {
       "File > Insert SD Card Image does (headless only,\n"
       "repeatable). Keeps --sdcard-readonly. Refused while an\n"
       "RZX records or plays; a refusal fails the run", true },
+    { "--delayed-sdcard1-insert-frames", 2, Doc::Documented, OptId::DelayedSdcardInsertFrames,
+      "N FILE",
+      "Alias of --delayed-sdcard-insert-frames.", true },
     // GH #505 - the same for the second SD card slot.
     { "--delayed-sdcard2-insert-frames", 2, Doc::Documented, OptId::DelayedSdcard2InsertFrames,
       "N FILE",

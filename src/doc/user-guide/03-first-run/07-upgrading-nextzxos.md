@@ -99,6 +99,19 @@ the SD card image /home/me/.jnext/sdcard/cspect-next-1gb-fixed.img is in use by 
 To run two, give each its own card image with `--sdcard FILE`. The same goes for a writes file. A hard link to a card counts as a
 separate card.
 
+The exception is `--sdcard-file-add`: when the JNEXT that has the card serves ZRCP
+(`--zrcp-port`), the file is copied through it instead of being refused
+([5. Running programs](../05-running-programs/index.md)). When it does not, the message ends with the
+way out:
+
+```
+... is in use by another jnext (process 4242), which is not listening on ZRCP. Restart it with --zrcp-port PORT and run this command again: the file will be copied through it.
+```
+
+Both JNEXTs must run as the same user with the same configuration directory: a lock is a
+file in `~/.jnext/locks/` (`$JNEXT_CONFIG_DIR/locks/`), and a JNEXT that does not see it
+cannot tell the card is in use.
+
 ## An older JNEXT and a newer card
 
 A JNEXT never changes a card of a newer NextZXOS than its own. It says so in the log, and in a
@@ -130,6 +143,7 @@ Moving to a new NextZXOS by hand is an export and an import ([3.3](03-using-your
 | You see | What it means, and what to do |
 |---|---|
 | `... is in use by another jnext (process N); give each jnext its own card` | Another JNEXT has the card or its writes file open. Close it or give this one its own card. |
+| `... is in use by another jnext (process N), which is not listening on ZRCP. Restart it with --zrcp-port PORT ...` | You asked for `--sdcard-file-add` on a card a running JNEXT has open, and that JNEXT cannot take the copy. Restart it with `--zrcp-port PORT` and run the command again. |
 | `the files on this card cannot be carried over (...); --sdcard-upgrade fresh starts a new card and keeps this one as the backup` | The reason is in the brackets. Use `fresh`, or restore the original image. |
 | `The upgrade to NextZXOS X failed, so the current SD card image stays in use and nothing was changed.` | The reason follows. Try again with `--sdcard-upgrade yes`. |
 | `not enough free disk space for the upgrade` | Free the disk space it names. Nothing was downloaded. |

@@ -18,7 +18,9 @@ on master too). It writes `PROG` (the command, in capitals, whatever the `-o` na
 
 1. Put `PROG` on the card: `jnext --sdcard-file-add PROG --sdcard-file-dest /DOT/PROG`.
    Add `--sdcard-writes dev.jsdw` to keep the card image pristine: the command then goes
-   into `dev.jsdw` instead.
+   into `dev.jsdw` instead. With JNEXT already running on that card and `--zrcp-port`,
+   the same command copies the rebuilt `PROG` onto the card it has open, so a build
+   and a copy do not need a restart (`--sdcard-file-force` replaces the old one).
 2. Start JNEXT with the map and **no** `--load`: `jnext --source-map prog.map` (or add
    the same `--sdcard-writes dev.jsdw` if you used it above; or **Load
    Source Map...** in the debugger). The map attaches at once and says *Source map not
