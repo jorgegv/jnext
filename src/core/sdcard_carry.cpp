@@ -737,7 +737,7 @@ bool verified_record_valid(const std::string& raw, const std::string& want, cons
 }
 
 void write_verified_record(const std::string& raw, const std::string& digest, const Stamp& st) {
-    std::ofstream f(raw + ".verified", std::ios::trunc);
+    std::ofstream f(raw + ".verified", std::ios::binary | std::ios::trunc);   // binary: a text-mode "\n" is CRLF on Windows
     if (f) f << digest << ' ' << st.size << ' ' << st.mtime << '\n';
 }
 
