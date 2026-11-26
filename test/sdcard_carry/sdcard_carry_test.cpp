@@ -1479,7 +1479,7 @@ int main() {
                 up + " " + sz + " " + mt,                                 // uppercase hex
                 dg.substr(1) + " " + sz + " " + mt,                       // 63-digit digest
                 dg + " " + sz + "\n",                                     // two fields
-                dg + " 99999999999999999999 " + mt,                       // size overflows uint64
+                dg + " 18446744073709555712 " + mt,                       // 2^64 + 4096: overflows uint64, would wrap to the real size
                 good + "trailing\n",                                      // text after the line
             };
             bool all = true;

@@ -611,6 +611,7 @@ int main(int argc, char** argv)
             QAction *up, *gb, *del;
             acts(f.win, up, gb, del);
             const bool up_before = up && up->isEnabled();
+            (void)ask(f.win.upgrade_sd_action());   // a verification is on record for the original as it is now
             const auto t = fs::last_write_time(raw);
             put(raw, 1 << 16);   // same size, other bytes (put writes 'x'; make them differ)
             { std::fstream o(raw, std::ios::in | std::ios::out | std::ios::binary); o.seekp(100); o.put('Z'); }
@@ -621,7 +622,7 @@ int main(int argc, char** argv)
             const bool entries = up && up->isEnabled() == up_before && !gb->isEnabled() && !del->isEnabled();
             const std::string txt = ask(f.win.upgrade_sd_action());
             const uint64_t at_upgrade = carry::pristine_hash_count() - h0 - after_opens;
-            check("SDMENU-25", "an original rewritten behind jnext's back: three File opens hash 0 times and leave the entries as they were; Upgrade hashes once and says the card cannot be compared",
+            check("SDMENU-25", "an original rewritten behind jnext's back after a verification: three File opens hash 0 times and leave the entries as they were; Upgrade hashes once and says the card cannot be compared",
                   after_opens == 0 && entries && at_upgrade == 1 && txt.find("does not match its .sha256 sidecar") != std::string::npos,
                   std::to_string(after_opens) + "/" + std::to_string(at_upgrade) + " " + txt);
         }
