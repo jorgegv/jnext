@@ -85,7 +85,13 @@ static void check(const char* id, const char* desc, bool cond, const std::string
 // -- The fake clock the client reads ------------------------------------------------------------
 
 static SteadyClock::time_point g_now = SteadyClock::time_point{} + std::chrono::hours(1);
-static long                    g_auto_ms = 0;   // each read advances the clock by this much
+static long                    g_auto_ms = 1;   // each read advances the clock by this much: a wait that
+                                                // nothing answers ends in a Timeout, never a hang
+struct AutoMs {   // a row that needs another rate (0 = exact), restored at the end of its scope
+    long old;
+    explicit AutoMs(long v) : old(g_auto_ms) { g_auto_ms = v; }
+    ~AutoMs() { g_auto_ms = old; }
+};
 
 static SteadyClock::time_point fake_now() {
     g_now += milliseconds(g_auto_ms);
@@ -794,6 +800,7 @@ static void session_rows() {
     }
     // SES-12
     {
+        AutoMs exact(0);   // the boundaries below are exact: the clock moves only by advance()
         // (a) jnext: both commands go out at once; no reply -> Timeout at exactly the timeout.
         Script s;
         hold(s);
@@ -1245,9 +1252,7 @@ static void wait_rows() {
         c->set_wait_hook([&] { ++hooks; rig.pump(); });
         rig_up(*c, rig);
         hooks = 0;
-        g_auto_ms = 10;   // a hook that is never called ends in a Timeout row, not in a hang
         const Reply r = c->request(CMD_GET_REGISTERS);
-        g_auto_ms = 0;
         check("DZC-WAIT-01", "hook = Debugger::pump: request(CMD_GET_REGISTERS) completes Ok, its PC is the rig's 0x8000 and the hook ran",
               r.status == Status::Ok && r.payload.size() >= 2 && r.payload[0] == 0x00 && r.payload[1] == 0x80 && hooks >= 1);
     }
@@ -1256,9 +1261,8 @@ static void wait_rows() {
         auto c = rig_client(rig);
         rig_up(*c, rig);
         c->set_wait_hook(nullptr);
-        g_auto_ms = 250;
+        AutoMs fast(250);
         const Reply r = c->request(CMD_GET_REGISTERS);
-        g_auto_ms = 0;
         check("DZC-WAIT-02", "no hook and nothing pumping the server: the same request ends in Timeout (an auto-advancing clock, no real wait)",
               r.status == Status::Timeout);
     }
