@@ -1,5 +1,10 @@
 # ChangeLog
 
+## Unreleased (2026-11-26)
+
+### Bug Fixes
+- Release packages ship stripped executables (rpm, deb, Windows zips, macOS dmg): smaller downloads
+
 ## v1.4.0 (2026-11-25)
 
 ### User Features

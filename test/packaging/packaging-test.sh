@@ -169,6 +169,9 @@ contract artifact-select test/packaging/artifact-select-test.sh artsel "current-
 # --- regression-package contract (GH #487) ----------------------------------
 contract regression-package test/packaging/regression-package-test.sh regpkg "unknown package, no or stale artifact, manifest pin, regression-win on the PGO tree"
 
+# --- verify-stripped.sh contract (GH #572) ----------------------------------
+contract verify-stripped test/packaging/verify-stripped-test.sh vstrip "ELF/PE/Mach-O: symbols or debug sections fail; an empty tree fails"
+
 # --- CI cache-key contract (GH #494) ----------------------------------------
 contract ci-cache-key test/packaging/ci-cache-key-test.sh cikey "every sdcard-image-distro key names the distribution and recipe jnext derives; one macOS key"
 
@@ -201,6 +204,9 @@ fi
 # log, so the bad() dump ends with the reason.
 # shellcheck source=test/packaging/artifact-select.sh
 . test/packaging/artifact-select.sh
+# stripped <artifact> <log>: every binary in the package is stripped (GH #572).
+# Unpacked under build/, not /tmp: a Windows zip is ~100 MB unpacked.
+stripped() { TMPDIR="$PWD/build" bash packaging/verify-stripped.sh "$1" >>"$2" 2>&1; }
 VER=$(artifact_version .) || { bad version "cannot read version.yaml"; summary; exit 1; }
 
 # --- package-src (source tarball + release zip) ------------------------------
@@ -243,7 +249,9 @@ if command -v rpmbuild >/dev/null 2>&1; then
     clear_artifacts build/rpm-release 'jnext-*.x86_64.rpm'
     if make package-rpm >"$LOGDIR/rpm.log" 2>&1; then
         r=$(want=$(rpm_artifact_name "$VER") && pick_artifact build/rpm-release 'jnext-*.x86_64.rpm' "$want" 2>>"$LOGDIR/rpm.log")
-        if [ -n "$r" ] && rpm -qlp "$r" 2>/dev/null | grep -q "bin/jnext$" \
+        if [ -n "$r" ] && ! stripped "$r" "$LOGDIR/rpm.log"; then
+            bad package-rpm "the rpm's binary is not stripped (GH #572)" "$LOGDIR/rpm.log"
+        elif [ -n "$r" ] && rpm -qlp "$r" 2>/dev/null | grep -q "bin/jnext$" \
            && ! rpm -qlp "$r" 2>/dev/null | grep -q "^/usr/share/jnext/48rom.map$"; then
             bad package-rpm "rpm has no /usr/share/jnext/48rom.map (the 48K ROM symbol map)" "$LOGDIR/rpm.log"
         elif [ -n "$r" ] && rpm -qlp "$r" 2>/dev/null | grep -q "bin/jnext$"; then
@@ -263,7 +271,9 @@ if command -v dpkg-deb >/dev/null 2>&1; then
     clear_artifacts build/deb-release 'jnext_*_amd64.deb'
     if make package-deb >"$LOGDIR/deb.log" 2>&1; then
         d=$(pick_artifact build/deb-release 'jnext_*_amd64.deb' "jnext_${VER}_amd64.deb" 2>>"$LOGDIR/deb.log")
-        if [ -n "$d" ] && dpkg-deb -c "$d" 2>/dev/null | grep -q "bin/jnext$" \
+        if [ -n "$d" ] && ! stripped "$d" "$LOGDIR/deb.log"; then
+            bad package-deb "the deb's binary is not stripped (GH #572)" "$LOGDIR/deb.log"
+        elif [ -n "$d" ] && dpkg-deb -c "$d" 2>/dev/null | grep -q "bin/jnext$" \
            && ! dpkg-deb -c "$d" 2>/dev/null | grep -q "\./usr/share/jnext/48rom.map$"; then
             bad package-deb "deb has no /usr/share/jnext/48rom.map (the 48K ROM symbol map)" "$LOGDIR/deb.log"
         elif [ -n "$d" ] && dpkg-deb -c "$d" 2>/dev/null | grep -q "bin/jnext$"; then
@@ -305,7 +315,9 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
             # appear in a Windows bundle. A reappearing libcrypto would drag
             # PathCchRemoveFileSpec (Win8+) back in and silently re-raise the
             # SDL bundle's OS floor.
-            if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring"; then
+            if ! stripped "$z" "$LOGDIR/win.log"; then
+                bad package-win "a binary in the zip is not stripped (GH #572)" "$LOGDIR/win.log"
+            elif printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring"; then
                 bad package-win "curl/OpenSSL chain DLLs leaked back into the zip (GH #108 Phase B regression)" "$LOGDIR/win.log"
             elif ! printf '%s' "$list" | grep -qE '[[:space:]]jnext-[^/]+/48rom\.map$'; then
                 bad package-win "zip has no 48rom.map at its root (the 48K ROM symbol map)" "$LOGDIR/win.log"
@@ -551,7 +563,9 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
             # Same GH #108 Phase B assertion as package-win, but here it IS the
             # Win7 floor: libcrypto's PathCchRemoveFileSpec import was the one
             # post-Win7 import in this bundle (WINDOWS-COMPAT-PLAN.md §2).
-            if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring|iconv"; then
+            if ! stripped "$z" "$LOGDIR/win-sdl.log"; then
+                bad package-win-sdl "a binary in the zip is not stripped (GH #572)" "$LOGDIR/win-sdl.log"
+            elif printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring|iconv"; then
                 bad package-win-sdl "curl/OpenSSL chain DLLs leaked back into the zip — Win7 floor regression (GH #108 Phase B)" "$LOGDIR/win-sdl.log"
             elif ! printf '%s' "$list" | grep -qE '[[:space:]]jnext-[^/]+/48rom\.map$'; then
                 bad package-win-sdl "zip has no 48rom.map at its root (the 48K ROM symbol map)" "$LOGDIR/win-sdl.log"
@@ -592,7 +606,9 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
         if [ -n "$z" ]; then
             list=$(unzip -l "$z" 2>/dev/null)
             subsys=$(x86_64-w64-mingw32-objdump -p build/win-qt5-release/jnext.exe 2>/dev/null | grep -i "^Subsystem")
-            if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring"; then
+            if ! stripped "$z" "$LOGDIR/win-qt5.log"; then
+                bad package-win-qt5 "a binary in the zip is not stripped (GH #572)" "$LOGDIR/win-qt5.log"
+            elif printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring"; then
                 bad package-win-qt5 "curl/OpenSSL chain DLLs in the zip — Win7 floor regression (GH #108)" "$LOGDIR/win-qt5.log"
             elif printf '%s' "$list" | grep -q "Qt6"; then
                 bad package-win-qt5 "Qt6 DLLs leaked into the Qt5 bundle — Win10 floor regression (GH #108)" "$LOGDIR/win-qt5.log"
@@ -648,7 +664,9 @@ if command -v mingw32-cmake >/dev/null 2>&1 && command -v i686-w64-mingw32-gcc >
         z=$(pick_artifact build/win32-sdl-release '*.zip' "jnext-$VER-windows-x86-sdl.zip" 2>>"$LOGDIR/win32-sdl.log")
         if [ -n "$z" ]; then
             list=$(unzip -l "$z" 2>/dev/null)
-            if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring|iconv"; then
+            if ! stripped "$z" "$LOGDIR/win32-sdl.log"; then
+                bad package-win32-sdl "a binary in the zip is not stripped (GH #572)" "$LOGDIR/win32-sdl.log"
+            elif printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring|iconv"; then
                 bad package-win32-sdl "curl/OpenSSL chain DLLs leaked back into the zip — Win7 floor regression (GH #108 Phase B)" "$LOGDIR/win32-sdl.log"
             elif ! printf '%s' "$list" | grep -qE '[[:space:]]jnext-[^/]+/48rom\.map$'; then
                 bad package-win32-sdl "zip has no 48rom.map at its root (the 48K ROM symbol map)" "$LOGDIR/win32-sdl.log"
@@ -688,7 +706,9 @@ if [ "$TC" = 1 ] && [ "$HAVE_WINE" = 1 ]; then
         if [ -n "$z" ]; then
             list=$(unzip -l "$z" 2>/dev/null)
             subsys=$(i686-w64-mingw32-objdump -p build/win32-qt5-release/jnext.exe 2>/dev/null | grep -i "^Subsystem")
-            if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring"; then
+            if ! stripped "$z" "$LOGDIR/win32-qt5.log"; then
+                bad package-win32-qt5 "a binary in the zip is not stripped (GH #572)" "$LOGDIR/win32-qt5.log"
+            elif printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring"; then
                 bad package-win32-qt5 "curl/OpenSSL chain DLLs in the zip — Win7 floor regression (GH #108)" "$LOGDIR/win32-qt5.log"
             elif printf '%s' "$list" | grep -q "Qt6"; then
                 bad package-win32-qt5 "Qt6 DLLs leaked into the Qt5 bundle — Win10 floor regression (GH #108)" "$LOGDIR/win32-qt5.log"
