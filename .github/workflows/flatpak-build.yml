@@ -33,7 +33,7 @@
 #     make -C /w verify-flatpak-permissions BUNDLE=<path>
 #
 # The image carries GNU Make 4.4.1, git 2.55.0, awk, sed, find, bash, Flatpak
-# 1.18.1 and flatpak-builder 1.4.9 (it is a Freedesktop SDK 25.08 runtime, so
+# 1.18.1 and flatpak-builder 1.4 (it is a Freedesktop SDK 25.08 runtime, so
 # they live under /usr/sbin). The version-derive `awk` step below yields
 # 1.0.28 from version.yaml. With no bundle the recipe printed the missing-bundle
 # diagnostic and exited non-zero; with a real bundle it installed into a
