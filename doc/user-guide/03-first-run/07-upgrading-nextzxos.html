@@ -4787,6 +4787,15 @@ with the reason.</p>
 </code></pre>
 <p>To run two, give each its own card image with <code>--sdcard FILE</code>. The same goes for a writes file. A hard link to a card counts as a
 separate card.</p>
+<p>The exception is <code>--sdcard-file-add</code>: when the JNEXT that has the card serves ZRCP
+(<code>--zrcp-port</code>), the file is copied through it instead of being refused
+(<a href="../05-running-programs/index.html">5. Running programs</a>). When it does not, the message ends with the
+way out:</p>
+<pre><code>... is in use by another jnext (process 4242), which is not listening on ZRCP. Restart it with --zrcp-port PORT and run this command again: the file will be copied through it.
+</code></pre>
+<p>Both JNEXTs must run as the same user with the same configuration directory: a lock is a
+file in <code>~/.jnext/locks/</code> (<code>$JNEXT_CONFIG_DIR/locks/</code>), and a JNEXT that does not see it
+cannot tell the card is in use.</p>
 <h2 id="an-older-jnext-and-a-newer-card">An older JNEXT and a newer card<a class="headerlink" href="#an-older-jnext-and-a-newer-card" title="Permanent link">&para;</a></h2>
 <p>A JNEXT never changes a card of a newer NextZXOS than its own. It says so in the log, and in a
 box once for each version, and uses the card as it is. (JNEXT releases from before this
@@ -4820,6 +4829,10 @@ table, still runs, but these commands cannot reach its files.</p>
 <tr>
 <td><code>... is in use by another jnext (process N); give each jnext its own card</code></td>
 <td>Another JNEXT has the card or its writes file open. Close it or give this one its own card.</td>
+</tr>
+<tr>
+<td><code>... is in use by another jnext (process N), which is not listening on ZRCP. Restart it with --zrcp-port PORT ...</code></td>
+<td>You asked for <code>--sdcard-file-add</code> on a card a running JNEXT has open, and that JNEXT cannot take the copy. Restart it with <code>--zrcp-port PORT</code> and run the command again.</td>
 </tr>
 <tr>
 <td><code>the files on this card cannot be carried over (...); --sdcard-upgrade fresh starts a new card and keeps this one as the backup</code></td>

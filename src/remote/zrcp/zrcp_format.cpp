@@ -293,6 +293,52 @@ bool parse_number(const std::string& tok, std::uint32_t& out) {
     return true;
 }
 
+namespace {
+std::string pct(const std::string& raw, bool (*escape)(unsigned char)) {
+    static const char hex[] = "0123456789ABCDEF";
+    std::string out;
+    for (char ch : raw) {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (escape(c)) {
+            out.push_back('%');
+            out.push_back(hex[c >> 4]);
+            out.push_back(hex[c & 15]);
+        } else {
+            out.push_back(ch);
+        }
+    }
+    return out;
+}
+}  // namespace
+
+std::string encode_arg(const std::string& raw) {
+    return pct(raw, [](unsigned char c) { return c < 0x21 || c == 0x7F || c == '%'; });
+}
+
+std::string encode_text(const std::string& raw) {
+    return pct(raw, [](unsigned char c) { return c < 0x20 || c == 0x7F || c == '%'; });
+}
+
+bool decode_arg(const std::string& enc, std::string& out) {
+    auto nib = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        return -1;
+    };
+    std::string r;
+    for (std::size_t i = 0; i < enc.size(); ++i) {
+        if (enc[i] != '%') { r.push_back(enc[i]); continue; }
+        if (i + 2 >= enc.size()) return false;
+        const int hi = nib(enc[i + 1]), lo = nib(enc[i + 2]);
+        if (hi < 0 || lo < 0) return false;
+        r.push_back(static_cast<char>(hi * 16 + lo));
+        i += 2;
+    }
+    out = std::move(r);
+    return true;
+}
+
 std::vector<std::string> split_args(const std::string& text) {
     std::vector<std::string> out;
     std::string cur;

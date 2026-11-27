@@ -12,6 +12,7 @@
 #include "core/sdcard_file_add.h"
 #include "core/sdcard_file_extract.h"
 #include "peripheral/sd_write_journal.h"
+#include "remote/zrcp/zrcp_server.h"
 
 namespace sdmanager {
 
@@ -835,6 +836,44 @@ Resolved resolve_remembered(const Remembered& r, const std::array<SlotInfo, 2>& 
         if (host_path_acceptable(*cand) && fs::is_directory(fs::path(*cand), ec)) out.host_dir = *cand;
     }
     return out;
+}
+
+// ===========================================================================
+// remote_add()
+// ===========================================================================
+
+jnext::remote::zrcp::SdFileAddReply remote_add(Emulator& emu, const jnext::remote::zrcp::SdFileAddRequest& r,
+                                               const std::string& busy_reason) {
+    using jnext::remote::zrcp::SdFileAddReply;
+    auto no = [](int status, std::string text) { return SdFileAddReply{status, std::move(text)}; };
+    if (!busy_reason.empty())
+        return no(5, "a card operation owns the SD card (" + busy_reason + "); run the command again when it has finished");
+    const auto slots = card_slots(emu);
+    int found = -1;
+    for (const SlotInfo& si : slots)
+        if (si.mounted && sdcard::same_image_file(r.image, si.image)) found = si.slot;
+    if (found < 0) return no(5, "the SD card image " + r.image + " is not mounted in this jnext");
+    const SlotInfo& si = slots[static_cast<size_t>(found)];
+    if (r.slot >= 0 && r.slot != found)
+        return no(5, r.image + " is card " + std::to_string(found + 1) + " in the running jnext");
+    if (!si.writable) return no(5, "the card is read-only in the running jnext: " + si.read_only_reason);
+    const auto journal = sd_write_journal::for_image(si.image);
+    if (r.writes_given) {
+        if (!journal)
+            return no(5, "the running jnext writes this card directly, with no writes file; leave the writes option out");
+        if (!sdcard::same_image_file(r.writes, journal->file()))
+            return no(5, "the running jnext keeps this card's writes in " + journal->file() + "; give that file or none");
+    }
+    std::vector<std::string> held = held_host_files(emu);
+    held.push_back(si.image);
+    if (host_holds_any(r.host, held))
+        return no(2, "'" + r.host + "' is, or holds, a file the emulator is using (a card image, an SD-writes file, a "
+                     "recording...); it is not copied");
+    std::string err;
+    sdcard::AddSummary summary;
+    const sdcard::FileAddStatus st = sdcard::add_to_image(si.image, r.host, r.card_path, r.force, err, &summary);
+    if (st != sdcard::FileAddStatus::Ok) return no(static_cast<int>(st), err);
+    return no(0, sdcard::file_add_success_text(r.host, si.image, journal ? journal->file() : std::string(), summary));
 }
 
 }  // namespace sdmanager

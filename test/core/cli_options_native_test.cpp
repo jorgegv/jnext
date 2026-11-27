@@ -513,6 +513,7 @@ int main() {
                 {"--delayed-nmi-frames", "", " mf", "0", INT_HI, {"5x", "2147483648", "-1"}},
                 {"--delayed-sdcard-insert-frames", "", " img", "0", INT_HI, {"5x", "2147483648", "-1"}},
                 {"--delayed-sdcard2-insert-frames", "", " img", "0", INT_HI, {"5x", "2147483648", "-1"}},
+                {"--delayed-sdcard1-insert-frames", "", " img", "0", INT_HI, {"5x", "2147483648", "-1"}},   // GH #568: the alias
                 {"--delayed-pok-frames", "", " pok", "0", INT_HI, {"5x", "2147483648", "-1"}},   // GH #381
                 {"--rewind-buffer-size",       "", "", "0", INT_HI, {"5x", "2147483648", "-1"}},
                 {"--compositor-trace-frame",   "", "", "0", INT_HI, {"7junk", "2147483648", "-1"}},

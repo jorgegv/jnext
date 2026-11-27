@@ -1192,6 +1192,10 @@ evidence, and lets the step's own event be the reason
 4. §8 assigns no WP to `tbblue-set-*` / `write-port` (deviation 3).
 5. The census holds: ZEsarUX 12.0's `ls` is 125 names, §2's 67 S + 1 D + 57 U
    (`ZRCP-TAB-01`).
+   One jnext-only command was added later, `sd-file-add` (owner decision,
+   2026-11-26), the single exception to "ZEsarUX's names only": its table row
+   carries `extension`, `ZRCP-TAB-01` reads the other rows unchanged and
+   `ZRCP-TAB-07` pins the extension set.
 6. Under DeZog's `set-debug-settings 0`, ZEsarUX's own `cpu-step` prints only
    the disassembly line (debug-settings bit 0); jnext always prints the
    register line too, which §2.1's "bits 0-4 change nothing" already implies.

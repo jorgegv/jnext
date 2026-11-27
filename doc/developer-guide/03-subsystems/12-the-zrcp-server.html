@@ -2262,6 +2262,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sd-file-add-the-one-command-zesarux-does-not-have" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sd-file-add: the one command ZEsarUX does not have
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#breakpoints-history-loading" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3173,10 +3184,32 @@ No ZEsarUX exchange changes meaning, because ZEsarUX answers this text <code>Err
 that fails answers <code>Error evaluating parsed string: CVAR(path)</code>, with no reason (the reply is ZEsarUX's; scripts and GDB's
 <code>monitor print</code> show the reason). A condition with no <code>PC=</code> first term is checked at every instruction, so one with a <code>CVAR</code>
 builds the C frames each time: <code>help set-breakpoint</code> says to put a <code>PC=</code> term first.</p>
-<p>The write is the same extension on the one assignment verb: <code>set-register CVAR(path)=value</code> (<code>cmd_set_register()</code>, <code>zrcp_server.cpp:1190</code>) writes
+<p>The write is the same extension on the one assignment verb: <code>set-register CVAR(path)=value</code> (<code>cmd_set_register()</code>, <code>zrcp_server.cpp:1200</code>) writes
 a C variable of frame 0 through <code>write_c_value()</code> (<a href="09-5-source-level-debugging/10-c-frames-and-values.html">3.9.5.10</a>). The table's census (<code>ZRCP-TAB-01</code>)
-pins the command names to ZEsarUX's <code>ls</code>, so no <code>set-cvar</code> could be added. Success answers the register line, and every failure (no <code>)</code> or <code>=</code>, an
+pins the command names to ZEsarUX's <code>ls</code> over every row that is not an extension, so no <code>set-cvar</code> could be added; the one
+exception is <code>sd-file-add</code> (below). Success answers the register line, and every failure (no <code>)</code> or <code>=</code>, an
 empty path or value, a refusal of the facade) is ZEsarUX's <code>Error changing register</code>, with no reason, as a failed <code>CVAR()</code> read has none.</p>
+<h2 id="sd-file-add-the-one-command-zesarux-does-not-have"><code>sd-file-add</code>: the one command ZEsarUX does not have<a class="headerlink" href="#sd-file-add-the-one-command-zesarux-does-not-have" title="Permanent link">&para;</a></h2>
+<p><code>sd-file-add image file card-path [--force] [--card 1|2] [--writes file]</code> copies a host file onto an SD card image the
+running jnext has mounted, with the meaning of <code>--sdcard-file-add</code>; it is what a second jnext's <code>--sdcard-file-add</code>
+sends when the card is in use (<a href="08-media-and-loaders.html">3.8</a>). It is a deliberate, single exception to the rule that the table
+carries ZEsarUX's names only: its row has <code>extension</code> set (<code>CommandDef</code>, <code>CommandInfo</code>), <code>ZRCP-TAB-01</code>'s census reads
+every other row against ZEsarUX's <code>ls</code> unchanged, and <code>ZRCP-TAB-07</code> pins the extension set to exactly this one name. <code>help</code>, <code>ls</code>
+and the dispatcher read the same table, so the single-source property holds.</p>
+<p>The wire is jnext's own and lossless. Tokens are split on single spaces and each is percent-decoded
+(<code>zrcp::decode_arg</code>: <code>%XX</code>, either case; a <code>%</code> without two hex digits is refused, a decoded NUL is refused); the client
+encodes with <code>zrcp::encode_arg</code> (space, <code>%</code>, bytes below 0x21 and 0x7F), so the two ends share one definition. The three
+positionals come first (an option name is not looked for there, so a path may start with <code>--</code>), the paths must be absolute
+(a relative one would resolve against the server's working directory), and any option given twice or unknown is
+<code>Error. [1]</code>. The reply is <code>OK. &lt;text&gt;</code> or <code>Error. [N] &lt;text&gt;</code>, N being the exit status the client returns (1 usage,
+2..6 the engine's, 5 every running-instance refusal), with <code>%</code>, control bytes and DEL in the text percent-escaped
+(<code>zrcp::encode_text</code>) so a host name with a newline cannot break the line protocol.</p>
+<p>The server does not reach the machine. <code>jnext::dbg::Debugger</code> is the frozen interface and the SD cards are host media,
+not machine state, so the hook is on <code>ZrcpServer</code> (<code>set_sd_file_add()</code>), installed by <code>DebugServers::start()</code> from each loop
+owner (headless, SDL, Qt), on the socket server and the page-channel one alike; without one the command answers
+<code>Error. [5] sd-file-add is not available in this jnext</code>. The ZRCP server already does host file I/O (<code>load-binary</code>,
+<code>save-binary</code>), so this is not a new kind of reach. The hook is <code>sdmanager::remote_add()</code>; the Qt window's hook adds the
+busy refusal while an upgrade or a go back owns the card.</p>
 <h2 id="breakpoints-history-loading">Breakpoints, history, loading<a class="headerlink" href="#breakpoints-history-loading" title="Permanent link">&para;</a></h2>
 <p>The 100 condition slots of <code>set-breakpoint</code> are one backend subscription each,
 owned by the client. A <code>PC=</code> first term is the fast path (an <code>Execute</code>

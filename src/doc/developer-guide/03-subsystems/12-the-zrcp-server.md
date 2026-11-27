@@ -64,10 +64,36 @@ that fails answers `Error evaluating parsed string: CVAR(path)`, with no reason 
 `monitor print` show the reason). A condition with no `PC=` first term is checked at every instruction, so one with a `CVAR`
 builds the C frames each time: `help set-breakpoint` says to put a `PC=` term first.
 
-The write is the same extension on the one assignment verb: `set-register CVAR(path)=value` (`cmd_set_register()`, `zrcp_server.cpp:1190`) writes
+The write is the same extension on the one assignment verb: `set-register CVAR(path)=value` (`cmd_set_register()`, `zrcp_server.cpp:1200`) writes
 a C variable of frame 0 through `write_c_value()` ([3.9.5.10](09-5-source-level-debugging/10-c-frames-and-values.md)). The table's census (`ZRCP-TAB-01`)
-pins the command names to ZEsarUX's `ls`, so no `set-cvar` could be added. Success answers the register line, and every failure (no `)` or `=`, an
+pins the command names to ZEsarUX's `ls` over every row that is not an extension, so no `set-cvar` could be added; the one
+exception is `sd-file-add` (below). Success answers the register line, and every failure (no `)` or `=`, an
 empty path or value, a refusal of the facade) is ZEsarUX's `Error changing register`, with no reason, as a failed `CVAR()` read has none.
+
+## `sd-file-add`: the one command ZEsarUX does not have
+
+`sd-file-add image file card-path [--force] [--card 1|2] [--writes file]` copies a host file onto an SD card image the
+running jnext has mounted, with the meaning of `--sdcard-file-add`; it is what a second jnext's `--sdcard-file-add`
+sends when the card is in use ([3.8](08-media-and-loaders.md)). It is a deliberate, single exception to the rule that the table
+carries ZEsarUX's names only: its row has `extension` set (`CommandDef`, `CommandInfo`), `ZRCP-TAB-01`'s census reads
+every other row against ZEsarUX's `ls` unchanged, and `ZRCP-TAB-07` pins the extension set to exactly this one name. `help`, `ls`
+and the dispatcher read the same table, so the single-source property holds.
+
+The wire is jnext's own and lossless. Tokens are split on single spaces and each is percent-decoded
+(`zrcp::decode_arg`: `%XX`, either case; a `%` without two hex digits is refused, a decoded NUL is refused); the client
+encodes with `zrcp::encode_arg` (space, `%`, bytes below 0x21 and 0x7F), so the two ends share one definition. The three
+positionals come first (an option name is not looked for there, so a path may start with `--`), the paths must be absolute
+(a relative one would resolve against the server's working directory), and any option given twice or unknown is
+`Error. [1]`. The reply is `OK. <text>` or `Error. [N] <text>`, N being the exit status the client returns (1 usage,
+2..6 the engine's, 5 every running-instance refusal), with `%`, control bytes and DEL in the text percent-escaped
+(`zrcp::encode_text`) so a host name with a newline cannot break the line protocol.
+
+The server does not reach the machine. `jnext::dbg::Debugger` is the frozen interface and the SD cards are host media,
+not machine state, so the hook is on `ZrcpServer` (`set_sd_file_add()`), installed by `DebugServers::start()` from each loop
+owner (headless, SDL, Qt), on the socket server and the page-channel one alike; without one the command answers
+`Error. [5] sd-file-add is not available in this jnext`. The ZRCP server already does host file I/O (`load-binary`,
+`save-binary`), so this is not a new kind of reach. The hook is `sdmanager::remote_add()`; the Qt window's hook adds the
+busy refusal while an upgrade or a go back owns the card.
 
 ## Breakpoints, history, loading
 

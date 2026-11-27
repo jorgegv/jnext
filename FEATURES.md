@@ -240,6 +240,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--sdcard-readonly` (write-protected card; the host file is never modified)
 - `--sdcard-writes FILE`, `--sdcard-writes-reset` (the image is never written: the machine's writes, and the esxDOS stand-in's file of a directly loaded NEX, go to FILE and are laid over the image on every run; reset discards them)
 - `--sdcard-file-add FILE [--sdcard-file-dest PATH]` copies a host file or directory tree into the SD image (with `--sdcard-writes`, into that file; the image is untouched) and exits
+- On a card another JNEXT has open, `--sdcard-file-add` copies the file through that JNEXT (its ZRCP server, found in the card lock): the running guest sees it; `--sdcard2` makes the SD card commands act on the second card, `--sdcard1*` spell the first card's options; ZRCP `sd-file-add` is the command underneath
 - `--sdcard-file-extract PATH` copies a file or directory off the SD card (any FAT12/16/32 card the Next mounts, long or 8.3 names in any case, through `--sdcard-writes` when given) into the current directory, never overwriting, and exits
 - `--sdcard-file-force` overwrites an existing destination file
 - `--warm-start-regenerate` (force a fresh warm-start recording)
