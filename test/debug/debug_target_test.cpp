@@ -16,6 +16,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/rzx_player.h"
+#include "debug/local_target.h"
 #include "debug/debug_state.h"
 #include "debug/debugger.h"
 #include "debug/rewind_buffer.h"
@@ -1216,6 +1217,331 @@ static void tgt02_rows() {
     }
 }
 
+// ── TGT-05: run control, breakpoints and watchpoints over a target ──────────
+//
+// Oracle: the LOCAL facade's documented semantics (debugger_control.cpp, CTL-01/02 and
+// SES-01; debugger_events.cpp, the subscription table; Debugger::state(), CTL-13). There
+// is no VHDL counterpart.
+
+/// Every push, with the paused ones kept whole.
+struct StopListener : jnext::dbg::Listener {
+    std::vector<jnext::dbg::PausedInfo> paused;
+    int resumed = 0;
+    void on_paused(const jnext::dbg::PausedInfo& p) override { paused.push_back(p); }
+    void on_resumed(ClientId) override { ++resumed; }
+    void on_reset(ResetKind) override {}
+    void on_frame_ended(uint32_t) override {}
+    void on_subscriptions_changed(jnext::dbg::EventKindMask) override {}
+    void on_exit_requested(int) override {}
+    void on_log(jnext::dbg::LogLevel, const std::string&) override {}
+};
+
+/// A Remote whose listener keeps the stops, primed and running: the next stop is an edge.
+struct Running {
+    FakeTarget    t;
+    Debugger      d;
+    StopListener  sl;
+    ClientId      a = 0;
+    Running() : d(t) {
+        a = d.attach(client("A")).value;
+        d.set_listener(a, &sl);
+        d.pump(jnext::dbg::PumpBudget{});   // primes the edge detector on the paused fake
+        d.run(a);
+        d.pump(jnext::dbg::PumpBudget{});   // the Resumed edge
+        sl.paused.clear();
+        sl.resumed = 0;
+        t.clear();
+    }
+    void stop(jnext::dbg::TargetStop::Why why, uint16_t addr, uint16_t page = jnext::dbg::PAGE_ANY,
+              const char* text = "") {
+        jnext::dbg::TargetStop ts;
+        ts.why = why; ts.addr = addr; ts.page = page; ts.text = text;
+        t.stops.push_back(ts);
+    }
+    void pump() { d.pump(jnext::dbg::PumpBudget{}); }
+};
+
+static jnext::dbg::Subscription exec_sub(uint16_t addr) {
+    jnext::dbg::Subscription s;
+    s.kind = jnext::dbg::EventKind::Execute;
+    s.filter.lo = s.filter.hi = addr;
+    return s;
+}
+
+static jnext::dbg::Subscription mem_sub(uint16_t lo, uint16_t hi, jnext::dbg::Access a) {
+    jnext::dbg::Subscription s;
+    s.kind = jnext::dbg::EventKind::Mem;
+    s.filter.lo = lo;
+    s.filter.hi = hi;
+    s.access = a;
+    return s;
+}
+
+static void tgt05_rows() {
+    using jnext::dbg::Access;
+    using jnext::dbg::Capability;
+    using jnext::dbg::PauseReason;
+    using jnext::dbg::TargetStop;
+    {
+        Remote m;                       // paused fake
+        const Result r1 = m.d.run(m.a);
+        const int resumed_once = m.t.count("resume");
+        const Result r2 = m.d.run(m.a);  // now running: a no-op
+        Remote nr;
+        nr.t.caps = all_but({Capability::Run});
+        const Result r3 = nr.d.run(nr.a);
+        check("TGT-05-01", "run(): resume once on a paused target; Ok with no call on a running one; Unsupported "
+                           "with no call when the target lacks Run",
+              r1 == Result::Ok && resumed_once == 1 && r2 == Result::Ok && m.t.count("resume") == 1 &&
+                  r3 == Result::Unsupported && nr.t.calls.empty());
+    }
+    {
+        Remote m;                       // already paused
+        const Result r1 = m.d.pause(m.a);
+        const auto st = m.d.state();
+        Remote np;
+        np.t.caps = all_but({Capability::Pause});
+        const Result r2 = np.d.pause(np.a);
+        check("TGT-05-02", "pause(): reaches the target even when it is already paused; state() is User by the caller; "
+                           "Unsupported with no call when the target lacks Pause",
+              r1 == Result::Ok && m.t.count("pause") == 1 && st.pause_reason.kind == PauseReason::Kind::User &&
+                  st.pause_reason.by == m.a && r2 == Result::Unsupported && np.t.calls.empty());
+    }
+    {
+        Remote m;
+        const auto a = m.d.subscribe(m.a, exec_sub(0x8000));
+        const auto b = m.d.subscribe(m.a, exec_sub(0x8000));
+        const int adds = m.t.count("add_breakpoint");
+        m.d.unsubscribe(m.a, a.value);
+        const int removes_after_one = m.t.count("remove_breakpoint");
+        m.d.unsubscribe(m.a, b.value);
+        check("TGT-05-03", "two Execute subscriptions on one address make one target breakpoint; removing one keeps it; "
+                           "removing the other removes it by its handle",
+              a.status == Result::Ok && b.status == Result::Ok && adds == 1 && removes_after_one == 0 &&
+                  m.t.count("remove_breakpoint") == 1 && m.t.calls.back() == "remove_breakpoint(1)");
+    }
+    {
+        Remote m;
+        const ClientId b = m.d.attach(client("B")).value;
+        const auto sa = m.d.subscribe(m.a, exec_sub(0x8000));
+        jnext::dbg::Subscription tr = exec_sub(0x9000);
+        tr.transient = true;
+        m.d.subscribe(m.a, tr);
+        m.d.subscribe(b, exec_sub(0xA000));
+        m.t.clear();
+        m.d.set_enabled(m.a, sa.value, false);
+        const bool off = m.t.count("remove_breakpoint") == 1;
+        m.t.clear();
+        m.d.set_enabled(m.a, sa.value, true);
+        const bool on = m.t.count("add_breakpoint") == 1 && m.t.calls[0] == "add_breakpoint(32768,65535)";
+        m.t.clear();
+        m.d.set_master_enabled(false);   // everything but the transient goes
+        const bool master_off = m.t.count("remove_breakpoint") == 2 && m.t.count("add_breakpoint") == 0;
+        m.t.clear();
+        m.d.set_master_enabled(true);
+        const bool master_on = m.t.count("add_breakpoint") == 2;
+        m.t.clear();
+        m.d.set_client_enabled(b, false);
+        const bool client_off = m.t.count("remove_breakpoint") == 1;
+        check("TGT-05-04", "the target mirrors the table: a disabled subscription is removed and re-added on enable; "
+                           "master off removes all but the transient; a client switched off loses only its own",
+              off && on && master_off && master_on && client_off);
+    }
+    {
+        Remote m;
+        jnext::dbg::Subscription range = exec_sub(0x8000);
+        range.filter.hi = 0x8010;
+        jnext::dbg::Subscription space = exec_sub(0x8000);
+        space.filter.space = MemSpace::rom(0);
+        jnext::dbg::Subscription pages = mem_sub(0x4000, 0x40FF, Access::ReadWrite);
+        pages.filter.pages = {1, 2};
+        jnext::dbg::Subscription bad_exec = exec_sub(0x8000);
+        bad_exec.filter.page = 0xE0;
+        jnext::dbg::Subscription bad_mem = mem_sub(0x4000, 0x40FF, Access::ReadWrite);
+        bad_mem.filter.page = 0xFFFE;
+        jnext::dbg::Subscription inverted = mem_sub(0x4100, 0x40FF, Access::ReadWrite);
+        jnext::dbg::Subscription port;
+        port.kind = jnext::dbg::EventKind::Port;
+        port.filter.port_mask = 0x00FF;
+        jnext::dbg::Subscription frame;
+        frame.kind = jnext::dbg::EventKind::Frame;
+        const Result got[] = {m.d.subscribe(m.a, range).status, m.d.subscribe(m.a, space).status,
+                              m.d.subscribe(m.a, pages).status, m.d.subscribe(m.a, bad_exec).status,
+                              m.d.subscribe(m.a, bad_mem).status, m.d.subscribe(m.a, inverted).status,
+                              m.d.subscribe(m.a, port).status, m.d.subscribe(m.a, frame).status};
+        const Result want[] = {Result::RefusedUnavailable, Result::RefusedUnavailable, Result::RefusedUnavailable,
+                               Result::RefusedUnavailable, Result::RefusedUnavailable, Result::RefusedUnavailable,
+                               Result::Unsupported, Result::Unsupported};
+        bool all = true;
+        for (size_t i = 0; i < 8; ++i) all = all && got[i] == want[i];
+        check("TGT-05-05", "what a target cannot hold is refused before any target call and leaves the table alone: an "
+                           "Execute range or space, Mem pages, page 0xE0, page 0xFFFE, an inverted range; Port and Frame "
+                           "are Unsupported",
+              all && m.t.calls.empty() && m.d.subscriptions(true).empty());
+    }
+    {
+        Remote m;
+        m.t.add_bp_status = Result::RefusedUnavailable;
+        const Result r1 = m.d.subscribe(m.a, exec_sub(0x8000)).status;
+        m.t.add_bp_status = Result::Unsupported;   // a link that is gone
+        const Result r2 = m.d.subscribe(m.a, exec_sub(0x8001)).status;
+        m.t.add_bp_status = Result::Ok;
+        m.t.add_wp_status = Result::RefusedUnavailable;
+        const Result r3 = m.d.subscribe(m.a, mem_sub(0x4000, 0x40FF, Access::Write)).status;
+        check("TGT-05-06", "a target that refuses a breakpoint or watchpoint refuses the subscribe with its own status "
+                           "(Unsupported for a lost link) and the table never holds the entry",
+              r1 == Result::RefusedUnavailable && r2 == Result::Unsupported && r3 == Result::RefusedUnavailable &&
+                  m.d.subscriptions(true).empty());
+    }
+    {
+        Running m;
+        const auto id = m.d.subscribe(m.a, exec_sub(0x8000));
+        m.stop(TargetStop::Why::Breakpoint, 0x8000);
+        m.pump();
+        const auto st = m.d.state();
+        check("TGT-05-07", "a Breakpoint stop on a subscription: one Paused with matched == [id]; state() is "
+                           "Breakpoint{id, owner, addr}",
+              m.sl.paused.size() == 1 && m.sl.paused[0].matched.size() == 1 &&
+                  m.sl.paused[0].matched[0].event_id == id.value && m.sl.paused[0].matched[0].addr == 0x8000 &&
+                  st.paused && st.pause_reason.kind == PauseReason::Kind::Breakpoint && st.pause_reason.id == id.value &&
+                  st.pause_reason.by == m.a && st.pause_reason.addr == 0x8000 && m.t.count("resume") == 0);
+    }
+    {
+        Running m;
+        int evaluated = 0;
+        bool answer = false;
+        jnext::dbg::Subscription s = exec_sub(0x8000);
+        s.condition = [&](const jnext::dbg::Event&, const Debugger&) { ++evaluated; return answer; };
+        m.d.subscribe(m.a, s);
+        m.t.clear();
+        m.stop(TargetStop::Why::Breakpoint, 0x8000);
+        m.pump();
+        const bool first = evaluated == 1 && m.t.count("resume") == 1 && m.sl.paused.empty();
+        answer = true;
+        m.stop(TargetStop::Why::Breakpoint, 0x8000);
+        m.pump();
+        check("TGT-05-08", "a stop whose condition is false is resumed at once with no Paused; a later true one stops",
+              first && evaluated == 2 && m.t.count("resume") == 1 && m.sl.paused.size() == 1);
+    }
+    {
+        Running m;
+        jnext::dbg::Subscription s = exec_sub(0x8000);
+        s.condition = [](const jnext::dbg::Event&, const Debugger&) { return false; };
+        m.d.subscribe(m.a, s);
+        m.d.pause(m.a);
+        m.t.clear();
+        m.stop(TargetStop::Why::Breakpoint, 0x8000);
+        m.pump();
+        const auto st = m.d.state();
+        check("TGT-05-09", "a pause() since the last resume wins: an unclaimed stop is not resumed and state() is User "
+                           "by the caller",
+              m.t.count("resume") == 0 && st.paused && st.pause_reason.kind == PauseReason::Kind::User &&
+                  st.pause_reason.by == m.a);
+    }
+    {
+        Running m;
+        m.stop(TargetStop::Why::Other, 0x1234, jnext::dbg::PAGE_ANY, "T");
+        m.pump();
+        const auto st = m.d.state();
+        m.t.clear();
+        m.d.detach(m.a);
+        check("TGT-05-10", "an Other stop is nobody's verb: state() is User with no owner and the remote's text; "
+                           "detaching every client does not resume it",
+              st.paused && st.pause_reason.kind == PauseReason::Kind::User &&
+                  st.pause_reason.by == jnext::dbg::CLIENT_NONE && st.pause_reason.text == "T" &&
+                  m.t.count("resume") == 0);
+    }
+    {
+        Running m;
+        jnext::dbg::Subscription once = exec_sub(0x8000);
+        once.once = true;
+        const auto o = m.d.subscribe(m.a, once);
+        jnext::dbg::Subscription tr = exec_sub(0x9000);
+        tr.transient = true;
+        const auto t = m.d.subscribe(m.a, tr);
+        m.t.clear();
+        m.stop(TargetStop::Why::Breakpoint, 0x8000);
+        m.pump();
+        // handles: the once breakpoint was added first (1), the transient second (2)
+        check("TGT-05-11", "a once subscription is removed from the target after its accepted hit, and a transient at the "
+                           "stop",
+              o.status == Result::Ok && t.status == Result::Ok && m.t.count("remove_breakpoint") == 2 &&
+                  m.t.calls[0] == "remove_breakpoint(1)" && m.t.calls[1] == "remove_breakpoint(2)" &&
+                  m.sl.paused.size() == 1);
+    }
+    {
+        Running m;
+        const auto w = m.d.subscribe(m.a, mem_sub(0x4000, 0x40FF, Access::Write));
+        m.stop(TargetStop::Why::WatchWrite, 0x4010, 5);
+        m.pump();
+        const auto st = m.d.state();
+        const bool hit = m.sl.paused.size() == 1 && m.sl.paused[0].matched.size() == 1 &&
+                         st.pause_reason.kind == PauseReason::Kind::Watch && st.pause_reason.id == w.value &&
+                         st.pause_reason.addr == 0x4010 && st.pause_reason.access == Access::Write;
+        m.d.run(m.a);
+        m.t.clear();
+        m.stop(TargetStop::Why::WatchRead, 0x4010, 5);
+        m.pump();
+        check("TGT-05-12", "a watch stop inside a write watch's range is Watch{id, addr, Write}; a read of a write-only "
+                           "watch matches nothing and is resumed",
+              hit && m.t.count("resume") == 1 && m.sl.paused.size() == 1);
+    }
+    {
+        Remote m;
+        m.d.pause(m.a);
+        m.t.clear();
+        m.d.detach(m.a);
+        const bool released = m.t.count("resume") == 1;
+        Remote n;
+        const ClientId b = n.d.attach(client("B")).value;
+        n.d.pause(n.a);
+        n.t.clear();
+        n.d.detach(n.a);
+        const auto st = n.d.state();
+        check("TGT-05-13", "SES-01 over a target: the pausing client's detach resumes when it was the last arming "
+                           "client, and hands the pause to the one that remains otherwise",
+              released && n.t.count("resume") == 0 && st.paused && st.pause_reason.by == b);
+    }
+    {
+        Running m;
+        jnext::dbg::Subscription never = exec_sub(0x8000);
+        never.condition = [](const jnext::dbg::Event&, const Debugger&) { return false; };
+        m.d.subscribe(m.a, never);
+        const auto real = m.d.subscribe(m.a, exec_sub(0x9000));
+        m.t.clear();
+        m.stop(TargetStop::Why::Breakpoint, 0x8000);
+        m.stop(TargetStop::Why::Breakpoint, 0x9000);
+        m.pump();
+        check("TGT-05-14", "a stop resumed at once and a real stop in one pump give exactly one Paused (and no Resumed "
+                           "for the one nobody saw)",
+              m.sl.paused.size() == 1 && m.sl.paused[0].matched.size() == 1 &&
+                  m.sl.paused[0].matched[0].event_id == real.value && m.t.count("resume") == 1 && m.sl.resumed == 0);
+    }
+    {
+        Local m;
+        jnext::dbg::LocalTarget lt(m.emu);
+        jnext::dbg::TargetStop ts;
+        const auto bp = lt.add_breakpoint(0x8000, jnext::dbg::PAGE_ANY);
+        const auto wp = lt.add_watchpoint(0x4000, 0x40FF, jnext::dbg::PAGE_ANY, Access::Write);
+        check("TGT-05-15", "a LocalTarget answers the seven TGT-05 primitives Unsupported or false: the local facade has "
+                           "its own stop machinery",
+              lt.resume() == Result::Unsupported && lt.pause() == Result::Unsupported && !lt.take_stop(ts) &&
+                  bp.status == Result::Unsupported && wp.status == Result::Unsupported &&
+                  lt.remove_breakpoint(1) == Result::Unsupported && lt.remove_watchpoint(1) == Result::Unsupported);
+    }
+    {
+        Remote m;
+        const auto w = m.d.subscribe(m.a, mem_sub(0x0000, 0xFFFF, Access::ReadWrite));
+        const bool two = m.t.count("add_watchpoint") == 2 && m.t.calls[0] == "add_watchpoint(0,32767,65535,3)" &&
+                         m.t.calls[1] == "add_watchpoint(32768,65535,65535,3)";
+        m.t.clear();
+        m.d.unsubscribe(m.a, w.value);
+        check("TGT-05-16", "a full-range Mem watch is two target watches (0-0x7FFF, 0x8000-0xFFFF), both removed when "
+                           "it goes",
+              w.status == Result::Ok && two && m.t.count("remove_watchpoint") == 2);
+    }
+}
+
 int main() {
     loc_poke_rows();
     loc_refusal_rows();
@@ -1227,6 +1553,7 @@ int main() {
     tgt01_failure_rows();
     tgt01_source_rows();
     tgt02_rows();
+    tgt05_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);
