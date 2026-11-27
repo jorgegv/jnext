@@ -1250,6 +1250,7 @@ my %NO_MATRIX_SECTION = (
     # `## Copper`, `## Input` — and this suite asserts the FACADE over them, not
     # the hardware again.
     'debugger_backend_test'     => 'debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger',
+    'debug_target_test'         => 'debugger target seam (epic #486, jnext-internal); the T80N core has no debugger',
     'step_out_test'             => 'debugger Step Out execution control (jnext-internal); the T80N core has no debugger',
     'rewind_call_stack_test'    => 'debugger call-stack tracker restored by rewind, emptied by a state load or reset (jnext-internal); the T80N core has no debugger',
     'source_map_test'           => 'source-map and compiler-symbol file adapters (sjasmplus SLD, NextBuild Memory.txt; jnext-internal); the T80N core has no debugger',
