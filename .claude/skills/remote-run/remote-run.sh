@@ -505,9 +505,10 @@ main() {
         # For a mutant a red exit is the "good" answer (KILLED), so a status that says nothing about the mutant must never be one:
         # a run-level timeout is the lane, not the mutant (a mutant that hangs hits the suite's own bound first and shows as a FAIL
         # row), and a harness refusal (exit 2 from make, no Total line) is a refused run, not a failed row.
+        # (harness refusal: its own banner LINE only; a FAIL listing quotes the words indented behind '| ')
         if [[ -n "$PATCH_NAME" && -z "$patch_no_verdict" ]]; then
             if [[ $rc -eq 124 ]]; then patch_no_verdict="the run hit the run-level timeout: no verdict (time limit)"
-            elif [[ $rc -ne 0 ]] && grep -aq 'TEST HARNESS REFUSES TO RUN' "$LOG"; then patch_no_verdict="the test harness refused to run: no verdict (REFUSES TO RUN)"
+            elif [[ $rc -ne 0 ]] && sed -e 's/\x1b\[[0-9;]*m//g' "$LOG" | grep -Eq '^[[:space:]]*TEST HARNESS REFUSES TO RUN[[:space:]]*$'; then patch_no_verdict="the test harness refused to run: no verdict (REFUSES TO RUN)"
             fi
         fi
         if [[ $state == remote && -n "$patch_no_verdict" ]]; then

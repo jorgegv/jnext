@@ -95,7 +95,7 @@ only after the tree check.
 
 `slot.sh --patch` does all of this for an agent (`autonomous-run` skill): `<run>/slot.sh --patch make -C <worktree>
 <heavy target> JNEXT_SUITE_VMEM_KB=3145728`. Read its result as exit 0 = the mutant SURVIVED the target; non-zero with a
-FAIL row, `Failed` > 0, a crash or no `Total:` line = KILLED; any `PATCH REFUSED` = no verdict, fix and re-run. A patch run whose session is lost after the start, whose harness refuses to run (`REFUSES TO RUN`, exit 2 of make) or that hits the run-level timeout is also exit 2 `PATCH REFUSED ... no verdict`, never exit 1: for a mutant a red exit is the "good" answer, so a status that says nothing about the mutant must not look like one.
+FAIL row, `Failed` > 0, a crash or no `Total:` line = KILLED; any `PATCH REFUSED` = no verdict, fix and re-run. A patch run whose session is lost after the start, whose harness refuses to run (its banner `TEST HARNESS REFUSES TO RUN` alone on a line, exit 2 of make; the words quoted in a FAIL listing do not count) or that hits the run-level timeout is also exit 2 `PATCH REFUSED ... no verdict`, never exit 1: for a mutant a red exit is the "good" answer, so a status that says nothing about the mutant must not look like one.
 
 ### The batch gate
 

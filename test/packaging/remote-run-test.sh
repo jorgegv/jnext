@@ -9,7 +9,7 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-71. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-72. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -17,7 +17,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=71
+EXPECTED_ROWS=72
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -1228,6 +1228,13 @@ FAKE_SLEEP=1 pdrive --id p71b --timeout 3 --patch "$TMP/pA.patch" pbase "$PSHA" 
 rc71b=$RC; o71b=$OUT
 row RRUN-71 "$([[ $rc71 -eq 2 && "$o71" == *"PATCH REFUSED"*"no verdict (REFUSES TO RUN)"* && $rc71b -eq 2 && "$o71b" == *"PATCH REFUSED"*"no verdict (time limit)"* ]] && echo 1 || echo 0)" \
     "a harness refusal and a run-level timeout of a patch run are exit 2 'no verdict', not a kill (rc=$rc71 / $rc71b)"
+
+# RRUN-72: the refusal is the harness's own banner LINE; the same words quoted in a FAIL listing (indented behind '| ') are a real kill:
+# a patch run whose step prints one and exits 1 stays exit 1 (RRUN-71's bare banner is exit 2)
+reset_state
+FAKE_INNER=1 pdrive --id p72 --patch "$TMP/pA.patch" pbase "$PSHA" 'sh:echo "  FAIL HS-99: a row"; echo "        |  TEST HARNESS REFUSES TO RUN "; exit 1'
+row RRUN-72 "$([[ $RC -eq 1 && "$OUT" != *"PATCH REFUSED"* && "$(cat "$TMP/logs/p72.log")" == *"patch applied"* ]] && echo 1 || echo 0)" \
+    "a patch run quoting the refusal banner inside a FAIL listing and exiting 1 is exit 1, a kill, not 'no verdict' (rc=$RC)"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
 # the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green
