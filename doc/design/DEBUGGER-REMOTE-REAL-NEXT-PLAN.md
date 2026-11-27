@@ -440,12 +440,12 @@ changes nothing a user sees.
   id, payload)` and an incremental `ResponseParser` that yields responses (seq 1..15 in the low
   four bits) and notifications (seq 0, first byte the id), with the same rules
   `FrameParser` enforces (16 MiB cap, chunk timeout from the last byte that advanced the frame).
-  A `swallow_until(0xA5)` pre-stage was built here as a parser option for a serial dezogif
-  profile; that profile was dropped (D25) and nothing selects the option.
+  A `swallow_until(0xA5)` pre-stage for a serial dezogif profile was built here and then
+  removed with that profile (D25); the WiFi build has no preamble.
 - **Tests.** New suite `dzrp_client_test`, rows `DZC-01..`: round trips through the
   server's `FrameParser` and `encode_response()` (both directions, every length edge: 0, 1,
   2^16, the cap), truncated and stalled frames, a notification interleaved between responses,
-  the 0xA5 pre-stage with leading zero runs. Declared in `test/unit-tests.conf` with its count.
+  a leading 0xA5 or 0x00 being a length byte. Declared in `test/unit-tests.conf` with its count.
 - **Acceptance.** The server's parser accepts every command the encoder builds and the client
   parser accepts every response the server's encoder builds, byte for byte.
 - **Depends on.** Nothing.
@@ -456,7 +456,7 @@ changes nothing a user sees.
   a link, sends `CMD_INIT` (version 2.2.0, name `"jnext v<version>"`), parses the reply into a
   `RemoteInfo{name, version, machine}` and selects a profile from §3's table (D4, D19:
   the answer and the link type). The name it sends carries the process's session token (D17).
-  Keeps a pipelining window (configurable; default 15 for jnext, 1 for the dezogif profiles until
+  Keeps a pipelining window (configurable; default 15 for jnext, 1 for the dezogif_ng profile until
   R4.6 measures otherwise), a per-command timeout, a queue of NTF_PAUSE notifications, and
   logs `NTF_LOG`. **Every send goes through one gate** that refuses (1) a command outside the
   profile's set (the never-unsupported rule) and (2) on a dezogif profile, any command but
@@ -473,7 +473,7 @@ changes nothing a user sees.
   link closed), timeout, NTF_PAUSE between a command and its reply, CMD_CLOSE on teardown. Gate
   rows: with the dezogif_ng profile, asking for command 24, 25 or 42 sends nothing; with a dezogif profile and the
   program running, any command but 7 sends nothing. Identity rows: each line of §3's table,
-  including a 2.1.0 `"dezogif v2.2.1"` answer over TCP giving dezogif_ng and over serial, and a 2.2.0 one over TCP, being refused with the WiFi dezogif_ng reason.
+  including a 2.1.0 `"dezogif v2.2.1"` answer giving dezogif_ng over TCP and refused over a serial-kind link, and a 2.2.0 one refused over TCP, both with the remote's name and version and the WiFi dezogif_ng reason.
   Wait-hook rows: a blocking read to an in-process `DzrpServer` over the memory pair completes
   with the hook installed and times out without it; a wait started inside the hook is refused.
   Self-connection row: a server receiving its own process's token answers error 1.

@@ -146,21 +146,11 @@ struct Response {
 /// byte") and when above `MAX_PAYLOAD_BYTES` (the cap the server applies to its own
 /// replies), as soon as the 4 length bytes are in. A notification of length 1 (seq 0,
 /// no id byte) is refused.
-///
-/// `Options::preamble` (the serial dezogif stub, which prefixes every frame with
-/// junk and an 0xA5 marker): BETWEEN frames, every byte up to and including the first
-/// 0xA5 is dropped. The hunt survives across `feed` calls, so an 0xA5 that ends one
-/// chunk is not lost. An 0xA5 inside a frame is data. While hunting, `wanted()` is 1
-/// and `partial()` is false.
 class ResponseParser {
 public:
     using TimePoint = std::chrono::steady_clock::time_point;
-    struct Options {
-        bool preamble = false;
-    };
 
     ResponseParser() = default;
-    explicit ResponseParser(Options o) : opt_(o), hunting_(o.preamble) {}
 
     std::size_t wanted() const;
     std::size_t feed(const std::uint8_t* data, std::size_t n, TimePoint now);
@@ -168,22 +158,18 @@ public:
     Response    take();
     bool               failed() const { return !error_.empty(); }
     const std::string& error() const { return error_; }
-    /// A frame has started (its marker or first byte arrived) and is not complete.
+    /// A frame has started (its first byte arrived) and is not complete.
     bool partial() const { return started_ && !ready_ && !failed(); }
     /// A partial frame has made no progress for `CHUNK_TIMEOUT`.
     bool stalled(TimePoint now) const;
     /// Bytes of the current frame received so far (length field included).
     std::size_t received() const { return hdr_have_ + body_have_; }
-    /// Junk bytes dropped before a frame's marker (the 0xA5 itself is not counted).
-    std::size_t swallowed() const { return swallowed_; }
     /// Forget everything: a new connection starts here.
     void reset();
 
 private:
     void start_next();
 
-    Options       opt_;
-    bool          hunting_ = false;   // between frames, looking for 0xA5 (preamble only)
     bool          started_ = false;   // a frame is in progress
     std::uint8_t  hdr_[4]  = {};
     std::size_t   hdr_have_  = 0;
@@ -193,7 +179,6 @@ private:
     std::string   error_;
     Response      resp_;
     TimePoint     last_progress_{};
-    std::size_t   swallowed_ = 0;
 };
 
 /// A response frame: length = 1 + `n` (it counts from the seq byte), then `seq`,

@@ -82,7 +82,7 @@ static bool parse_port(const std::string& p, std::uint16_t& out, std::string& wh
 bool parse_link_uri(const std::string& uri, LinkSpec& out, std::string& error) {
     const std::string tcp = "tcp:";
     if (uri.compare(0, 7, "serial:") == 0) {
-        error = "serial links are not in this build";
+        error = "serial links are not supported (TCP only)";
         return false;
     }
     if (uri.compare(0, tcp.size(), tcp) != 0) {

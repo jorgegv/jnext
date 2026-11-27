@@ -170,7 +170,7 @@ socket call of its own.
 
 | File | What it holds |
 |---|---|
-| `dzrp_frame.{h,cpp}` | `encode_command`, `ResponseParser` (with an optional serial preamble hunt for 0xA5) |
+| `dzrp_frame.{h,cpp}` | `encode_command`, `ResponseParser` |
 | `dzrp_protocol.h` | the shared constants |
 | `dzrp_session.{h,cpp}` | the session token and the program name `DzrpClient` sends |
 | `dzrp_client.{h,cpp}` | `DzrpClient`: session, profiles, sequence numbers, timeouts, notifications, the send gate |
@@ -200,7 +200,7 @@ refused:
 | `dezogif v...` | 2.1 | TCP | `DezogifNg` | 1-23, 40, 41 | simple (13/14) | 1 |
 
 Only the WiFi build of dezogif_ng is supported as a real-Next stub. Any other
-`dezogif` (2.2.0 or later, or 2.1 over a link that is not TCP, such as a cable) is
+`dezogif` (2.2.0 or later, or 2.1 over a link that is not TCP) is
 refused with a reason naming the WiFi dezogif_ng stub. The machine type must
 be ZXNEXT (4) and the major version 2.
 

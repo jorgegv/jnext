@@ -97,11 +97,8 @@ std::vector<std::uint8_t> encode_command(std::uint8_t seq, std::uint8_t id,
 
 // ── ResponseParser ─────────────────────────────────────────────────────────
 
-constexpr std::uint8_t PREAMBLE_MARKER = 0xA5;
-
 std::size_t ResponseParser::wanted() const {
     if (ready_ || failed()) return 0;
-    if (hunting_) return 1;
     if (hdr_have_ < 4) return 4 - hdr_have_;
     return length_ - body_have_;
 }
@@ -109,16 +106,6 @@ std::size_t ResponseParser::wanted() const {
 std::size_t ResponseParser::feed(const std::uint8_t* data, std::size_t n, TimePoint now) {
     std::size_t taken = 0;
     while (taken < n && wanted() > 0) {
-        if (hunting_) {
-            const std::uint8_t b = data[taken++];
-            if (b == PREAMBLE_MARKER) {
-                hunting_ = false;
-                started_ = true;
-            } else {
-                ++swallowed_;
-            }
-            continue;
-        }
         started_ = true;
         if (hdr_have_ < 4) {
             hdr_[hdr_have_++] = data[taken++];
@@ -167,7 +154,6 @@ void ResponseParser::start_next() {
     body_have_ = 0;
     ready_     = false;
     started_   = false;
-    hunting_   = opt_.preamble;
 }
 
 Response ResponseParser::take() {
@@ -185,7 +171,6 @@ void ResponseParser::reset() {
     start_next();
     error_.clear();
     resp_      = Response{};
-    swallowed_ = 0;
 }
 
 std::vector<std::uint8_t> encode_response(std::uint8_t seq, const std::uint8_t* payload,
