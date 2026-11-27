@@ -2275,10 +2275,10 @@ image: that is where \f[CR]48.rom\f[R] lives.
 .PP
 Point at an image with \f[B]\-\-sdcard\f[R] \f[I]FILE\f[R], or give no
 \f[B]\-\-sdcard\f[R] at all: jnext then falls back to
-\f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img\f[R] (a
-FAT32\-patched image), offering to download the canonical distribution
-image (kept alongside it as \f[CR]cspect\-next\-1gb.img\f[R]) and
-produce that patched copy on first run.
+\f[CR]\(ti/.jnext/sdcard/jnext\-sdcard.img\f[R] (a FAT32\-patched
+image), offering to download the canonical distribution image (kept
+alongside it as \f[CR]cspect\-next\-1gb.img\f[R]) and produce that
+patched copy on first run.
 \f[B]\-\-sdcard\-download\-confirm\f[R] skips the prompt, which is
 useful in scripts; \f[B]\-\-sdcard\-download\-force\f[R] re\-downloads
 and re\-patches a corrupted cached image.
@@ -5152,7 +5152,7 @@ jnext
 The same, with an explicit SD\-card image:
 .IP
 .EX
-jnext \-\-sdcard \(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img
+jnext \-\-sdcard \(ti/.jnext/sdcard/jnext\-sdcard.img
 .EE
 .PP
 Run a program; a bare filename is shorthand for \f[B]\-\-load\f[R]:
@@ -5190,7 +5190,7 @@ unattended run would exit non\-zero instead of capturing anything
 .IP
 .EX
 jnext \-\-headless \-\-machine 48k \(rs
-    \-\-sdcard \(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img \(rs
+    \-\-sdcard \(ti/.jnext/sdcard/jnext\-sdcard.img \(rs
     \-\-delayed\-screenshot /tmp/test.png \(rs
     \-\-delayed\-screenshot\-frames 200 \-\-delayed\-automatic\-exit 5
 .EE
@@ -5356,19 +5356,30 @@ the machine type, the state format or the recording procedure changes \-
 see \f[B]\-\-warm\-start\-regenerate\f[R].
 Deleting it costs one cold boot, nothing else.
 .TP
-\f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img\f[R]
+\f[CR]\(ti/.jnext/sdcard/jnext\-sdcard.img\f[R]
 The default SD\-card image, used when \f[B]\-\-sdcard\f[R] is not given.
+.TP
+\f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img\f[R]
+The name earlier versions gave the default SD\-card image.
+The first time JNEXT starts without \f[B]\-\-sdcard\f[R], an existing
+one is renamed to \f[CR]jnext\-sdcard.img\f[R] together with its
+companion files (the card keeps its size, date and contents).
+If both names exist, neither is touched and \f[CR]jnext\-sdcard.img\f[R]
+is used.
+If the rename fails (another program has the card open), JNEXT refuses
+to start and says why; \f[B]\-\-sdcard\f[R] with the old name uses the
+card as it is.
 .TP
 \f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb.img\f[R]
 The canonical distribution image the patched one above is produced from.
 .TP
-\f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img.distro\f[R], \f[CR]cspect\-next\-1gb.img.distro\f[R]
+\f[CR]\(ti/.jnext/sdcard/jnext\-sdcard.img.distro\f[R], \f[CR]cspect\-next\-1gb.img.distro\f[R]
 The distribution (the zip file name,
 e.g.\ \f[CR]sn\-emulator\-24.11.zip\f[R]) each of the two images came
 from.
 Without one, the image is taken to be 24.11.
 .TP
-\f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img.distro\-declined\f[R]
+\f[CR]\(ti/.jnext/sdcard/jnext\-sdcard.img.distro\-declined\f[R]
 The distribution whose upgrade offer you turned down with \(lqKeep my
 card (don\(cqt ask again)\(rq (or \f[B]\-\-sdcard\-upgrade\f[R]
 \f[CR]never\f[R]).

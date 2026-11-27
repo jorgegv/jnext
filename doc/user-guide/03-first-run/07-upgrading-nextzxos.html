@@ -4697,11 +4697,20 @@ losing what you saved.</p>
 </tr>
 </tbody>
 </table>
-<p><code>cspect-next-1gb-fixed.img</code> is <strong>your card</strong>: NextZXOS runs from it and everything you
+<p><code>jnext-sdcard.img</code> is <strong>your card</strong>: NextZXOS runs from it and everything you
 save lands on it. <code>cspect-next-1gb.img</code> is the original that JNEXT downloaded and made your
 card from. Every other file and folder there belongs to JNEXT (the small sidecar files
 beside the two images, <code>previous</code>, <code>upgrade-work</code>, <code>overlays.list</code>, <code>locks</code>, and
 <code>test-suite</code> on a developer's machine): do not edit or delete them by hand.</p>
+<p>Earlier versions called the card <code>cspect-next-1gb-fixed.img</code>. The first time a newer JNEXT
+starts without <code>--sdcard</code>, it renames that file and the small files beside it to
+<code>jnext-sdcard.img</code>; your card is not copied and keeps its size, date and contents, so your files
+and saved writes files carry on working. If both names are there (for example after going back to
+an older JNEXT and then forward again), JNEXT uses <code>jnext-sdcard.img</code> and leaves the old file
+alone. If the rename cannot be done because another program has the card open, JNEXT does not
+start and says so: close that program and start again, or run once with <code>--sdcard</code> and the old
+file name. A saved <strong>Settings &gt; Preferences</strong> card path that names the old file follows the card
+once it has been renamed.</p>
 <h2 id="the-offer">The offer<a class="headerlink" href="#the-offer" title="Permanent link">&para;</a></h2>
 <p>Once for each new NextZXOS release, before the machine starts, the windowed JNEXT asks
 whether to upgrade. The box names the new and the old version, the size of the download,
@@ -4783,7 +4792,7 @@ with the reason.</p>
 </ul>
 <h2 id="one-card-one-jnext">One card, one jnext<a class="headerlink" href="#one-card-one-jnext" title="Permanent link">&para;</a></h2>
 <p>Two JNEXTs on one card would each cache what the other changes. The second one is refused:</p>
-<pre><code>the SD card image /home/me/.jnext/sdcard/cspect-next-1gb-fixed.img is in use by another jnext (process 4242); give each jnext its own card (--sdcard FILE)
+<pre><code>the SD card image /home/me/.jnext/sdcard/jnext-sdcard.img is in use by another jnext (process 4242); give each jnext its own card (--sdcard FILE)
 </code></pre>
 <p>To run two, give each its own card image with <code>--sdcard FILE</code>. The same goes for a writes file. A hard link to a card counts as a
 separate card.</p>

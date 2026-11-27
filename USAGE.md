@@ -1936,19 +1936,18 @@ So even a **--machine** `48k` run needs an SD-card image: that is where
 `48.rom` lives.
 
 Point at an image with **--sdcard** *FILE*, or give no **--sdcard** at
-all: jnext then falls back to
-`~/.jnext/sdcard/cspect-next-1gb-fixed.img` (a FAT32-patched image),
-offering to download the canonical distribution image (kept alongside it
-as `cspect-next-1gb.img`) and produce that patched copy on first run.
-**--sdcard-download-confirm** skips the prompt, which is useful in
-scripts; **--sdcard-download-force** re-downloads and re-patches a
-corrupted cached image. An interrupted download (Cancel, a dropped
-connection, or 30 seconds without data) is kept (`sn-emulator.zip.part`)
-and continues on the next run. A download that fails, or whose file is
-no zip, is retried up to three times, after 2, 4 and 8 seconds, each
-retry noted on the terminal and in the download window; Cancel is not
-retried, nor is a refusal by the server (HTTP 4xx, except 408 and 429).
-An explicit **--sdcard** always wins over both.
+all: jnext then falls back to `~/.jnext/sdcard/jnext-sdcard.img` (a
+FAT32-patched image), offering to download the canonical distribution
+image (kept alongside it as `cspect-next-1gb.img`) and produce that
+patched copy on first run. **--sdcard-download-confirm** skips the
+prompt, which is useful in scripts; **--sdcard-download-force**
+re-downloads and re-patches a corrupted cached image. An interrupted
+download (Cancel, a dropped connection, or 30 seconds without data) is
+kept (`sn-emulator.zip.part`) and continues on the next run. A download
+that fails, or whose file is no zip, is retried up to three times, after
+2, 4 and 8 seconds, each retry noted on the terminal and in the download
+window; Cancel is not retried, nor is a refusal by the server (HTTP 4xx,
+except 408 and 429). An explicit **--sdcard** always wins over both.
 
 When the default card is of an older NextZXOS distribution than the one
 jnext downloads now, jnext tells you a newer one is available, and in
@@ -4141,7 +4140,7 @@ Boot NextZXOS / the TBBlue firmware (the default machine is `next`):
 
 The same, with an explicit SD-card image:
 
-    jnext --sdcard ~/.jnext/sdcard/cspect-next-1gb-fixed.img
+    jnext --sdcard ~/.jnext/sdcard/jnext-sdcard.img
 
 Run a program; a bare filename is shorthand for **--load**:
 
@@ -4168,7 +4167,7 @@ declines at EOF, so an unattended run would exit non-zero instead of
 capturing anything (**--sdcard-download-confirm** is the alternative).
 
     jnext --headless --machine 48k \
-        --sdcard ~/.jnext/sdcard/cspect-next-1gb-fixed.img \
+        --sdcard ~/.jnext/sdcard/jnext-sdcard.img \
         --delayed-screenshot /tmp/test.png \
         --delayed-screenshot-frames 200 --delayed-automatic-exit 5
 
@@ -4294,18 +4293,27 @@ changes, or JNEXT writes to it, or the machine type, the state format or
 the recording procedure changes - see **--warm-start-regenerate**.
 Deleting it costs one cold boot, nothing else.
 
-`~/.jnext/sdcard/cspect-next-1gb-fixed.img`  
+`~/.jnext/sdcard/jnext-sdcard.img`  
 The default SD-card image, used when **--sdcard** is not given.
+
+`~/.jnext/sdcard/cspect-next-1gb-fixed.img`  
+The name earlier versions gave the default SD-card image. The first time
+JNEXT starts without **--sdcard**, an existing one is renamed to
+`jnext-sdcard.img` together with its companion files (the card keeps its
+size, date and contents). If both names exist, neither is touched and
+`jnext-sdcard.img` is used. If the rename fails (another program has the
+card open), JNEXT refuses to start and says why; **--sdcard** with the
+old name uses the card as it is.
 
 `~/.jnext/sdcard/cspect-next-1gb.img`  
 The canonical distribution image the patched one above is produced from.
 
-`~/.jnext/sdcard/cspect-next-1gb-fixed.img.distro`, `cspect-next-1gb.img.distro`  
+`~/.jnext/sdcard/jnext-sdcard.img.distro`, `cspect-next-1gb.img.distro`  
 The distribution (the zip file name, e.g. `sn-emulator-24.11.zip`) each
 of the two images came from. Without one, the image is taken to be
 24.11.
 
-`~/.jnext/sdcard/cspect-next-1gb-fixed.img.distro-declined`  
+`~/.jnext/sdcard/jnext-sdcard.img.distro-declined`  
 The distribution whose upgrade offer you turned down with “Keep my card
 (don’t ask again)” (or **--sdcard-upgrade** `never`). Delete it, or use
 **--sdcard-upgrade** `ask`, to be asked again.

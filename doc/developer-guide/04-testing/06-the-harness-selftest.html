@@ -3329,9 +3329,10 @@ verdict on the real tree is trusted at all:</p>
   Cases for a <code>sed -i</code> hidden after <code>-i''</code>, <code>a#b</code>, <code>\'</code> or <code>\"</code> pin the quote
   scanner, each added because deleting that branch of it left the table green. <code>test/packaging/</code> and
   <code>harness-selftest.sh</code> are out of scope because only Linux runs them.</li>
-<li><code>test/lint-user-card.sh</code> (row 8 of the preflight) refuses the literal
-  <code>.jnext/sdcard/cspect-next-1gb</code> (the user's card, or the raw distribution beside
-  it) in the tracked tests, the SD-master tools, the Makefile and the workflows:
+<li><code>test/lint-user-card.sh</code> (row 8 of the preflight) refuses the literals
+  <code>.jnext/sdcard/jnext-sdcard</code> and <code>.jnext/sdcard/cspect-next-1gb</code> (the user's card
+  under its name or its old one, or the raw distribution beside it) and the same
+  path spelled with the harness variable <code>$SD_CARD_NAME</code>, in the tracked tests, the SD-master tools, the Makefile and the workflows:
   the suites boot their own card under <code>~/.jnext/sdcard/test-suite/</code>. Its case
   table pins both ways (the user card, the raw image and a quoted C++ literal
   are flagged; the test master's spelling and the cache directory alone are
