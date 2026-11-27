@@ -41,6 +41,7 @@
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
 #include "gui/app_config.h"
+#include "gui/emulator_widget.h"
 #include "gui/main_window.h"
 #include "gui/preferences_dialog.h"
 #include "../row_id.h"
