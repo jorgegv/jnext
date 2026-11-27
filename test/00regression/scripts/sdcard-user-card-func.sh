@@ -36,7 +36,7 @@ if want sdcard-user-card-func; then
     LC="$H/.jnext/sdcard/cspect-next-1gb-fixed.img"
     printf 'LEGACY-USER-CARD\n' > "$LC"; printf '%s\n' "$want_distro" > "$LC.distro"
     chmod 0444 "$LC"; touch -d '2019-05-06 07:08:09' "$LC"
-    sig() { stat -c '%s:%a:%Y' "$UC" "$LC"; cat "$UC.recipe" "$UC.distro" "$UC.sha256" "$LC" "$LC.distro"; ls "$H/.jnext/sdcard"; }
+    sig() { stat -c '%s:%a:%Y' "$UC" "$LC"; cat "$UC.recipe" "$UC.distro" "$UC.sha256" "$LC" "$LC.distro"; find "$H/.jnext/sdcard" -maxdepth 1 -type f | sort; }
     before=$(sig)
 
     probe() {   # probe: exit status of the master probe in the scratch HOME
