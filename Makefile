@@ -229,7 +229,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-release-non-pgo gui-release-pgo-gen gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
-       unit-test-clean unit-test-build unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
+       unit-test-clean unit-test-configure unit-test-build mutant-test unit-test-sdl unit-test-sdl-build unit-test-win unit-test-win-build unit-test-win-run sdcard-image \
        kloc-count kloc-count-detailed regression regression-win regression-package wine-stack-x64 wine-stack-x86 regression-macos regression-rows regression-confirm regression-stamp-check regression-ci-check ci-gate-check ccache-stats fuse-pgo unit-test test-affected test-affected-check test-affected-selftest lint-test-scripts lint-assertions lint-makefile-help lint-thread-detach lint-ascii-text lint-user-docs-card lint-user-docs-card-selftest docs-tree-same-selftest harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench bench-hotlatch bench-web \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
@@ -1329,6 +1329,10 @@ traceability-selftest:
 	@# of its own, and shipped skipping every `?`-prefixed suite.
 	@perl test/traceability-citations-selftest.pl
 
+# Mutant run (GH #585): build and run only SUITES=a,b [ROWS="r ..."]; exit 0 survived, 1 killed, 2 no verdict
+mutant-test: sdcard-image
+	@MT_MAKE="$(MAKE)" MT_JOBS=$(JOBS) MT_SUITES="$(SUITES)" MT_ROWS="$(ROWS)" bash test/mutant-test.sh
+
 # Branch-round tests: only what the change reaches, plus the smoke set (GH #547; NOT a gate)
 test-affected: $(UNIT_TEST_LINTS) unit-test-build sdcard-image
 	@# The branch round (CLAUDE.md merge protocol, step 2): test/test-affected.pl reads the files
@@ -1413,8 +1417,8 @@ bench-web: wasm-web playwright sdl-release sdcard-image
 bench-hotlatch:
 	@bash test/bench/ab-hotlatch.sh $(BASELINE_JNEXT)
 
-# Configure + build the canonical build/ directory (prerequisite for unit-test)
-unit-test-build:
+# Configure (or verify) the canonical build/ directory without building it (GH #585)
+unit-test-configure:
 	@# build/jnext is the binary everyone GUI-verifies against, so it must be the Qt build
 	@# CLAUDE.md mandates. This target used to configure build/ with NEITHER flag, and
 	@# ENABLE_QT_UI defaults OFF — so `make clean` silently downgraded ./build/jnext to an
@@ -1443,6 +1447,9 @@ unit-test-build:
 			fi; \
 		done; \
 	fi
+
+# Configure + build the canonical build/ directory (prerequisite for unit-test)
+unit-test-build: unit-test-configure
 	@$(CMAKE) --build build -j$(JOBS)
 
 # Remove the canonical build/ directory (jnext + test binaries + CMake cache)
