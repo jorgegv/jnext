@@ -5057,6 +5057,23 @@ that number. The error side is pinned the same way: <code>PROV-STALL-09</code> m
 close without answering and a port refuse the connection, one per stage of the
 asynchronous sequence, and requires the transport's own reason at once, never a
 stall.</p>
+<p>The stall-family rows time the backend's decision, not its return. The decision is the
+last <code>ProgressFn</code> call it makes: a stall is decided in the step that reports and then
+tests the clock, a cancel in the step whose call returned false. What follows (settling the
+partial on disk, closing handles, tearing the transport down) is host work that no contract
+bounds, and on a host whose file close can block for seconds under I/O load it took up to
+a minute. That nothing waited on the network afterwards is checked at the loopback server:
+its hold of the silent connection is far longer than any row (60 s, 120 s for the
+production-numbers row), and <code>rs::Server::holds_run_out()</code> must still be zero when the call
+returns, because a hold that ran out means the backend waited for the server. A cancel row
+also requires that the false-returning call is the last one the backend made, which a
+backend that merely noticed a later tick would fail. The tick-gap bound (800 ms between
+consecutive calls) is net of the process's own stalls: a sentinel thread (<code>host_stalls.h</code>)
+wakes every 10 ms and records each wake more than 20 ms late, and the rows subtract those
+spans from each gap. A process frozen by the host delays every thread alike and is excused;
+a long wait the backend makes by itself does not delay the sentinel and is still caught.
+<code>PROV-STALL-12</code> pins the sentinel's arithmetic and <code>PROV-STALL-13</code> the server's hold
+counter and <code>release()</code>.</p>
 <p>What a failed fetch says is the callers' business, once. Every failure of
 a fetch is built by <code>sdcard::fetch_failure(what, url, reason, next)</code>: <code>&lt;what&gt;:
 &lt;reason&gt;</code>, then <code>URL: &lt;url&gt;</code> (exactly the string handed to the <code>DownloadFn</code>, one
