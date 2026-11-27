@@ -203,7 +203,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
   `Verified ... the dot command in <space> matches its binary identity`) and keeps the check: it is
   never finished (`checks.push_back` at `debugger_source.cpp:443`), so a later entry that does not match puts the map back
   to pending.
-- **A landing does not judge it.** `recheck()` (`debugger_source.cpp:995`): for a user's map that is a dot map,
+- **A landing does not judge it.** `recheck()` (`debugger_source.cpp:998`): for a user's map that is a dot map,
   `verify_user()` returns at once, keeping the map live and not stale (`verify_user`, `debugger_source.cpp:1010-1019`); the checks are
   re-derived by `dot_landing(fresh)` (`debugger_source.cpp:242`). A fresh landing (reset, state load, program load, cold
   boot) sends the user's dot checks (`dot_landing()` skips the others) to `dot_reset()`: pending until the next entry. A ring restore reads back what the
@@ -225,7 +225,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
   at start-up and the verify hook does not distinguish a replayed session from a live one
   (`replay_mode()` is the rewind replay's flag, `emulator.h:1467`, not RZX's). What the row
   `z88dk-dot-source-rzx-func` pins is the attach and the refusal, not a verdict reached during playback.
-- **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1336`, set at `SourceMapStatus::dot`, `debugger_source.cpp:616`) tells the Source tab to word its pending note
+- **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1336`, set at `SourceMapStatus::dot`, `debugger_source.cpp:619`) tells the Source tab to word its pending note
   *...when the dot command runs* ([3.9.5.7](07-frontends.md)).
 
 ## What the backend cannot see

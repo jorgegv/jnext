@@ -3938,7 +3938,9 @@ no fetch prediction.</p>
 The facade clamps every byte count to the request, returns exactly <code>SPRITE_COUNT</code>
 sprites whatever the target sent, treats a pattern-RAM view that is not exactly
 <code>PATTERN_RAM_BYTES</code> long or has no data as empty, and carries the identity strings of
-<code>target_info()</code> as they came.</p>
+<code>target_info()</code> as they came. A read that comes back short under <code>Ok</code> is reported as
+<code>RefusedUnavailable</code>; a write or register edit the target refused outright returns the target's
+status, with no <code>MUTATE</code> line and no revision bump.</p>
 <h2 id="behind-the-facade">Behind the facade<a class="headerlink" href="#behind-the-facade" title="Permanent link">&para;</a></h2>
 <p><code>Debugger</code> holds one <code>unique_ptr&lt;Impl&gt;</code> and nothing else, so adding state never
 edits a header five frontends compile against. <code>Impl</code> is defined in the internal

@@ -268,8 +268,13 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
         return Expected<size_t>{st, landed};
     }
 
-    // Page. A page the store does not have is refused before anything is logged.
+    // Page. A page the store does not have is refused before anything is logged, and
+    // so is any status outside the local answers (Ok, short, InvalidPage): a target
+    // that failed outright (a link that is down) gets its own error back and no
+    // MUTATE line for a write that did not happen.
     if (w.status == Result::InvalidPage) return make_refused<size_t>(Result::InvalidPage);
+    if (w.status != Result::Ok && w.status != Result::RefusedUnavailable)
+        return Expected<size_t>{w.status, w.value};
     const size_t done = w.value;
     if (n == 1) impl_->log_mutate(by, space_name(space, addr), old_first, buf[0]);
     else        impl_->log_mutate_range(by, space_name(space, addr),

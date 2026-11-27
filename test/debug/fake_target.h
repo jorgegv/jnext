@@ -39,6 +39,14 @@ public:
     /// Hostile knobs: a read or write reports `n + count_extra`; a non-zero value
     /// makes the target claim more than was asked.
     size_t           count_extra = 0;
+    /// Failure knobs: a read reports `short_by` bytes fewer than asked under Ok; a
+    /// non-Ok `write_status` makes write() fail (count 0, nothing stored); a non-Ok
+    /// `set_register_status` / `port_in_status` / `port_out_status` makes that verb fail.
+    size_t           short_by = 0;
+    Result           write_status = Result::Ok;
+    Result           set_register_status = Result::Ok;
+    Result           port_in_status = Result::Ok;
+    Result           port_out_status = Result::Ok;
 
     // ---- the record ----------------------------------------------------------
     std::vector<std::string> calls;                  ///< "name(args)" per machine call
@@ -89,7 +97,7 @@ public:
     Z80Registers registers() const override { rec("registers"); return regs; }
     Result set_register(RegId reg, uint16_t value) override {
         rec("set_register(" + std::to_string(static_cast<int>(reg)) + "," + std::to_string(value) + ")");
-        return Result::Ok;
+        return set_register_status;
     }
 
     // ---- memory --------------------------------------------------------------
@@ -97,11 +105,12 @@ public:
         rec("read(" + std::to_string(static_cast<int>(space.kind)) + "," + std::to_string(addr) + "," +
             std::to_string(n) + ")");
         for (size_t i = 0; i < n; ++i) buf[i] = ram[(addr + i) & 0xFFFF];
-        return Expected<size_t>{Result::Ok, n + count_extra};
+        return Expected<size_t>{Result::Ok, (n >= short_by ? n - short_by : 0) + count_extra};
     }
     Expected<size_t> write(MemSpace space, uint32_t addr, size_t n, const uint8_t* b) override {
         rec("write(" + std::to_string(static_cast<int>(space.kind)) + "," + std::to_string(addr) + "," +
             std::to_string(n) + ")");
+        if (write_status != Result::Ok) return Expected<size_t>{write_status, 0};
         for (size_t i = 0; i < n; ++i) ram[(addr + i) & 0xFFFF] = b[i];
         return Expected<size_t>{Result::Ok, n + count_extra};
     }
@@ -126,11 +135,11 @@ public:
     }
     Expected<uint8_t> port_in(uint16_t port) override {
         rec("port_in(" + std::to_string(port) + ")");
-        return Expected<uint8_t>{Result::Ok, 0xA5};
+        return Expected<uint8_t>{port_in_status, 0xA5};
     }
     Result port_out(uint16_t port, uint8_t value) override {
         rec("port_out(" + std::to_string(port) + "," + std::to_string(value) + ")");
-        return Result::Ok;
+        return port_out_status;
     }
 
     // ---- sprites -------------------------------------------------------------

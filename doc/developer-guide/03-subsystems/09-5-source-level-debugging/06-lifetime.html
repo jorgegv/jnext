@@ -3311,7 +3311,7 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
   <code>Verified ... the dot command in &lt;space&gt; matches its binary identity</code>) and keeps the check: it is
   never finished (<code>checks.push_back</code> at <code>debugger_source.cpp:443</code>), so a later entry that does not match puts the map back
   to pending.</li>
-<li><strong>A landing does not judge it.</strong> <code>recheck()</code> (<code>debugger_source.cpp:995</code>): for a user's map that is a dot map,
+<li><strong>A landing does not judge it.</strong> <code>recheck()</code> (<code>debugger_source.cpp:998</code>): for a user's map that is a dot map,
   <code>verify_user()</code> returns at once, keeping the map live and not stale (<code>verify_user</code>, <code>debugger_source.cpp:1010-1019</code>); the checks are
   re-derived by <code>dot_landing(fresh)</code> (<code>debugger_source.cpp:242</code>). A fresh landing (reset, state load, program load, cold
   boot) sends the user's dot checks (<code>dot_landing()</code> skips the others) to <code>dot_reset()</code>: pending until the next entry. A ring restore reads back what the
@@ -3333,7 +3333,7 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
   at start-up and the verify hook does not distinguish a replayed session from a live one
   (<code>replay_mode()</code> is the rewind replay's flag, <code>emulator.h:1467</code>, not RZX's). What the row
   <code>z88dk-dot-source-rzx-func</code> pins is the attach and the refusal, not a verdict reached during playback.</li>
-<li><strong>Where it shows.</strong> <code>SourceMapStatus::dot</code> (<code>debugger.h:1336</code>, set at <code>SourceMapStatus::dot</code>, <code>debugger_source.cpp:616</code>) tells the Source tab to word its pending note
+<li><strong>Where it shows.</strong> <code>SourceMapStatus::dot</code> (<code>debugger.h:1336</code>, set at <code>SourceMapStatus::dot</code>, <code>debugger_source.cpp:619</code>) tells the Source tab to word its pending note
   <em>...when the dot command runs</em> (<a href="07-frontends.html">3.9.5.7</a>).</li>
 </ul>
 <h2 id="what-the-backend-cannot-see">What the backend cannot see<a class="headerlink" href="#what-the-backend-cannot-see" title="Permanent link">&para;</a></h2>

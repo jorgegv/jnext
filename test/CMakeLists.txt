@@ -1908,6 +1908,8 @@ target_link_libraries(debug_target_test PRIVATE
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(debug_target_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(debug_target_test PRIVATE
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
 add_test(NAME debug_target_tests COMMAND debug_target_test)
 
 # GH #529 - the debugger's audio introspection: the note helper (ANO), the

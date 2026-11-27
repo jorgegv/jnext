@@ -3261,11 +3261,11 @@ so every consumer reads both layers with no code of its own.
 <code>names</code> is assigned in place, so the <code>const SymbolTable*</code> the Disassembly, Call Stack
 and Breakpoints panels hold (<code>set_symbol_table(&amp;dbg_.symbols())</code>) stays valid.</p>
 <p><code>recompose_names()</code> is called after every change of either layer: the toolchain writers
-(<code>recompose_names</code> at <code>src/debug/debugger.cpp:284</code> in load_map and <code>:298</code> in clear_symbols; in <code>src/debug/debugger_source.cpp</code> at <code>:422</code> the deferred-check drop, <code>:560</code> and <code>:567</code> the
-hand SLD's labels, <code>:814</code> the program-load attach and its bind, <code>:980</code>
-drop_sidecars, <code>:1084</code> and <code>:1090</code> the ring landing) and every verb that changes a label
+(<code>recompose_names</code> at <code>src/debug/debugger.cpp:284</code> in load_map and <code>:298</code> in clear_symbols; in <code>src/debug/debugger_source.cpp</code> at <code>:422</code> the deferred-check drop, <code>:563</code> and <code>:570</code> the
+hand SLD's labels, <code>:817</code> the program-load attach and its bind, <code>:983</code>
+drop_sidecars, <code>:1087</code> and <code>:1093</code> the ring landing) and every verb that changes a label
 (<code>recompose_names</code> at <code>src/debug/debugger_annotations.cpp:71</code> in set_user_label, <code>:80</code> in remove_user_label, <code>:116</code> in replace_annotations; <code>set_user_comment()</code> changes no name and does not). The attachment cache
-copies <code>toolchain_symbols</code>, never <code>names</code> (<code>src/debug/debugger_source.cpp:931</code>),
+copies <code>toolchain_symbols</code>, never <code>names</code> (<code>src/debug/debugger_source.cpp:934</code>),
 so a ring landing cannot bring back a user label that was removed, nor drop one
 that was added.</p>
 <p>The name rule against the toolchain layer is in <code>set_user_label()</code>

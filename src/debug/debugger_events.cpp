@@ -332,7 +332,8 @@ std::vector<EventId> Debugger::probe_execute(uint16_t pc) const {
 Result Debugger::raise_host_event(ClientId by, const std::string& name) {
     if (name.size() > MAX_HOST_EVENT_NAME) return Result::Unsupported;
 
-    if (!impl_->events.has_kind(EventKind::Host)) return Result::Ok;
+    // Nothing is delivered without a local machine: no non-local subscribe is served.
+    if (!impl_->emu || !impl_->events.has_kind(EventKind::Host)) return Result::Ok;
 
     // NOT latched into the ring, and the reason is the ring's shape rather than
     // a shortcut: every ring entry is a fixed 48-byte POD with no room for a

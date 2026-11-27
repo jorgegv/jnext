@@ -306,11 +306,18 @@ static void loc_state_rows() {
         Local n;
         n.dbg->run_to_cycle(n.a, n.emu.clock().get() + 100000);
         const auto armed = n.dbg->state().step_mode;
+        // A step_over armed on a CALL: CALL 0x9000 at 0x8000 (the program of build() is NOPs).
+        Local o;
+        const uint8_t call[3] = {0xCD, 0x00, 0x90};
+        for (int i = 0; i < 3; ++i) o.emu.mmu().write(static_cast<uint16_t>(PROG + i), call[i]);
+        o.dbg->step_over(o.a);
+        const auto over = o.dbg->state().step_mode;
         check("TGT-LOC-13", "state().step_mode: None after a completed step_into, RunToCycle while a "
-                            "run_to_cycle is armed",
-              after_into == jnext::dbg::StepMode::None && armed == jnext::dbg::StepMode::RunToCycle,
+                            "run_to_cycle is armed, Over while a step_over over a CALL is armed",
+              after_into == jnext::dbg::StepMode::None && armed == jnext::dbg::StepMode::RunToCycle &&
+                  over == jnext::dbg::StepMode::Over,
               std::to_string(static_cast<int>(after_into)) + "/" +
-                  std::to_string(static_cast<int>(armed)));
+                  std::to_string(static_cast<int>(armed)) + "/" + std::to_string(static_cast<int>(over)));
     }
     {
         Local m;
@@ -728,6 +735,148 @@ static void tgt01_host_rows() {
     }
 }
 
+// ── TGT-01-25..30: a target that fails or answers short ─────────────────────
+
+static void tgt01_failure_rows() {
+    {
+        Remote m;
+        m.t.short_by = 2;
+        uint8_t b[6] = {};
+        const auto r = m.d.peek(MemSpace::cpu(), 0x9000, 6, b);
+        check("TGT-01-25", "a target reading 2 bytes short under Ok: peek reports RefusedUnavailable with the short count",
+              r.status == Result::RefusedUnavailable && r.value == 4,
+              std::to_string(static_cast<int>(r.status)) + "/" + std::to_string(r.value));
+    }
+    {
+        Remote m;
+        m.t.write_status = Result::Unsupported;
+        const uint8_t v = 7;
+        const uint64_t rev = m.d.state_revision();
+        const auto r = m.d.poke(m.a, MemSpace::cpu(), 0x9000, 1, &v);
+        check("TGT-01-26", "a target whose write fails outright: poke(Cpu) returns that status, 0 bytes, logs no MUTATE "
+                           "line and does not bump state_revision()",
+              r.status == Result::Unsupported && r.value == 0 && m.rec.mutates().empty() &&
+                  m.d.state_revision() == rev);
+    }
+    {
+        Remote m;
+        m.t.write_status = Result::Unsupported;
+        const uint8_t v = 7;
+        const uint64_t rev = m.d.state_revision();
+        const auto r = m.d.poke(m.a, MemSpace::page(10), 0x10, 1, &v);
+        check("TGT-01-27", "a target whose write fails outright: poke(Page) passes that status through unchanged, logs "
+                           "no MUTATE line and does not bump state_revision()",
+              r.status == Result::Unsupported && m.rec.mutates().empty() && m.d.state_revision() == rev);
+    }
+    {
+        Remote m;
+        m.t.set_register_status = Result::Unsupported;
+        const uint64_t rev = m.d.state_revision();
+        const Result r = m.d.set_register(m.a, RegId::A, 1);
+        check("TGT-01-28", "a target that refuses set_register: the verb returns that status with no MUTATE line "
+                           "and no revision bump",
+              r == Result::Unsupported && m.rec.mutates().empty() && m.d.state_revision() == rev);
+    }
+    {
+        Remote m;
+        m.t.port_in_status = Result::Unsupported;
+        m.t.port_out_status = Result::Unsupported;
+        const uint64_t rev = m.d.state_revision();
+        const auto in = m.d.port_in(m.a, 0x00FE);
+        const Result out = m.d.port_out(m.a, 0x00FE, 1);
+        check("TGT-01-29", "a target that fails port_in and port_out: each returns that status, no MUTATE line, "
+                           "no revision bump",
+              in.status == Result::Unsupported && out == Result::Unsupported && m.rec.mutates().empty() &&
+                  m.d.state_revision() == rev);
+    }
+    {
+        Remote m;
+        m.t.clip.x1 = 3; m.t.clip.x2 = 4; m.t.clip.y1 = 5; m.t.clip.y2 = 6;
+        const auto sp = m.d.clip_window(jnext::dbg::ClipLayer::Sprites);
+        const jnext::dbg::ClipWindow none{};
+        auto empty = [&](const jnext::dbg::ClipWindow& w) {
+            return w.x1 == none.x1 && w.x2 == none.x2 && w.y1 == none.y1 && w.y2 == none.y2;
+        };
+        check("TGT-01-30", "non-local clip_window(Sprites) is the target's sprite clip; Layer2, Ula and Tilemap are empty",
+              sp.x1 == 3 && sp.x2 == 4 && sp.y1 == 5 && sp.y2 == 6 &&
+                  empty(m.d.clip_window(jnext::dbg::ClipLayer::Layer2)) &&
+                  empty(m.d.clip_window(jnext::dbg::ClipLayer::Ula)) &&
+                  empty(m.d.clip_window(jnext::dbg::ClipLayer::Tilemap)));
+    }
+}
+
+// ── TGT-01-31..34: source maps on a facade with no machine ──────────────────
+
+static const char* const kNextDevice =
+    "|-1|-1|Z|pages.size:8192,pages.count:224,slots.count:8,"
+    "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n";
+
+// An SLD of x.asm: records at 0x8000 (line 1) and 0x8003 (line 2) on NR page 36, the
+// page the fake maps at slot 4.
+static std::string sld_text() {
+    return std::string("|SLD.data.version|1\n") + "x.asm|1||0" + kNextDevice +
+           "x.asm|1||0|36|32768|T|\n" + "x.asm|2||0|36|32771|T|\n";
+}
+
+static void write_file(const std::string& path, const std::string& text) {
+    FILE* f = std::fopen(path.c_str(), "wb");
+    if (f) {
+        std::fwrite(text.data(), 1, text.size(), f);
+        std::fclose(f);
+    }
+}
+
+static void tgt01_source_rows() {
+    {
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("tgtsld");
+        write_file(dir + "/x.sld", sld_text());
+        const auto out = m.d.load_source_map(dir + "/x.sld", true, false, false);
+        const auto* loc = m.d.source_location(0x8000);
+        const auto* loc2 = m.d.source_location(0x8003);
+        const bool resolved = loc && loc->line == 1 && loc->file == "x.asm" && loc2 && loc2->line == 2;
+        // The same, with the identity check left for the first execution.
+        Remote p;
+        const auto pend = p.d.load_source_map(dir + "/x.sld", true, true, false);
+        std::filesystem::remove_all(dir);
+        check("TGT-01-31", "load_source_map of an SLD on a facade with no machine loads its records, and "
+                           "source_location() resolves them through the target's slots (also with "
+                           "verify_at_first_execution)",
+              out.count == 2 && out.error.empty() && resolved && pend.count == 2,
+              "count=" + std::to_string(out.count) + " " + out.error);
+    }
+    {
+        Remote m;
+        const std::string map = std::string(JNEXT_Z88DK_FIXTURE_DIR) + "/master/sccz80-debug/prog.map";
+        const auto out = m.d.load_source_map(map, true, false, false);
+        check("TGT-01-32", "load_source_map of a z88dk map on a facade with no machine loads (its space closure "
+                           "reads through the target)",
+              out.count > 0 && out.error.empty(), "count=" + std::to_string(out.count) + " " + out.error);
+    }
+    {
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("tgtsld");
+        write_file(dir + "/x.sld", sld_text());
+        (void)m.d.load_source_map(dir + "/x.sld", true, false, false);
+        const Result r = m.d.clear_source_map();
+        std::filesystem::remove_all(dir);
+        check("TGT-01-33", "clear_source_map empties the source map of a facade with no machine",
+              r == Result::Ok && m.d.source_map().empty() && m.d.source_location(0x8000) == nullptr);
+    }
+    {
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("tgtsld");
+        write_file(dir + "/prog.nex", "x");
+        write_file(dir + "/prog.sld", sld_text());
+        const auto out = m.d.load_program_sidecars(dir + "/prog.nex");
+        const auto* loc = m.d.source_location(0x8000);
+        std::filesystem::remove_all(dir);
+        check("TGT-01-34", "load_program_sidecars of a program with an SLD beside it attaches the SLD on a facade "
+                           "with no machine",
+              out.sources == 2 && loc && loc->line == 1, "sources=" + std::to_string(out.sources));
+    }
+}
+
 int main() {
     loc_poke_rows();
     loc_refusal_rows();
@@ -736,6 +885,8 @@ int main() {
     tgt01_dispatch_rows();
     tgt01_refusal_rows();
     tgt01_host_rows();
+    tgt01_failure_rows();
+    tgt01_source_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);

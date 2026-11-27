@@ -488,7 +488,7 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
         parsed = load_sld(candidate, path, &labels);
     } else {
         parsed = load_z88dk_source_map(candidate, path, [this](uint16_t a) {
-            return impl_->emu->predict_fetch(a);
+            return source_page(a);
         }, Z88dkListings::Beside);
         for (const std::string& n : parsed.listing_notes)
             out.listing_note += (out.listing_note.empty() ? "" : "; ") + n;
@@ -526,7 +526,10 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
     impl_->drop_source_guards();
     impl_->source_map         = std::move(candidate);
     impl_->sources_owner      = Impl::StoreOwner::User;
-    impl_->user_sources_gen   = impl_->ds().load_generation();
+    // The load generation is the local machine's `DebugState` counter; a non-local
+    // facade has its own (`begin_generation()` advances it).
+    impl_->user_sources_gen   = impl_->emu ? impl_->ds().load_generation()
+                                           : impl_->generation_counter;
     impl_->user_sources_stale = false;
     impl_->pause_verify_user  = false;
     impl_->source_reason.clear();

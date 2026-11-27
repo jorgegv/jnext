@@ -470,7 +470,9 @@ A target's answers are untrusted, since a remote target feeds them from a networ
 The facade clamps every byte count to the request, returns exactly `SPRITE_COUNT`
 sprites whatever the target sent, treats a pattern-RAM view that is not exactly
 `PATTERN_RAM_BYTES` long or has no data as empty, and carries the identity strings of
-`target_info()` as they came.
+`target_info()` as they came. A read that comes back short under `Ok` is reported as
+`RefusedUnavailable`; a write or register edit the target refused outright returns the target's
+status, with no `MUTATE` line and no revision bump.
 
 ## Behind the facade
 
