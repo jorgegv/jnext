@@ -3205,7 +3205,7 @@ void test_name_rows() {
     // its own name; the set machinery (status, go back) finds both through card_name_in; go back restores the old.
     {
         wipe(); card_set(oldn, old_bytes);
-        put(dir + "/" + oldn + ".distro", "sn-emulator-24.11.zip\n");
+        put(dir + "/" + oldn + ".distro", "sn-emulator-23.01.zip\n");
         put(dir + "/" + sdcard::kImageFileName, "oldraw");
         if (!shared.ok) {
             check("SDNAME-07", "an accepted upgrade of an old-named card installs the new name and keeps the old set as the backup under its own name", false, shared.err);
@@ -3218,9 +3218,9 @@ void test_name_rows() {
             const sdcard::backup::Status st = sdcard::backup::card_set_status(dir, "sn-emulator-99.99.zip", false);
             check("SDNAME-07", "an accepted upgrade of an old-named card installs the new name and keeps the old set as the backup under its own name (status sees it)",
                   r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + newn && fs::is_regular_file(dir + "/" + newn) &&
-                  slurp_text(dir + "/previous/" + oldn) == old_bytes && gone(dir + "/" + oldn) && st.backup &&
+                  slurp_text(dir + "/previous/" + oldn) == old_bytes && gone(dir + "/" + oldn) && st.backup && st.backup_distro == "sn-emulator-23.01.zip" &&
                   st.card_present && slurp_text(dir + "/" + newn + ".distro") == "sn-emulator-99.99.zip\n" &&
-                  sdcard::upgrade::backup_distribution(dir) == "sn-emulator-24.11.zip", r.error + r.warning + " path=" + r.path + " new=" + std::to_string(fs::is_regular_file(dir + "/" + newn)) +
+                  sdcard::upgrade::backup_distribution(dir) == "sn-emulator-23.01.zip", r.error + r.warning + " path=" + r.path + " new=" + std::to_string(fs::is_regular_file(dir + "/" + newn)) +
                   " prev_old=" + slurp_text(dir + "/previous/" + oldn) + " old_gone=" + std::to_string(gone(dir + "/" + oldn)) +
                   " backup=" + std::to_string(st.backup) + " present=" + std::to_string(st.card_present) +
                   " distro=" + slurp_text(dir + "/" + newn + ".distro") + " bdist=" + sdcard::upgrade::backup_distribution(dir));
@@ -3237,7 +3237,7 @@ void test_name_rows() {
     // its name) is finished by the next start: the new card has the new name, the backup keeps the old one.
     {
         wipe(); card_set(oldn, old_bytes);
-        put(dir + "/" + oldn + ".distro", "sn-emulator-24.11.zip\n");
+        put(dir + "/" + oldn + ".distro", "sn-emulator-23.01.zip\n");
         put(dir + "/" + sdcard::kImageFileName, "oldraw");
         if (!shared.ok) {
             check("SDNAME-09", "an interrupted upgrade of an old-named card is finished with the new name for the new card and the old name in the backup", false, shared.err);
