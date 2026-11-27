@@ -53,7 +53,7 @@ namespace jnext {
 namespace remote {
 namespace dzrp {
 
-enum class Profile : std::uint8_t { None, Jnext, DezogifNg, DezogifSerial /*ambiguous*/, Dezogif22 };
+enum class Profile : std::uint8_t { None, Jnext, DezogifNg };
 enum class BreakpointMode : std::uint8_t { None, Normal /*40/41*/, Simple /*13/14*/ };
 enum class SessionState : std::uint8_t {
     Idle, Connecting, Initialising, Probing /*CMD 24*/, Ready, Closed, Failed

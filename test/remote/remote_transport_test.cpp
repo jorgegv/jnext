@@ -1300,7 +1300,7 @@ static void link_rows() {
                             "an unbalanced bracket, a missing port, ports 0 and 65536, a sign, "
                             "whitespace, a trailing character, a 254-character host, an empty "
                             "label and an embedded NUL are all refused with a reason",
-              all && serr.find("not in this build") != std::string::npos, why + " " + serr);
+              all && serr.find("serial links are not supported (TCP only)") != std::string::npos, why + " " + serr);
     }
 
     // TcpLink against a real Server.

@@ -18,7 +18,7 @@ constexpr std::size_t NAME_DISPLAY_MAX = 256;
 constexpr std::size_t LOG_DISPLAY_MAX  = 1024;
 
 bool is_dezogif(Profile p) {
-    return p == Profile::DezogifNg || p == Profile::DezogifSerial || p == Profile::Dezogif22;
+    return p == Profile::DezogifNg;
 }
 
 std::string version_text(const std::uint8_t v[3]) {
@@ -45,8 +45,6 @@ const char* profile_name(Profile p) {
     case Profile::None:          return "none";
     case Profile::Jnext:         return "jnext";
     case Profile::DezogifNg:     return "dezogif_ng";
-    case Profile::DezogifSerial: return "dezogif_serial";
-    case Profile::Dezogif22:     return "dezogif_2.2";
     }
     return "?";
 }
@@ -152,35 +150,20 @@ ProfileChoice select_profile(const RemoteInfo& info, LinkKind kind) {
         return c;
     }
     if (starts_with(name, "dezogif v")) {
-        if (minor == 1) {
-            c.ok = true;
-            c.window = 1;
+        if (minor == 1 && kind == LinkKind::Tcp) {
+            // dezogif_ng over WiFi: every id it dispatches, 40 and 41 included.
+            c.ok          = true;
+            c.profile     = Profile::DezogifNg;
+            c.window      = 1;
             c.breakpoints = BreakpointMode::Simple;
-            if (kind == LinkKind::Tcp) {
-                // dezogif_ng: every id it dispatches, 40 and 41 included.
-                c.profile = Profile::DezogifNg;
-                for (unsigned i = 1; i <= 23; ++i) c.set.set(i);
-                c.set.set(CMD_ADD_BREAKPOINT);
-                c.set.set(CMD_REMOVE_BREAKPOINT);
-            } else {
-                // The serial stub is one of two builds that answer alike (dezogif_ng or the
-                // upstream at the fork point): the INTERSECTION of what both serve. 7, 18 and
-                // 19 are missing from the upstream; it also answers every id above 23 with
-                // "not supported", which resets the session, so 40 and 41 are out too.
-                c.profile = Profile::DezogifSerial;
-                for (unsigned i = 1; i <= 6; ++i) c.set.set(i);
-                for (unsigned i = 8; i <= 17; ++i) c.set.set(i);
-                for (unsigned i = 20; i <= 23; ++i) c.set.set(i);
-            }
+            for (unsigned i = 1; i <= 23; ++i) c.set.set(i);
+            c.set.set(CMD_ADD_BREAKPOINT);
+            c.set.set(CMD_REMOVE_BREAKPOINT);
             return c;
         }
-        if (minor >= 2) {
-            c.ok = true;
-            c.profile = Profile::Dezogif22;
-            c.window = 1;
-            c.probe = true;
-            return c;
-        }
+        fail();
+        c.why += "; only the WiFi dezogif_ng stub (DZRP 2.1.0 over TCP) is supported";
+        return c;
     }
     return fail();
 }
@@ -545,9 +528,6 @@ void DzrpClient::on_probe_reply(const std::vector<std::uint8_t>& p) {
     for (std::size_t i = 0; i < p.size() * 8; ++i)
         if (p[i / 8] & (1u << (i % 8))) set_.set(i);
     set_.reset(0);   // bit 0 is not a command
-    if (profile_ == Profile::Dezogif22)
-        bp_mode_ = set_.test(CMD_ADD_BREAKPOINT) && set_.test(CMD_REMOVE_BREAKPOINT)
-                       ? BreakpointMode::Normal : BreakpointMode::Simple;
     state_ = SessionState::Ready;
     Log::debugger()->info("dzrp client: connected to \"{}\" (DZRP {}) over {}: profile {}, window {}",
                           remote_.name, version_text(remote_.version), link_->describe(),

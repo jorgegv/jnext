@@ -65,7 +65,7 @@ struct LinkSpec {
 
 /// `tcp:HOST:PORT`. HOST is a numeric IPv4, a bracketed IPv6 (`[::1]`) or a DNS name of
 /// `[A-Za-z0-9.-]` (1..253 characters, no empty label); PORT is 1..65535, decimal digits
-/// only. `serial:` is refused ("not in this build"), as is any other scheme. False sets
+/// only. `serial:` is refused ("not supported"), as is any other scheme. False sets
 /// `error`.
 bool parse_link_uri(const std::string& uri, LinkSpec& out, std::string& error);
 

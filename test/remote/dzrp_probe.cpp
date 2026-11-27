@@ -60,7 +60,7 @@ void usage(std::FILE* out) {
         "  The R0.5 checkpoint. On a real Next running dezogif_ng: press the NMI button\n"
         "  FIRST, then run this (a TCP connect while the program runs makes the ESP-01 print\n"
         "  CONNECT, which breaks it).\n"
-        "  Sequence: connect; CMD_INIT; (jnext / dezogif 2.2 profiles)\n"
+        "  Sequence: connect; CMD_INIT; (jnext profile)\n"
         "  CMD_GET_SUPPORTED_COMMANDS; CMD_GET_REGISTERS; CMD_READ_MEM 16 bytes at PC, at SP,\n"
         "  and at 0x0000, 0x2000 .. 0xE000 (one per slot); CMD_GET_TBBLUE_REG 0x00, 0x01,\n"
         "  0x50..0x57; CMD_CLOSE.\n"
@@ -455,7 +455,7 @@ int run_probe(int argc, char** argv, std::FILE* out, const ProbeEnv& env) {
         ++p.failed;
         return p.summary(1);
     }
-    const bool probed = client.profile() == Profile::Jnext || client.profile() == Profile::Dezogif22;
+    const bool probed = client.profile() == Profile::Jnext;
     p.print_session(client, connect_ms, probed);
 
     if (o.send_unsupported && client.in_set(static_cast<std::uint8_t>(o.unsupported_id))) {
