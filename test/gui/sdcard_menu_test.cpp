@@ -699,13 +699,18 @@ int main(int argc, char** argv)
         }
         {   // SDMENU-27 (GH #571)
             // Oracle: the claim of the close note, no menu of the menu bar checksums the 1 GB original when it opens.
+            // The count starts before the window exists (startup counts), and the original is touched before
+            // each menu, so a verification recorded by an earlier hash can never hide a later one.
             fixture574();   // a sidecar and no verification record: a hash WOULD run
-            Fixture f(card);
             const uint64_t h0 = carry::pristine_hash_count();
+            Fixture f(card);
             int opened = 0;
+            auto stamp = fs::last_write_time(raw);
             for (QAction* a : f.win.menuBar()->actions()) {
                 QMenu* m = a->menu();
                 if (!m) continue;
+                stamp += std::chrono::seconds(2);
+                fs::last_write_time(raw, stamp);
                 int shown = 0;
                 const QMetaObject::Connection c = QObject::connect(m, &QMenu::aboutToShow, [&] { ++shown; });
                 m->popup(QPoint(0, 0));
