@@ -208,7 +208,7 @@ bool DisasmPanel::refuse_(jnext::dbggate::Surface s)
     const auto missing = jnext::dbggate::first_missing(s, caps_.caps);
     if (!missing) return false;
     const QString tip = jnext::dbggate::unavailable_tooltip(caps_, *missing);
-    setToolTip(tip);
+    last_refusal_ = tip;   // not setToolTip(): that would stay on the whole panel for good
     QToolTip::showText(QCursor::pos(), tip, this);
     return true;
 }
@@ -1189,7 +1189,7 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
     };
     for (const auto& rp : reg_pairs)
         if (std::strstr(mnem, rp.pattern)) ops.regs.push_back({rp.name, rp.val});
-    add_operand_actions(menu, this, ops, watch_panel_, bp_model_.data());
+    add_operand_actions(menu, this, ops, watch_panel_, bp_model_.data(), caps_);
 
     menu.exec(event->globalPos());
 }

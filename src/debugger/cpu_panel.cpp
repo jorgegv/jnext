@@ -232,7 +232,7 @@ void CpuPanel::create_ui() {
     // Straight to the counter: no refresh() and no manager, so no redraw count moves.
     connect(tstates_accumulate_, &QCheckBox::toggled, this, [this](bool on) {
         tstates_.set_accumulate(on);
-        tstates_value_->setText(caps_.has(jnext::dbg::Capability::MachineTime)
+        tstates_value_->setText(!caps_.missing(jnext::dbggate::Surface::TimeField)
                                     ? QString::number(tstates_.value()) : QStringLiteral("?"));
     });
 
@@ -321,8 +321,8 @@ bool CpuPanel::eventFilter(QObject* watched, QEvent* event) {
 
 void CpuPanel::begin_edit(int field) {
     if (!dbg_ || !paused_ || field < 0 || field >= static_cast<int>(values_.size())) return;
-    if (!caps_.has(jnext::dbg::Capability::RegisterWrite)) {
-        emit message(jnext::dbggate::unavailable_text(caps_, jnext::dbg::Capability::RegisterWrite));
+    if (const auto no_write = jnext::dbggate::first_missing(jnext::dbggate::Surface::RegEdit, caps_.caps)) {
+        emit message(jnext::dbggate::unavailable_text(caps_, *no_write));
         return;
     }
     QLabel* lbl = values_[static_cast<size_t>(field)];
@@ -394,8 +394,8 @@ void CpuPanel::commit_edit() {
 
 void CpuPanel::click_flag(int bit) {
     if (!dbg_ || !paused_) return;
-    if (!caps_.has(jnext::dbg::Capability::RegisterWrite)) {
-        emit message(jnext::dbggate::unavailable_text(caps_, jnext::dbg::Capability::RegisterWrite));
+    if (const auto no_write = jnext::dbggate::first_missing(jnext::dbggate::Surface::RegEdit, caps_.caps)) {
+        emit message(jnext::dbggate::unavailable_text(caps_, *no_write));
         return;
     }
     const uint8_t f = static_cast<uint8_t>(dbg_->registers().AF & 0xFF);
@@ -427,10 +427,9 @@ void CpuPanel::show_value_menu(int field, const QPoint& global_pos) {
         menu.addSeparator();
     }
     QAction* edit = menu.addAction(tr("Edit Value..."));
-    const bool can_write = caps_.has(jnext::dbg::Capability::RegisterWrite);
-    edit->setEnabled(dbg_ && paused_ && can_write);
-    if (!can_write)
-        edit->setToolTip(jnext::dbggate::unavailable_tooltip(caps_, jnext::dbg::Capability::RegisterWrite));
+    const auto no_write = jnext::dbggate::first_missing(jnext::dbggate::Surface::RegEdit, caps_.caps);
+    edit->setEnabled(dbg_ && paused_ && !no_write);
+    if (no_write) edit->setToolTip(jnext::dbggate::unavailable_tooltip(caps_, *no_write));
     QAction* chosen = nullptr;
     for (QAction* a : {dis, mem, src, edit})
         if (a) connect(a, &QAction::triggered, &menu, [&chosen, a]() { chosen = a; });
@@ -453,7 +452,7 @@ void CpuPanel::paintEvent(QPaintEvent* event) {
 
 void CpuPanel::restart_tstate_count() {
     if (!dbg_) return;
-    if (!caps_.has(jnext::dbg::Capability::MachineTime)) {
+    if (caps_.missing(jnext::dbggate::Surface::TimeField)) {
         tstates_value_->setText(QStringLiteral("?"));
         return;
     }
@@ -464,16 +463,16 @@ void CpuPanel::restart_tstate_count() {
 void CpuPanel::set_capabilities(const jnext::dbggate::CapabilityView& view) {
     using jnext::dbg::Capability;
     caps_ = view;
-    const bool can_write = caps_.has(Capability::RegisterWrite);
-    const QString edit_tip = can_write ? tr("Double-click to edit (while paused)")
-                                       : jnext::dbggate::unavailable_tooltip(caps_, Capability::RegisterWrite);
-    const QString flag_tip = can_write ? tr("Click to toggle (while paused)")
-                                       : jnext::dbggate::unavailable_tooltip(caps_, Capability::RegisterWrite);
+    const auto no_write = jnext::dbggate::first_missing(jnext::dbggate::Surface::RegEdit, caps_.caps);
+    const QString edit_tip = !no_write ? tr("Double-click to edit (while paused)")
+                                       : jnext::dbggate::unavailable_tooltip(caps_, *no_write);
+    const QString flag_tip = !no_write ? tr("Click to toggle (while paused)")
+                                       : jnext::dbggate::unavailable_tooltip(caps_, *no_write);
     for (QLabel* l : values_) l->setToolTip(edit_tip);
     for (QLabel* l : flag_labels_) l->setToolTip(flag_tip);
     if (!paused_) {
         // refresh() does not run while the machine does: the T-states field still follows the capability
-        if (!caps_.has(Capability::MachineTime)) tstates_value_->setText(QStringLiteral("?"));
+        if (caps_.missing(jnext::dbggate::Surface::TimeField)) tstates_value_->setText(QStringLiteral("?"));
         return;
     }
     refresh();
@@ -486,7 +485,7 @@ void CpuPanel::refresh() {
     using Field = jnext::dbg::RegisterValidity::Field;
 
     // GH #369: a paused observation is a stop.
-    if (caps_.has(Capability::MachineTime)) {
+    if (!caps_.missing(jnext::dbggate::Surface::TimeField)) {
         tstates_.observe(dbg_->time().tstates_total, dbg_->time_epoch());   // INS-07
         tstates_value_->setText(QString::number(tstates_.value()));
     } else {

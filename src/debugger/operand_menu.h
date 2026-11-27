@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "debugger/capability_gate.h"
 #include <optional>
 #include <string>
 #include <utility>
@@ -33,5 +34,8 @@ struct MenuOperands {
 /// Append the watch entries (only with a watch panel) and the data breakpoint
 /// entries, each section after a separator, a section only when it has entries.
 /// The actions are owned by `menu`; `ctx` is the connection context.
+/// Epic #486: with `caps`, "Break on Read / Write" is greyed without Watchpoints and "Watch ..." without
+/// Memory, each with the target's reason as its tooltip (a refused subscription would do nothing).
 void add_operand_actions(QMenu& menu, QObject* ctx, const MenuOperands& ops,
-                         WatchPanel* watches, BreakpointModel* bps);
+                         WatchPanel* watches, BreakpointModel* bps,
+                         const jnext::dbggate::CapabilityView& caps = jnext::dbggate::CapabilityView());

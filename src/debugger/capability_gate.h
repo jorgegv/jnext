@@ -40,11 +40,11 @@ enum class Surface : uint8_t {
     Step,           ///< Single Step / Over / Out (menu, toolbar), Debug > Source forward steps, Source tab buttons
     RunToCursor,    ///< the Run to Cursor action, Disassembly and Source "Run to Here" and Enter
     ExecBp,         ///< Add Execute Breakpoint, Load from Script, the Execute dialog item, gutter adds
-    WatchBp,        ///< Add Read / Write / Read/Write Breakpoint, the dialog items
+    WatchBp,        ///< Add Read / Write / Read/Write Breakpoint, the dialog items, the operand menu's Break on Read / Write
     EventBp,        ///< the Add dialog's IO / Interrupt / NMI / Audio items
     RunToInterrupt, ///< Debug > Run to Next Interrupt
     RegEdit,        ///< CPU panel register edit and flag click
-    MemoryView,     ///< Add Watch; the Memory, Stack, Watches and Variables panels
+    MemoryView,     ///< Add Watch, the operand menu's Watch entries; the Memory, Stack, Watches and Variables panels
     PhysMem,        ///< Memory panel Slot and Page views
     MmuSlots,       ///< MMU panel slot rows
     NextRegView,    ///< the NextREG panel

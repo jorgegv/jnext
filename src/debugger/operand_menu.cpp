@@ -14,8 +14,16 @@ QString hex4(unsigned v) { return QString::number(v, 16).rightJustified(4, QLati
 }  // namespace
 
 void add_operand_actions(QMenu& menu, QObject* ctx, const MenuOperands& ops,
-                         WatchPanel* watches, BreakpointModel* bps)
+                         WatchPanel* watches, BreakpointModel* bps,
+                         const jnext::dbggate::CapabilityView& caps)
 {
+    menu.setToolTipsVisible(true);
+    auto grey = [&caps](QAction* a, jnext::dbggate::Surface s) {
+        if (const auto m = jnext::dbggate::first_missing(s, caps.caps)) {
+            a->setEnabled(false);
+            a->setToolTip(jnext::dbggate::unavailable_tooltip(caps, *m));
+        }
+    };
     // --- Watch entries ---
     const bool any_watch = watches && (!ops.labels.empty() || ops.symbol || ops.immediate ||
                                        !ops.regs.empty());
@@ -24,6 +32,7 @@ void add_operand_actions(QMenu& menu, QObject* ctx, const MenuOperands& ops,
         auto named = [&](const MenuOperands::Named& n) {
             auto* a = menu.addAction(QStringLiteral("Watch '%1' ($%2)")
                                          .arg(QString::fromStdString(n.first), hex4(n.second)));
+            grey(a, jnext::dbggate::Surface::MemoryView);
             QObject::connect(a, &QAction::triggered, ctx, [watches, n]() {
                 watches->add_watch(n.second, n.first);
             });
@@ -34,6 +43,7 @@ void add_operand_actions(QMenu& menu, QObject* ctx, const MenuOperands& ops,
             const uint16_t imm = *ops.immediate;
             const std::string label = ops.immediate_label;
             auto* a = menu.addAction(QStringLiteral("Watch $%1").arg(hex4(imm)));
+            grey(a, jnext::dbggate::Surface::MemoryView);
             QObject::connect(a, &QAction::triggered, ctx, [watches, imm, label]() {
                 watches->add_watch(imm, label);
             });
@@ -41,6 +51,7 @@ void add_operand_actions(QMenu& menu, QObject* ctx, const MenuOperands& ops,
         for (const auto& rp : ops.regs) {
             auto* a = menu.addAction(QStringLiteral("Watch (%1) = $%2")
                                          .arg(QString::fromLatin1(rp.name), hex4(rp.value)));
+            grey(a, jnext::dbggate::Surface::MemoryView);
             QObject::connect(a, &QAction::triggered, ctx, [watches, rp]() {
                 watches->add_watch(rp.value, std::string("(") + rp.name + ")");
             });
@@ -56,10 +67,12 @@ void add_operand_actions(QMenu& menu, QObject* ctx, const MenuOperands& ops,
     menu.addSeparator();
     auto pair = [&](const QString& what, uint16_t addr) {
         auto* r = menu.addAction(QStringLiteral("Break on Read %1").arg(what));
+        grey(r, jnext::dbggate::Surface::WatchBp);
         QObject::connect(r, &QAction::triggered, ctx, [bps, addr]() {
             if (bps) bps->add(BreakpointModel::Read, addr);
         });
         auto* w = menu.addAction(QStringLiteral("Break on Write %1").arg(what));
+        grey(w, jnext::dbggate::Surface::WatchBp);
         QObject::connect(w, &QAction::triggered, ctx, [bps, addr]() {
             if (bps) bps->add(BreakpointModel::Write, addr);
         });

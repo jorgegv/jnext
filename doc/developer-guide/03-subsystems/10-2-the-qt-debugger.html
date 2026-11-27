@@ -3912,7 +3912,8 @@ halted state by their own bits), a reason line (the target's reason for <code>Ru
 refuses a register edit without <code>RegisterWrite</code> and shows <code>?</code> for T-states and the ULA screen; the MMU panel
 shows <code>?</code> for the slots and the paging fields; the Memory selector disables its Slot and Page views; the
 Disassembly and Source tab refuse a click or key that would add an execute breakpoint, or run to the cursor,
-with the reason while removing a breakpoint stays allowed; the Breakpoints Add dialog disables the types the
+with the reason while removing a breakpoint stays allowed (the operand menu's Break on Read / Write entries follow
+<code>Watchpoints</code> and its Watch entries <code>Memory</code>, in both views); the Breakpoints Add dialog disables the types the
 target cannot hold; the Call Stack says why its list is reconstructed; the Disassembly's Mem column header reads "MMU only" when the
 target lacks <code>FetchOverlays</code> (it sends the slot's page alone, so overlays are not in the identity).</p>
 <p>Everything a target answers is untrusted text, a network peer's from the remote epic on: <code>display_text()</code>

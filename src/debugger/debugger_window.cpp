@@ -2578,8 +2578,11 @@ void DebuggerWindow::refresh_capabilities() {
     for (Gated& g : gated_) apply_gate_(g);
     // a placeholder that went away: its panel was not refreshed while it was up
     bool revealed = false;
-    for (size_t i = 0; i < gated_.size(); ++i)
+    bool changed = false;   // some placeholder went up or came down: what is on show changed
+    for (size_t i = 0; i < gated_.size(); ++i) {
         if (was_shown[i] && !gated_[i].ph->active()) revealed = true;
+        if (gated_[i].ph && was_shown[i] != gated_[i].ph->active()) changed = true;
+    }
 
     if (cpu_panel_) cpu_panel_->set_capabilities(view_);
     if (mmu_panel_) mmu_panel_->set_capabilities(view_);
@@ -2589,4 +2592,5 @@ void DebuggerWindow::refresh_capabilities() {
     if (breakpoint_panel_) breakpoint_panel_->set_capabilities(view_);
     if (callstack_panel_) callstack_panel_->set_capabilities(view_);
     if (revealed) refresh_panels_content_();
+    if (changed) emit panels_on_show_changed();   // the manager re-derives the data it asks for
 }

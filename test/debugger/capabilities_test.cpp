@@ -180,7 +180,7 @@ struct LocalFix {
         EmulatorConfig cfg;
         cfg.type = MachineType::ZX48K;
         if (!emu.init(cfg)) return;
-        for (uint16_t i = 0; i < 64; ++i) emu.mmu().write(static_cast<uint16_t>(PROG + i), 0x00);   // NOPs
+        for (uint16_t i = 0; i < 64; ++i) emu.mmu().write(static_cast<uint16_t>(PROG + i), 0x7E);   // LD A,(HL): one byte like a NOP, and an operand for the menus
         Z80Registers r = emu.cpu().get_registers();
         r.PC = PROG; r.SP = 0xFF00; r.IFF1 = r.IFF2 = 0;
         emu.cpu().set_registers(r);
@@ -285,8 +285,10 @@ struct Item {
     bool        enabled = false;
     QString     tip;        ///< a widget's tooltip, or a panel's placeholder text
     bool        shown = false;   ///< a panel's placeholder is up
+    bool        field = false;   ///< panel-internal state (a field's text, a selector, a button), `tip` holds it
     bool operator==(const Item& o) const {
-        return label == o.label && panel == o.panel && enabled == o.enabled && tip == o.tip && shown == o.shown;
+        return label == o.label && panel == o.panel && enabled == o.enabled && tip == o.tip && shown == o.shown &&
+               field == o.field;
     }
 };
 
@@ -409,10 +411,16 @@ struct Popup {
             if (e.text == t) return &e;
         return nullptr;
     }
+    std::vector<const Entry*> with_prefix(const QString& p) const {
+        std::vector<const Entry*> v;
+        for (const Entry& e : items)
+            if (e.text.startsWith(p)) v.push_back(&e);
+        return v;
+    }
 };
 
-/// What a real context-menu event opens.
-Popup right_click(QWidget* target, const QPoint& pos) {
+/// What a real context-menu event opens; the item named `pick` is triggered when it is enabled.
+Popup right_click(QWidget* target, const QPoint& pos, const QString& pick = QString()) {
     Popup out;
     QTimer timer;
     QObject::connect(&timer, &QTimer::timeout, [&]() {
@@ -420,7 +428,10 @@ Popup right_click(QWidget* target, const QPoint& pos) {
         if (!menu || out.seen) return;
         out.seen = true;
         for (QAction* a : menu->actions())
-            if (!a->isSeparator()) out.items.push_back({a->text(), a->isEnabled(), a->toolTip()});
+            if (!a->isSeparator()) {
+                out.items.push_back({a->text(), a->isEnabled(), a->toolTip()});
+                if (!pick.isEmpty() && a->text() == pick && a->isEnabled()) a->trigger();
+            }
         menu->close();
     });
     timer.start(1);
@@ -532,6 +543,50 @@ void test_table() {
 
 enum class Extra { None, Step, Back, RegWrite, PhysMem, MmuSlots, Paging, Video, Time, CallStack, Fetch };
 
+/// The panel-internal state that a capability's own row may change, one Item each: T-states and Screen text, the
+/// MMU `?` count, the Mem header, the Call Stack header, the CPU value and flag tooltips, the Memory selector's
+/// items, the Source tab's step buttons. Every other RTQ-CAP row asserts them unchanged.
+std::vector<Item> field_items(DebuggerWindow* w) {
+    std::vector<Item> out;
+    auto add = [&](const char* label, const QString& value) {
+        Item it;
+        it.label = label;
+        it.field = true;
+        it.tip = value;
+        out.push_back(it);
+    };
+    add("tstates", after(w->cpu_panel(), QStringLiteral("T-states: ")));
+    add("screen", after(w->cpu_panel(), QStringLiteral("Screen: ")));
+    add("mmu?", QString::number(count_text(w->mmu_panel(), QStringLiteral("?"))));
+    add("memhdr", w->disasm_panel()->mem_header());
+    QLabel* h = w->callstack_panel()->findChild<QLabel*>(QStringLiteral("callStackCapability"));
+    add("callstack", h ? QString::number(h->isVisibleTo(w->callstack_panel())) + h->text() : QString("<none>"));
+    QStringList tips;
+    for (QLabel* l : w->cpu_panel()->findChildren<QLabel*>())
+        if (!l->toolTip().isEmpty()) tips << l->toolTip();
+    tips.removeDuplicates();
+    tips.sort();
+    add("cputips", tips.join(QLatin1Char('|')));
+    QString sel_state;
+    for (QComboBox* cb : w->memory_panel()->findChildren<QComboBox*>())
+        if (cb->itemText(0) == QLatin1String("CPU View")) {
+            auto* m = qobject_cast<QStandardItemModel*>(cb->model());
+            for (int i = 0; i < cb->count(); ++i)
+                sel_state += QString::number(m && m->item(i)->isEnabled()) + cb->itemData(i, Qt::ToolTipRole).toString() + QLatin1Char('|');
+        }
+    add("memsel", sel_state);
+    QString fwd, back;
+    for (const char* t : {"Into", "Over", "Out"})
+        if (QPushButton* b = button_text(w->source_panel(), QString::fromLatin1(t)))
+            fwd += QString::number(b->isEnabled()) + b->toolTip() + QLatin1Char('|');
+    for (const char* t : {"Back", "Reverse"})
+        if (QPushButton* b = button_text(w->source_panel(), QString::fromLatin1(t)))
+            back += QString::number(b->isEnabled()) + b->toolTip() + QLatin1Char('|');
+    add("srcfwd", fwd);
+    add("srcback", back);
+    return out;
+}
+
 struct CapCase {
     const char* id;
     Capability cap;
@@ -619,12 +674,27 @@ bool extra_ok(LocalFix& fx, Capability c, Extra e, bool greyed, std::string& det
     return false;
 }
 
+/// May the capability whose row has `e` change panel-internal field `label`? (Its Extra checks the new value.)
+bool field_may_change(const std::string& label, Extra e) {
+    if (label == "tstates") return e == Extra::Time;
+    if (label == "screen") return e == Extra::Video || e == Extra::Paging;
+    if (label == "mmu?") return e == Extra::MmuSlots || e == Extra::Paging;
+    if (label == "memhdr") return e == Extra::Fetch;
+    if (label == "callstack") return e == Extra::CallStack;
+    if (label == "cputips") return e == Extra::RegWrite;
+    if (label == "memsel") return e == Extra::PhysMem;
+    if (label == "srcfwd") return e == Extra::Step;
+    if (label == "srcback") return e == Extra::Back;
+    return false;
+}
+
 void run_cap_case(LocalFix& fx, const CapCase& cc) {
     DebuggerWindow* w = fx.dbg();
     std::string detail;
     w->set_capability_view_for_test(std::nullopt);
     fx.tick();
-    const std::vector<Item> s0 = snapshot(w);
+    std::vector<Item> s0 = snapshot(w);
+    for (Item& f : field_items(w)) s0.push_back(f);
     bool ok = true;
     // an expected widget that the window does not have would make the row vacuous
     for (const std::string& l : cc.widgets) {
@@ -635,11 +705,17 @@ void run_cap_case(LocalFix& fx, const CapCase& cc) {
 
     w->set_capability_view_for_test(view_without(cc.cap));
     fx.tick();
-    const std::vector<Item> s1 = snapshot(w);
+    std::vector<Item> s1 = snapshot(w);
+    for (Item& f : field_items(w)) s1.push_back(f);
     for (size_t i = 0; i < s1.size() && i < s0.size(); ++i) {
         const Item& a = s0[i];
         const Item& b = s1[i];
-        if (!a.panel) {
+        if (a.field) {
+            if (!field_may_change(b.label, cc.extra) && !(a == b)) {
+                ok = false;
+                detail += "[field " + b.label + " changed] ";
+            }
+        } else if (!a.panel) {
             bool grey = false;
             for (const std::string& l : cc.widgets) grey = grey || l == b.label;
             if (grey) {
@@ -661,7 +737,8 @@ void run_cap_case(LocalFix& fx, const CapCase& cc) {
 
     w->set_capability_view_for_test(std::nullopt);
     fx.tick();
-    const std::vector<Item> s2 = snapshot(w);
+    std::vector<Item> s2 = snapshot(w);
+    for (Item& f : field_items(w)) s2.push_back(f);
     bool same = s2.size() == s0.size();
     for (size_t i = 0; same && i < s0.size(); ++i) same = s0[i] == s2[i];
     if (!same) { ok = false; detail += "[restore differs] "; }
@@ -841,7 +918,7 @@ void test_parity() {
     w->set_capability_view_for_test(view_without(kExec));
     press_gutter_line(d, 0);
     check("RTQ-60", "Disassembly: a gutter click under !ExecuteBreakpoints adds nothing and shows the reason",
-          m.pc_breakpoints().empty() && d->toolTip() == tip_of(kExec), s(d->toolTip()));
+          m.pc_breakpoints().empty() && d->last_refusal() == tip_of(kExec), s(d->last_refusal()));
     // control: with the capability the same click adds
     w->set_capability_view_for_test(std::nullopt);
     press_gutter_line(d, 0);
@@ -928,12 +1005,11 @@ void test_parity() {
         QObject::disconnect(d, &DisasmPanel::run_to_requested, nullptr, nullptr);
         QObject::connect(d, &DisasmPanel::run_to_requested, [&](uint16_t) { ++requests; });
         press_text_line(d, 0);
-        d->setToolTip(QString());
         w->set_capability_view_for_test(view_without(Capability::RunToCursor));
         QKeyEvent k(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
         QApplication::sendEvent(d, &k);
         const int refused = requests;
-        const QString tip = d->toolTip();
+        const QString tip = d->last_refusal();
         w->set_capability_view_for_test(std::nullopt);
         QApplication::sendEvent(d, &k);
         check("RTQ-66", "Disassembly: Enter under !RunToCursor emits no run request and shows the reason; with it "
@@ -995,6 +1071,175 @@ void test_parity() {
 }
 
 // ── Memory selector and the Add dialog ────────────────────────────────────
+
+// ── Round A1 review: the operand menus, the removal half of both menus, the refusal tooltip, the data
+// requests, a real flag click ───────────────────────────────────────────────
+
+/// The viewport point of the text "10" on the Source tab's line 10 ("REM line 10"): a numeric operand.
+QPoint source_number_point(QPlainTextEdit* ed) {
+    QTextBlock b = ed->document()->findBlockByNumber(9);
+    QTextCursor c(b);
+    c.setPosition(b.position() + 10);
+    const QRect r = ed->cursorRect(c);
+    return QPoint(r.x(), r.center().y());
+}
+
+/// Break on Read/Write by Watchpoints, Watch by Memory, in one menu: full view, then each capability away.
+bool operand_menu_ok(const std::function<void(std::optional<CapabilityView>)>& set_view,
+                     const std::function<Popup()>& open, std::string& detail) {
+    set_view(std::nullopt);
+    const Popup full = open();
+    set_view(view_without(Capability::Watchpoints));
+    const Popup no_watchpoints = open();
+    set_view(view_without(Capability::Memory));
+    const Popup no_memory = open();
+    set_view(std::nullopt);
+    auto all = [](const Popup& p, const QString& prefix, bool enabled, const QString& tip) {
+        const auto v = p.with_prefix(prefix);
+        if (v.empty()) return false;
+        for (const auto* e : v)
+            if (e->enabled != enabled || (!enabled && e->tip != tip)) return false;
+        return true;
+    };
+    const QString brk = QStringLiteral("Break on "), watch = QStringLiteral("Watch");
+    const bool ok = full.seen && no_watchpoints.seen && no_memory.seen &&
+                    all(full, brk, true, QString()) && all(full, watch, true, QString()) &&
+                    all(no_watchpoints, brk, false, tip_of(Capability::Watchpoints)) &&
+                    all(no_watchpoints, watch, true, QString()) &&
+                    all(no_memory, watch, false, tip_of(Capability::Memory)) && all(no_memory, brk, true, QString());
+    if (!ok) {
+        for (const Popup* p : {&full, &no_watchpoints, &no_memory}) {
+            detail += "[";
+            for (const auto& e : p->items) detail += s(e.text) + (e.enabled ? "+" : "-") + ";";
+            detail += "] ";
+        }
+    }
+    return ok;
+}
+
+void test_review_a1() {
+    LocalFix fx;
+    if (!fx.ok) {
+        for (const char* id : {"RTQ-58", "RTQ-69", "RTQ-72", "RTQ-73", "RTQ-79", "RTQ-97", "RTQ-98"})
+            check(id, "round A1", false, "fixture failed");
+        return;
+    }
+    DebuggerWindow* w = fx.dbg();
+    DisasmPanel* d = w->disasm_panel();
+    SourcePanel* sp = w->source_panel();
+    BreakpointModel& m = fx.mgr->breakpoints();
+    show_source(fx);
+    QPlainTextEdit* ed = source_editor(w);
+    auto set_view = [&](std::optional<CapabilityView> v) { w->set_capability_view_for_test(std::move(v)); };
+    const Capability kExec = Capability::ExecuteBreakpoints;
+
+    // RTQ-69 / RTQ-79: the operand menu's entries are greyed by their own capability, in both views
+    {
+        press_text_line(d, 0);
+        std::string detail;
+        const bool ok = operand_menu_ok(set_view,
+                                        [&]() { return right_click(d, QPoint(d->breakpoint_x() + 120, y_of(0))); },
+                                        detail);
+        check("RTQ-69", "Disassembly operand menu: Break on Read / Write grey without Watchpoints, Watch without "
+                        "Memory, each with the reason; all enabled with the full view",
+              ok, detail);
+    }
+    {
+        std::string detail;
+        const QPoint at = source_number_point(ed);
+        const bool ok = operand_menu_ok(set_view, [&]() { return right_click(ed->viewport(), at); }, detail);
+        check("RTQ-79", "Source operand menu: Break on Read / Write grey without Watchpoints, Watch without "
+                        "Memory, each with the reason; all enabled with the full view",
+              ok, detail);
+    }
+
+    // RTQ-72: removal through the Disassembly menu stays reachable under !ExecuteBreakpoints (P8)
+    {
+        m.clear_all();
+        press_text_line(d, 0);
+        const uint16_t a0 = d->selected_address();
+        m.add(BreakpointModel::Execute, a0);
+        set_view(view_without(kExec));
+        const Popup p = right_click(d, QPoint(d->breakpoint_x() + 120, y_of(0)), QStringLiteral("Toggle Breakpoint"));
+        const auto* t = p.find(QStringLiteral("Toggle Breakpoint"));
+        check("RTQ-72", "Disassembly menu under !ExecuteBreakpoints: Toggle Breakpoint on a line with a breakpoint "
+                        "is enabled and removes it",
+              p.seen && t && t->enabled && !m.pc_exists(a0), t ? (t->enabled ? "enabled" : "greyed") : "no item");
+        set_view(std::nullopt);
+        m.clear_all();
+    }
+    // RTQ-73: the same in the Source menu
+    {
+        m.add_source_line(QStringLiteral("main.bas:10"));
+        const bool armed = !m.pc_breakpoints().empty();
+        set_view(view_without(kExec));
+        const Popup p = right_click(ed->viewport(), QPoint(5, source_row_y(ed, 10)), QStringLiteral("Toggle Breakpoint"));
+        const auto* t = p.find(QStringLiteral("Toggle Breakpoint"));
+        check("RTQ-73", "Source menu under !ExecuteBreakpoints: Toggle Breakpoint on a line with a breakpoint is "
+                        "enabled and removes it",
+              armed && p.seen && t && t->enabled && m.pc_breakpoints().empty(),
+              t ? (t->enabled ? "enabled" : "greyed") : "no item");
+        set_view(std::nullopt);
+        m.clear_all();
+    }
+
+    // RTQ-97: a refusal leaves no tooltip on the panel
+    {
+        set_view(view_without(kExec));
+        press_gutter_line(d, 0);
+        const bool refused = d->last_refusal() == tip_of(kExec);
+        const bool clear_while = d->toolTip().isEmpty();
+        set_view(std::nullopt);
+        check("RTQ-97", "a refused gutter click leaves the Disassembly panel without a tooltip of its own, while "
+                        "greyed and after the capability is back",
+              refused && clear_while && d->toolTip().isEmpty(), s(d->toolTip()));
+        m.clear_all();
+    }
+
+    // RTQ-98: a placeholder going up or down re-derives the data the window asks for (the live raster)
+    {
+        put_on_show(w, w->video_panel());
+        w->show();
+        QApplication::processEvents();
+        fx.tick();
+        const bool on = fx.backend->live_raster();
+        set_view(view_without(Capability::Video));
+        QApplication::processEvents();
+        const bool off = !fx.backend->live_raster();
+        set_view(std::nullopt);
+        QApplication::processEvents();
+        check("RTQ-98", "a Video panel on show asks for the live raster; its capability going turns the request "
+                        "off and its return turns it on",
+              on && off && fx.backend->live_raster(),
+              "on=" + std::to_string(on) + " off=" + std::to_string(off));
+    }
+
+    // RTQ-58: a real click on a flag label under !RegisterWrite
+    {
+        FakeFix ff(true);
+        ff.fake.caps.set(Capability::RegisterWrite, false);
+        ff.fake.why_text = "read-only target";
+        ff.build();
+        CpuPanel* cpu = ff.dbg()->cpu_panel();
+        QString msg;
+        QObject::connect(cpu, &CpuPanel::message, [&](const QString& t) { msg = t; });
+        QLabel* flag = label_after(cpu, QStringLiteral("Flags: "), 1);
+        if (flag) QTest::mouseClick(flag, Qt::LeftButton);
+        QApplication::processEvents();
+        const int refused_writes = ff.fake.count("set_register");
+        const QString refused_msg = msg;
+        ff.fake.caps.set(Capability::RegisterWrite, true);
+        ff.dbg()->update_actions(true);
+        if (flag) QTest::mouseClick(flag, Qt::LeftButton);
+        QApplication::processEvents();
+        check("RTQ-58", "a click on a flag under !RegisterWrite writes nothing and message() names the reason; "
+                        "with the capability the same click writes",
+              flag && refused_writes == 0 && refused_msg == QLatin1String("Not available on fake: read-only target") &&
+                  ff.fake.count("set_register") == 1,
+              "writes=" + std::to_string(refused_writes) + " msg=" + s(refused_msg));
+    }
+    (void)sp;
+}
 
 void test_dialogs() {
     LocalFix fx;
@@ -1256,7 +1501,17 @@ void test_paths() {
             QObject* o = widget_named(w, label);
             return o ? tooltip_of(o) : QStringLiteral("<none>");
         };
-        const QString run_tip = QStringLiteral("<qt>Not available on fake: not served over a remote target by this jnext</qt>");
+        // Run, Pause and the steps are a transitional answer of the facade (it serves them over a target later):
+        // their expected state is derived from what the facade says; the local-only reasons below are durable.
+        auto facade_expect = [&](const char* label, Capability c) {
+            const QString t = tip(label);
+            if (fx.facade->capabilities().has(c)) return !t.startsWith(QLatin1String("<qt>"));
+            return t == QStringLiteral("<qt>Not available on fake: %1</qt>")
+                            .arg(QString::fromStdString(fx.facade->why_unavailable(c)).toHtmlEscaped());
+        };
+        const bool run_pause_step = facade_expect("Run / Continue", Capability::Run) &&
+                                    facade_expect("Pause / Break", Capability::Pause) &&
+                                    facade_expect("Single Step", Capability::InstructionStep);
         const QString trace_tip = QStringLiteral("<qt>Not available on fake: trace: local only</qt>");
         const QString rewind_tip = QStringLiteral("<qt>Not available on fake: rewind: local only</qt>");
         const QString scripts_tip = QStringLiteral("<qt>Not available on fake: scripts: local only</qt>");
@@ -1267,8 +1522,7 @@ void test_paths() {
         };
         check("RTQ-96", "over Debugger(FakeTarget) Run, Pause, the steps, Trace, Rewind and Scripts are greyed "
                         "with the facade's reasons; Memory, NextREG and the Stack are served",
-              tip("Run / Continue") == run_tip && tip("Pause / Break") == run_tip &&
-                  tip("Single Step") == run_tip && tip("Enable Trace") == trace_tip && tip("Frame Back") == rewind_tip &&
+              run_pause_step && tip("Enable Trace") == trace_tip && tip("Frame Back") == rewind_tip &&
                   tip("Load Script...") == scripts_tip && watch && enabled_of(watch) && !active("Memory") &&
                   !active("Stack") && !active("NextREG") && active("Video") && active("Script") && active("Copper") &&
                   active("Audio"),
@@ -1392,6 +1646,7 @@ int main(int argc, char** argv) {
     test_validity();
     test_parity();
     test_dialogs();
+    test_review_a1();
     test_placeholders();
     test_compose();
     test_paths();

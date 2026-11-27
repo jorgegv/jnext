@@ -68,6 +68,9 @@ public:
     /// Run to Here and run_to_selected() are refused the same way.
     void set_capabilities(const jnext::dbggate::CapabilityView& view) { caps_ = view; update(); }
 
+    /// The tooltip text of the last refusal (a click, Enter or Run to Here the target cannot do).
+    const QString& last_refusal() const { return last_refusal_; }
+
     /// The Mem column header: "Mem", or "MMU only" when the target lacks FetchOverlays.
     QString mem_header() const;
 
@@ -353,6 +356,7 @@ private:
     QPointer<BreakpointModel> bp_model_;
 
     jnext::dbggate::CapabilityView caps_;
+    QString last_refusal_;
     /// True (after saying why, in a tooltip at the cursor) when `s` is missing on the target.
     bool refuse_(jnext::dbggate::Surface s);
     /// Would a toggle at `addr` / `line` remove a breakpoint (as against add one)?

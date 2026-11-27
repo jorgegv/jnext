@@ -665,7 +665,8 @@ halted state by their own bits), a reason line (the target's reason for `Run`, e
 refuses a register edit without `RegisterWrite` and shows `?` for T-states and the ULA screen; the MMU panel
 shows `?` for the slots and the paging fields; the Memory selector disables its Slot and Page views; the
 Disassembly and Source tab refuse a click or key that would add an execute breakpoint, or run to the cursor,
-with the reason while removing a breakpoint stays allowed; the Breakpoints Add dialog disables the types the
+with the reason while removing a breakpoint stays allowed (the operand menu's Break on Read / Write entries follow
+`Watchpoints` and its Watch entries `Memory`, in both views); the Breakpoints Add dialog disables the types the
 target cannot hold; the Call Stack says why its list is reconstructed; the Disassembly's Mem column header reads "MMU only" when the
 target lacks `FetchOverlays` (it sends the slot's page alone, so overlays are not in the identity).
 

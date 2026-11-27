@@ -1297,7 +1297,7 @@ void SourcePanel::toggle_breakpoint_at_line(int line)
     }
     const QString where = QString::fromStdString(shown_file_) + QLatin1Char(':') + QString::number(line);
     // epic #486 R1.3: adding needs the target to hold execute breakpoints; removing (above) never did
-    if (refuse_(jnext::dbggate::Surface::ExecBp)) return;
+    if (!st.starts.empty() && refuse_(jnext::dbggate::Surface::ExecBp)) return;   // a no-code line says "no code" below
     if (st.starts.empty() || bps->add_source_line(where) == jnext::dbg::GROUP_NONE) {
         const QString why = st.error.empty() ? tr("no code at %1").arg(where) : QString::fromStdString(st.error);
         if (QWidget* g = editor_->findChild<QWidget*>(QStringLiteral("source_gutter"))) {
@@ -1568,5 +1568,5 @@ void SourcePanel::fill_context_menu(QMenu& menu, int line, int column)
             if (!dup && std::find(ops.labels.begin(), ops.labels.end(), label) == ops.labels.end())
                 ops.labels.push_back(label);
         }
-    add_operand_actions(menu, this, ops, watch_panel_.data(), bp_model_.data());
+    add_operand_actions(menu, this, ops, watch_panel_.data(), bp_model_.data(), caps_);
 }
