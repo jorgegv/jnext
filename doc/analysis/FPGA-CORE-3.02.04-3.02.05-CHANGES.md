@@ -10,6 +10,37 @@ It extends [FPGA-CORE-3.02.04-PI-DEBUG-CONTROL.md](FPGA-CORE-3.02.04-PI-DEBUG-CO
 (2026-10-18), which covers the Pi debug control in depth (protocol, QEMU side). That material is
 not repeated here.
 
+## Executive summary
+
+Core 3.02.04 (released) replaces the boot ROM (GPL3, external/internal SD choice, settings in flash)
+and shrinks its overlay to 0x0000-0x1FFF, adds the Pi debug control for issue 4 and 5, reports
+NR 0x0E = 0x04, and fixes a few small hardware bugs. It also introduces a hotkey-repeat regression,
+fixed in 3.02.05 (unreleased, work in progress), which adds the versioned boot code archive
+`tbblue.zip` and HDMI work for issue 4/5. jnext emulates issue 2 and the 3.02.03 behaviour. On
+that board the visible differences are the core version, the new boot code with its overlay and
+the NR 0x0A lock; the Pi debug control is not emulated, and the hotkey regression and its fix do
+not affect jnext. The Pi debug control (the Pi reading and writing the Next's memory) is analysed in
+[FPGA-CORE-3.02.04-PI-DEBUG-CONTROL.md](FPGA-CORE-3.02.04-PI-DEBUG-CONTROL.md). Nothing needs
+changing for 4A and 4B unless the owner adopts a newer core; two version-independent items (the
+BIT n,(HL) flags and the F-key long-press timer default) are in 4C. Detail in sections 1 and 4.
+
+| Finding | Impact | Core |
+|---|---|---|
+| NR 0x0E sub-version | programs reading NR 0x0E see 0x03, not 0x04 (0x05) | 3.02.04 (0x05 in 3.02.05) |
+| New boot ROM | user sees new boot screens and SD choice; may need a flash device; cleaner GPL3 licence | 3.02.04 |
+| Boot ROM overlay 8K | boot code reads 0x2000-0x3FFF through the normal mapping; jnext maps the 8K ROM over the whole 16K window | 3.02.04 |
+| NR 0x0A bit 5 lock | firmware in config mode: jnext applies bit 5 without bit 2 | 3.02.04 |
+| SPI master under DMA | none, jnext already matches | 3.02.04 |
+| MD six-button detection | none in practice (host gamepads cannot trigger it); fidelity only | 3.02.04 |
+| Hotkey repeat regression | none, jnext keeps the 3.02.03 behaviour (on a real Next NMI+F7/F8 would step several times, per the code, not tested on hardware) | 3.02.04, fixed in 3.02.05 |
+| Pi debug control, NMI+QWERT tape hotkeys | not emulated; NextPi software on issue 4/5 only; see [the Pi debug analysis](FPGA-CORE-3.02.04-PI-DEBUG-CONTROL.md) | 3.02.04 |
+| "Complete" Z80N | no change; shipped on no board; exposes a pre-existing BIT n,(HL) flag divergence | 3.02.04 |
+| `tbblue.zip` boot code archive | relevant to jnext's build, as the official versioned boot code | 3.02.05 |
+| F-key long-press timer | no user-visible effect today; jnext default is wrong (pre-existing; #578, section 4C) | all (3.02.03 on) |
+
+Everything else (HDMI v3, anti-brick core, PS/2 keymap, pins, bitstreams) touches nothing jnext
+emulates on issue 2 (section 5).
+
 ## 0. Sources and conventions
 
 Clone: `/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA`, last fetched 2026-11-26 00:02.
