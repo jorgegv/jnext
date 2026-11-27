@@ -1014,7 +1014,8 @@ static void run_rows_a() {
         wrong.filter.page = static_cast<uint16_t>(pg + 1);
         p.remote->subscribe(p.ra, wrong);
         p.ref.dbg->subscribe(p.rc, wrong);
-        const bool silent = p.both_run_quiet(6);
+        // quiet AND no hit at the remote at all: a hit the client then ignores would cost a CONTINUE
+        const bool silent = p.both_run_quiet(6) && p.link->count(CMD_CONTINUE) == 1;
         jnext::dbg::Subscription right = exec_sub(0x8003);
         right.filter.page = pg;
         const auto rid = p.remote->subscribe(p.ra, right);
@@ -1447,7 +1448,7 @@ static void wp_rows() {
         wrong.filter.page = static_cast<uint16_t>(pg + 1);
         p.remote->subscribe(p.ra, wrong);
         p.ref.dbg->subscribe(p.rc, wrong);
-        const bool silent = p.both_run_quiet(6);
+        const bool silent = p.both_run_quiet(6) && p.link->count(CMD_CONTINUE) == 1;
         jnext::dbg::Subscription right = mem_sub(0x9000, 0x9000, Access::Write);
         right.filter.page = pg;
         const auto rid = p.remote->subscribe(p.ra, right);
