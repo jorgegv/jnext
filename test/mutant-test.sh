@@ -63,25 +63,18 @@ $M --no-print-directory unit-test-configure || refuse "configuring build/ failed
 if (( ${#SUITES[@]} )); then
     list=$(IFS=,; printf '%s' "${SUITES[*]}")
     $UNIT --only "$list" --check build; rc=$?
-    (( rc == 0 )) || { (( rc == 2 )) && exit 2; refuse "run-unit-tests.sh --check exited $rc"; }
+    (( rc == 0 )) || refuse "run-unit-tests.sh --check exited $rc (a name it refuses, see above)"
+    $CM --build build -j"$JOBS" --target "${SUITES[@]}" || refuse "the build failed"
+    $UNIT --only "$list" build; rc=$?
+    if (( rc == 2 )); then refuse "run-unit-tests.sh refused to run (see above)"; fi
+    if (( rc != 0 )); then printf 'mutant-test: KILLED by the suites; rows not run\n'; exit 1; fi
 fi
 
 if (( ${#ROWS[@]} )); then
     # The rows execute an open set of helpers (jnext, sdfile_tool, rewind_test, the SDL binary, the
     # provisioned tools): build all of them rather than keep a list that goes stale into a false kill.
+    # Built only now: a suite that killed the mutant has saved this build.
     $M --no-print-directory unit-test-build sdl-release z88dk-gdb skoolkit ghidra || refuse "the build failed"
-elif (( ${#SUITES[@]} )); then
-    $CM --build build -j"$JOBS" --target "${SUITES[@]}" || refuse "the build failed"
-fi
-
-if (( ${#SUITES[@]} )); then
-    $UNIT --only "$list" build; rc=$?
-    if (( rc == 1 )); then printf 'mutant-test: KILLED by the suites; rows not run\n'; exit 1; fi
-    if (( rc == 2 )); then exit 2; fi
-    if (( rc != 0 )); then printf 'mutant-test: KILLED (run-unit-tests.sh exited %d)\n' "$rc"; exit 1; fi
-fi
-
-if (( ${#ROWS[@]} )); then
     JNEXT=$PWD/build/jnext $REG "${ROWS[@]}"; rc=$?
     if (( rc == 2 )); then refuse "the regression harness faulted (exit 2)"; fi
     if (( rc != 0 )); then printf 'mutant-test: KILLED by the rows\n'; exit 1; fi

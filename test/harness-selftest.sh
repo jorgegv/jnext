@@ -5234,12 +5234,12 @@ check "HS-204g" "a named suite that fails (the harness exits 1) is KILLED: exit 
 
 mt_run "a" "" MT_FAIL_ON="--target"
 bf="rc=$MT_RC banner=$(mt_banner "$MT_OUT") verdict=$(grep -c 'NO VERDICT: the build failed' <<<"$MT_OUT" || true) ran=$(grep -c 'mt-unit --only a build' "$MT_LOG" || true)"
-mt_run "a" "boot-48k" MT_FAIL_ON="unit-test-build"
-bf2="rc=$MT_RC banner=$(mt_banner "$MT_OUT") ran=$(grep -c '^mt-unit --only a build' "$MT_LOG" || true)"
+mt_run "" "boot-48k" MT_FAIL_ON="unit-test-build"
+bf2="rc=$MT_RC banner=$(mt_banner "$MT_OUT") reg=$(grep -c '^mt-reg' "$MT_LOG" || true)"
 mt_run "a" "" MT_FAIL_ON="unit-test-configure"
 bf3="rc=$MT_RC banner=$(mt_banner "$MT_OUT")"
-check "HS-204h" "a build failure (suite build, row build) or a configure failure is NO VERDICT, not a kill: exit 2, banner, NO VERDICT, the suites never run" 0 0 \
-    "suites[$bf] rows[$bf2] configure[$bf3]" "suites[rc=2 banner=1 verdict=1 ran=0]" "rows[rc=2 banner=1 ran=0]" "configure[rc=2 banner=1]"
+check "HS-204h" "a build failure (suite build, row build) or a configure failure is NO VERDICT, not a kill: exit 2, banner, NO VERDICT, the suites (or rows) never run" 0 0 \
+    "suites[$bf] rows[$bf2] configure[$bf3]" "suites[rc=2 banner=1 verdict=1 ran=0]" "rows[rc=2 banner=1 reg=0]" "configure[rc=2 banner=1]"
 
 mt_run "" "boot-48k boot-128k"
 ok_rows="rc=$MT_RC calls=[$MT_CALLS]"
