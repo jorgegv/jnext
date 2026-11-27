@@ -3803,12 +3803,13 @@ void test_pfxch_05_inner_opcode_after_long_chain(Result& res) {
             return std::make_tuple(static_cast<int>(r.PC) - (kPfxBase + prefixes), r.BC, r.IncDecZ,
                                    r.halted, r.AF);
         };
-        if (run(1) != run(70)) {
+        // 65 DD: the instruction is the resumed slot's own byte; 70: it ends a stripped run.
+        if (run(1) != run(65) || run(1) != run(70)) {
             ok = false;
-            std::snprintf(detail, sizeof(detail), "opcode %02x behind 70 DD differs from behind 1 DD", c.op[0]);
+            std::snprintf(detail, sizeof(detail), "opcode %02x behind 65 or 70 DD differs from behind 1 DD", c.op[0]);
         }
     }
-    check(res, "PFXCH-05", "HALT, DJNZ, INC BC, DEC BC behind 70 DD: halt, PC, BC, IncDecZ as behind one DD",
+    check(res, "PFXCH-05", "HALT, DJNZ, INC BC, DEC BC behind 65 and 70 DD: halt, PC, BC, IncDecZ as behind one DD",
           ok, detail);
 }
 
@@ -4034,6 +4035,42 @@ void test_pfxch_12_m1_hooks_across_a_cut(Result& res) {
           ok, detail);
 }
 
+// The esxdos stand-in answers a RST $08 that has just reached $0008 (z80_cpu.cpp); it is an
+// instruction start, so a slot that resumes there inside a DD/FD run (PC is only the byte after the
+// cut prefix) must not run it. 65 DD end at $0007, the cut leaves PC = $0008 with a NOP waiting.
+void test_pfxch_17_esxdos_not_inside_a_run(Result& res) {
+    detach_contention();
+    auto run = [&](bool chain) {
+        RamMemory mem;
+        RecordingIo io;
+        Z80Cpu cpu(mem, io);
+        prep_cpu(cpu, mem);
+        const uint16_t first = chain ? static_cast<uint16_t>(0x0008 - 65) : 0x0008;
+        if (chain)
+            for (int i = 0; i < 65; ++i) mem.ram[static_cast<uint16_t>(first + i)] = 0xDD;
+        mem.ram[0x0008] = 0x00;                         // the NOP after the run (or the RST target)
+        mem.ram[0x0010] = 0x80;                         // the DEFB after an RST $08 at $000E
+        mem.ram[0x000F] = 0xCF;                         // the RST $08 the return address points past
+        mem.ram[0xA000] = 0x10; mem.ram[0xA001] = 0x00; // the "return address": $0010
+        auto regs = cpu.get_registers();
+        regs.PC = first;
+        regs.SP = 0xA000;
+        cpu.set_registers(regs);
+        int calls = 0;
+        cpu.on_esxdos_call = [&calls](uint8_t, Z80Registers&) { ++calls; return true; };
+        if (chain) cpu.execute();                       // the cut: PC = $0008, a prefix pending
+        cpu.execute();
+        return std::make_pair(calls, cpu.prefix_pending());
+    };
+    const auto at_start = run(false);                  // a fresh slot at $0008 IS an instruction start
+    const auto inside = run(true);
+    char detail[120];
+    std::snprintf(detail, sizeof(detail), "fresh slot calls=%d, resumed slot calls=%d", at_start.first,
+                  inside.first);
+    check(res, "PFXCH-17", "the esxdos stand-in answers a fresh slot at $0008 but not a slot resumed there inside a DD run",
+          at_start.first == 1 && inside.first == 0, detail);
+}
+
 void test_pfxch_14_magic_forms_keyed_on_first_byte(Result& res) {
     detach_contention();
     auto fires = [&](std::vector<uint8_t> prog) {
@@ -4205,6 +4242,7 @@ int main() {
     test_pfxch_12_m1_hooks_across_a_cut(res);
     test_pfxch_14_magic_forms_keyed_on_first_byte(res);
     test_pfxch_15_pc_change_clears_pending(res);
+    test_pfxch_17_esxdos_not_inside_a_run(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");
