@@ -1722,16 +1722,36 @@ void test_stall_rows() {
         // a second settle_stop is a no-op
         std::string again = "unchanged";
         ps.settle_stop(again);
+        // the destructor's safety net: a recorded stop left UNSETTLED is settled when the object goes out of scope
+        const std::string dest_dc = dest_in("t"), dest_ds = dest_in("u");
+        bool begun_d = true;
+        {
+            sdcard::PartialDownload pd("http://x/y", dest_dc, false);   // cancel, no validator
+            std::string e1;
+            begun_d = begun_d && pd.begin(rc, e1) == sdcard::PartialDownload::Begin::Ok && pd.write("0123456789", 10);
+            sdcard::StallWatch w1;
+            begun_d = begun_d && !sdcard::download_step(pd, say_no, 10, w1, never, e1);
+            sdcard::PartialDownload pe("http://x/y", dest_ds, false);   // stall, ETag
+            std::string e2;
+            begun_d = begun_d && pe.begin(rs_, e2) == sdcard::PartialDownload::Begin::Ok && pe.write("0123456789", 10);
+            sdcard::StallWatch w2;
+            begun_d = begun_d && !sdcard::download_step(pe, say_yes, 10, w2, at_once, e2);
+        }   // no settle_stop: ~PartialDownload does it
+        sdcard::ResumeInfo rd;
+        const bool net_ok = begun_d && !exists(sdcard::partial_path(dest_dc)) &&
+                            slurp(sdcard::partial_path(dest_ds)) == "0123456789" && sdcard::read_resume_info(dest_ds, rd);
         check("PROV-STALL-15",
               "download_step records the verdict without settling the partial: after a cancel with no validator the "
               ".part still exists (cancelled() would have removed it) and err is 'cancelled by user', and "
               "settle_stop() then removes it; after a stall with an ETag err is the bare stall reason (no 'after') "
               "until settle_stop() keeps the 10 byte .part and its record and adds '(after 10 of 1000 bytes)'; a "
-              "second settle_stop() does nothing",
-              begun_c && before_c && after_c && begun_s && before_s && after_s && again == "unchanged",
+              "second settle_stop() does nothing; a recorded stop left unsettled is settled by the destructor (a cancel "
+              "with no validator leaves no .part, a stall with an ETag keeps the 10 byte .part and its record)",
+              begun_c && before_c && after_c && begun_s && before_s && after_s && again == "unchanged" && net_ok,
               "c: begun=" + std::to_string(begun_c) + " before=" + std::to_string(before_c) + " after=" +
                   std::to_string(after_c) + " s: begun=" + std::to_string(begun_s) + " before=" +
-                  std::to_string(before_s) + " after=" + std::to_string(after_s) + " err='" + es + "' again='" + again + "'");
+                  std::to_string(before_s) + " after=" + std::to_string(after_s) + " destructor_net=" + std::to_string(net_ok) +
+                  " err='" + es + "' again='" + again + "'");
     }
 }
 

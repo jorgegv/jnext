@@ -1839,8 +1839,8 @@ The stall-family rows time the backend's decision, not its return. The decision 
 last `ProgressFn` call it makes: a stall is decided in the step that reports and then
 tests the clock, a cancel in the step whose call returned false. What follows (settling the
 partial on disk, closing handles, tearing the transport down) is host work that no contract
-bounds, and on a host whose file close can block for seconds under I/O load it took up to
-a minute. That nothing waited on the network afterwards is checked at the loopback server, in
+bounds, and on a host whose file close can block for seconds under I/O load it took a minute or
+more. That nothing waited on the network afterwards is checked at the loopback server, in
 two ways. The backends close the transfer before settling the partial, so the server
 sees the client's close within a second of the decision (`rs::Server::wait_client_close()`,
 net of the process's own stalls; under wine an abandoned request keeps its socket until the

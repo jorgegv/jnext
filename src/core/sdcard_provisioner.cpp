@@ -338,8 +338,11 @@ PartialDownload::PartialDownload(const std::string& url, const std::string& dest
 }
 
 PartialDownload::~PartialDownload() {
+    // Safety net, never reached by the in-tree backends (both call settle_stop() themselves, so the "(after N of M
+    // bytes)" text reaches the caller): a pending stop is still settled, so the partial is kept or removed by the
+    // rule. fail() can allocate, which is why it is no part of the normal path in a destructor. Pinned by PROV-STALL-15.
     std::string ignored;
-    settle_stop(ignored);   // a backend that forgot: still settle the partial, and close the file
+    settle_stop(ignored);
     close_file();
 }
 
