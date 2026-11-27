@@ -30,6 +30,8 @@ refuse() {
     printf 'mutant-test: NO VERDICT: %s\n' "$1"
     exit 2
 }
+# run-unit-tests.sh already printed the banner when it refused: add only the verdict line
+refused_by_harness() { printf 'mutant-test: NO VERDICT: %s\n' "$1"; exit 2; }
 
 # Names are split with read -a / IFS and passed as separate argv words: never eval'd, never `bash -c`.
 SUITES=(); ROWS=()
@@ -63,10 +65,10 @@ $M --no-print-directory unit-test-configure || refuse "configuring build/ failed
 if (( ${#SUITES[@]} )); then
     list=$(IFS=,; printf '%s' "${SUITES[*]}")
     $UNIT --only "$list" --check build; rc=$?
-    (( rc == 0 )) || refuse "run-unit-tests.sh --check exited $rc (a name it refuses, see above)"
+    (( rc == 0 )) || { (( rc == 2 )) && refused_by_harness "run-unit-tests.sh --check refused (see above)"; refuse "run-unit-tests.sh --check exited $rc"; }
     $CM --build build -j"$JOBS" --target "${SUITES[@]}" || refuse "the build failed"
     $UNIT --only "$list" build; rc=$?
-    if (( rc == 2 )); then refuse "run-unit-tests.sh refused to run (see above)"; fi
+    if (( rc == 2 )); then refused_by_harness "run-unit-tests.sh refused to run (see above)"; fi
     if (( rc != 0 )); then printf 'mutant-test: KILLED by the suites; rows not run\n'; exit 1; fi
 fi
 
