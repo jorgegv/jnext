@@ -251,6 +251,9 @@ if [[ $SD_NATIVE == 0 && ! -f "$SD_MASTER" ]]; then
         exit 1
     fi
     rm -f "$DERIVE_LOG"
+    # jnext may have renamed a legacy-named master: keep the old names for trees that still look for them.
+    [[ -n "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] || JNEXT_REGRESSION_LIB_NO_INIT=1 PROJECT_DIR="$PROJECT_DIR" bash -c \
+        'source "$PROJECT_DIR/test/00regression/test-functions.inc" && sd_master_paths && sd_master_compat_links' || true
 fi
 
 # --- A private run directory: SD clone + clean GUI preferences ---------------

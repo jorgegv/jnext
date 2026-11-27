@@ -332,12 +332,30 @@ sd_expected_recipe() {
 # sources this library reads the name from $SD_CARD_NAME, set once below.
 sd_card_name() {
     local src="${1:-${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}/src/core/sdcard_provisioner.cpp}"
-    local pat='^const char\* const kFixedImageFileName = "[^"]+";$'
+    local sym=kFixedImageFileName; [[ "${2:-}" != legacy ]] || sym=kLegacyFixedImageFileName
+    local pat="^const char\\* const $sym = \"[^\"]+\";\$"
     [[ "$(grep -cE "$pat" "$src" 2>/dev/null)" == 1 ]] || return 1
     grep -E "$pat" "$src" | sed -E 's/^[^"]*"([^"]+)";$/\1/'
 }
 SD_CARD_NAME=$(sd_card_name) || { echo "FATAL: the default card's file name (kFixedImageFileName) cannot be read from src/core/sdcard_provisioner.cpp: it must stay one line, const char* const kFixedImageFileName = \"...\";" >&2; exit 2; }
 export SD_CARD_NAME
+# The name earlier trees (and the branches still on them) look for the master under: kLegacyFixedImageFileName.
+SD_CARD_LEGACY_NAME=$(sd_card_name "${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}/src/core/sdcard_provisioner.cpp" legacy) \
+    || { echo "FATAL: kLegacyFixedImageFileName cannot be read from src/core/sdcard_provisioner.cpp" >&2; exit 2; }
+export SD_CARD_LEGACY_NAME
+
+# sd_master_compat_links: jnext renames a legacy-named card it finds in the master's directory (GH #579), and
+# every tree that still looks for the master under the old name would then find none. So the master keeps its
+# old names too, as hard links of the new ones (the same inode: no space, no copy): the card and the three
+# files a gate reads. Existing legacy names are never touched or replaced. Needs sd_master_paths.
+sd_master_compat_links() {
+    local sfx new old
+    for sfx in "" .sha256 .recipe .distro; do
+        new="$SD_MASTER_DIR/$SD_CARD_NAME$sfx"; old="$SD_MASTER_DIR/$SD_CARD_LEGACY_NAME$sfx"
+        if [[ -f "$new" && ! -e "$old" ]]; then ln "$new" "$old" 2>/dev/null || true; fi
+    done
+    return 0
+}
 
 # ---- The SD master gate: shared by 01-sdcard-provision.sh and tools/sd-master-ensure.sh ----
 # sd_test_state_dir: the jnext state dir whose sdcard/ holds the suites' OWN master card (GH #555).
@@ -412,6 +430,13 @@ sd_rederive() {
     # success anyway. It matters only on the FAILURE path, where it stops a
     # witness describing an image that no longer exists from surviving.
     rm -f "$FALLBACK_SD_IMAGE" "$SD_WITNESS" "$SD_RECIPE" "$FALLBACK_SD_IMAGE.distro"
+    # The master's old names (sd_master_compat_links) go with it when the master is REPLACED: a legacy-named
+    # card left here would be migrated by jnext instead of re-derived. Not for "provisioned" (the new names
+    # are absent: the legacy master is migrated in place), and never in a candidate-card directory.
+    if [[ "${SD_REDERIVE_DROP_LEGACY:-1}" == 1 && -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]]; then
+        local sfx
+        for sfx in "" .sha256 .recipe .distro; do rm -f "$SD_MASTER_DIR/$SD_CARD_LEGACY_NAME$sfx"; done
+    fi
     # JNEXT_CONFIG_DIR is pinned to the MASTER's directory for this one
     # invocation. It points at the per-run clone dir everywhere else, and the
     # provisioner honours it (src/core/sdcard_provisioner.cpp) — without the
@@ -458,6 +483,7 @@ sd_rederive() {
 # "wrongrecipe" when jnext derived an image of another recipe, else "failed".
 sd_derive_as() {
     local rc=0
+    SD_REDERIVE_DROP_LEGACY=1; [[ "$1" != provisioned ]] || SD_REDERIVE_DROP_LEGACY=0
     sd_rederive || rc=$?
     case $rc in 0) sd_state=$1 ;; 2) sd_state=wrongrecipe ;; *) sd_state=failed ;; esac
 }
@@ -533,6 +559,9 @@ sd_master_gate() {
     else
         sd_derive_as repaired
     fi
+    case "$sd_state" in
+        pristine|provisioned|repaired|distro|recipe) [[ -n "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] || sd_master_compat_links ;;
+    esac
 } 9>"$SD_DIR/.provision.lock"
 }
 

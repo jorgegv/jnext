@@ -3179,6 +3179,21 @@ void test_rename_rows() {
               slurp_text(dir + "/" + newn + ".distro") == cur_distro + "\n" && gone(dir + "/" + newn + ".recipe") &&
               downloads == 0, r.error);
     }
+    // 04b: both names are the SAME file (hard links, as the test master is kept for older trees).
+    {
+        wipe();
+        put(dir + "/" + newn, "MASTER");
+        put(dir + "/" + newn + ".distro", cur_distro + "\n");
+        put(dir + "/" + newn + ".recipe", "3\n");
+        std::error_code ec;
+        for (const std::string& x : {std::string(), std::string(".distro"), std::string(".recipe")})
+            fs::create_hard_link(dir + "/" + newn + x, dir + "/" + legn + x, ec);
+        const sdcard::ProvisionResult r = sdcard::provision_sd_card(opts());
+        check("SDREN-04b", "both names hard links of one card: Ok on the new path, nothing deleted or rewritten, no download, no question",
+              !ec && r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + newn && fs::hard_link_count(dir + "/" + newn, ec) == 2 &&
+              slurp_text(dir + "/" + legn) == "MASTER" && slurp_text(dir + "/" + legn + ".distro") == cur_distro + "\n" &&
+              slurp_text(dir + "/" + newn + ".recipe") == "3\n" && downloads == 0 && confirms == 0, r.error);
+    }
     // 05: the new card exists, the legacy one is gone, legacy sidecars are left over.
     {
         wipe();
