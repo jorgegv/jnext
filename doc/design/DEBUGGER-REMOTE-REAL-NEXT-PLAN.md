@@ -560,10 +560,12 @@ knows how to grey out what a target cannot do.
 
 ### R1.2 Capability model
 
-- **Design.** `enum class Capability` (published, in `target.h`) with one bit per row of §11's
-  table, `Debugger::capabilities()`, `Debugger::why_unavailable(Capability) -> std::string`,
-  and a `RegisterValidity` mask beside `registers()` (IFF1/IFF2, IM, HALT, MEMPTR/Q) and a
-  validity flag in `RunState` for `cycle` and `frame`. `LocalTarget` reports everything.
+- **Design.** `enum class Capability` (published, in `target.h`) with one bit per capability of §11
+  (two groups in an explicit order, not a row-for-row copy: see the note under section 11), `Debugger::capabilities()`, `Debugger::why_unavailable(Capability) -> std::string`,
+  and a `RegisterValidity` mask beside `registers()` (IFF1/IFF2, IM, HALT, MEMPTR/Q), with
+  `cycle` and `frame` of `RunState` valid exactly when the `MachineTime` capability is (D5 of
+  the #513 plan: `inspect.h` is frozen, so no `RunState` field is added). `LocalTarget` reports
+  everything.
 - **Tests.** Backend suite rows: local reports all; a fake target reporting none makes every
   machine verb return `Unsupported` (one row per verb class) and never touches memory.
 - **Acceptance.** No verb of a remote facade can silently succeed for a capability the target
@@ -1080,9 +1082,16 @@ tooltip, or the panel shows a placeholder with the reason (R1.3).
 
 The six rows from Ports down were added by the R0.1 inventory (section 15): verbs of `Debugger`
 that no earlier row covered. Notes on how the table maps onto `Capability` (`src/debug/target.h`):
-the IM, IFF1, IFF2, HALT and MEMPTR rows are `RegisterValidity` fields, not capability bits; the
-"Conditions, log actions, `once`, hit counts" row is never greyed and has no bit; "Build match" is
-a host-side check (R3.2) with no bit; `RunState::cycle` and `RunState::frame`, like `time()`, are
+the enum is NOT a row-for-row copy of the table: it has two groups (what a remote may serve, then
+local-only), each in an explicit order fixed by `static_assert`s in `src/debug/debug_types_check.cpp`;
+"Run, Pause" is two bits (`Run`, `Pause`); other rows map to one bit or several (Step Back ... and
+"Run to end of frame ..." are `Rewind` and `CycleExact`). Rows with NO bit: the register rows
+("Registers PC SP AF BC DE HL IX IY and shadows, I, R", IM, IFF1/IFF2/HALT/MEMPTR) are
+`RegisterValidity` fields (Core, IM, IFF1, IFF2, Halted, Memptr), not capability bits; "Conditions,
+log actions, `once`, hit counts" is never greyed; "Source tab, line breakpoints, source Into / Over /
+Out", "C variables, read and write" and "Symbols, user labels and comments, map loading, skoolkit /
+ghidra export and import" are host-side and need only the capabilities of the primitives they call;
+"Build match" is a host-side check (R3.2). `RunState::cycle` and `RunState::frame`, like `time()`, are
 valid exactly when the `MachineTime` capability is.
 
 ---
@@ -1204,9 +1213,12 @@ additions the owner approved (Q1, 2026-11-18); the table has 209 rows for 205 na
 
 Checked by a script that reads the header's public span and this table (exit 0 = every declaration
 once, nothing extra). Corrections found while reading the bodies are in the reason column:
-`probe_execute` and `raise_host_event` are H but read the local machine in their bodies, and
-`source_location()` (no argument) reads `emu.cpu()` for the PC; the `load_source_map` /
-`load_program_sidecars` family arms local verification hooks. Stage B guards each of those.
+`probe_execute`, `raise_host_event`, `load_map`, `pump`, `live_raster` and `attached` are H but
+read the local machine or local `DebugState` (`ds()`) in their bodies, `effective_page` reads
+`emu.mmu()`, and `source_location()` (no argument) reads `emu.cpu()` for the PC; the
+`load_source_map` / `load_program_sidecars` family arms local verification hooks. Stage B guards
+each of those (the compiler lists `emu.` sites but only the definition of `ds()`, so this list is
+the guide for `ds()` callers).
 
 <!-- gh513-inventory-begin -->
 | Method | Class | Gate | Non-local answer in R1 | Reason |
@@ -1361,7 +1373,7 @@ once, nothing extra). Corrections found while reading the bodies are in the reas
 | `rewind_range` | L | Rewind | empty value | same |
 | `rewind_blocked` | L | Rewind | `Result::Unsupported` inside the optional | same |
 | `resize_rewind_buffer` | L | Rewind | `Unsupported` | same |
-| `load_map` | H | none | unchanged | host-side symbol table |
+| `load_map` | H | none | unchanged | host-side symbol table; binds `emu.predict_fetch` into the toolchain symbols (`debugger.cpp:275`): guarded |
 | `clear_symbols` | H | none | unchanged | same |
 | `lookup` | H | none | unchanged | same |
 | `lookup_name` | H | none | unchanged | same |
@@ -1386,17 +1398,17 @@ once, nothing extra). Corrections found while reading the bodies are in the reas
 | `variables` | H | none | unchanged | host-side variable store |
 | `c_frames` | H | CallStackTracked (tracked frames only) | existing no-tracker path | reads the local tracker when present (`debugger_cframes.cpp`) |
 | `c_locals` | H | Memory (reads and writes through the facade) | unchanged | reads through the facade |
-| `c_globals` | H | none | unchanged | same |
-| `read_c_value` | H | none | unchanged | same |
+| `c_globals` | H | Memory (reads and writes through the facade) | unchanged | reads through the facade (same `Env` / `eval_var` path as `c_locals`) |
+| `read_c_value` | H | Memory (reads and writes through the facade) | unchanged | reads through the facade (same path) |
 | `write_c_value` | H | Memory (reads and writes through the facade) | unchanged | writes through `poke` |
-| `write_c_value_row` | H | none | unchanged | same |
+| `write_c_value_row` | H | Memory (reads and writes through the facade) | unchanged | writes through `poke` (same path as `write_c_value`) |
 | `c_variables_status` | H | none | unchanged | host-side |
 | `c_children` | H | Memory (reads and writes through the facade) | unchanged | reads through the facade |
-| `c_children_row` | H | none | unchanged | same |
+| `c_children_row` | H | Memory (reads and writes through the facade) | unchanged | reads through the facade (same path as `c_children`) |
 | `source_location` (addr) | H | none | unchanged | host-side lookup |
 | `source_location` (no argument) | H | none | unchanged | host-side; Stage B reads the PC through `registers()`, not `emu.cpu()` (`debugger_source.cpp:651`) |
 | `source_location` (space, addr) | H | none | unchanged | host-side lookup |
-| `effective_page` | H | MmuSlots | the slot's `effective_page` | local keeps `predict_fetch` identity (FetchOverlays) |
+| `effective_page` | H | MmuSlots | the slot's `effective_page` | local reads `emu.mmu().get_effective_page` (the slot's page, not the fetch prediction; `debugger_source.cpp:607`): guarded |
 | `source_page` | H | MmuSlots | the slot's `space`; without MmuSlots `cpu()` | local keeps `predict_fetch`; plan section 11 "Overlays in the fetch identity" |
 | `load_program_sidecars` | H | none | unchanged | host-side; arms local verification windows: guarded |
 | `source_step` | M | Into/Over/Out: InstructionStep; Back, ReverseContinue: Rewind (L) | `Unsupported` (R2.4 serves Into/Over/Out; Back and ReverseContinue stay local) | strategy is host-side; the single steps are target primitives |
@@ -1405,12 +1417,12 @@ once, nothing extra). Corrections found while reading the bodies are in the reas
 | `set_listener` | H | none | unchanged | host-side |
 | `add_service` | H | none | unchanged | host-side |
 | `remove_service` | H | none | unchanged | host-side |
-| `pump` | H | none | unchanged | drains services, compacts the event table; nothing local runs |
+| `pump` | H | none | unchanged | drains services, compacts the event table; its hint and drain arm read local `DebugState` (`ds().paused()`, `debugger_session.cpp:528/576/595`): guarded |
 | `stop_policy` | H | none | unchanged | host-side |
 | `set_stop_policy` | H | none | unchanged | host-side |
 | `set_live_raster` | H | none | unchanged | host-side; the local mirror is guarded |
-| `live_raster` | H | none | unchanged | host-side |
-| `attached` | H | none | unchanged | host-side |
+| `live_raster` | H | none | unchanged | host-side flag, read from local `DebugState` (`ds().live_raster()`, `debugger_session.cpp:627`): guarded, a non-local facade keeps its own value in `Impl` |
+| `attached` | H | none | unchanged | host-side flag, read from local `DebugState` (`ds().attached()`, `debugger_session.cpp:641`): guarded, same |
 | `log` | H | none | unchanged | host-side listener fan-out |
 | `set_loop_driver` | L | local machine | `Unsupported` | the loop owner is a local construct |
 | `on_cold_boot_begin` | L | local machine | `Unsupported` | local cold-boot machinery |

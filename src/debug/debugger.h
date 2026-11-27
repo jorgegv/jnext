@@ -17,8 +17,9 @@
 //
 //  1. NO `Emulator*` BELOW A FRONTEND. `Emulator` is forward-declared; nothing
 //     in the four published headers, nor in `target.h`, reaches
-//     `core/emulator.h`, `src/platform/`, Qt, SDL, `memory/mmu.h`, `video/renderer.h`, `video/palette.h`,
-//     `video/timing.h`, `debug/debug_state.h` or `debug/breakpoints.h`. That is
+//     `core/emulator.h`, `src/platform/`, Qt, SDL, `memory/mmu.h`,
+//     `video/renderer.h`, `video/palette.h`, `video/timing.h`,
+//     `debug/debug_state.h` or `debug/breakpoints.h`. That is
 //     the epic, and it is GATED: `test/lint-debug-headers.sh` compiles a
 //     one-line translation unit per published header and asserts the forbidden
 //     set is absent from its `-M` dependency list (`-M`, not `-MM`: `-MM` omits

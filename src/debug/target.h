@@ -70,11 +70,14 @@ struct TargetInfo {
 // TGT-02 - what the target can do
 // ---------------------------------------------------------------------------
 
-/// TGT-02 - one bit per row of section 11 of the plan ("What degrades on a remote
-/// target"), in that order. Rows of that table about register FIELDS (IM, IFF1,
-/// IFF2, HALT, MEMPTR) are `RegisterValidity`, not capability bits.
+/// TGT-02 - one bit per capability of section 11 of the plan ("What degrades on a
+/// remote target"). Not a row-for-row copy: some rows have two bits (Run, Pause),
+/// some none (register FIELDS are `RegisterValidity`; host-side rows need only the
+/// capabilities of the primitives they call).
 ///
-/// The first group is what a remote may serve; the second is local-only for now.
+/// Two groups, each in the explicit order written below, which
+/// `debug_types_check.cpp` pins value by value: first what a remote may serve,
+/// then what is local-only for now.
 /// `Count` is NOT a capability and stays last (`EventKind::Count`'s convention).
 enum class Capability : uint8_t {
     // a remote may serve these
