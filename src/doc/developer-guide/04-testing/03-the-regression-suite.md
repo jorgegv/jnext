@@ -94,7 +94,8 @@ lookup instead, and the suite provisions that image for itself in the
   unit-test targets (`make sdcard-image`, a prerequisite of `make unit-test`)
   run it too, so a host left with the previous distribution's card is repaired
   before anything reads it, under the same lock; a current master is not
-  touched. `sdcard-ensure-func` tests the tool.
+  touched. A derive that fails prints jnext's own reason (each failed download
+  attempt and the final error), not a guess; `sdcard-ensure-func` tests the tool.
   The master is **never the user's own card**, the `cspect-next-1gb-fixed.img`
   directly under `~/.jnext/sdcard/`: the gate deletes and re-derives its card
   whenever the distribution or the recipe moves, and a developer's saved files

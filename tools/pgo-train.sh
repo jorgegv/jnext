@@ -220,7 +220,7 @@ SD_NATIVE=0
 if [[ $SD_NATIVE == 1 ]]; then
     "$PROJECT_DIR/tools/sd-master-ensure.sh" "$BIN" || {
         echo "pgo-train: ERROR: the PGO build needs the NextZXOS SD image to train its profile," >&2
-        echo "pgo-train: ERROR: and $SD_MASTER is missing or not this tree's and could not be provisioned (network?)." >&2
+        echo "pgo-train: ERROR: and $SD_MASTER is missing or not this tree's and could not be provisioned (the reason is above)." >&2
         die "${JNEXT_PGO_NO_SD_HINT:-Build without PGO instead:  make gui-release-non-pgo}"
     }
 fi
@@ -228,18 +228,26 @@ fi
 if [[ $SD_NATIVE == 0 && ! -f "$SD_MASTER" ]]; then
     echo "pgo-train: no SD image at $SD_MASTER — provisioning it (jnext's own download)"
     mkdir -p "$SD_MASTER_DIR"
+    # jnext's own output is kept in a private temp file so a failed derive can say why (GH #580).
+    DERIVE_LOG=$(mktemp "${TMPDIR:-/tmp}/sd-derive.XXXXXX")
+    DERIVE_RC=0
     {
         command -v flock >/dev/null 2>&1 && flock 9
         [[ -f "$SD_MASTER" ]] || JNEXT_CONFIG_DIR="$SD_STATE_DIR" \
             bounded 1200 ${RUNNER[@]+"${RUNNER[@]}"} "$BIN" --headless \
-                --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
+                --sdcard-download-confirm --delayed-automatic-exit 2 >"$DERIVE_LOG" 2>&1 || DERIVE_RC=$?
     } 9>"$SD_MASTER_DIR/.provision.lock"
     if [[ ! -f "$SD_MASTER" ]]; then
+        JNEXT_REGRESSION_LIB_NO_INIT=1 PROJECT_DIR="$PROJECT_DIR" bash -c \
+            'source "$PROJECT_DIR/test/00regression/test-functions.inc" && sd_derive_reason "$1" "$2"' \
+            _ "$DERIVE_LOG" "$DERIVE_RC" | sed 's/^/pgo-train: ERROR:   /' >&2 || true
+        rm -f "$DERIVE_LOG"
         echo "pgo-train: ERROR: the PGO build needs the NextZXOS SD image to train its profile," >&2
-        echo "pgo-train: ERROR: and it could not be provisioned at $SD_MASTER (network?)." >&2
+        echo "pgo-train: ERROR: and it could not be provisioned at $SD_MASTER (the reason is above)." >&2
         echo "pgo-train: ERROR: ${JNEXT_PGO_NO_SD_HINT:-Build without PGO instead:  make gui-release-non-pgo}" >&2
         exit 1
     fi
+    rm -f "$DERIVE_LOG"
 fi
 
 # --- A private run directory: SD clone + clean GUI preferences ---------------

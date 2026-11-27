@@ -369,6 +369,29 @@ sd_master_distro() {
     echo "${d:-sn-emulator-24.11.zip}"
 }
 
+# sd_derive_reason <log> <rc>: the reason a derive failed, from jnext's own output in <log> (what
+# the download printed: each failed attempt, then the final error with its indented lines) with
+# control characters (CR, ESC, ...) removed, so nothing a server or curl put in a message can move
+# a cursor in a CI log. When jnext said none of that, its exit status and the last lines instead.
+# bash 3.2 safe (tools/pgo-train.sh sources it on macOS).
+sd_derive_reason() {
+    local log=$1 rc=$2 out
+    out=$(tr -d '\000-\010\013-\037\177' < "$log" 2>/dev/null | awk '
+        /^Download attempt [0-9]+ failed:/ { print; next }
+        /^error: SD-card image:/           { print; inerr = 1; next }
+        inerr && /^[ \t]/                  { print; next }
+                                           { inerr = 0 }' | head -n 20)
+    if [[ -n "$out" ]]; then
+        printf '%s\n' "$out"
+        return 0
+    fi
+    case "$rc" in
+        124|137) printf 'jnext did not finish within 1200 s\n' ;;
+        *)       printf 'jnext exited with status %s and gave no reason\n' "$rc" ;;
+    esac
+    tr -d '\000-\010\013-\037\177' < "$log" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 5 || true
+}
+
 sd_rederive() {
     # The witness rm is belt-and-braces: sd_rederive rewrites it on every
     # success anyway. It matters only on the FAILURE path, where it stops a
@@ -395,9 +418,20 @@ sd_rederive() {
     # A download that hangs must not hang the caller (make gui-release, make unit-test): bound it.
     local sd_bound=()
     ! command -v timeout >/dev/null 2>&1 || sd_bound=(timeout --kill-after=5s 1200s)
+    # jnext's own output goes to a private temp file (never beside the master: that directory
+    # is the CI cache path), so a failed derive can say WHY (GH #580). No trap: this file is
+    # sourced, so the file is removed explicitly on every path.
+    local sd_log sd_rc=0
+    sd_log=$(mktemp "${TMPDIR:-/tmp}/sd-derive.XXXXXX") \
+        || { sd_derive_why="cannot create a temporary file for jnext's output"; return 1; }
     env "${sd_env[@]}" ${sd_bound[@]+"${sd_bound[@]}"} \
-        "${JNEXT_NATIVE:-$JNEXT}" --headless --sdcard-download-confirm --delayed-automatic-exit 2 >/dev/null 2>&1 || true
-    [[ -f "$FALLBACK_SD_IMAGE" ]] || return 1
+        "${JNEXT_NATIVE:-$JNEXT}" --headless --sdcard-download-confirm --delayed-automatic-exit 2 >"$sd_log" 2>&1 || sd_rc=$?
+    if [[ ! -f "$FALLBACK_SD_IMAGE" ]]; then
+        sd_derive_why=$(sd_derive_reason "$sd_log" "$sd_rc")
+        rm -f "$sd_log"
+        return 1
+    fi
+    rm -f "$sd_log"
     # No witness for an image of the wrong recipe: the next run re-derives it
     # instead of adopting it.
     sd_got_recipe=$(sd_recipe)
@@ -449,12 +483,14 @@ sd_seam_gate() {
 # sd_master_gate: decide what the master needs and do it, under the provisioning lock. Sets
 # sd_state (pristine, provisioned, repaired, distro, recipe, adopted, or a failure: seamfail,
 # wrongrecipe, nodistro, norecipe, failed) and sd_old_recipe, sd_old_distro, sd_want_recipe,
-# sd_want_distro, sd_got_recipe, sd_seam_why. Needs $JNEXT (or $JNEXT_NATIVE) only when it derives.
+# sd_want_distro, sd_got_recipe, sd_seam_why, and sd_derive_why (jnext's own reason when a
+# derive failed). Needs $JNEXT (or $JNEXT_NATIVE) only when it derives.
 sd_master_gate() {
     sd_master_paths
     sd_want_recipe=$(sd_expected_recipe) || sd_want_recipe=""
     mkdir -p "$SD_DIR"
     sd_state=""
+    sd_derive_why=""
     sd_old_recipe=""
     sd_old_distro=""
     sd_want_distro=$(sd_expected_distro) || sd_want_distro=""

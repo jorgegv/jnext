@@ -15,7 +15,7 @@
 #   qt5-guard  the `qt5-guard` job's build-only list
 #   package    the `package` job's toolchains
 #
-# Installation is `dnf install -y`, so run it as root in the container.
+# Installation is `dnf upgrade -y`, then `dnf install -y`, so run it as root in the container.
 set -euo pipefail
 IFS=$'\n\t'
 
@@ -48,6 +48,14 @@ usage() {
 # absent from the bare Fedora image, so they are explicit here.
 #
 # Notes on individual packages:
+# The `dnf upgrade -y` that precedes every install (GH #580): a -devel package pulled from
+# `updates` upgrades its runtime library but leaves the base image's CLI of the same source
+# package behind. zstd is the instance: libcurl-devel needs libzstd-devel 1.6.0, so libzstd
+# moved to 1.6.0 while the image's zstd stayed 1.5.7, and that CLI refuses any other library
+# version ("incorrect library version"), which broke every actions/cache restore in the
+# container (the cache step runs the container's tar with unzstd). Listing `zstd` here does not
+# help: dnf5 treats an installed package as nothing to do. Upgrading the whole image first
+# makes the install resolve against a consistent base.
 # nss ... libdrm (the last line): the shared libraries the pinned Chromium headless
 # shell of `make wasm-browser-test` links (`ldd` on it), declared rather than
 # inherited. The browser comes from test/provision-playwright.sh, like the SDK.
@@ -219,6 +227,7 @@ main() {
     if [[ $list_only -eq 1 ]]; then
         printf '%s\n' "${pkgs[@]}" | sort -u
     else
+        dnf upgrade -y
         dnf install -y "${pkgs[@]}"
     fi
 }

@@ -9,7 +9,7 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-73. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-74. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -17,7 +17,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=73
+EXPECTED_ROWS=74
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -1242,6 +1242,33 @@ reset_state
 FAKE_INNER=1 pdrive --id p73 --patch "$TMP/pA.patch" pbase "$PSHA" 'sh:echo " TEST HARNESS REFUSES TO RUN "; head -c 200000 /dev/zero | tr "\0" x; echo; exit 2'
 row RRUN-73 "$([[ $RC -eq 2 && "$OUT" == *"PATCH REFUSED"*"no verdict (REFUSES TO RUN)"* ]] && echo 1 || echo 0)" \
     "a harness refusal followed by 200 KB of output is still exit 2 'no verdict' (rc=$RC)"
+
+# RRUN-74 (GH #580): ci-deps.sh upgrades the image BEFORE it installs. Installing a -devel from `updates` upgrades its
+# runtime library and leaves the base image's CLI of the same source package behind (libcurl-devel -> libzstd 1.6.0 beside
+# zstd 1.5.7, whose CLI refuses another library version, so every actions/cache restore in the container failed); `dnf
+# install zstd` is a no-op for an installed package, so only an upgrade closes it. Oracle: that CI log. A stub dnf logs its
+# arguments. a: exactly two calls, `upgrade -y` then `install -y` with every package of --list; b: a failing upgrade stops
+# the script before the install; c: --list calls no dnf.
+mkdir -p "$TMP/dnfstub"
+cat > "$TMP/dnfstub/dnf" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$DNF_LOG"
+v="STUB_DNF_RC_$1"; exit "${!v:-0}"
+STUB
+chmod +x "$TMP/dnfstub/dnf"
+dnf_ok=1
+export DNF_LOG="$TMP/dnf74a.log"; : > "$DNF_LOG"
+PATH="$TMP/dnfstub:$PATH" bash "$ROOT/test/ci-deps.sh" test >/dev/null 2>&1 || dnf_ok=0
+[[ "$(wc -l < "$DNF_LOG")" -eq 2 && "$(sed -n 1p "$DNF_LOG")" == "upgrade -y" && "$(sed -n 2p "$DNF_LOG")" == "install -y "* ]] || dnf_ok=0
+[[ "$(sed -n 2p "$DNF_LOG" | cut -d' ' -f3- | tr ' ' '\n' | sort -u)" == "$(bash "$ROOT/test/ci-deps.sh" --list test)" ]] || dnf_ok=0
+export DNF_LOG="$TMP/dnf74b.log"; : > "$DNF_LOG"
+STUB_DNF_RC_upgrade=1 PATH="$TMP/dnfstub:$PATH" bash "$ROOT/test/ci-deps.sh" test >/dev/null 2>&1 && dnf_ok=0
+[[ "$(cat "$DNF_LOG")" == "upgrade -y" ]] || dnf_ok=0
+export DNF_LOG="$TMP/dnf74c.log"; : > "$DNF_LOG"
+PATH="$TMP/dnfstub:$PATH" bash "$ROOT/test/ci-deps.sh" --list test >/dev/null 2>&1 || dnf_ok=0
+[[ ! -s "$DNF_LOG" ]] || dnf_ok=0
+unset DNF_LOG
+row RRUN-74 "$dnf_ok" "ci-deps.sh runs dnf upgrade -y then dnf install -y with the whole set, stops when the upgrade fails, and --list calls no dnf"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
 # the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green
