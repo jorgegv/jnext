@@ -530,7 +530,7 @@ void test_table() {
 
 // ── RTQ-CAP-*: one row per capability ─────────────────────────────────────
 
-enum class Extra { None, Step, Back, RegWrite, PhysMem, MmuSlots, Paging, Video, Time, CallStack };
+enum class Extra { None, Step, Back, RegWrite, PhysMem, MmuSlots, Paging, Video, Time, CallStack, Fetch };
 
 struct CapCase {
     const char* id;
@@ -602,6 +602,11 @@ bool extra_ok(LocalFix& fx, Capability c, Extra e, bool greyed, std::string& det
         const bool t = after(w->cpu_panel(), QStringLiteral("T-states: ")) == QLatin1String("?");
         if (t != greyed) detail += "t-states field";
         return t == greyed;
+    }
+    case Extra::Fetch: {
+        const bool ok = w->disasm_panel()->mem_header() == (greyed ? QStringLiteral("MMU only") : QStringLiteral("Mem"));
+        if (!ok) detail += "mem header";
+        return ok;
     }
     case Extra::CallStack: {
         QLabel* h = w->callstack_panel()->findChild<QLabel*>(QStringLiteral("callStackCapability"));
@@ -694,7 +699,7 @@ void test_caps() {
          {"Frame Back", "Step Back", "Reverse Continue", "Enable Rewind", "Rewind Buffer Size...", "Jump Here",
           "slider"},
          {}, Extra::Back},
-        {"RTQ-CAP-FETCHOVERLAYS", Capability::FetchOverlays, {}, {}, Extra::None},
+        {"RTQ-CAP-FETCHOVERLAYS", Capability::FetchOverlays, {}, {}, Extra::Fetch},
         {"RTQ-CAP-MACHINEEVENTS", Capability::MachineEvents, {"Run to Next Interrupt"}, {}, Extra::None},
         {"RTQ-CAP-COPPER", Capability::Copper, {}, {"Copper"}, Extra::None},
         {"RTQ-CAP-VIDEO", Capability::Video, {}, {"Video", "Graphics"}, Extra::Video},

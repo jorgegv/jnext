@@ -73,7 +73,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |   103 |  103 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6705 | 6705 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6705**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6176**. Rows the 261 suites declared in `test/unit-tests.conf` run live: **18714**.
+Rows the sections above carry: **6705**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6176**. Rows the 262 suites declared in `test/unit-tests.conf` run live: **18790**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 

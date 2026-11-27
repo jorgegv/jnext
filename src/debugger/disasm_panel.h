@@ -66,7 +66,10 @@ public:
     /// Epic #486 R1.3 - what the target can do: without ExecuteBreakpoints a click that would ADD a
     /// breakpoint is refused with the reason (removing one stays allowed); without RunToCursor Enter,
     /// Run to Here and run_to_selected() are refused the same way.
-    void set_capabilities(const jnext::dbggate::CapabilityView& view) { caps_ = view; }
+    void set_capabilities(const jnext::dbggate::CapabilityView& view) { caps_ = view; update(); }
+
+    /// The Mem column header: "Mem", or "MMU only" when the target lacks FetchOverlays.
+    QString mem_header() const;
 
     /// GH #423 - centre the view on `addr` and select that line (the caret, so
     /// Run to Cursor and a copy act on it): the Source tab's "Show in Disassembly".

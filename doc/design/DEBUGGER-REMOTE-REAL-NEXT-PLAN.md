@@ -1080,7 +1080,7 @@ tooltip, or the panel shows a placeholder with the reason (R1.3).
 | Memory read / write, CPU view | yes | yes | yes, while stopped | n/a |
 | Memory read while running | yes (4 Hz refresh) | yes, at the target's next tick | no (the stub is not executing) | panels show the last stop, marked stale |
 | Physical page and ROM image views | yes | yes (CMD 25/26, ROM bank 0xFF) | no in the PoC (owner, Q7) | the Memory panel's page view greyed |
-| Overlays in the fetch identity (DivMMC, Multiface, Alt ROM, Layer 2 read map) | yes | no (DZRP sends the slot's bank only) | no; ROM slots show the stub's patched Alt ROM | source lookup uses the slot's page; no surface in R1 (the Disassembly has no fetch-identity label to mark) |
+| Overlays in the fetch identity (DivMMC, Multiface, Alt ROM, Layer 2 read map) | yes | no (DZRP sends the slot's bank only) | no; ROM slots show the stub's patched Alt ROM | source lookup uses the slot's page; the Disassembly's Mem column header reads "MMU only" |
 | MMU slots | yes | yes | yes (slot 7 from the stub's backup); right after `CMD_INIT` they are its ZX128 defaults, labelled so (§2.4) | n/a |
 | NextREG panel | yes | yes, one command per register, pipelined | yes, one round trip per register, refreshed on stop only | n/a |
 | Sprite attributes, patterns | yes | yes (CMD 18/19) | no (answered with zeros) | Sprites panel shows the reason (it has no palette or clip view) |

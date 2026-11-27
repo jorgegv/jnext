@@ -257,7 +257,7 @@ The stamp is:
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse *movement* is not counted: hover
   and Kempston mouse capture must not redraw a paused window;
 - a flag, `source_file_changed`: whether the loaded source file's modification time differs from the one
-  loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:575`), so an edit on disk still shows.
+  loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:610`), so an edit on disk still shows.
 
 `refresh_window()` (`debugger_manager.cpp:1119`) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
@@ -316,14 +316,14 @@ length of the fit (`fit_raised_`, given back by `end_fit_()`), the host's minimu
 widens the window by the scroll range; a column found wider than its widest page afterwards is trimmed back with
 `resizeDocks()` (a dock area keeps its width when the window widens, so there is no share to measure and the result
 does not depend on the order of the passes; bounded by `kMaxInitialFitPasses` = 4
-(`kMaxInitialFitPasses`, `debugger_window.h:227`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:256`)). The frame, not the client area, must fit the screen
+(`kMaxInitialFitPasses`, `debugger_window.h:267`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:296`)). The frame, not the client area, must fit the screen
 (`jnext::clamp_window_size_to_screen`). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (`fit_sizes_`, `fit_known_size_()`) is the manager's answer, not the user's, and the request is asked again,
 at most `kMaxFitEchoes` = 6 times: the answer queues a pass, and the pass asks again and counts it, once
-(`resizeEvent()`, `debugger_window.cpp:614-624`); any other size is the user's and ends the fit
-(`end_fit_()`, `debugger_window.cpp:595`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
-pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:651-656`), after which every size is the user's and the remembered sizes are
+(`resizeEvent()`, `debugger_window.cpp:631-641`); any other size is the user's and ends the fit
+(`end_fit_()`, `debugger_window.cpp:612`). The fit also ends by itself `kFitGraceMs` = 1000 ms after its last pass started (every
+pass restarts that wait, `kFitGraceMs`, `debugger_window.cpp:668-673`), after which every size is the user's and the remembered sizes are
 dropped; the grace does not end the fit while a pass is still queued (`fit_passes_queued_`, `queue_fit_pass_()`), so a stalled event loop cannot
 cut the fit short between a pass and the one it queued. Rows: `GR-06` (a stale answer inside the grace window is asked again), `GR-07` (after it every size is the user's), `GR-08` (an earlier request landing while a pass is queued), `GR-09` (a user resize while the fit runs stands), `GR-10` (each late answer counts once: the 7th stands) and `GR-11` (a loop stalled past the grace window does not end the fit), `GR-12` (the bound holds on the pass's own path), `GR-13` and `GR-14` (the grace waits for the pass a re-ask, or a late answer, queued), in `debugger_window_grow_test`; `GR-09` to `GR-14` use a window no window manager sees.
 
@@ -666,7 +666,8 @@ refuses a register edit without `RegisterWrite` and shows `?` for T-states and t
 shows `?` for the slots and the paging fields; the Memory selector disables its Slot and Page views; the
 Disassembly and Source tab refuse a click or key that would add an execute breakpoint, or run to the cursor,
 with the reason while removing a breakpoint stays allowed; the Breakpoints Add dialog disables the types the
-target cannot hold; the Call Stack says why its list is reconstructed.
+target cannot hold; the Call Stack says why its list is reconstructed; the Disassembly's Mem column header reads "MMU only" when the
+target lacks `FetchOverlays` (it sends the slot's page alone, so overlays are not in the identity).
 
 Everything a target answers is untrusted text, a network peer's from the remote epic on: `display_text()`
 drops control and format characters, folds whitespace, shows invalid UTF-8 as U+FFFD and cuts a name at 64

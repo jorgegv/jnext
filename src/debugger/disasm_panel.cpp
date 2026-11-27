@@ -690,7 +690,7 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
     int header_y = paint_y_offset_ - 4;
     // GH #448: Mem, Addr, BP column, [Label], mnemonic, bytes, [; comment].
     const int bp_x = breakpoint_x();
-    painter.drawText(LEFT_MARGIN, header_y, "Mem");   // GH #360
+    painter.drawText(LEFT_MARGIN, header_y, mem_header());   // GH #360
     painter.drawText(LEFT_MARGIN + MEM_WIDTH, header_y, "Addr");
     painter.drawText(bp_x + 2, header_y, "BP");
     const bool label_col = label_column_shown();   // GH #387
@@ -1313,4 +1313,11 @@ QSize DisasmPanel::sizeHint() const
 {
     return QSize(GUTTER_WIDTH + ADDR_WIDTH + BYTES_WIDTH + 200,
                  20 * LINE_HEIGHT + paint_y_offset_);
+}
+
+// Epic #486: the Mem column names the memory a line was fetched from, overlays included. A target that sends
+// the slot's page alone (no FetchOverlays) names the MMU mapping only, and the header says so.
+QString DisasmPanel::mem_header() const
+{
+    return caps_.missing(jnext::dbggate::Surface::FetchLabel) ? QStringLiteral("MMU only") : QStringLiteral("Mem");
 }

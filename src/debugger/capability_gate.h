@@ -62,6 +62,7 @@ enum class Surface : uint8_t {
     TimeField,      ///< CPU panel T-states
     PagingFields,   ///< MMU panel 128K bank / ROM / lock
     UlaScreenField, ///< CPU panel ULA screen
+    FetchLabel,     ///< the Disassembly Mem column header
     Count
 };
 
@@ -104,6 +105,7 @@ constexpr Gate kGates[] = {
     {Surface::TimeField,      "t-states",         false, 1, {Capability::MachineTime, Capability::Count}},
     {Surface::PagingFields,   "paging-fields",    false, 1, {Capability::PagingLatches, Capability::Count}},
     {Surface::UlaScreenField, "ula-screen",       false, 2, {Capability::Video, Capability::PagingLatches}},
+    {Surface::FetchLabel,     "fetch-label",      false, 1, {Capability::FetchOverlays, Capability::Count}},
 };
 static_assert(sizeof(kGates) / sizeof(kGates[0]) == SURFACE_COUNT, "kGates: one row per Surface");
 
@@ -118,7 +120,6 @@ constexpr NoSurface kNoSurface[] = {
     {Capability::MemoryWhileRunning,   "runtime behaviour of the target link, not a control"},
     {Capability::Ports,                "the window has no port panel"},
     {Capability::SpritePaletteClip,    "the Sprites panel shows neither palette nor clip"},
-    {Capability::FetchOverlays,        "the Disassembly has no fetch-identity label"},
     {Capability::CtcDma,               "no CTC or DMA panel"},
     {Capability::MagicBreakpoint,      "its action is in the emulator window, which is always local"},
     {Capability::Reset,                "its action is in the emulator window, which is always local"},
