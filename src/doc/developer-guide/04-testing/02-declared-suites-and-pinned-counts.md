@@ -115,6 +115,13 @@ everything look as though it were registered twice. It refuses when:
   manifest, checks for the `.exe`, and prefixes every suite with
   `JNEXT_TEST_RUNNER` (wine, see [5.1](../05-building/01-make-targets.md#test)),
   and `JNEXT_UNIT_TEST_JOBS` caps how many run at once (unset: one per CPU, from `nproc`; `0`: no cap). Starting every suite at once made the 300 s per-suite bound measure the host's queue, not the suite: on a 4-vCPU macOS Intel runner the longest suite took 89% of the bound, and new work pushed fourteen over it. Each suite's wall time is printed at the end of its result row.
+- **`JNEXT_SUITE_VMEM_KB` is not a positive number of KiB, or is set beside
+  `JNEXT_TEST_RUNNER`.** The knob (`ulimit -v`, set inside each suite's own subshell) caps the
+  address space of the suite process tree and nothing else, never a build: a mutation run sends
+  it as a make variable (`make unit-test JNEXT_SUITE_VMEM_KB=3145728`) so one make target builds
+  and then runs the suites, on a local or a remote host, with the suites alone under 3 GB. Wine and
+  node reserve far more address space than they use, so a cap beside a runner would fail every
+  suite and read as a mutant killed: the harness refuses that combination.
 - the run cannot make its **private clone of the SD master** under
   `~/.jnext/runs/` (no space, no permission): the run fails naming the cause,
   and never falls back to reading the shared master, which every other run

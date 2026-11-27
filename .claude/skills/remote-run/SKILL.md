@@ -6,7 +6,7 @@ description: Run heavy builds and tests (the batch gate, full unit-test targets,
 # remote-run
 
 Runs `make` targets on a remote host in a `fedora:45` container whose packages come from
-`test/ci-deps.sh` (the same script `ci.yml` calls). Design and decisions D1-D22:
+`test/ci-deps.sh` (the same script `ci.yml` calls). Design and decisions D1-D23:
 `doc/design/REMOTE-RUN-SKILL-DESIGN.md`. The driver, `remote-run.sh`, names no project; the jnext
 specifics are in `project.conf`.
 
@@ -25,9 +25,10 @@ installation: `podman unshare rm -rf <dir>` (the storage holds files of sub-uids
 ## When to use it (D14)
 
 Heavy runs only: the batch gate steps, full `make unit-test` / `unit-test-sdl` / `unit-test-win` /
-`unit-test-wasm`, `wasm-browser-test`, regression rows. Single-suite rebuilds and mutation cycles
-stay local (the network round trip costs more than they do). The two remote lanes are in addition to the
-local slots.
+`unit-test-wasm`, `wasm-browser-test`, regression rows. Single-suite rebuilds stay local (the network round
+trip costs more than they do). Mutation runs (a reviewer's or implementer's mutant: an uncommitted edit of a pushed
+commit) go remote too, as a patch on the pushed commit through `slot.sh --patch` (D23, "Patch runs" below). The two
+remote lanes are in addition to the local slots.
 
 ## How
 
@@ -35,8 +36,8 @@ In an autonomous run `slot.sh` (`.claude/skills/autonomous-run/slot.sh`) makes t
 
 Remote first (owner, 2026-11-23: fill the remote workers before building locally, unless needed): before each
 heavy run pick a free lane (`pick-host.sh`) and run there, with `--fallback-local`; run here only when every lane
-of every host is busy, or when the run needs this host: uncommitted worktree state (mutants), a measurement, or
-material that must not leave it (a reporter's game, the user's own card). An agent may push
+of every host is busy, or when the run needs this host: uncommitted worktree state that is not a patch run (below), a
+measurement, or material that must not leave it (a reporter's game, the user's own card). An agent may push
 its own issue branch (never force, never `main`; owner, 2026-11-21, superseding D9's orchestrator-only
 push) and then run the driver itself. The remote clones from GitHub, so the
 branch must be on `origin`; the batch gate pushes a temporary `gate-v<version>` branch (D8).
@@ -60,6 +61,41 @@ $S/remote-run.sh <branch> $(git rev-parse <branch>) unit-test unit-test-sdl
 $S/remote-run.sh --fallback-local <worktree> <branch> <sha> unit-test    # THE NORMAL CALL: remote if free, else here
 $S/remote-run.sh <branch> <sha> 'sh:make regression-rows ROWS="a b"'     # words with spaces: sh:
 ```
+
+### Patch runs (mutants, D23)
+
+A mutant is an uncommitted edit in a worktree whose HEAD is a commit already on `origin`. The remote runs only
+committed state, so the driver carries the edit as a PATCH on that commit:
+
+```bash
+$S/remote-run.sh --make-patch <worktree> > /path/to/m1.patch     # exit 2, nothing on stdout, if it cannot be carried
+$S/remote-run.sh --patch /path/to/m1.patch --fallback-local <worktree> <branch> <sha> unit-test
+```
+
+`--make-patch` prints the canonical patch of the work tree against its HEAD: a first line
+`# remote-run patch: base <sha> tree <tree>`, then a `git diff --binary --full-index --no-renames` of a temporary
+index (tracked and untracked files, ignore rules applied, the real index never touched; every format choice is a flag,
+so the caller's git configuration cannot change it). It refuses (exit 2, reason on stderr) a clean tree, a changed
+submodule (a moved one, one with changes inside, an embedded repository): a patch cannot carry them. Ignored files
+(build output) are not carried, by design.
+
+`--patch` is for plain runs (not `--warm`, `--gate`, `--probe`; an empty value is refused), and `<sha>` must be the patch's base. The remote applies the
+patch to a fresh checkout of `<sha>` as UNCOMMITTED changes, but only after proving it: applied to a fresh index of
+`<sha>` the patch must write exactly the tree id the header names, so another base, an edited patch or an offset
+application is refused; and it may not change `test/ci-deps.sh` or the pinned-core file (the remote reads those from
+the commit). The log shows `=== remote-run patch applied: <name> sha256=<h> tree=<t> files=<n>` before the run starts and
+the summary names the patch (`patch=<name>`, a `--- patch` block). **Any doubt is exit 2, `PATCH REFUSED`: no verdict,
+no local fallback, nothing run** (a refusal read as a kill, or a pass read as a survivor, would be a wrong answer): a
+bad header, name or base, a patch that does not apply or whose tree differs, a remote side that does not log the applied
+line (the run's own status is discarded), or a `--fallback-local` directory whose tree is not the patch's (clean, or
+edited since). No stamp is copied back from a patch run. The payload travels as one argument (the kernel limits one
+argument to 128 KiB; the script itself takes about 30 KiB and the base64 patch is a third larger than the patch), so a
+patch of the order of 70 KB or more makes the transport fail, which is the usual "remote did not start" fallback, taken
+only after the tree check.
+
+`slot.sh --patch` does all of this for an agent (`autonomous-run` skill): `<run>/slot.sh --patch make -C <worktree>
+<heavy target> JNEXT_SUITE_VMEM_KB=3145728`. Read its result as exit 0 = the mutant SURVIVED the target; non-zero with a
+FAIL row, `Failed` > 0, a crash or no `Total:` line = KILLED; any `PATCH REFUSED` = no verdict, fix and re-run. A patch run whose session is lost after the start, whose harness refuses to run (its banner `TEST HARNESS REFUSES TO RUN` alone on a line, exit 2 of make; the words quoted in a FAIL listing do not count) or that hits the run-level timeout is also exit 2 `PATCH REFUSED ... no verdict`, never exit 1: for a mutant a red exit is the "good" answer, so a status that says nothing about the mutant must not look like one.
 
 ### The batch gate
 
@@ -130,7 +166,8 @@ once per host.
 ## What it guarantees
 
 - **The verdict is the exit status plus the log.** `0` green; `1` the run ran and failed, was not CLEAN, or was cut off
-  (the log says "connection lost"); `124` it hit the timeout; `2` usage;
+  (the log says "connection lost"); `124` it hit the timeout; `2` usage, or a patch run (`--patch`) whose patch was refused
+  or whose application the log does not prove (`PATCH REFUSED`: no verdict, never a fallback);
   `3` refused: the branch is not on `origin`, or `origin` has another commit than the `<sha>` given
   (the push did not land, or the branch moved); `75` the remote cannot be used: alias unset,
   unreachable, preflight failed (podman missing or not rootless, not enough memory or disk, memory
@@ -183,5 +220,5 @@ back only logs and stamp files.
 
 ## Remote prerequisites
 
-SSH, `bash`, `git`, rootless `podman`, `flock`, `timeout`, `tar`, `sha256sum`, and git access to GitHub
+SSH, `bash`, `git`, rootless `podman`, `flock`, `timeout`, `tar`, `sha256sum`, `base64`, and git access to GitHub
 over https. Nothing else is installed there.
