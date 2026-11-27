@@ -93,6 +93,29 @@ that cannot run detects the missing tooling/platform and exits with a clear
 message (what to install, or that a Mac/CI runner is required) instead of a
 cryptic mid-build failure.
 
+### Shipped binaries are stripped (GH #572)
+
+Every package carries stripped executables and libraries: no symbol table and
+no debug sections. `CPACK_STRIP_FILES` strips the rpm and the deb at install
+time; the macOS bundle's `install(CODE)` step strips `jnext` before macdeployqt
+and the ad-hoc signature; the `package-win*` recipes run the MinGW `strip
+--strip-all` over every `.exe` and `.dll` in the staging tree (the Fedora MinGW
+`libstdc++-6.dll` alone drops from ~30 MB to ~2.5 MB). The Flatpak and the
+browser build were already stripped (flatpak-builder; Emscripten's release
+link).
+
+`packaging/verify-stripped.sh <package|dir|binary>` is the check: it unpacks an
+`.rpm`, `.deb` or `.zip`, finds the ELF, PE and Mach-O files by their magic
+bytes, and fails on a symbol table (a Mach-O executable may keep only
+`__mh_execute_header` and the weak definitions dyld coalesces, a dylib its
+exported symbols), on debug sections, on a tool that cannot read a binary,
+and on a package with no binary in it. `package-rpm`, `package-deb`,
+`package-win*` and `verify-macos-dmg` run it on what they produce, the package
+rows of `make package-test` run it on each artifact, and
+`test/packaging/verify-stripped-test.sh` pins its decisions with stubbed tools.
+The build trees (`build/win-release/jnext.exe` and the rest) stay unstripped,
+for debugging.
+
 ### Windows cross-build (Fedora MinGW)
 
 `make package-win` cross-compiles with Fedora's MinGW wrapper `mingw64-cmake`.

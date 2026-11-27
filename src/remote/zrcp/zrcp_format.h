@@ -111,6 +111,18 @@ std::string machine_name(MachineType type);
 /// parse error in ZEsarUX's own grammar).
 bool parse_number(const std::string& tok, std::uint32_t& out);
 
+/// jnext's own argument encoding (the `sd-file-add` command, GH #568): one token of a line, with
+/// `%XX` (upper-case hex) for a space, `%`, every byte below 0x21 and 0x7F; every other byte passes
+/// raw. The result holds no space, no control byte and no bare `%`, so a path never breaks a token
+/// or the line.
+std::string encode_arg(const std::string& raw);
+/// The inverse, strict: `%` must be followed by two hex digits (either case); anything else is
+/// refused (false), never passed through.
+bool decode_arg(const std::string& enc, std::string& out);
+/// Reply text: `%`, bytes below 0x20 and 0x7F become `%XX` (spaces stay), so a text holding a
+/// newline cannot break the line protocol. `decode_arg` reads it back.
+std::string encode_text(const std::string& raw);
+
 /// `text` split on runs of spaces/tabs.
 std::vector<std::string> split_args(const std::string& text);
 

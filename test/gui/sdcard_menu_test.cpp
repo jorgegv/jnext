@@ -33,13 +33,17 @@
 #include "core/emulator_config.h"
 #include "core/fatfs_diskio.h"
 #include "core/sdcard_backup.h"
+#include "core/sdcard_carry.h"
+#include "core/sha256.h"
 #include "core/sdcard_upgrade.h"
 #include "peripheral/sd_write_journal.h"
 #include "platform/emulator_boot.h"
 #include "core/sdcard_provisioner.h"
 #include "debug/debugger.h"
 #include "gui/main_window.h"
+#include "gui/qt_app.h"
 #include "gui/sdcard_manager_dialog.h"
+#include "remote/zrcp/zrcp_server.h"
 #include "../row_id.h"
 
 namespace fs = std::filesystem;
@@ -391,6 +395,58 @@ int main(int argc, char** argv)
         f.win.card_op_upgrade_work_for_test = [&](std::string&) { put(card, (1 << 16) + 4096); return true; };
         live_run(f.win.upgrade_sd_action(), f, L);
         in_work = nullptr;
+        {
+            // GH #568: the same window answers a copy another jnext asks for through ZRCP. While an upgrade or a go back has the
+            // card out, FatFs is on the worker thread and not reentrant: the answer is the busy refusal (status 5), for the
+            // card it names or any other, and nothing is written; once the operation is over it is not the busy refusal.
+            reset_set();
+            Fixture g(card);
+            Live M;
+            jnext::remote::zrcp::SdFileAddReply during, during_other, after;
+            const std::string host_file = dir + "/remote-add.bin";
+            put(host_file, 16);
+            auto ask = [&](const std::string& image) {
+                jnext::remote::zrcp::SdFileAddRequest q;
+                q.image = image;
+                q.host = host_file;
+                q.card_path = "/REMOTE.BIN";
+                return g.win.remote_sd_file_add(q);
+            };
+            const std::uintmax_t size_before = fs::file_size(card);
+            std::uintmax_t size_in_work = 0;
+            in_work = [&] { during = ask(card); during_other = ask(dir + "/other.img"); size_in_work = fs::file_size(card); };
+            g.win.card_op_upgrade_work_for_test = [&](std::string&) { put(card, (1 << 16) + 4096); return true; };
+            live_run(g.win.upgrade_sd_action(), g, M);
+            in_work = nullptr;
+            after = ask(card);
+            const std::string busy = "a card operation owns the SD card (an upgrade or a go back); run the command again when it has finished";
+            check("SDMENU-R01", "inside an upgrade's work, the window's answer to a copy asked for through ZRCP is the busy refusal (5), for the card it names and for any other, and the card is not touched; after the operation it is not the busy refusal",
+                  during.status == 5 && during.text == busy && during_other.status == 5 && during_other.text == busy &&
+                      after.text.rfind("a card operation owns", 0) != 0 && size_in_work == size_before,
+                  during.text + " | " + after.text);
+        }
+        {
+            // GH #568: the Qt loop owner's ZRCP hook is QtApp::route_sd_file_add. With the window it must reach the window's busy
+            // gate (an upgrade has FatFs on its worker thread); with no window it is the plain logic.
+            reset_set();
+            Fixture g(card);
+            Live M;
+            jnext::remote::zrcp::SdFileAddReply routed, bare;
+            const std::string host_file = dir + "/route-add.bin";
+            put(host_file, 16);
+            jnext::remote::zrcp::SdFileAddRequest q;
+            q.image = card;
+            q.host = host_file;
+            q.card_path = "/ROUTE.BIN";
+            in_work = [&] { routed = QtApp::route_sd_file_add(&g.win, g.emu, q); bare = QtApp::route_sd_file_add(nullptr, g.emu, q); };
+            g.win.card_op_upgrade_work_for_test = [&](std::string&) { put(card, (1 << 16) + 4096); return true; };
+            live_run(g.win.upgrade_sd_action(), g, M);
+            in_work = nullptr;
+            check("SDMENU-R02", "QtApp's ZRCP sd-file-add routing: with the window, inside an upgrade's work, the answer is the window's busy refusal (5); with no window it is not the busy refusal",
+                  routed.status == 5 && routed.text.rfind("a card operation owns the SD card (an upgrade or a go back)", 0) == 0 &&
+                      bare.text.rfind("a card operation owns", 0) != 0,
+                  routed.text + " | " + bare.text);
+        }
         check("SDMENU-17", "File > SD Card File Manager... during a card operation shows one refusing box, opens no window and does not pause the machine",
               L.dialogs == 1 && !window_opened && !paused && !f.backend->state().paused, "boxes=" + std::to_string(L.dialogs));
         // a window with no machine behind it cannot pause one: refused with a box as well
@@ -522,6 +578,125 @@ int main(int argc, char** argv)
         check("SDMENU-22", "Emulator::check_card_files() reports a change of either slot's image once, with the slot, the kind and the image, and the main window's poll turns a report into a warning box",
               m2 && none.empty() && ev_ok && again && unexpected_dialogs - before == 1,
               std::to_string(evs.size()) + " boxes=" + std::to_string(unexpected_dialogs - before));
+    }
+
+    // ---- SDMENU-23..26 (GH #574): opening the File menu hashes nothing; Upgrade checks the original ------------------
+    // Oracle: the owner's decision on the issue (no hash on menu open, startup or Delete; the check only on Upgrade,
+    // skipped while the original's size and mtime match its last verification), the Upgrade box's two texts in
+    // on_upgrade_sd, and carry::pristine_hash_count() as the count of hashes of the 1 GB original (never a clock).
+    {
+        namespace carry = sdcard::carry;
+        const std::string raw = dir + "/" + sdcard::kImageFileName;
+        auto fixture574 = [&] {
+            reset_set();
+            put(raw, 1 << 16);
+            std::ofstream(raw + ".sha256") << sdcard::sha256_file(raw) << "  " << sdcard::kImageFileName << "\n";
+            std::ofstream(raw + sdcard::kDistroSuffix) << "sn-emulator-24.11.zip\n";
+            std::ofstream(card + sdcard::kFixedImageRecipeSuffix) << "1\n";
+        };
+        QMenu* file_menu_of = nullptr;
+        auto open_file = [&](MainWindow& w) {
+            file_menu_of = nullptr;
+            for (QMenu* m : w.menuBar()->findChildren<QMenu*>())
+                if (m->title().remove('&') == QStringLiteral("File")) file_menu_of = m;
+            int shown = 0;
+            const QMetaObject::Connection c = QObject::connect(file_menu_of, &QMenu::aboutToShow, [&] { ++shown; });
+            file_menu_of->popup(QPoint(0, 0));
+            QCoreApplication::processEvents();
+            file_menu_of->hide();
+            if (!shown) Q_EMIT file_menu_of->aboutToShow();   // a platform whose popup does not emit it
+            QObject::disconnect(c);
+        };
+        // Trigger `act`, read the confirm box, cancel it.
+        auto ask = [&](QAction* act) {
+            std::string text;
+            QTimer::singleShot(0, [&text] {
+                if (auto* mb = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                    text = mb->text().toStdString();
+                    if (QAbstractButton* c = mb->button(QMessageBox::Cancel)) c->click();
+                }
+            });
+            act->trigger();
+            QCoreApplication::processEvents();
+            return text;
+        };
+        auto acts = [&](MainWindow& w, QAction*& up, QAction*& gb, QAction*& del) {
+            up = action_starting(w, QStringLiteral("Upgrade SD Card"));
+            gb = action_starting(w, QStringLiteral("Go Back to the Previous SD Card"));
+            del = action_starting(w, QStringLiteral("Delete the Previous SD Card Backup"));
+        };
+        {   // SDMENU-23
+            fixture574();
+            put(dir + "/previous/" + sdcard::kFixedImageFileName, 3 * (1 << 20));
+            const uint64_t h0 = carry::pristine_hash_count();
+            Fixture f(card);
+            const uint64_t at_start = carry::pristine_hash_count() - h0;
+            for (int i = 0; i < 3; ++i) open_file(f.win);
+            const uint64_t after_opens = carry::pristine_hash_count() - h0;
+            f.win.set_emulator(&f.emu);   // the rewire after a cold boot
+            const uint64_t after_rewire = carry::pristine_hash_count() - h0;
+            QAction *up, *gb, *del;
+            acts(f.win, up, gb, del);
+            const std::string label = del ? del->text().toStdString() : "missing";
+            const bool enabled = up && gb && del && up->isEnabled() && gb->isEnabled() && del->isEnabled();
+            ask(f.win.delete_backup_action());
+            const uint64_t after_delete = carry::pristine_hash_count() - h0;
+            check("SDMENU-23", "startup, three File opens, the cold-boot rewire and a cancelled Delete hash the original 0 times; Upgrade, Go Back and Delete are enabled and the label carries the size",
+                  at_start == 0 && after_opens == 0 && after_rewire == 0 && after_delete == 0 && enabled &&
+                      label == "Delete the Previous SD Card Backup (3 MB)...",
+                  std::to_string(at_start) + "/" + std::to_string(after_opens) + "/" + std::to_string(after_rewire) + "/" +
+                      std::to_string(after_delete) + " " + label);
+        }
+        {   // SDMENU-24
+            fixture574();
+            Fixture f(card);
+            const uint64_t h0 = carry::pristine_hash_count();
+            const std::string t1 = ask(f.win.upgrade_sd_action());
+            const uint64_t first = carry::pristine_hash_count() - h0;
+            const std::string t2 = ask(f.win.upgrade_sd_action());
+            const uint64_t second = carry::pristine_hash_count() - h0 - first;
+            check("SDMENU-24", "Upgrade hashes the original once, then skips the hash while it is unchanged; both boxes show the carry-over text",
+                  first == 1 && second == 0 && t1.find("Your files are carried over") == 0 && t2.find("Your files are carried over") == 0,
+                  std::to_string(first) + "/" + std::to_string(second) + " " + t1 + " | " + t2);
+        }
+        {   // SDMENU-25
+            fixture574();
+            Fixture f(card);
+            QAction *up, *gb, *del;
+            acts(f.win, up, gb, del);
+            const bool up_before = up && up->isEnabled();
+            (void)ask(f.win.upgrade_sd_action());   // a verification is on record for the original as it is now
+            const auto t = fs::last_write_time(raw);
+            put(raw, 1 << 16);   // same size, other bytes (put writes 'x'; make them differ)
+            { std::fstream o(raw, std::ios::in | std::ios::out | std::ios::binary); o.seekp(100); o.put('Z'); }
+            fs::last_write_time(raw, t + std::chrono::seconds(2));
+            const uint64_t h0 = carry::pristine_hash_count();
+            for (int i = 0; i < 3; ++i) open_file(f.win);
+            const uint64_t after_opens = carry::pristine_hash_count() - h0;
+            const bool entries = up && up->isEnabled() == up_before && !gb->isEnabled() && !del->isEnabled();
+            const std::string txt = ask(f.win.upgrade_sd_action());
+            const uint64_t at_upgrade = carry::pristine_hash_count() - h0 - after_opens;
+            check("SDMENU-25", "an original rewritten behind jnext's back after a verification: three File opens hash 0 times and leave the entries as they were; Upgrade hashes once and says the card cannot be compared",
+                  after_opens == 0 && entries && at_upgrade == 1 && txt.find("does not match its .sha256 sidecar") != std::string::npos,
+                  std::to_string(after_opens) + "/" + std::to_string(at_upgrade) + " " + txt);
+        }
+        {   // SDMENU-26
+            fixture574();
+            put(dir + "/previous/" + sdcard::kFixedImageFileName, 3 * (1 << 20));
+            Fixture f(card);
+            QAction *up, *gb, *del;
+            acts(f.win, up, gb, del);
+            const uint64_t h0 = carry::pristine_hash_count();
+            std::error_code ec;
+            fs::remove_all(dir + "/previous", ec);
+            open_file(f.win);
+            const bool gone = gb && del && !gb->isEnabled() && !del->isEnabled() && del->text() == QStringLiteral("Delete the Previous SD Card Backup...");
+            put(dir + "/previous/" + sdcard::kFixedImageFileName, 5 * (1 << 20));
+            open_file(f.win);
+            const bool back = gb->isEnabled() && del->isEnabled() && del->text() == QStringLiteral("Delete the Previous SD Card Backup (5 MB)...");
+            check("SDMENU-26", "a backup removed and then recreated behind jnext's back shows at the next File open (entries and size label), with 0 hashes",
+                  gone && back && carry::pristine_hash_count() == h0, del ? del->text().toStdString() : "missing");
+        }
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

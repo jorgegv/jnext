@@ -47,6 +47,19 @@ metadata included. Cards are read through ChaN FatFs on two volumes at once (`FF
 and drive 1; a read-only attach never writes), or, for an under-clustered distribution image FatFs
 refuses, through the hand-rolled reader (`open_tree_lenient`, always on drive 1).
 
+Hashing the 1 GB original takes about half a second, so `pristine_base_ok` skips the hash while
+`<original>.verified` vouches for it. That record is one line, `<digest> <size> <mtime>` and a newline:
+the digest 64 lowercase hex digits, the size a decimal `uint64`, the mtime the `last_write_time` ticks of
+the original as a decimal `int64` (it may be negative). The record counts only when it is exactly that
+(a missing final newline, other case, a wrong length, an overflow or trailing text make it void) and its
+digest is the `.sha256` sidecar's digest and its size and mtime are the original's now. A void record
+means a hash; a match writes the record from the size and mtime read before the hash, so an original
+changed during the hash voids it. A write that fails is ignored (the next check hashes again). The limit,
+accepted on purpose: an in-place rewrite of the original that keeps its size and its mtime (a restored
+mtime, or a change inside the filesystem's timestamp resolution) is not noticed. `pristine_hash_count`
+counts the hashes, for tests. Only the Upgrade path asks for the check: the File menu and Delete call
+`card_set_status` with `check_pristine` false.
+
 "Changed" means a different type, size, content or R/H/S attribute; not the archive bit, a date, the 8.3
 name, a case-only rename or the volume label. There are two layers: the direct one (the card against the
 rebuilt original) and, for each writes file, the overlay one (the card seen through the file against the
@@ -134,6 +147,25 @@ from the first moment of a start, before recovery, the offer and the upgrade, an
 an upgrade would move are locked too; a held set gets only the lock message. Live card changes take the
 new card's lock before unmounting the old one. Hard links count as separate cards (the harness uses
 one for each parallel row).
+
+The lock file's body is labelled lines, each ending in a newline: `pid:`, `image:` (`writes:` for a
+writes lock) with the canonical path, and, only while the process serves ZRCP on a socket,
+`zrcp_listening_address:` and `zrcp_listening_port:`. `DebugServers::start()` publishes the address and
+the BOUND port (a `--zrcp-port 0` run has no other) through `sd_locks::set_zrcp_endpoint()`, and its
+destructor withdraws them. The endpoint is process-wide state: it rewrites every lock the two slots hold
+(`ImageLock::refresh_body()`: `pwrite` then `ftruncate`, or the Windows file pointer and
+`SetEndOfFile`; the lock byte lies far past the content, so the body stays readable by the process that
+is refused), and `ImageLock::acquire()` writes it into every lock taken afterwards, so a live card
+change carries it too. A refusal fills a `LockHolder` (pid and endpoint) through `parse_lock_body()`, the
+one reader of the format. It is strict and bounded because any process of the same user, an older jnext or
+a rewrite in flight can be the writer: at most 4 KiB, complete lines only (a last line with no newline is
+dropped, so a rewrite caught half-way never yields a truncated port), a duplicated label dropped, a port
+of decimal digits in 1..65535, an address that is a numeric IP, and anything doubtful is "no endpoint".
+A first line of digits alone is the older unlabelled form: a pid and no endpoint. The holder of the
+default card or of a named one is also found by this lock when `--sdcard-file-add` is refused it:
+`platform/sdcard_forward.*` connects to the recorded server (see 3.8, "A copy asked for by another
+process"). A lock directory under another `JNEXT_CONFIG_DIR` or another user is another lock: such a
+process is not refused and so cannot forward.
 
 ## The suites' own card
 

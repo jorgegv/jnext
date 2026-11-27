@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 #include <cstdio>
+#include <filesystem>
 
 #include "core/log.h"
 #include "debug/disasm.h"
@@ -235,7 +236,8 @@ bool clip_layer(const std::string& name, jnext::dbg::ClipLayer& layer, std::uint
 // ---------------------------------------------------------------------------
 // THE TABLE — alphabetical, as `help` and `ls` print it. Every name ZEsarUX
 // 12.0's `ls` lists is here: 67 served, 1 declined, 57 unsupported
-// (ZRCP-TAB-01).
+// (ZRCP-TAB-01), plus jnext's one own command, `sd-file-add` (`extension`
+// set; ZRCP-TAB-07 pins that set).
 // ---------------------------------------------------------------------------
 
 #define U(name, aliases) \
@@ -455,6 +457,14 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
      CommandClass::Served, &ZrcpServer::cmd_save_binary},
     U("save-binary-internal", nullptr),
     U("save-screen", nullptr),
+    {"sd-file-add", nullptr, "image file card-path [--force] [--card 1|2] [--writes file]",
+     "Copies the host file (or folder) \"file\" onto the SD card image \"image\" mounted in this jnext, as "
+     "card-path (directories are created, an existing file needs --force). A jnext command: "
+     "ZEsarUX has none. Every argument is percent-encoded (%XX for a space, % and control bytes) "
+     "and absolute; --card says which card the image must be (1 or 2) and --writes the writes "
+     "file the card must be using. Answers \"OK. <text>\" or \"Error. [N] <text>\", N being the "
+     "exit status of jnext --sdcard-file-add",
+     CommandClass::Served, &ZrcpServer::cmd_sd_file_add, true},
     U("send-keys-ascii", nullptr),
     U("send-keys-event", nullptr),
     U("send-keys-string", nullptr),
@@ -609,7 +619,7 @@ const ZrcpServer::CommandDef* ZrcpServer::find_command(const std::string& name) 
 
 std::vector<CommandInfo> ZrcpServer::command_table() {
     std::vector<CommandInfo> out;
-    for (const CommandDef& d : COMMANDS) out.push_back(CommandInfo{d.name, d.aliases, d.cls});
+    for (const CommandDef& d : COMMANDS) out.push_back(CommandInfo{d.name, d.aliases, d.cls, d.extension});
     return out;
 }
 
@@ -2646,6 +2656,67 @@ void ZrcpServer::cmd_save_binary(const Cmd& c) {
     const bool ok = std::fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
     const bool closed = std::fclose(f) == 0;
     reply(ok && closed ? "" : "ERROR loading file");
+}
+
+// `sd-file-add image file card-path [--force] [--card 1|2] [--writes file]` (jnext's own, GH #568).
+// Every token is percent-encoded and split on single spaces; the work is the loop owner's hook.
+void ZrcpServer::cmd_sd_file_add(const Cmd& c) {
+    auto usage = [this](const std::string& why) { reply("Error. [1] sd-file-add: " + encode_text(why)); };
+    if (!sd_file_add_) return reply("Error. [5] sd-file-add is not available in this jnext");
+    std::vector<std::string> raw;
+    {
+        std::size_t at = 0;
+        for (;;) {
+            const std::size_t sp = c.params.find(' ', at);
+            raw.push_back(c.params.substr(at, sp == std::string::npos ? std::string::npos : sp - at));
+            if (sp == std::string::npos) break;
+            at = sp + 1;
+        }
+    }
+    std::vector<std::string> tok;
+    for (const std::string& r : raw) {
+        std::string d;
+        if (r.empty()) return usage("empty argument");
+        if (!decode_arg(r, d)) return usage("malformed %XX escape in an argument");
+        if (d.find('\0') != std::string::npos) return usage("an argument holds a NUL");
+        tok.push_back(std::move(d));
+    }
+    SdFileAddRequest req;
+    std::vector<std::string> pos;
+    bool have_card = false;
+    for (std::size_t i = 0; i < tok.size(); ++i) {
+        const std::string& t = tok[i];
+        // The options are recognised only after the three positionals, so a path may start with "--".
+        if (pos.size() < 3) { pos.push_back(t); continue; }
+        if (t == "--force") {
+            if (req.force) return usage("--force given twice");
+            req.force = true;
+        } else if (t == "--card") {
+            if (have_card) return usage("--card given twice");
+            if (i + 1 >= tok.size() || (tok[i + 1] != "1" && tok[i + 1] != "2"))
+                return usage("--card needs 1 or 2");
+            have_card = true;
+            req.slot = tok[++i] == "1" ? 0 : 1;
+        } else if (t == "--writes") {
+            if (req.writes_given) return usage("--writes given twice");
+            if (i + 1 >= tok.size()) return usage("--writes needs a file");
+            req.writes_given = true;
+            req.writes = tok[++i];
+        } else {
+            return usage("unknown option " + t);
+        }
+    }
+    if (pos.size() != 3) return usage("needs image, file and card-path");
+    req.image = pos[0];
+    req.host = pos[1];
+    req.card_path = pos[2];
+    auto absolute = [](const std::string& p) { return std::filesystem::path(p).is_absolute(); };
+    if (!absolute(req.image)) return usage("the image path must be absolute");
+    if (!absolute(req.host)) return usage("the file path must be absolute");
+    if (req.writes_given && !absolute(req.writes)) return usage("the writes path must be absolute");
+    const SdFileAddReply r = sd_file_add_(req);
+    if (r.status == 0) return reply("OK. " + encode_text(r.text));
+    reply("Error. [" + std::to_string(r.status) + "] " + encode_text(r.text));
 }
 
 // `smartload "file"` — CAP-CTL-15, the --load path (REQ-zrcp-12).

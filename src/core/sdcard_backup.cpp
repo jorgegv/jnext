@@ -211,7 +211,7 @@ int compare_distributions(const std::string& a, const std::string& b) {
     return 0;
 }
 
-Status card_set_status(const std::string& dir, const std::string& current_distro) {
+Status card_set_status(const std::string& dir, const std::string& current_distro, bool check_pristine) {
     Status s;
     const std::string card = dir + "/" + kFixedImageFileName;
     std::error_code ec;
@@ -221,7 +221,7 @@ Status card_set_status(const std::string& dir, const std::string& current_distro
         s.card_distro = d.empty() ? std::string(kLegacyDistribution) : d;
         const int c = compare_distributions(s.card_distro, current_distro);
         s.relation = c == 2 ? Relation::Unknown : c < 0 ? Relation::Older : c == 0 ? Relation::Current : Relation::Newer;
-        s.pristine = carry::pristine_base_ok(card, s.pristine_why);
+        if (check_pristine) s.pristine = carry::pristine_base_ok(card, s.pristine_why);
     }
     const fs::path prev = upgrade::previous_dir(dir);
     s.backup = fs::is_regular_file(prev / kFixedImageFileName, ec);

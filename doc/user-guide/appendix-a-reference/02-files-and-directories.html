@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.1</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.7</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.1</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.7</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4558,8 +4558,8 @@
 <td>The <code>--sdcard-writes</code> files used with the default card, one path per line, so an upgrade rebuilds them too.</td>
 </tr>
 <tr>
-<td><code>~/.jnext/sdcard/*.distro</code>, <code>*.recipe</code>, <code>*.sha256</code>, <code>*.distro-declined</code>, <code>*.newer-seen</code></td>
-<td>Small files beside the images: which NextZXOS each came from, how the card was made, the original's checksum, the release whose offer you turned down, the newer release a notice was shown for.</td>
+<td><code>~/.jnext/sdcard/*.distro</code>, <code>*.recipe</code>, <code>*.sha256</code>, <code>*.verified</code>, <code>*.distro-declined</code>, <code>*.newer-seen</code></td>
+<td>Small files beside the images: which NextZXOS each came from, how the card was made, the original's checksum, the original's size and time when its checksum last matched, the release whose offer you turned down, the newer release a notice was shown for.</td>
 </tr>
 <tr>
 <td><code>~/.jnext/sdcard/upgrade-work/</code></td>
@@ -4567,7 +4567,7 @@
 </tr>
 <tr>
 <td><code>~/.jnext/locks/</code></td>
-<td>The locks that keep a second JNEXT off a card or writes file.</td>
+<td>The locks that keep a second JNEXT off a card or writes file. Each file names its holder (<code>pid:</code>, <code>image:</code> or <code>writes:</code>) and, while the holder serves ZRCP, its address and port (<code>zrcp_listening_address:</code>, <code>zrcp_listening_port:</code>): how a second JNEXT's <code>--sdcard-file-add</code> finds it.</td>
 </tr>
 <tr>
 <td><code>~/.jnext/warm-start/</code></td>

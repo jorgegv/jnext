@@ -11,14 +11,16 @@
   #player { width: 640px; max-width: 100%; aspect-ratio: 5 / 4; }
   #player .jnext-player { width: 100% !important; height: 100% !important; }
   #status { margin: .5em 0; font-family: monospace; }
-  button { margin-right: .3em; }
+  /* The controls bar: as wide as the player, so the JNext link at its right end is under the player's right edge. */
+  #controls { display: flex; flex-wrap: wrap; align-items: center; width: 640px; max-width: 100%; }
+  button { margin: 0 .3em .3em 0; }
 </style>
 </head>
 <body>
 <h1>JNEXT</h1>
 <div id="player"></div>
 <p id="status">loading</p>
-<p>
+<p id="controls">
   <button id="pause">Pause</button><button id="resume">Resume</button>
   <button id="reset">Reset</button><button id="mute">Mute</button>
   <button id="other">Load other</button>
@@ -50,6 +52,8 @@
   var file = q.get('file') || PROGRAM_URL;
   if (file) options.file = file;
   if (POSTER_URL) options.poster = POSTER_URL;
+  // The JNext link goes at the right end of the controls.
+  options.creditIn = document.getElementById('controls');
   {
     jnext.mount(document.getElementById('player'), options).then(function (player) {
       window.player = player;

@@ -757,7 +757,7 @@ pages-site-test:
 
 # Run the browser smoke rows in headless Chromium (more specs are added in test/browser/browser-smoke.sh)
 wasm-browser-test: wasm-web package-web pages-site playwright sdl-release sdcard-image
-	@# BRW-01..35, WBI-PW-01..09, WEBAPI-01..34, WEBPKG-BR-01..07, WIDGET-01..32, WEBNMI-01..04 (the NMI button), PAGES-01..02 (the Pages demo site served alone), BDBG-01..30 (the debugger protocols served by a page, over the JS channel and over a WebSocket to the bridge), BCARD-01..47 (the card flow, the poster, the stored form of the card, card.dirs, the wording of the pick path's refusals and card source none), TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..12 (RZX in a page), BCRT-01..13 (the CRT effect on WebGL) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
+	@# BRW-01..35, WBI-PW-01..09, WEBAPI-01..34, WEBPKG-BR-01..07, WIDGET-01..38, WEBNMI-01..04 (the NMI button), PAGES-01..02 (the Pages demo site served alone), BDBG-01..30 (the debugger protocols served by a page, over the JS channel and over a WebSocket to the bridge), BCARD-01..47 (the card flow, the poster, the stored form of the card, card.dirs, the wording of the pick path's refusals and card source none), TKB-01..17 (the on-screen keyboard), WBW-01..17, BSN-01..11, BRZ-01..12 (RZX in a page), BCRT-01..13 (the CRT effect on WebGL) and WBENCH-01..12 (the bench arithmetic) on the pinned Playwright + Chromium headless shell. sdl-release is the
 	@# native oracle; sdcard-image provides the distribution image the run turns into the
 	@# minimal card, in a scratch directory under ~/tmp that is deleted afterwards.
 	bash test/browser/browser-smoke.sh build/wasm-core
@@ -2024,6 +2024,9 @@ package-rpm:
 	@# GH #297: the packaged binary is a PGO build (needs the SD image to train).
 	$(call PGO_BUILD,$(BUILD_DIR_RPM_RELEASE),$(CMAKE) -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DJNEXT_WERROR=OFF)
 	cd $(BUILD_DIR_RPM_RELEASE) && cpack -G RPM
+	@# GH #572: the rpm's binary must be stripped (CPACK_STRIP_FILES).
+	ver=$$(grep '^version:' version.yaml | awk '{print $$2}') && \
+	 bash packaging/verify-stripped.sh $(BUILD_DIR_RPM_RELEASE)/jnext-$$ver-*.rpm
 	@printf "$(BOLD)RPM(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_RPM_RELEASE)/*.rpm
 
 # Provide SDL3 dev files on a distro that ships none (Ubuntu 24.04 LTS); no-op elsewhere
@@ -2042,6 +2045,9 @@ package-deb: sdl3-vendor
 		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DJNEXT_WERROR=OFF \
 		$$([ -d build/sdl3-vendor/prefix ] && echo "-DCMAKE_PREFIX_PATH=$(CURDIR)/build/sdl3-vendor/prefix -DJNEXT_SDL3_VENDORED=ON"))
 	cd $(BUILD_DIR_DEB_RELEASE) && cpack -G DEB
+	@# GH #572: the deb's binary must be stripped (CPACK_STRIP_FILES).
+	ver=$$(grep '^version:' version.yaml | awk '{print $$2}') && \
+	 bash packaging/verify-stripped.sh $(BUILD_DIR_DEB_RELEASE)/jnext_$${ver}_*.deb
 	@printf "$(BOLD)DEB(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_DEB_RELEASE)/*.deb
 
 # Build a Flatpak bundle from packaging/flatpak (needs flatpak-builder + the KDE runtime/SDK)
@@ -2155,6 +2161,9 @@ package-win: win-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Windows bundle.\n"; exit 1; \
 		fi; \
 	 done && \
+	 find "$$stage" -type f \( -iname '*.exe' -o -iname '*.dll' \) \
+		-exec x86_64-w64-mingw32-strip --strip-all {} + && \
+	 bash packaging/verify-stripped.sh "$$stage" && \
 	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN_RELEASE)/$$name.zip" && \
@@ -2180,6 +2189,9 @@ package-win-sdl: win-sdl-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the SDL-only bundle.\n"; exit 1; \
 		fi; \
 	 done && \
+	 find "$$stage" -type f \( -iname '*.exe' -o -iname '*.dll' \) \
+		-exec x86_64-w64-mingw32-strip --strip-all {} + && \
+	 bash packaging/verify-stripped.sh "$$stage" && \
 	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN_SDL_RELEASE)/$$name.zip" && \
@@ -2206,6 +2218,9 @@ package-win-qt5: win-qt5-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
 		fi; \
 	 done && \
+	 find "$$stage" -type f \( -iname '*.exe' -o -iname '*.dll' \) \
+		-exec x86_64-w64-mingw32-strip --strip-all {} + && \
+	 bash packaging/verify-stripped.sh "$$stage" && \
 	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN_QT5_RELEASE)/$$name.zip" && \
@@ -2232,6 +2247,9 @@ package-win32-qt5: win32-qt5-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
 		fi; \
 	 done && \
+	 find "$$stage" -type f \( -iname '*.exe' -o -iname '*.dll' \) \
+		-exec i686-w64-mingw32-strip --strip-all {} + && \
+	 bash packaging/verify-stripped.sh "$$stage" && \
 	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN32_QT5_RELEASE)/$$name.zip" && \
@@ -2258,6 +2276,9 @@ package-win32-sdl: win32-sdl-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the SDL-only bundle.\n"; exit 1; \
 		fi; \
 	 done && \
+	 find "$$stage" -type f \( -iname '*.exe' -o -iname '*.dll' \) \
+		-exec i686-w64-mingw32-strip --strip-all {} + && \
+	 bash packaging/verify-stripped.sh "$$stage" && \
 	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN32_SDL_RELEASE)/$$name.zip" && \
@@ -2331,6 +2352,7 @@ verify-macos-dmg:
 		bash packaging/macos/verify-bundle.sh "$$mnt/jnext.app" </dev/null; \
 	test -f "$$mnt/jnext.app/Contents/Resources/48rom.map" \
 		|| { echo "error: the .dmg's jnext.app has no Contents/Resources/48rom.map" >&2; exit 1; }; \
+	bash packaging/verify-stripped.sh "$$mnt/jnext.app"; \
 	printf "$(BOLD)dmg verified:$(RESET) $$dmg\n"
 
 # Self-test packaging-test.sh's failure path: a failing sub-test's log must surface inline (GH #80)

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.1</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.7</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.1</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.7</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3311,8 +3311,8 @@ the SDL-only and Windows trees test it): an absolute name; then the map's direct
 of its parents; then the search directories; tried suffix-major, the longest trailing part of
 the normalised name first, then the directories in order; a leading <code>..</code> is dropped.
 <code>DebuggerManager</code> owns the list: <code>set_source_dirs()</code> (<code>debugger_manager.cpp:363</code>) takes the
-configured one (<code>MainWindow::push_source_dirs()</code>, <code>main_window.cpp:3578</code>, fed by
-<code>apply_startup_config()</code>, <code>:3348</code>: the saved list with the command line's <code>--source-dir</code> or
+configured one (<code>MainWindow::push_source_dirs()</code>, <code>main_window.cpp:3585</code>, fed by
+<code>apply_startup_config()</code>, <code>:3355</code>: the saved list with the command line's <code>--source-dir</code> or
 <code>paths.source_dirs</code> value over it), and <strong>Locate File...</strong> (<code>SourcePanel::locate_file()</code>, <code>source_panel.cpp:460</code>)
 adds to a second, session-only list through <code>DebuggerManager::on_source_dir_located()</code> (<code>debugger_manager.cpp:375</code>). The effective
 list (configured, then located, duplicates dropped) is pushed to the panel by
@@ -3628,12 +3628,12 @@ DSL, it first translates it (<code>translate_condition()</code>, <code>zrcp_cond
 echoes <code>CVAR(path)</code> with the path's case kept. Conditions compile through the same translation, so a breakpoint may carry it
 (<code>PC=8D3EH AND CVAR(a)=2</code>); a read that fails is ZEsarUX's <code>Error evaluating parsed string</code>, with no reason. A condition with no
 <code>PC=</code> first term is checked at every instruction, and a <code>CVAR</code> in it builds the C frames each time: put a <code>PC=</code> term first.
-The write is <code>set-register CVAR(path)=value</code> (<code>cmd_set_register()</code>, <code>zrcp_server.cpp:1190</code>): the command table's census pins ZEsarUX's
-<code>ls</code>, so no command can be added, and the extension is a branch of the one assignment verb. It takes the path up to the first <code>)</code>, then <code>=</code>, and
+The write is <code>set-register CVAR(path)=value</code> (<code>cmd_set_register()</code>, <code>zrcp_server.cpp:1200</code>): the command table's census pins ZEsarUX's
+<code>ls</code> (<code>sd-file-add</code> is the one exception, see <a href="../12-the-zrcp-server.html">3.10</a>), so no other command can be added, and the extension is a branch of the one assignment verb. It takes the path up to the first <code>)</code>, then <code>=</code>, and
 the trimmed rest as the value (a value ZRCP's <code>parse_number()</code> reads, decimal or <code>nnnnH</code>, is converted to decimal text; anything else, <code>-5</code>,
 a fraction, <code>'A'</code>, <code>0x10</code>, goes as typed) and calls <code>write_c_value()</code> in frame 0. Success answers <code>set-register</code>'s own register line; every failure
 is ZEsarUX's <code>Error changing register</code>, with no reason.
-<code>smartload "file"</code> (<code>ZrcpServer::cmd_smartload</code>, <code>zrcp_server.cpp:2652</code>) calls
+<code>smartload "file"</code> (<code>ZrcpServer::cmd_smartload</code>, <code>zrcp_server.cpp:2723</code>) calls
 <code>Debugger::load()</code> (<code>debugger_reconstruct.cpp:469</code>), which calls <code>load_program_sidecars()</code> after a successful load
 (<code>load_program_sidecars()</code>, <code>debugger_reconstruct.cpp:530-534</code>), so a program loaded over ZRCP gets its symbols and
 source map like <code>--load</code>, and a refused sidecar is logged to every client as a Warn line.
