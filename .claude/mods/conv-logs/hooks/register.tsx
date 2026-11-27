@@ -44,11 +44,12 @@ function bodyOf(text: unknown): string {
   return t.length > 6000 ? t.slice(0, 6000) + '\n\n(cut)' : t
 }
 
-function textOf(content: readonly unknown[]): string {
+// Each text block of a row, trimmed: a hidden row is matched block by block, by equality, never by
+// substring (a short reply to the person can be a substring of an earlier unrequested one).
+function blocksOf(content: readonly unknown[]): string[] {
   return content
-    .map(b => (b && typeof b === 'object' && (b as { type?: string }).type === 'text' ? String((b as { text?: string }).text ?? '') : ''))
+    .map(b => (b && typeof b === 'object' && (b as { type?: string }).type === 'text' ? String((b as { text?: string }).text ?? '').trim() : ''))
     .filter(Boolean)
-    .join('\n\n')
 }
 
 async function add($: EngineInterface, entry: Omit<LogEntry, 'id' | 'issues'>) {
@@ -144,9 +145,9 @@ export const register: Register = on => {
   on('session.append', async ($, e, next) => {
     const kept = await next(e)
     if (turnIsAuto && e.agentId === undefined && e.message.type === 'assistant') {
-      const text = textOf(e.message.content as readonly unknown[])
+      const blocks = blocksOf(e.message.content as readonly unknown[])
       lastAutoRow = e.uuid
-      await hide($, { rows: [e.uuid], texts: text ? [text] : [] })
+      await hide($, { rows: [e.uuid], texts: blocks })
     }
     return kept
   })
@@ -179,7 +180,8 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     const hid = await read($, hidden)
-    const isAuto = hid.rows.includes(e.requestId) || (e.props.text !== '' && hid.texts.some(t => t.includes(e.props.text)))
+    const block = e.props.text.trim()
+    const isAuto = hid.rows.includes(e.requestId) || (block !== '' && hid.texts.includes(block))
     if (isAuto) {
       if (!(await read($, isSplit))) return next(e)
       const { Box } = $.ui.resolve(e)

@@ -10,7 +10,7 @@ Nothing is configured by hand. It derives, at run time: the home directory from
 `$HOME`; the project name from the repository directory; the run directory (the
 newest `YYYY-MM-DD` under `~/tmp/autorun/<project>/`); the remote hosts and work
 dir from that run's `slot.sh` (`JNEXT_REMOTE_RUN_HOSTS` or `JNEXT_REMOTE_RUN_HOST`,
-and `JNEXT_REMOTE_RUN_DIR`); the milestone (the lowest-numbered open one); and the
+and `JNEXT_REMOTE_RUN_DIR`); the milestone (the lowest version among the open ones); and the
 repository owner from `gh repo view`. A piece that cannot be derived shows as
 "not configured" in the pane.
 

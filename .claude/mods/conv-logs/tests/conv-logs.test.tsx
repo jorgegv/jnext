@@ -82,3 +82,42 @@ test('a reply to the person links the log entries about the issues it names', as
   expect(await reply.find({ type: 'Button', key: 'to-L1' })).toBeDefined()
   await reply.unmount()
 })
+
+// An unrequested turn's assistant row is hidden from the conversation, by row id or by whole text block;
+// a block of a reply to the person that is only a SUBSTRING of a hidden one stays visible.
+const append = (uuid: string, ...texts: string[]) =>
+  ({ uuid, message: { type: 'assistant', content: texts.map(text => ({ type: 'text', text })) } }) as never
+
+for (const surface of ['vscode', 'desktop'] as const) {
+  test(`an unrequested turn's blocks are hidden, a substring in a person turn is not (${surface})`, async ($, on) => {
+    on('clock.now', () => ({ value: 1795700000000 }))
+    on('prompt.submit', (_, e) => ({ text: e.text }))
+    on('turn.start', (_, e) => ({ turnId: e.turnId }) as never)
+    on('ui.render', ($, e) => {
+      const { Text } = $.ui.resolve(e)
+      return <Text>engine row</Text>
+    })
+    await $.prompt.submit({ text: 'Agent "Plan GH #580" finished: GO', origin: { kind: 'task-notification' }, wait: false })
+    await $.turn.start({ text: '', turnId: 't1' } as never)
+    await $.session.append(append('row-hidden', '  Pushed the branch and ran the whole gate.  ', ' Done. '))
+
+    const reply = (requestId: string, text: string) =>
+      $.ui.mount({ plugin: 'conv-logs', component: 'AssistantMessage', requestId, surface, props: { text, isFirstOfReply: true } })
+
+    const byRow = await reply('row-hidden', 'anything')
+    expect(await byRow.find({ type: 'Text', text: /engine row/ })).toBeUndefined()
+    await byRow.unmount()
+
+    const byBlock = await reply('row-other', '  Done.  ')
+    expect(await byBlock.find({ type: 'Text', text: /engine row/ })).toBeUndefined()
+    await byBlock.unmount()
+
+    const sub = await reply('row-person', 'Pushed')
+    expect((await sub.find({ type: 'Text', text: /engine row/ }))?.text).toBe('engine row')
+    await sub.unmount()
+
+    const plain = await reply('row-person-2', 'Yes.')
+    expect((await plain.find({ type: 'Text', text: /engine row/ }))?.text).toBe('engine row')
+    await plain.unmount()
+  })
+}

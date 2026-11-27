@@ -26,6 +26,8 @@ const AGENTS = [
 test('a refresh lays out running, waiting, queue and remotes', async ($, on) => {
   on('clock.now', () => ({ value: 1795700000000 }))
   on('session.cwd', () => ({ value: '/work/proj' }))
+  on('env.get', () => ({ value: '/home/u' }))
+  const probedHosts: string[] = []
   on('fs.list', () => ({ value: [{ name: '2026-11-26', kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false }] }))
   on('fs.read', (_, e) => {
     const path = String((e as { path?: string }).path ?? '')
@@ -37,7 +39,10 @@ test('a refresh lays out running, waiting, queue and remotes', async ($, on) => 
   on('process.run', (_, e) => {
     const argv = (e as { argv: string[] }).argv
     const out = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
-    if (argv[0] === 'printenv') return out('/home/u\n')
+    if (argv[0].endsWith('remote-run.sh')) {
+      probedHosts.push((e as { init?: { env?: Record<string, string> } }).init?.env?.JNEXT_REMOTE_RUN_HOST ?? '')
+      return out('', 75)
+    }
     if (argv[0] === 'gh' && argv[1] === 'repo') return out('{"owner":{"login":"owner1"}}')
     if (argv[0] === 'gh' && argv[1] === 'api') return out('[{"number":9,"title":"v1.6"},{"number":7,"title":"v1.5"}]')
     if (argv[0] === 'gh' && argv[1] === 'issue')
@@ -65,6 +70,7 @@ test('a refresh lays out running, waiting, queue and remotes', async ($, on) => 
   expect(text).toContain('#579 SD rename: plan GO; HELD until #577 lands')
   expect(text).toContain('#590 A user bug')
   expect(await after.find({ type: 'Text', text: /^1\.$/ })).toBeDefined()
+  expect(probedHosts).toEqual(['host-a', 'host-b'])
   expect(text).toContain('host-a: all lanes busy')
   expect(text).toContain('load 3.10 2.00 1.00')
   await after.unmount()
@@ -72,12 +78,13 @@ test('a refresh lays out running, waiting, queue and remotes', async ($, on) => 
 
 test('with nothing in blocked.md the section says Nothing', async ($, on) => {
   on('clock.now', () => ({ value: 1795700000000 }))
-  on('session.cwd', () => ({ value: '/work/proj' }))
+  on('session.cwd', () => ({ value: '/work/proj2' }))
+  on('env.get', () => ({ value: '/home/u' }))
   on('fs.list', () => ({ value: [{ name: '2026-11-26', kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false }] }))
   on('fs.read', () => ({ value: '' }))
   on('process.run', (_, e) => {
     const argv = (e as { argv: string[] }).argv
-    const stdout = argv[0] === 'printenv' ? '/home/u' : argv[0] === 'gh' ? '[]' : ''
+    const stdout = argv[0] === 'gh' ? '[]' : ''
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   const ui = await $.ui.mount({ ...PANE, surface: 'vscode' })
@@ -96,7 +103,10 @@ test('the settings are derived from the environment, the repo, the run dir, slot
   const issueArgs: string[][] = []
   const read: string[] = []
   on('clock.now', () => ({ value: 1795700000000 }))
-  on('session.cwd', () => ({ value: '/work/wt/gh1' }))
+  const probeArgv0: string[] = []
+  let github = 0
+  on('session.cwd', () => ({ value: '/work/wt/gh1/src' }))
+  on('env.get', () => ({ value: '/home/pat' }))
   on('fs.list', (_, e) => {
     listed.push(String((e as { path?: string }).path))
     return { value: ['2026-11-25', '2026-11-27', '2026-11-26', 'notes'].map(name => ({ name, kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false })) }
@@ -110,10 +120,14 @@ test('the settings are derived from the environment, the repo, the run dir, slot
     const { argv, init } = e as { argv: string[]; init?: { env?: Record<string, string> } }
     const env = init?.env
     const out = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
-    if (argv[0] === 'printenv') return out('/home/pat\n')
+    if (argv[0] === 'git' && argv[2] === '--show-toplevel') return out('/work/wt/gh1\n')
     if (argv[0] === 'git' && argv[1] === 'rev-parse') return out('/work/myproj/.git\n')
-    if (argv[0] === 'gh' && argv[1] === 'repo') return out('{"owner":{"login":"acme"}}')
-    if (argv[0] === 'gh' && argv[1] === 'api') return out('[{"number":12,"title":"v2.0"},{"number":3,"title":"v1.1"}]')
+    if (argv[0] === 'gh' && argv[1] === 'repo') { github++; return out('{"owner":{"login":"acme"}}') }
+    // the number order (5 < 7 < 12) and the version order (v1.5 < v1.6, v1.10 last) disagree
+    if (argv[0] === 'gh' && argv[1] === 'api') {
+      github++
+      return out('[{"number":5,"title":"v1.6"},{"number":7,"title":"v1.5"},{"number":9,"title":"v1.10"},{"number":3,"title":"backlog"}]')
+    }
     if (argv[0] === 'gh' && argv[1] === 'issue') {
       issueArgs.push(argv)
       return out(JSON.stringify([
@@ -121,7 +135,7 @@ test('the settings are derived from the environment, the repo, the run dir, slot
         { number: 6, title: 'Outside feature', labels: [{ name: 'feature' }], author: { login: 'other' } },
       ]))
     }
-    if (argv[0].endsWith('remote-run.sh')) { probed.push({ host: env?.JNEXT_REMOTE_RUN_HOST ?? '', dir: env?.JNEXT_REMOTE_RUN_DIR ?? '' }); return out('') }
+    if (argv[0].endsWith('remote-run.sh')) { probeArgv0.push(argv[0]); probed.push({ host: env?.JNEXT_REMOTE_RUN_HOST ?? '', dir: env?.JNEXT_REMOTE_RUN_DIR ?? '' }); return out('') }
     return out('[]')
   })
   const ui = await $.ui.mount({ ...PANE, surface: 'vscode' })
@@ -131,17 +145,22 @@ test('the settings are derived from the environment, the repo, the run dir, slot
   const text = (await after.findAll({ type: 'Text' })).map(m => m.text).join('\n')
   expect(listed).toContain('/home/pat/tmp/autorun/myproj')
   expect(read).toContain('/home/pat/tmp/autorun/myproj/2026-11-27/slot.sh')
-  expect(issueArgs[0]).toContain('v1.1')
+  expect(issueArgs[0]).toContain('v1.5')
+  expect(probeArgv0).toEqual(['/work/wt/gh1/.claude/skills/remote-run/remote-run.sh'])
+  expect(github).toBe(2)
   expect(probed).toEqual([{ host: 'solo', dir: '~/rr/' }])
   expect(text).toContain('solo: a lane is free')
   // the maintainer's feature (author = repo owner) ranks after the outside one
   expect(text.indexOf('#6 Outside feature')).toBeLessThan(text.indexOf('#5 Maintainer feature'))
+  await after.press({ key: 'refresh' })
+  expect(github).toBe(2) // the owner and the milestone are asked once per session
   await after.unmount()
 })
 
 test('what cannot be derived shows as not configured, without a crash', async ($, on) => {
   on('clock.now', () => ({ value: 1795700000000 }))
-  on('session.cwd', () => ({ value: '/work/proj' }))
+  on('session.cwd', () => ({ value: '/work/none' }))
+  on('env.get', () => ({ value: undefined }))
   on('fs.list', () => { throw new Error('no such dir') })
   on('fs.read', () => { throw new Error('no such file') })
   on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: 'nope', isStdoutTruncated: false, isStderrTruncated: false } }))
@@ -153,5 +172,7 @@ test('what cannot be derived shows as not configured, without a crash', async ($
   expect(text).toContain('run directory: not configured')
   expect(text).toContain('milestone: not configured')
   expect(text).toContain('remote hosts: not configured')
+  // a failing derivation command is "not configured", never a "Could not read" line
+  for (const word of ['rev-parse', 'gh repo', 'gh api']) expect(text).not.toContain(word)
   await after.unmount()
 })

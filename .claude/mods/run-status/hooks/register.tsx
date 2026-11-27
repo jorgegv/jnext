@@ -148,25 +148,50 @@ async function newestRunDir($: EngineInterface, autorun: string) {
   }
 }
 
+// The version in a milestone title (`v1.5`, `1.10.2`) as numbers, undefined when the title has none.
+function versionOf(title: string): number[] | undefined {
+  const m = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(title)
+  return m === null ? undefined : [Number(m[1]), Number(m[2] ?? 0), Number(m[3] ?? 0)]
+}
+
+// The working milestone: the lowest version among the open ones; titles without a version come after,
+// ordered by milestone number.
+export function lowestMilestone(ms: { number: number; title: string }[]): string | undefined {
+  const rank = (a: { number: number; title: string }, b: { number: number; title: string }) => {
+    const va = versionOf(a.title)
+    const vb = versionOf(b.title)
+    if (va === undefined || vb === undefined) return va === vb ? a.number - b.number : va === undefined ? 1 : -1
+    for (let i = 0; i < 3; i++) if (va[i] !== vb[i]) return (va[i] ?? 0) - (vb[i] ?? 0)
+    return a.number - b.number
+  }
+  return [...ms].sort(rank)[0]?.title
+}
+
+// The owner and the milestone come from GitHub and change rarely: asked once per session, per repo.
+const fromGitHub = new Map<string, { owner?: string; milestone?: string }>()
+
 // Derive the settings at run time: nothing about the machine or the owner is written in the module.
 export async function derive($: EngineInterface, errors: string[]): Promise<Settings> {
-  const repo = await $.session.cwd()
-  const out = async (argv: string[]) => {
-    const r = await run($, repo, argv, errors, undefined, true)
+  const cwd = await $.session.cwd()
+  const outIn = async (dir: string, argv: string[]) => {
+    const r = await run($, dir, argv, errors, undefined, true)
     return r !== undefined && r.exitCode === 0 ? r.stdout.trim() : ''
   }
-  const home = (await out(['printenv', 'HOME'])) || undefined
+  const repo = (await outIn(cwd, ['git', 'rev-parse', '--show-toplevel'])) || cwd
+  const out = (argv: string[]) => outIn(repo, argv)
+  const home = (await $.env.get('HOME')) || undefined
   const common = await out(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'])
   const project = common !== '' ? lastSegment(common.replace(/\/\.git\/?$/, '')) : lastSegment(repo)
 
-  let owner: string | undefined
-  try { owner = (JSON.parse(await out(['gh', 'repo', 'view', '--json', 'owner'])) as { owner?: { login?: string } }).owner?.login } catch { /* not configured */ }
-
-  let milestone: string | undefined
-  try {
-    const ms = JSON.parse(await out(['gh', 'api', 'repos/{owner}/{repo}/milestones?state=open&per_page=100'])) as { number: number; title: string }[]
-    milestone = [...ms].sort((a, b) => a.number - b.number)[0]?.title
-  } catch { /* not configured */ }
+  const known = fromGitHub.get(repo) ?? {}
+  let { owner, milestone } = known
+  if (owner === undefined) {
+    try { owner = (JSON.parse(await out(['gh', 'repo', 'view', '--json', 'owner'])) as { owner?: { login?: string } }).owner?.login } catch { /* not configured */ }
+  }
+  if (milestone === undefined) {
+    try { milestone = lowestMilestone(JSON.parse(await out(['gh', 'api', 'repos/{owner}/{repo}/milestones?state=open&per_page=100'])) as { number: number; title: string }[]) } catch { /* not configured */ }
+  }
+  fromGitHub.set(repo, { ...(owner === undefined ? {} : { owner }), ...(milestone === undefined ? {} : { milestone }) })
 
   const autorun = home === undefined ? undefined : `${home}/tmp/autorun/${project}`
   const runDir = autorun === undefined ? undefined : await newestRunDir($, autorun)

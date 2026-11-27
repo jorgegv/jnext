@@ -2,8 +2,9 @@
 
 A Claude Code mod that keeps the conversation to what you asked. Everything that
 arrives unrequested (a background task's notification, another agent's hand-back)
-and the turn Claude runs in answer to it moves to a Logs pane beside the chat. Each
-log entry links to the place in the conversation it came from, and a reply that
+and the turn Claude runs in answer to it moves to a Logs pane beside the chat. A log
+entry for one of Claude's replies links to the place in the conversation it came
+from, and a reply that
 names an issue links to the entries about that issue.
 
 ## Commands
