@@ -1,3 +1,4 @@
+import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 const PANE = {
@@ -208,7 +209,7 @@ test('a busy flag left in state by a reload does not block Refresh', async ($, o
 })
 
 // A world whose `gh run list` (one per gather) counts and then holds for holdMs(n) on the mocked clock.
-function world(on: Parameters<Parameters<typeof test>[1]>[1], sleep: (ms: number) => Promise<void>, holdMs: (n: number) => number) {
+function world(on: On, sleep: (ms: number) => Promise<void>, holdMs: (n: number) => number) {
   on('session.cwd', () => ({ value: '/work/guard' }))
   on('env.get', () => ({ value: '/home/u' }))
   on('fs.list', () => ({ value: [{ name: '2026-11-26', kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false }] }))
@@ -282,6 +283,7 @@ test('a lost refresh that ends late does not release the live one', async ($, on
   await ui.press({ key: 'refresh' })
   await clock.settle()
   expect(c.gathered).toBe(2) // the second still holds the guard
+  expect(await ui.find({ type: 'Text', text: 'refreshing...' })).toBeDefined()
   await ui.unmount()
 })
 
