@@ -11,14 +11,14 @@
 # remote lane, long or short, and runs here only when every lane is busy) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-70. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-78. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=70
+EXPECTED_ROWS=78
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -90,17 +90,27 @@ echo "make $*" >> "$STATE/make-calls"
 echo "MF=[${MAKEFLAGS-}] U=${JNEXT_UNIT_TEST_JOBS-unset} T=${JNEXT_TEST_JOBS-unset}" >> "$STATE/make-env"
 exit "${MAKE_RC:-0}"
 EOF
-# driver stub: records its arguments and the two environment variables slot.sh must set, exits STUB_RC.
+# driver stub: --make-patch is the REAL driver (slot.sh asks it for the patch); a --patch FILE is copied (the file is
+# removed when slot.sh returns); records its arguments and the two environment variables slot.sh must set, exits STUB_RC.
 cat > "$TMP/rr-stub" <<'EOF'
 #!/usr/bin/env bash
 # --probe: record the host asked, say busy (75) for a host listed in STUB_BUSY_HOSTS, else free (0). Not an rr-calls entry.
 if [[ "${1:-}" == --probe ]]; then
     echo "${JNEXT_REMOTE_RUN_HOST:-unset}" >> "$STATE/probe-calls"
+    # STUB_MOVE_REF="<worktree> <ref> <sha>": a concurrent push or fetch moves a shared tracking ref while the probe's ssh round trip runs
+    [[ -z "${STUB_MOVE_REF:-}" ]] || { read -r mw mr ms <<<"$STUB_MOVE_REF"; git -C "$mw" update-ref "$mr" "$ms"; }
     # STUB_BUSY_FIRST=N: busy for the first N probes of the whole run, free after (a lane that frees up later)
     [[ -z "${STUB_BUSY_FIRST:-}" || $(wc -l < "$STATE/probe-calls") -gt "$STUB_BUSY_FIRST" ]] || exit 75
     [[ " ${STUB_BUSY_HOSTS:-} " != *" ${JNEXT_REMOTE_RUN_HOST:-} "* ]] || exit 75
     exit 0
 fi
+if [[ "${1:-}" == --make-patch ]]; then exec bash "$REAL_DRIVER" "$@"; fi
+prev=""
+for a in "$@"; do
+    [[ "$prev" != --patch ]] || { cp "$a" "$STATE/patch-copy"; echo "$a" >> "$STATE/patch-files"; }
+    prev=$a
+done
+[[ -z "${STUB_SLEEP:-}" ]] || sleep "$STUB_SLEEP"
 { echo "ARGS $*"; echo "HOST=${JNEXT_REMOTE_RUN_HOST:-unset}"; echo "NO_OVERFLOW=${JNEXT_SLOT_NO_OVERFLOW:-unset}"; echo "WRAP=${REMOTE_RUN_LOCAL_WRAP:-unset}"; echo "BASE_REPO=${REMOTE_RUN_BASE_REPO:-unset}"; } >> "$STATE/rr-calls"
 echo "MF=[${MAKEFLAGS-}] U=${JNEXT_UNIT_TEST_JOBS-unset} T=${JNEXT_TEST_JOBS-unset}" >> "$STATE/rr-env"
 echo "stub driver ran"
@@ -120,6 +130,7 @@ echo "\$*" >> "$TMP/state/nice-calls"
 exec "$(command -v nice)" "\$@"
 EOF
 chmod +x "$TMP/bin/git" "$TMP/bin/make" "$TMP/bin/nice" "$TMP/rr-stub"
+export REAL_DRIVER=$ROOT/.claude/skills/remote-run/remote-run.sh
 export STATE=$TMP/state PATH="$TMP/bin:$PATH"
 export JNEXT_SLOT_REMOTE_RUN=$TMP/rr-stub JNEXT_SLOT_LOADAVG=$TMP/loadavg JNEXT_SLOT_POLL=0.2
 export JNEXT_SLOT_LOAD_LIMIT=12 JNEXT_REMOTE_RUN_HOST=fakehost JNEXT_SLOT_REMOTE_LOG_DIR=$TMP/rrlogs
@@ -138,7 +149,7 @@ CLEANSLOTS=$TMP/slots
 
 set_load() { echo "$1 1.00 1.00 1/100 1" > "$TMP/loadavg"; }
 fresh() {   # fresh slot dir, low load, empty records
-    rm -rf "$CLEANSLOTS" "$STATE"/rr-calls "$STATE"/make-calls "$STATE"/git-calls "$STATE"/probe-calls "$STATE"/make-env "$STATE"/rr-env "$TMP/rrlogs"
+    rm -rf "$CLEANSLOTS" "$STATE"/rr-calls "$STATE"/make-calls "$STATE"/git-calls "$STATE"/probe-calls "$STATE"/make-env "$STATE"/rr-env "$STATE"/patch-copy "$STATE"/patch-files "$TMP/rrlogs"
     mkdir -p "$CLEANSLOTS"; set_load 1.00
 }
 slot() { timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" "$@"; }
@@ -813,6 +824,115 @@ echo 2 > "$CLEANSLOTS/NSLOTS"
 o62=$(mkf "JOBS=7" env JOBS=3 make -C "$RM")
 row SLOT-62 "$([[ "$o62" == *"seen-JOBS=7"* && "$o62" == *"JOBS=caller's MAKEFLAGS"* ]] && echo 1 || echo 0)" \
     "MAKEFLAGS JOBS=7 plus env JOBS=3 make: make sees 7 and the log says the caller's MAKEFLAGS"
+
+# ---- patch runs: mutants on the remote (GH #565) -------------------------------------------------------------
+# Oracle: the owner's wanted list in the issue (a reviewer's mutant goes to a free remote lane as a patch on the pushed
+# commit; the run is a mutant or nothing) and slot.sh's header, PATCH RUNS. Mutants are detached worktrees of WT at
+# the pushed issue-branch tip with an uncommitted edit; the stub driver's --make-patch is the real one.
+git -C "$WT" checkout -q gh900-demo
+git -C "$WT" push -q origin gh900-demo
+MSHA=$(git -C "$WT" rev-parse HEAD)
+mkmut() {   # mkmut <name>: a detached worktree at the pushed tip with one untracked file; sets MUT
+    MUT=$TMP/$1; git -C "$WT" worktree add -q --detach "$MUT" gh900-demo; echo mutant > "$MUT/mutant.txt"
+}
+
+# SLOT-71: --patch on a detached mutant at the pushed tip: the driver gets the branch, the sha, --patch <file> named
+# after the worktree and --fallback-local <worktree>; the patch carries the edit; nothing is pushed; the file is
+# removed afterwards; two concurrent mutants of one branch use different patch files and run ids
+fresh; mkmut mut71a; MA=$MUT; mkmut mut71b; MB=$MUT
+: > "$STATE/git-calls"
+out=$(slot --patch env LANG=C make -C "$MA" unit-test JNEXT_SUITE_VMEM_KB=3145728 2>&1); rc=$?
+c71=$(rr_calls); pf=$(grep -o -- '--patch [^ ]*' <<<"$c71" | cut -d' ' -f2)
+hdr=$(head -n 1 "$STATE/patch-copy" 2>/dev/null)
+row_a=$([[ $rc -eq 0 && "$c71" == *"--fallback-local $MA "*"--patch $CLEANSLOTS/patches/mut71a-"*".patch --keep-going --id gh900-demo-"* \
+    && "$c71" == *"gh900-demo $MSHA unit-test JNEXT_SUITE_VMEM_KB=3145728"* && "$hdr" == "# remote-run patch: base $MSHA tree "* \
+    && "$(grep -c '^diff --git a/mutant.txt b/mutant.txt$' "$STATE/patch-copy")" -eq 1 && ! -e "$pf" && -n "$pf" && ! -e "$STATE/make-calls" ]] \
+    && ! grep -qE '(^| )push( |$)' "$STATE/git-calls" && echo 1 || echo 0)
+rm -f "$STATE/rr-calls" "$STATE/patch-files"
+( STUB_SLEEP=3 slot --patch env LANG=C make -C "$MA" unit-test >/dev/null 2>&1 ) &
+p1=$!
+( STUB_SLEEP=3 slot --patch env LANG=C make -C "$MB" unit-test >/dev/null 2>&1 ) &
+p2=$!
+wait "$p1" "$p2"
+ids=$(grep -o -- '--id [^ ]*' "$STATE/rr-calls" | sort -u | wc -l); files=$(sort -u "$STATE/patch-files" | wc -l)
+row SLOT-71 "$([[ $row_a -eq 1 && $ids -eq 2 && $files -eq 2 ]] && echo 1 || echo 0)" \
+    "--patch on a detached mutant: driver gets branch, sha, --patch <worktree>-named file, --fallback-local, the make variable; the patch holds the edit; no push; file removed; two concurrent mutants use 2 files and 2 ids (single:$row_a ids:$ids files:$files)"
+
+# SLOT-72: a --patch run on a worktree with no change is refused, whatever else applies: it would test the unmutated tree
+fresh; mkmut mut72; rm -f "$MUT/mutant.txt"
+bad72=""
+for v in "none" "JNEXT_SLOT_NO_OVERFLOW=1" "-u JNEXT_REMOTE_RUN_HOST"; do
+    rm -f "$STATE/rr-calls" "$STATE/make-calls"
+    if [[ $v == none ]]; then out=$(slot --patch env LANG=C make -C "$MUT" unit-test 2>&1); rc=$?
+    else out=$(env $v timeout --kill-after=5s 60s "$SLOT" --dir "$CLEANSLOTS" --patch env LANG=C make -C "$MUT" unit-test 2>&1); rc=$?; fi
+    [[ $rc -eq 2 && "$out" == *"PATCH REFUSED: "*"carries no change"* && -z "$(rr_calls)" && ! -e "$STATE/make-calls" ]] || bad72+=" [$v](rc=$rc)"
+done
+row SLOT-72 "$([[ -z "$bad72" ]] && echo 1 || echo 0)" \
+    "--patch with a clean worktree is exit 2 PATCH REFUSED, nothing run, also with JNEXT_SLOT_NO_OVERFLOW and with no host set (bad:$bad72)"
+
+# SLOT-73: --patch needs the make -C <worktree> shape: anything else is exit 2 and is not run
+fresh; mkmut mut73
+rm -f "$TMP/ran73"
+slot --patch bash -c "touch $TMP/ran73" >"$TMP/o73a" 2>&1; ra=$?
+slot --patch cmake --build x >"$TMP/o73b" 2>&1; rb=$?
+slot --patch env FOO=1 make -C "$MUT" unit-test >"$TMP/o73c" 2>&1; rc_c=$?
+row SLOT-73 "$([[ $ra -eq 2 && $rb -eq 2 && $rc_c -eq 2 && ! -e "$TMP/ran73" && ! -e "$STATE/make-calls" && -z "$(rr_calls)" \
+    && "$(cat "$TMP/o73a")" == *"PATCH REFUSED: --patch needs make -C <worktree>"* ]] && echo 1 || echo 0)" \
+    "--patch with a non-make command, cmake, or another environment word is exit 2 and runs nothing ($ra $rb $rc_c)"
+
+# SLOT-74: the base is the ONE issue branch of origin at HEAD: a HEAD with a local commit on top, or two issue branches
+# at HEAD, runs here in the mutant (no push, no driver call) and says why
+fresh; mkmut mut74a; git -C "$MUT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m local; MA=$MUT
+git -C "$WT" push -q origin gh900-demo:refs/heads/gh901-other; git -C "$WT" fetch -q origin
+mkmut mut74b; MB=$MUT
+# (a tip that only a NON-issue branch of origin points at, epic9-x, is no base either: case c below)
+mkmut mut74c; git -C "$MUT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m epicwork; MC=$MUT
+git -C "$MC" push -q origin HEAD:refs/heads/epic9-x; git -C "$WT" fetch -q origin
+: > "$STATE/git-calls"
+out_a=$(slot --patch env LANG=C make -C "$MA" unit-test 2>&1); rc_a=$?; mk_a=$(cat "$STATE/make-calls" 2>/dev/null); rm -f "$STATE/make-calls"
+out_b=$(slot --patch env LANG=C make -C "$MB" unit-test 2>&1); rc_b=$?; mk_b=$(cat "$STATE/make-calls" 2>/dev/null)
+git -C "$TMP/origin.git" branch -q -D gh901-other; git -C "$WT" update-ref -d refs/remotes/origin/gh901-other
+rm -f "$STATE/make-calls"
+out_c=$(slot --patch env LANG=C make -C "$MC" unit-test 2>&1); rc_c=$?; mk_c=$(cat "$STATE/make-calls" 2>/dev/null)
+git -C "$TMP/origin.git" branch -q -D epic9-x; git -C "$WT" update-ref -d refs/remotes/origin/epic9-x
+row SLOT-74 "$([[ $rc_a -eq 0 && "$mk_a" == "make -C $MA unit-test" && "$out_a" == *"not sent to the remote: no issue branch on origin is at HEAD (push it first)"* \
+    && $rc_b -eq 0 && "$mk_b" == "make -C $MB unit-test" && "$out_b" == *"several issue branches on origin are at HEAD (gh900-demo gh901-other)"* \
+    && $rc_c -eq 0 && "$mk_c" == "make -C $MC unit-test" && "$out_c" == *"no issue branch on origin is at HEAD"* \
+    && -z "$(rr_calls)" ]] && ! grep -qE '(^| )push( |$)' "$STATE/git-calls" && echo 1 || echo 0)" \
+    "no origin issue branch at HEAD, only a non-issue one (epic9-x), or two issue branches: the mutant runs here with the reason, no push, no driver call (rc $rc_a/$rc_b/$rc_c)"
+
+# SLOT-75: state a patch cannot carry (an untracked embedded repository): --make-patch refuses, the mutant runs here
+fresh; mkmut mut75
+git init -q "$MUT/emb"; echo e > "$MUT/emb/e"; git -C "$MUT/emb" add e; git -C "$MUT/emb" -c user.name=t -c user.email=t@t commit -qm e
+out=$(slot --patch env LANG=C make -C "$MUT" unit-test 2>&1); rc=$?
+row SLOT-75 "$([[ $rc -eq 0 && "$out" == *"not sent to the remote: --make-patch: a submodule or an embedded repository changed"* && -z "$(rr_calls)" \
+    && "$(cat "$STATE/make-calls")" == "make -C $MUT unit-test" ]] && echo 1 || echo 0)" \
+    "an embedded repository in the mutant: --make-patch exits 2, the run is local with that reason and the driver is not called (rc=$rc)"
+
+# SLOT-76: every host busy: the mutant runs here in its worktree; a free host whose driver exits 2 (PATCH REFUSED): exit 2, nothing here
+fresh; mkmut mut76
+out=$(STUB_BUSY_HOSTS=fakehost slot --patch env LANG=C make -C "$MUT" unit-test 2>&1); rc=$?
+r76a=$([[ $rc -eq 0 && -z "$(rr_calls)" && "$(cat "$STATE/make-calls")" == "make -C $MUT unit-test" ]] && echo 1 || echo 0)
+rm -f "$STATE/make-calls" "$STATE/rr-calls"
+out=$(STUB_RC=2 slot --patch env LANG=C make -C "$MUT" unit-test 2>&1); rc2=$?
+row SLOT-76 "$([[ $r76a -eq 1 && $rc2 -eq 2 && -n "$(rr_calls)" && ! -e "$STATE/make-calls" ]] && echo 1 || echo 0)" \
+    "--patch with every host busy runs here in the mutant; a driver exit 2 is slot.sh's exit 2 and nothing runs here (busy:$r76a rc=$rc2)"
+
+# SLOT-77: patch mode is opt-in: the same dirty detached mutant without --patch runs here with the detached-HEAD reason
+fresh; mkmut mut77
+out=$(slot env LANG=C make -C "$MUT" unit-test 2>&1); rc=$?
+row SLOT-77 "$([[ $rc -eq 0 && -z "$(rr_calls)" && ! -e "$STATE/probe-calls" && "$out" == *"not sent to the remote: detached HEAD"* \
+    && "$(cat "$STATE/make-calls")" == "make -C $MUT unit-test" ]] && echo 1 || echo 0)" \
+    "without --patch a dirty detached mutant stays local with the detached-HEAD reason and the driver is not called (rc=$rc)"
+
+# SLOT-78: patch mode NEVER pushes, even when the shared tracking ref moves between the eligibility check and the send (a concurrent
+# push or fetch during the probe's ssh round trip): the check `origin/<b> != HEAD` would then push the AUTHOR's local branch from a reviewer's worktree
+fresh; mkmut mut78
+: > "$STATE/git-calls"
+out=$(STUB_MOVE_REF="$WT refs/remotes/origin/gh900-demo $(git -C "$WT" rev-parse gh900-demo~1)" slot --patch env LANG=C make -C "$MUT" unit-test 2>&1); rc=$?
+git -C "$WT" update-ref refs/remotes/origin/gh900-demo "$MSHA"
+row SLOT-78 "$([[ $rc -eq 0 && "$(rr_calls)" == *"--patch "* && ! -e "$STATE/make-calls" ]] && ! grep -qE '(^| )push( |$)' "$STATE/git-calls" && echo 1 || echo 0)" \
+    "--patch with the tracking ref moved during the probe: the run still goes to the driver and nothing is pushed (rc=$rc)"
 
 # SLOT-32: the contract does not depend on the caller's environment: this whole test, run again with the
 # driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green and

@@ -9,7 +9,7 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-53. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-74. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -17,7 +17,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=53
+EXPECTED_ROWS=74
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -44,7 +44,7 @@ finish() {
 }
 
 missing=()
-for t in git flock timeout tar sha256sum; do
+for t in git flock timeout tar sha256sum base64 perl; do
     command -v "$t" >/dev/null 2>&1 || missing+=("$t")
 done
 if [[ ${#missing[@]} -gt 0 ]]; then
@@ -57,6 +57,7 @@ fi
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/remote-run-test.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 export HOME=$TMP/home
+unset MAKEFLAGS MFLAGS   # run under make, the caller's MAKEFLAGS would reach the sh: steps (RRUN-69)
 mkdir -p "$HOME" "$TMP/bin" "$TMP/state"
 # RRUN-38's run: the whole test again, started now so it overlaps the rest, under a polluted environment
 [[ -n "${SKILLTEST_INNER:-}" ]] || polluted_selfrun "${BASH_SOURCE[0]}" "$TMP/polluted"
@@ -151,6 +152,7 @@ EOF
 cat > "$TMP/bin/make" <<'EOF'
 #!/usr/bin/env bash
 echo "make $*" >> "$FAKE_STATE/make-calls"
+echo "MF=[${MAKEFLAGS-}] args=$*" >> "$FAKE_STATE/make-env"
 [[ " $* " != *" readstdin "* ]] || cat > /dev/null
 [[ " $* " != *" tot1 "* ]] || echo "Total:    4  Passed:    4  Failed:    0  Skipped:    0"
 [[ " $* " != *" tot2 "* ]] || echo "  Pass: 7  Fail: 0  Skip: 0"
@@ -922,6 +924,351 @@ drive_in --id b53b --base-repo "$NOMAINLOC" gh52 "$B2_SHA" unit-test
 row RRUN-53 "$([[ "$mb53" == "$MAIN_SHA" && "$o53" == *"none sent (--gate compares against origin/main)"* && "$o53" != *"merge-base"* \
     && "$OUT" == *"none computed (no local main in $NOMAINLOC"* && "$MBX" == "$MAIN_SHA" ]] && echo 1 || echo 0)" \
     "--gate sends no base ($mb53, rc $rc53); a repository without main logs 'none computed' with the directory"
+
+# ---- patch runs: mutants on the remote as a patch on the pushed commit (GH #565) --------------------------------
+# Oracle: the owner's wanted list in the issue (an applied patch is named in the summary; a patch that does not
+# apply is refused; the run either runs the mutant, proven, or does not run) and the exit-code contract of the
+# remote-run SKILL.md (2 = usage or PATCH REFUSED, never a verdict). The fixture is a second origin whose commit
+# holds one file of every content class a text diff can lose. No VHDL: this is tooling.
+PREPO=$TMP/porigin
+git clone -q "$REPO" "$PREPO"
+PD=$PREPO/pdir; ALPHA_REL=$(printf 'sub dir/\303\244lpha.txt'); mkdir -p "$PD/sub dir" "$TMP/outside"
+printf 'alpha\nbeta\n' > "$PD/text.txt"
+perl -e 'print map chr, 0..255' > "$PD/bin.dat"
+echo gone > "$PD/gone.txt"; echo ren > "$PD/ren.txt"; printf '#!/bin/sh\n' > "$PD/run.sh"
+printf 'alpha\n' > "$PD/$ALPHA_REL"; printf 'plain\n' > "$PD/latin.txt"; printf 'x\n' > "$PD/trail.txt"
+ln -s text.txt "$PD/link"; ln -s "$TMP/outside" "$PD/outlink"
+git -C "$PREPO" checkout -q -b pbase
+git -C "$PREPO" add -A
+git -C "$PREPO" -c user.name=t -c user.email=t@t commit -qm "patch fixture"
+PSHA=$(git -C "$PREPO" rev-parse HEAD)
+pdrive() { REMOTE_RUN_REPO_URL="file://$PREPO" drive "$@"; }
+mk_mut() { git clone -q "$PREPO" "$1" && git -C "$1" checkout -q --detach "$PSHA"; }   # mk_mut <dir>: a mutant worktree at the pushed commit
+edit_all() {   # edit_all <dir>: one edit of every content class (text, binary, delete, rename, mode, symlink, CR LF, Latin-1, no final newline, new file)
+    local d=$1/pdir
+    printf 'alpha\nbeta\ngamma\n' > "$d/text.txt"
+    perl -e 'print map chr, reverse 0..255' > "$d/bin.dat"
+    rm -f "$d/gone.txt"; mv "$d/ren.txt" "$d/ren2.txt"; chmod +x "$d/run.sh"
+    printf 'alpha\nbeta\n' > "$d/$ALPHA_REL"; printf 'caf\351\n' > "$d/latin.txt"; printf 'x  \nno newline' > "$d/trail.txt"
+    printf 'a\r\nb\r\n' > "$d/crlf.txt"; printf 'fresh\n' > "$d/new.txt"; ln -sfn bin.dat "$d/link"
+}
+mkpatch() { bash "$DRIVER" --make-patch "$1" > "$2" 2> "$2.err"; }   # mkpatch <dir> <file>
+# what the tree holds, printed identically in the mutant clone and in the remote run tree
+INSPECT='echo INSPECT-BEGIN; cd pdir || exit 9; for f in text.txt bin.dat gone.txt ren.txt ren2.txt run.sh "sub dir"/*.txt latin.txt trail.txt crlf.txt new.txt link; do if [ -L "$f" ]; then echo "L $(readlink "$f") $f"; elif [ -e "$f" ]; then echo "$(sha256sum < "$f") $(stat -c %a "$f") $f"; else echo "absent $f"; fi; done; git status --porcelain | LC_ALL=C sort; echo INSPECT-END'
+inspect_block() { sed -n '/^INSPECT-BEGIN$/,/^INSPECT-END$/p' "$1"; }
+no_run() { ! grep -qE '(^| )run ' <<<"$(calls)"; }
+mk_mut "$TMP/mutA"; edit_all "$TMP/mutA"
+mkpatch "$TMP/mutA" "$TMP/pA.patch"; rcA=$?
+PA_TREE=$(sed -n '1s/.* tree //p' "$TMP/pA.patch"); PA_SHA=$(sha256sum < "$TMP/pA.patch" | cut -d' ' -f1)
+local_block=$(cd "$TMP/mutA" && bash -c "$INSPECT")
+
+# RRUN-54: --make-patch is canonical whatever the caller's git configuration says, and writes nothing
+mk_mut "$TMP/mutH"; edit_all "$TMP/mutH"
+git -C "$TMP/mutH" config diff.noprefix true; git -C "$TMP/mutH" config color.ui always
+git -C "$TMP/mutH" config diff.external false; git -C "$TMP/mutH" config diff.relative true
+git -C "$TMP/mutH" config diff.hostile.textconv false
+printf '*.txt diff=hostile\n' >> "$TMP/mutH/.git/info/attributes"
+git -C "$TMP/mutH" status --porcelain > "$TMP/st-before"; idx_before=$(sha256sum < "$TMP/mutH/.git/index")
+mkpatch "$TMP/mutH" "$TMP/pH.patch"; rcH=$?
+git -C "$TMP/mutH" status --porcelain > "$TMP/st-after"; idx_after=$(sha256sum < "$TMP/mutH/.git/index")
+mk_mut "$TMP/fresh54"
+fa=0; git -C "$TMP/fresh54" apply --check "$TMP/pH.patch" 2>/dev/null && fa=1
+esc=0; grep -q "$(printf '\033')" "$TMP/pH.patch" && esc=1
+same54=0; cmp -s "$TMP/pA.patch" "$TMP/pH.patch" && same54=1
+mk_mut "$TMP/clean54"; mkpatch "$TMP/clean54" "$TMP/pC54.patch"; rc_clean=$?
+mkdir -p "$TMP/notrepo"; mkpatch "$TMP/notrepo" "$TMP/pN54.patch"; rc_nonrepo=$?
+mkpatch "$TMP/mutA/pdir" "$TMP/pS54.patch"; rc_subdir=$?   # a subdirectory would carry a PARTIAL mutant under a partial tree id
+row RRUN-54 "$([[ $rcA -eq 0 && $rcH -eq 0 && "$(head -n 1 "$TMP/pH.patch")" =~ ^"# remote-run patch: base $PSHA tree "[0-9a-f]{40}$ \
+    && $fa -eq 1 && $esc -eq 0 && "$(grep -c '^diff --git a/pdir/text.txt b/pdir/text.txt$' "$TMP/pH.patch")" -eq 1 && $same54 -eq 1 \
+    && "$idx_before" == "$idx_after" && "$(cat "$TMP/st-before")" == "$(cat "$TMP/st-after")" \
+    && $rc_clean -eq 2 && ! -s "$TMP/pC54.patch" && -s "$TMP/pC54.patch.err" && $rc_nonrepo -eq 2 && ! -s "$TMP/pN54.patch" && $rc_subdir -eq 2 && ! -s "$TMP/pS54.patch" && "$(cat "$TMP/pS54.patch.err")" == *"not the top of a git work tree"* ]] && echo 1 || echo 0)" \
+    "--make-patch: header base/tree, a/ b/ prefixes, no escapes, applies in a fresh clone and equals the plain clone's patch under diff.noprefix/color.ui/diff.external/diff.relative/a textconv; the real index and status are untouched; a clean tree, a non-repository or a subdirectory of a work tree is exit 2 with empty stdout (rc=$rcH)"
+
+# RRUN-55: a patch run applies the whole mutant to the run tree as uncommitted changes, whatever the remote's own git
+# configuration (apply.whitespace=error; an excludesFile that lists the new file), logging the applied line before the start
+printf '[apply]\n\twhitespace = error\n[core]\n\texcludesFile = %s\n' "$TMP/hostile-excludes" > "$TMP/hostile.cfg"
+printf 'new.txt\n' > "$TMP/hostile-excludes"
+reset_state
+FAKE_INNER=1 GIT_CONFIG_GLOBAL=$TMP/hostile.cfg pdrive --id p55 --patch "$TMP/pA.patch" pbase "$PSHA" "sh:$INSPECT"
+rc55=$RC; o55=$OUT; remote_block=$(inspect_block "$TMP/logs/p55.log")
+# the excludesFile hides new.txt from the remote's own `git status` (that is its job here), not from the tree
+expect_block=$(grep -v '^?? pdir/new.txt$' <<<"$local_block")
+ap=$(grep -an '^=== remote-run patch applied:' "$TMP/logs/p55.log" | head -n 1 | cut -d: -f1); st=$(grep -an '^=== remote-run started$' "$TMP/logs/p55.log" | head -n 1 | cut -d: -f1)
+row RRUN-55 "$([[ $rc55 -eq 0 && "$o55" == *"verdict: CLEAN"* && -n "$remote_block" && "$remote_block" == "$expect_block" && "$remote_block" == *" 644 new.txt"* \
+    && "$local_block" == *"absent gone.txt"* && "$local_block" == *" 755 run.sh"* && "$local_block" == *"?? pdir/new.txt"* && "$local_block" == *"L bin.dat link"* \
+    && "$remote_block" == *"absent ren.txt"* && "$remote_block" == *"?? pdir/ren2.txt"* && -n "$ap" && -n "$st" && $ap -lt $st ]] && echo 1 || echo 0)" \
+    "a patch run puts every edit class in the run tree exactly as in the mutant (uncommitted, new file untracked, mode, binary, CR LF, Latin-1, spaced UTF-8 name) under apply.whitespace=error and an excludesFile, and logs 'applied' before 'started' (rc=$rc55)"
+
+# RRUN-56: a patch that does not apply at the commit is exit 2 PATCH REFUSED, never a run, never a local fallback
+git clone -q "$PREPO" "$TMP/mk56"; git -C "$TMP/mk56" checkout -q -b pbase2 "$PSHA"
+printf 'ALPHA\nbeta\n' > "$TMP/mk56/pdir/text.txt"; git -C "$TMP/mk56" -c user.name=t -c user.email=t@t commit -qam second
+PSHA2=$(git -C "$TMP/mk56" rev-parse HEAD); git -C "$PREPO" fetch -q "$TMP/mk56" pbase2:pbase2
+git clone -q "$PREPO" "$TMP/mutB"; git -C "$TMP/mutB" checkout -q --detach "$PSHA2"
+printf 'ALPHA\nbeta\ngamma\n' > "$TMP/mutB/pdir/text.txt"
+mkpatch "$TMP/mutB" "$TMP/pB0.patch"; sed "1s/base [0-9a-f]\{40\}/base $PSHA/" "$TMP/pB0.patch" > "$TMP/pB.patch"
+mk_mut "$TMP/mutC"; perl -e 'print map chr, reverse 0..255' > "$TMP/mutC/pdir/bin.dat"
+hdr=$(bash "$DRIVER" --make-patch "$TMP/mutC" | sed -n 1p)
+{ echo "$hdr"; git -C "$TMP/mutC" diff; } > "$TMP/pC.patch"
+bad56=""; mkdir -p "$TMP/local"
+for pn in pB pC; do
+    reset_state; rm -f "$FAKE_STATE/make-calls"
+    pdrive --id "r56$pn" --fallback-local "$TMP/local" --patch "$TMP/$pn.patch" pbase "$PSHA" unit-test
+    [[ $RC -eq 2 && "$OUT" == *"PATCH REFUSED"* && "$(cat "$TMP/logs/r56$pn.log")" == *"=== remote-run patch refused: the patch does not apply"* \
+        && "$OUT" != *"RAN LOCALLY"* && ! -e "$FAKE_STATE/make-calls" ]] && no_run || bad56+=" $pn(rc=$RC)"
+done
+row RRUN-56 "$([[ -z "$bad56" ]] && echo 1 || echo 0)" \
+    "a patch made at another commit (header rewritten) and a plain 'git diff' over a binary file are each exit 2 PATCH REFUSED, nothing run, no fallback (bad:$bad56)"
+
+# RRUN-57: the summary names the patch: applied (remote) and present locally (fell back into the mutant)
+reset_state; rm -f "$FAKE_STATE/make-calls"
+OUT=$(REMOTE_RUN_REPO_URL="file://$PREPO" timeout --kill-after=5s 60s bash "$DRIVER" --log-dir "$TMP/logs" --id p57 --patch "$TMP/pA.patch" \
+    --fallback-local "$TMP/mutA" pbase "$PSHA" unit-test 2>&1); rc57=$?
+row RRUN-57 "$([[ "$o55" == *"summary: id=p55 "*" patch=pA.patch exit=0"* && "$o55" == *"--- patch"* \
+    && "$o55" == *"=== remote-run patch applied: pA.patch sha256=$PA_SHA tree=$PA_TREE files="* \
+    && $rc57 -eq 0 && "$OUT" == *"patch=pA.patch exit=0"* && "$OUT" == *"=== remote-run patch present locally: pA.patch sha256=$PA_SHA tree=$PA_TREE"* \
+    && "$(cat "$FAKE_STATE/make-calls")" == "make -C $TMP/mutA unit-test" ]] && echo 1 || echo 0)" \
+    "the summary line carries patch=<name> and a --- patch block with the sha256 and tree: 'applied' for a remote run, 'present locally' for a fallback into the mutant (rc=$rc57)"
+
+# RRUN-58: local refusals, before anything is contacted: exit 2 PATCH REFUSED, no podman call, no log, no run directory
+sed "1s/base [0-9a-f]\{40\}/base $OTHER/" "$TMP/pA.patch" > "$TMP/bb.patch"
+tail -n +2 "$TMP/pA.patch" > "$TMP/nh.patch"; head -n 1 "$TMP/pA.patch" > "$TMP/ho.patch"; : > "$TMP/em.patch"
+cp "$TMP/pA.patch" "$TMP/bad name.patch"; cp "$TMP/pA.patch" "$TMP/bad"$'\n'"nl.patch"
+bad58=""; n58=0
+refused58() {   # refused58 <label> <driver args...>
+    local lab=$1; shift; n58=$((n58 + 1)); reset_state
+    OUT=$(bash "$DRIVER" --local-shell --log-dir "$TMP/logs58" --id "r58-$n58" "$@" 2>&1); RC=$?
+    [[ $RC -eq 2 && "$OUT" == *"PATCH REFUSED"* && -z "$(calls)" && ! -e "$TMP/logs58/r58-$n58.log" ]] || bad58+=" $lab(rc=$RC)"
+}
+for pf in bb nh ho em; do refused58 "$pf" --patch "$TMP/$pf.patch" pbase "$PSHA" unit-test; done
+refused58 empty --patch "" pbase "$PSHA" unit-test
+refused58 missing --patch "$TMP/nonexistent.patch" pbase "$PSHA" unit-test
+refused58 badname --patch "$TMP/bad name.patch" pbase "$PSHA" unit-test
+refused58 newline --patch "$TMP/bad"$'\n'"nl.patch" pbase "$PSHA" unit-test
+refused58 gate --gate --patch "$TMP/pA.patch" pbase "$PSHA"
+refused58 warm --warm --patch "$TMP/pA.patch"
+refused58 probe --probe --patch "$TMP/pA.patch"
+bash "$DRIVER" --make-patch "$TMP/mutA" --patch "$TMP/pA.patch" >/dev/null 2>&1; rc_mp=$?
+[[ -z "$(find "$WORK"/runs* -mindepth 1 2>/dev/null)" ]] || bad58+=" run-dirs"
+row RRUN-58 "$([[ -z "$bad58" && $rc_mp -eq 2 ]] && echo 1 || echo 0)" \
+    "a patch with another base, no header, no diff, empty, missing, an empty value, a bad name (space, newline), or beside --gate/--warm/--probe is exit 2 PATCH REFUSED with nothing contacted; --make-patch beside --patch is exit 2 (bad:$bad58 mp=$rc_mp)"
+
+# RRUN-59: the tree proof: a header whose tree id is not what the patch makes is refused, both ids named, nothing run
+last=${PA_TREE: -1}; flip=$([[ $last == 0 ]] && echo 1 || echo 0); PA_BAD=${PA_TREE%?}$flip
+sed "1s/$PA_TREE/$PA_BAD/" "$TMP/pA.patch" > "$TMP/pT.patch"
+reset_state
+pdrive --id p59 --patch "$TMP/pT.patch" pbase "$PSHA" unit-test
+row RRUN-59 "$([[ $RC -eq 2 && "$OUT" == *"PATCH REFUSED"* && "$(cat "$TMP/logs/p59.log")" == *"the patched tree is $PA_TREE, the patch's is $PA_BAD"* ]] && no_run && echo 1 || echo 0)" \
+    "an edited header tree is exit 2, the log names both tree ids, nothing run (rc=$RC)"
+
+# RRUN-60: no verdict without proof (a) patch_confirmed on synthetic logs, (b) a remote side that skips the patch
+L1="=== remote-run patch applied: n.patch sha256=S1 tree=T1 files=3"
+printf '%s\n=== remote-run started\n=== remote-run result: u rc=0\n' "$L1" > "$TMP/pc-ok.log"
+printf '=== remote-run started\n%s\n' "$L1" > "$TMP/pc-after.log"
+printf '%s\n=== remote-run started\n' "${L1/S1/S2}" > "$TMP/pc-sha.log"
+printf '%s\n=== remote-run started\n' "${L1/T1/T2}" > "$TMP/pc-tree.log"
+printf '=== remote-run started\n' > "$TMP/pc-none.log"
+printf '%s\n%s\n=== remote-run started\n' "$L1" "$L1" > "$TMP/pc-two.log"
+printf '%s\n=== remote-run started\n' "${L1/files=3/files=x}" > "$TMP/pc-files.log"
+pcs=""
+for c in ok:0 after:1 sha:1 tree:1 none:1 two:1 files:1; do
+    drv_fn patch_confirmed "$TMP/pc-${c%%:*}.log" n.patch S1 T1; [[ $? -eq ${c##*:} ]] || pcs+=" ${c%%:*}"
+done
+cp -r "$SKILL" "$TMP/skill-np"
+sed '/^# ---- patch ----$/,/^# ---- end patch ----$/d' "$SKILL/remote-side.sh" > "$TMP/skill-np/remote-side.sh.new" && mv "$TMP/skill-np/remote-side.sh.new" "$TMP/skill-np/remote-side.sh"
+deleted=0; grep -q 'RR_PATCH_B64' "$TMP/skill-np/remote-side.sh" || deleted=1
+np_out=""
+for frc in 0 1; do
+    reset_state
+    OUT=$(REMOTE_RUN_REPO_URL="file://$PREPO" FAKE_RC=$frc timeout --kill-after=5s 120s bash "$TMP/skill-np/remote-run.sh" --local-shell --log-dir "$TMP/logs" --id "p60-$frc" \
+        --patch "$TMP/pA.patch" pbase "$PSHA" unit-test 2>&1); r=$?
+    [[ $r -eq 2 && "$OUT" == *"PATCH REFUSED"* && "$OUT" == *"no verdict"* && "$OUT" != *"verdict: CLEAN"* ]] || np_out+=" frc$frc(rc=$r)"
+done
+row RRUN-60 "$([[ -z "$pcs" && $deleted -eq 1 && -z "$np_out" ]] && echo 1 || echo 0)" \
+    "a patch run counts only with exactly one 'applied' line before 'started' carrying its sha256 and tree (bad:$pcs); a remote side that skips the patch gives exit 2 'no verdict' whether the container exits 0 or 1 (bad:$np_out)"
+
+# RRUN-61: a patch run copies no stamp back
+reset_state; rm -rf "$TMP/stamps"
+FAKE_STAMP=1 FAKE_RC=0 pdrive --id p61 --patch "$TMP/pA.patch" pbase "$PSHA" unit-test
+row RRUN-61 "$([[ $RC -eq 0 && ! -e "$TMP/stamps" && "$(cat "$TMP/logs/p61.log")" == *"=== remote-run no stamp: a patch run"* ]] && echo 1 || echo 0)" \
+    "a green patch run copies no stamp and logs 'no stamp' (rc=$RC)"
+
+# RRUN-62: a payload over the kernel's one-argument limit (131072) fails the transport (E2BIG): nothing reaches podman, the
+# run falls back into the mutant after the tree check; a plain payload of ~120000 bytes still goes through
+mk_mut "$TMP/mut62"; head -c 140000 /dev/zero | tr '\0' a > "$TMP/mut62/pdir/big.txt"
+mkpatch "$TMP/mut62" "$TMP/p62.patch"
+reset_state; rm -f "$FAKE_STATE/make-calls"
+LC_ALL=C pdrive --id p62 --fallback-local "$TMP/mut62" --patch "$TMP/p62.patch" pbase "$PSHA" unit-test
+rc62=$RC; o62=$OUT
+pad=$(head -c 90000 /dev/zero | tr '\0' a)
+reset_state
+pdrive --id p62b pbase "$PSHA" "sh:true #$pad"
+row RRUN-62 "$([[ $rc62 -eq 0 && "$o62" == *"RAN LOCALLY"* && "$(cat "$TMP/logs/p62.log")" == *"Argument list too long"* \
+    && "$(cat "$TMP/logs/p62.log")" == *"=== remote-run patch present locally: p62.patch"* && "$(cat "$FAKE_STATE/make-calls")" == "make -C $TMP/mut62 unit-test" \
+    && $RC -eq 0 && "$(grep -a 'remote-run exit:' "$TMP/logs/p62b.log")" == "=== remote-run exit: 0" ]] && echo 1 || echo 0)" \
+    "a patch payload over the exec limit falls back into the tree-checked mutant with nothing sent to podman (rc=$rc62); a 120 KB plain payload still goes through (rc=$RC)"
+
+# RRUN-63: the local fallback runs only in a tree equal to the patch's
+mk_mut "$TMP/clean63"; cp -a "$TMP/mutA" "$TMP/edited63"; echo more >> "$TMP/edited63/pdir/text.txt"
+bad63=""
+for c in clean63:2 edited63:2 mutA:0; do
+    rm -f "$FAKE_STATE/make-calls"
+    OUT=$(REMOTE_RUN_REPO_URL="file://$PREPO" timeout --kill-after=5s 60s bash "$DRIVER" --log-dir "$TMP/logs" --id "p63-${c%%:*}" --patch "$TMP/pA.patch" \
+        --fallback-local "$TMP/${c%%:*}" pbase "$PSHA" unit-test 2>&1); r=$?
+    if [[ ${c##*:} -eq 2 ]]; then
+        [[ $r -eq 2 && "$OUT" == *"PATCH REFUSED: $TMP/${c%%:*} does not carry pA.patch (tree "*", the patch's $PA_TREE)"* && ! -e "$FAKE_STATE/make-calls" && "$OUT" != *"RAN LOCALLY"* ]] || bad63+=" ${c%%:*}(rc=$r)"
+    else
+        [[ $r -eq 0 && "$(cat "$FAKE_STATE/make-calls")" == "make -C $TMP/mutA unit-test" ]] || bad63+=" ${c%%:*}(rc=$r)"
+    fi
+done
+row RRUN-63 "$([[ -z "$bad63" ]] && echo 1 || echo 0)" \
+    "--fallback-local with a patch: a clean clone and a re-edited copy of the mutant are exit 2 naming both trees and run nothing; the mutant itself runs (bad:$bad63)"
+
+# RRUN-64: state a patch cannot carry is refused by --make-patch: a moved submodule, content changed inside one, an embedded repository
+SUBSRC=$TMP/subsrc; git init -q -b main "$SUBSRC"; echo s > "$SUBSRC/f"; git -C "$SUBSRC" add f; git -C "$SUBSRC" -c user.name=t -c user.email=t@t commit -qm s
+SUPER=$TMP/super; git init -q -b main "$SUPER"; echo top > "$SUPER/t.txt"; git -C "$SUPER" add t.txt
+git -C "$SUPER" -c protocol.file.allow=always submodule add -q "$SUBSRC" libs/sub
+git -C "$SUPER" -c user.name=t -c user.email=t@t commit -qm super
+for c in c0 c1 c2 c3; do git -c protocol.file.allow=always clone -q --recurse-submodules "$SUPER" "$TMP/$c"; echo "edit $c" >> "$TMP/$c/t.txt"; done
+git -C "$TMP/c1/libs/sub" -c user.name=t -c user.email=t@t commit -q --allow-empty -m moved
+echo dirty >> "$TMP/c2/libs/sub/f"
+git init -q "$TMP/c3/emb"; echo e > "$TMP/c3/emb/e"; git -C "$TMP/c3/emb" add e; git -C "$TMP/c3/emb" -c user.name=t -c user.email=t@t commit -qm e
+bad64=""
+mkpatch "$TMP/c0" "$TMP/p64-c0.patch" || bad64+=" control"
+for c in c1 c2 c3; do
+    mkpatch "$TMP/$c" "$TMP/p64-$c.patch"; r=$?
+    [[ $r -eq 2 && ! -s "$TMP/p64-$c.patch" && "$(cat "$TMP/p64-$c.patch.err")" == *"ubmodule"* ]] || bad64+=" $c(rc=$r)"
+done
+row RRUN-64 "$([[ -z "$bad64" ]] && echo 1 || echo 0)" \
+    "--make-patch refuses a moved submodule, a submodule with changes inside, and an untracked embedded repository (exit 2, reason on stderr, empty stdout); the control tree with a top-level edit alone is carried (bad:$bad64)"
+
+# RRUN-65: a patch may not change what the remote reads from the commit (the dependency script, the pinned-core file)
+bad65=""
+for f in test/ci-deps.sh .github/workflows/ci.yml; do
+    mk_mut "$TMP/mut65"; echo "# edit" >> "$TMP/mut65/$f"; mkpatch "$TMP/mut65" "$TMP/p65.patch"
+    reset_state
+    pdrive --id p65 --patch "$TMP/p65.patch" pbase "$PSHA" unit-test
+    [[ $RC -eq 2 && "$OUT" == *"PATCH REFUSED"* && "$(cat "$TMP/logs/p65.log")" == *"the patch changes $f, which the remote reads from the commit"* ]] && no_run || bad65+=" $f(rc=$RC)"
+    rm -rf "$TMP/mut65"
+done
+for f in test/ci-deps.sh .github/workflows/ci.yml; do   # a RENAME of either is a change of it too (the remote host's diff.renames must not hide the old name)
+    mk_mut "$TMP/mut65"; mv "$TMP/mut65/$f" "$TMP/mut65/$f.renamed"; mkpatch "$TMP/mut65" "$TMP/p65.patch"
+    reset_state
+    pdrive --id p65 --patch "$TMP/p65.patch" pbase "$PSHA" unit-test
+    [[ $RC -eq 2 && "$OUT" == *"PATCH REFUSED"* && "$(cat "$TMP/logs/p65.log")" == *"the patch changes $f, which the remote reads from the commit"* ]] && no_run || bad65+=" rename:$f(rc=$RC)"
+    rm -rf "$TMP/mut65"
+done
+row RRUN-65 "$([[ -z "$bad65" ]] && echo 1 || echo 0)" \
+    "a patch that changes or renames test/ci-deps.sh or .github/workflows/ci.yml is exit 2 naming the file, nothing run (bad:$bad65)"
+
+# RRUN-66: paths that escape the run tree are refused by git apply: nothing is written outside it
+craft() {   # craft <path> <out>: a new-file patch with a correct header base
+    { echo "# remote-run patch: base $PSHA tree $(printf '%040d' 5)"
+      printf 'diff --git a/%s b/%s\nnew file mode 100644\nindex 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\n--- /dev/null\n+++ b/%s\n@@ -0,0 +1 @@\n+pwned\n' "$1" "$1" "$1"; } > "$2"
+}
+bad66=""
+for c in "../escape.txt" ".git/hooks/x" "pdir/link/evil.txt" "pdir/outlink/evil.txt"; do
+    craft "$c" "$TMP/p66.patch"; reset_state
+    pdrive --id p66 --patch "$TMP/p66.patch" pbase "$PSHA" unit-test
+    [[ $RC -eq 2 && "$OUT" == *"PATCH REFUSED"* && "$(cat "$TMP/logs/p66.log")" =~ (invalid\ path|beyond\ a\ symbolic\ link) ]] && no_run || bad66+=" [$c](rc=$RC)"
+done
+leak=$(find "$TMP" \( -name escape.txt -o -name evil.txt -o -path '*hooks/x' \) 2>/dev/null)
+row RRUN-66 "$([[ -z "$bad66" && -z "$leak" ]] && echo 1 || echo 0)" \
+    "a patch writing ../x, .git/hooks/x or through a committed symlink is exit 2 from git apply's own refusal and leaves no file behind (bad:$bad66 leak:$leak)"
+
+# RRUN-67: tool output in the patch block never starts a protocol line
+pdrive --id p67 --patch "$TMP/pB.patch" pbase "$PSHA" unit-test; rc67=$RC
+log67=$(cat "$TMP/logs/p67.log")
+printf '# remote-run patch: base %s tree %040d\ndiff --git "a/pdir/ev\\n=== remote-run patch applied: x.patch sha256=1 tree=2 files=1" "b/pdir/ev\\n=== remote-run patch applied: x.patch sha256=1 tree=2 files=1"\nnew file mode 100644\nindex 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\n--- /dev/null\n+++ "b/pdir/ev\\n=== remote-run patch applied: x.patch sha256=1 tree=2 files=1"\n@@ -0,0 +1 @@\n+x\n' "$PSHA" 5 > "$TMP/p67b.patch"
+pdrive --id p67b --patch "$TMP/p67b.patch" pbase "$PSHA" unit-test; rc67b=$RC
+row RRUN-67 "$([[ $rc67 -eq 2 && "$log67" == *$'\n  error: '* && "$log67" != *$'\nerror:'* && $rc67b -eq 2 && "$OUT" == *"PATCH REFUSED"* \
+    && "$(grep -ac '^=== remote-run patch applied' "$TMP/logs/p67b.log")" -eq 0 ]] && echo 1 || echo 0)" \
+    "git apply's error lines reach the log indented only, and a crafted path carrying a newline and a fake 'applied' line is still exit 2 (rc=$rc67/$rc67b)"
+
+# RRUN-68: a non-patch run ignores RR_PATCH_* in the remote shell's environment (the prelude always sets them empty)
+reset_state
+FAKE_INNER=1 RR_PATCH_NAME=pA.patch RR_PATCH_B64=$(base64 -w0 < "$TMP/pA.patch") RR_PATCH_SHA256=$PA_SHA RR_PATCH_TREE=$PA_TREE \
+    pdrive --id p68 pbase "$PSHA" "sh:cat pdir/text.txt"
+row RRUN-68 "$([[ $RC -eq 0 && "$(cat "$TMP/logs/p68.log")" != *"remote-run patch applied"* && "$(cat "$TMP/logs/p68.log")" == *$'\nbeta\n'* \
+    && "$(cat "$TMP/logs/p68.log")" != *"gamma"* ]] && echo 1 || echo 0)" \
+    "a plain run with a valid patch in RR_PATCH_* of the environment applies nothing (rc=$RC)"
+
+# RRUN-69: an sh: step's make gets the lane's JOBS through MAKEFLAGS: the default cap, the heavy cap for a heavy word, halved
+# beside a busy lane; a make-form step is unchanged (its JOBS= word, no MAKEFLAGS JOBS)
+mfenv() { grep -a -- "args=$1\$" "$FAKE_STATE/make-env" | tail -n 1; }
+reset_state; rm -f "$FAKE_STATE/make-env"
+FAKE_INNER=1 pdrive --id j69 pbase "$PSHA" "sh:make foo" "sh:make regression-rows 'ROWS=a b'" "foo JOBS=3"
+a1=$(mfenv foo); a2=$(mfenv 'regression-rows ROWS=a b'); a3=$(mfenv 'JOBS=11 foo JOBS=3')
+rc69=$RC
+hold_lock 60 "$LOCK1"; holder=$!
+reset_state; rm -f "$FAKE_STATE/make-env"
+FAKE_INNER=1 pdrive --id j69b pbase "$PSHA" "sh:make foo" "sh:make regression-rows 'ROWS=a b'"
+b1=$(mfenv foo); b2=$(mfenv 'regression-rows ROWS=a b')
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+row RRUN-69 "$([[ $rc69 -eq 0 && "$a1" == "MF=[JOBS=11] args=foo" && "$a2" == "MF=[JOBS=6] args=regression-rows ROWS=a b" && "$a3" == "MF=[] args=JOBS=11 foo JOBS=3" \
+    && "$b1" == "MF=[JOBS=6] args=foo" && "$b2" == "MF=[JOBS=3] args=regression-rows ROWS=a b" ]] && echo 1 || echo 0)" \
+    "sh: steps get JOBS in MAKEFLAGS: 11, heavy 6, halved 6 and 3 beside a busy lane; a make-form step keeps its JOBS word and no MAKEFLAGS (a1='$a1' a2='$a2' a3='$a3' b1='$b1' b2='$b2')"
+
+# RRUN-70: for a mutant a red exit is the "good" answer, so a status that says nothing about the mutant is never one: a session lost
+# after the start is exit 2 "no verdict (connection lost)" for a patch run (its non-patch twin, RRUN-24, keeps exit 1)
+reset_state; rm -rf "$TMP/stamps"
+FAKE_KILL_PARENT=1 pdrive --id p70 --patch "$TMP/pA.patch" pbase "$PSHA" unit-test
+rc70=$RC; o70=$OUT
+reset_state
+FAKE_KILL_PARENT=1 pdrive --id p70b pbase "$PSHA" unit-test
+row RRUN-70 "$([[ $rc70 -eq 2 && "$o70" == *"PATCH REFUSED"*"no verdict (connection lost)"* && "$o70" != *"verdict: CLEAN"* && "$(cat "$TMP/logs/p70.log")" == *"connection lost"* \
+    && $RC -eq 1 && "$(cat "$TMP/logs/p70b.log")" == *"connection lost"* ]] && echo 1 || echo 0)" \
+    "a patch run whose session is lost after the start is exit 2 'no verdict (connection lost)'; the same loss on a plain run stays exit 1 (patch rc=$rc70, plain rc=$RC)"
+
+# RRUN-71: a harness refusal (exit 2 from make, banner, no Total line) and a run-level timeout are no verdict for a patch run too
+reset_state
+FAKE_INNER=1 pdrive --id p71 --patch "$TMP/pA.patch" pbase "$PSHA" 'sh:echo " TEST HARNESS REFUSES TO RUN "; exit 2'
+rc71=$RC; o71=$OUT
+reset_state
+FAKE_SLEEP=1 pdrive --id p71b --timeout 3 --patch "$TMP/pA.patch" pbase "$PSHA" unit-test
+rc71b=$RC; o71b=$OUT
+row RRUN-71 "$([[ $rc71 -eq 2 && "$o71" == *"PATCH REFUSED"*"no verdict (REFUSES TO RUN)"* && $rc71b -eq 2 && "$o71b" == *"PATCH REFUSED"*"no verdict (time limit)"* ]] && echo 1 || echo 0)" \
+    "a harness refusal and a run-level timeout of a patch run are exit 2 'no verdict', not a kill (rc=$rc71 / $rc71b)"
+
+# RRUN-72: the refusal is the harness's own banner LINE; the same words quoted in a FAIL listing (indented behind '| ') are a real kill:
+# a patch run whose step prints one and exits 1 stays exit 1 (RRUN-71's bare banner is exit 2)
+reset_state
+FAKE_INNER=1 pdrive --id p72 --patch "$TMP/pA.patch" pbase "$PSHA" 'sh:echo "  FAIL HS-99: a row"; echo "        |  TEST HARNESS REFUSES TO RUN "; exit 1'
+row RRUN-72 "$([[ $RC -eq 1 && "$OUT" != *"PATCH REFUSED"* && "$(cat "$TMP/logs/p72.log")" == *"patch applied"* ]] && echo 1 || echo 0)" \
+    "a patch run quoting the refusal banner inside a FAIL listing and exiting 1 is exit 1, a kill, not 'no verdict' (rc=$RC)"
+
+# RRUN-73: the refusal is found however long the log after it is (a pipe into grep -q dies of SIGPIPE under pipefail once the
+# producer has more than a pipe's worth left, and the refusal then reads as a kill): banner, then 200 KB of output, exit 2
+reset_state
+FAKE_INNER=1 pdrive --id p73 --patch "$TMP/pA.patch" pbase "$PSHA" 'sh:echo " TEST HARNESS REFUSES TO RUN "; head -c 200000 /dev/zero | tr "\0" x; echo; exit 2'
+row RRUN-73 "$([[ $RC -eq 2 && "$OUT" == *"PATCH REFUSED"*"no verdict (REFUSES TO RUN)"* ]] && echo 1 || echo 0)" \
+    "a harness refusal followed by 200 KB of output is still exit 2 'no verdict' (rc=$RC)"
+
+# RRUN-74 (GH #580): ci-deps.sh upgrades the image BEFORE it installs. Installing a -devel from `updates` upgrades its
+# runtime library and leaves the base image's CLI of the same source package behind (libcurl-devel -> libzstd 1.6.0 beside
+# zstd 1.5.7, whose CLI refuses another library version, so every actions/cache restore in the container failed); `dnf
+# install zstd` is a no-op for an installed package, so only an upgrade closes it. Oracle: that CI log. A stub dnf logs its
+# arguments. a: exactly two calls, `upgrade -y` then `install -y` with every package of --list; b: a failing upgrade stops
+# the script before the install; c: --list calls no dnf.
+mkdir -p "$TMP/dnfstub"
+cat > "$TMP/dnfstub/dnf" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$DNF_LOG"
+v="STUB_DNF_RC_$1"; exit "${!v:-0}"
+STUB
+chmod +x "$TMP/dnfstub/dnf"
+dnf_ok=1
+export DNF_LOG="$TMP/dnf74a.log"; : > "$DNF_LOG"
+PATH="$TMP/dnfstub:$PATH" bash "$ROOT/test/ci-deps.sh" test >/dev/null 2>&1 || dnf_ok=0
+[[ "$(wc -l < "$DNF_LOG")" -eq 2 && "$(sed -n 1p "$DNF_LOG")" == "upgrade -y" && "$(sed -n 2p "$DNF_LOG")" == "install -y "* ]] || dnf_ok=0
+[[ "$(sed -n 2p "$DNF_LOG" | cut -d' ' -f3- | tr ' ' '\n' | sort -u)" == "$(bash "$ROOT/test/ci-deps.sh" --list test)" ]] || dnf_ok=0
+export DNF_LOG="$TMP/dnf74b.log"; : > "$DNF_LOG"
+STUB_DNF_RC_upgrade=1 PATH="$TMP/dnfstub:$PATH" bash "$ROOT/test/ci-deps.sh" test >/dev/null 2>&1 && dnf_ok=0
+[[ "$(cat "$DNF_LOG")" == "upgrade -y" ]] || dnf_ok=0
+export DNF_LOG="$TMP/dnf74c.log"; : > "$DNF_LOG"
+PATH="$TMP/dnfstub:$PATH" bash "$ROOT/test/ci-deps.sh" --list test >/dev/null 2>&1 || dnf_ok=0
+[[ ! -s "$DNF_LOG" ]] || dnf_ok=0
+unset DNF_LOG
+row RRUN-74 "$dnf_ok" "ci-deps.sh runs dnf upgrade -y then dnf install -y with the whole set, stops when the upgrade fails, and --list calls no dnf"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
 # the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green

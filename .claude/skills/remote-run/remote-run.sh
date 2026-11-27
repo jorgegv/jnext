@@ -8,6 +8,8 @@
 # clean, or its connection was lost; 124 it timed out;
 # 2 usage; 3 refused (the branch is not pushed, or is not at the expected sha);
 # 75 the remote could not be used (alias unset, unreachable, preflight, no image): run locally.
+# 2 also covers a patch run (--patch) whose patch was refused or whose application cannot be proven: NO verdict,
+# never read as a kill or a survivor.
 # shellcheck disable=SC2016
 set -euo pipefail
 IFS=$'\n\t'
@@ -21,6 +23,7 @@ usage: remote-run.sh [options] <branch> <sha> <target>...
        remote-run.sh [options] --gate <branch> <sha>
        remote-run.sh [options] --warm
        remote-run.sh [options] --probe
+       remote-run.sh --make-patch DIR
 
   <branch>   a branch already pushed to the project's repository
   <sha>      its full 40-hex tip; the run is refused if the remote sees another commit
@@ -40,6 +43,13 @@ options:
   --deps-ref BRANCH      take the dependency script (the image's package set) from BRANCH instead
                          of the commit under test; for --warm, --gate and plain runs. The log
                          names the ref that supplied it
+  --make-patch DIR       print on stdout the canonical patch of DIR's work tree against its HEAD (header line
+                         `# remote-run patch: base <sha> tree <tree>`, then a flag-fixed git diff); exit 2 with
+                         the reason on stderr and nothing on stdout when it cannot be carried or there is no change
+  --patch FILE           plain runs only: a patch made by --make-patch at <sha> (a mutant: an uncommitted edit of
+                         the pushed commit). The remote applies it after proving its tree id, and the run counts
+                         only when the log shows that; any doubt is exit 2 `PATCH REFUSED` (no verdict, no fallback),
+                         no stamp is copied back, and a local fallback runs only in a tree equal to the patch's
   --timeout SECS         bound for the whole run (default from project.conf)
   --keep-going           run the remaining targets after a failure
   --stream               also print the log live (default: only the summary)
@@ -65,6 +75,71 @@ USAGE
 
 log_info() { echo "[remote-run $(date '+%H:%M:%S')] $*" >&2; }
 die()      { echo "remote-run: $*" >&2; exit "${2:-2}"; }
+refuse_patch_local() { echo "remote-run: PATCH REFUSED: $*" >&2; exit 2; }
+
+# ---- patches (mutants) -----------------------------------------------------------
+# tree_of DIR: the id of the tree DIR's work tree would commit (tracked and untracked, ignore rules applied), made
+# in a FRESH temporary index read from HEAD: never a copy of the real index (its skip-worktree and assume-unchanged
+# bits would hide a mutated file), and the real index is never written.
+tree_of() {
+    local dir=$1 idx rc=0
+    idx=$(mktemp -u "${TMPDIR:-/tmp}/rr-index.XXXXXX")
+    {
+        GIT_INDEX_FILE=$idx git -C "$dir" read-tree HEAD \
+            && GIT_INDEX_FILE=$idx git -C "$dir" add -A . \
+            && GIT_INDEX_FILE=$idx git -C "$dir" write-tree
+    } 2>/dev/null || rc=$?
+    rm -f "$idx"
+    return "$rc"
+}
+
+# make_patch DIR: the canonical patch on stdout (exit 0), or a reason on stderr, nothing on stdout (exit 2).
+# Every format choice is a FLAG: the caller's gitconfig (diff.noprefix, color.ui, a textconv driver) must not
+# change the bytes.
+make_patch() {
+    local dir=$1 idx out top head tree raw rc=0
+    [[ -d "$dir" ]] || { echo "remote-run: --make-patch: '$dir' is not a directory" >&2; return 2; }
+    top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || top=""
+    [[ -n "$top" && "$(cd "$dir" && pwd -P)" == "$(cd "$top" && pwd -P)" ]] \
+        || { echo "remote-run: --make-patch: '$dir' is not the top of a git work tree" >&2; return 2; }
+    head=$(git -C "$dir" rev-parse --verify -q 'HEAD^{commit}' 2>/dev/null) \
+        || { echo "remote-run: --make-patch: '$dir' has no commit (unborn HEAD)" >&2; return 2; }
+    idx=$(mktemp -u "${TMPDIR:-/tmp}/rr-index.XXXXXX"); out=$idx.patch
+    {
+        GIT_INDEX_FILE=$idx git -C "$dir" read-tree HEAD && GIT_INDEX_FILE=$idx git -C "$dir" add -A .
+    } >/dev/null 2>&1 || { rm -f "$idx" "$out"; echo "remote-run: --make-patch: cannot read the work tree of '$dir'" >&2; return 2; }
+    tree=$(GIT_INDEX_FILE=$idx git -C "$dir" write-tree 2>/dev/null) || tree=""
+    raw=$(GIT_INDEX_FILE=$idx git -C "$dir" diff --cached --raw --no-renames --no-ext-diff --no-textconv --no-color HEAD 2>/dev/null) || rc=1
+    if [[ $rc -ne 0 || ! "$tree" =~ ^[0-9a-f]{40}$ ]]; then
+        rc=2; echo "remote-run: --make-patch: git failed in '$dir'" >&2
+    elif [[ "$tree" == "$(git -C "$dir" rev-parse 'HEAD^{tree}')" ]]; then
+        rc=2; echo "remote-run: --make-patch: '$dir' carries no change against HEAD (a patch run would test the unmutated tree)" >&2
+    elif awk '$1 == ":160000" || $2 == "160000" {f = 1} END {exit !f}' <<<"$raw"; then
+        rc=2; echo "remote-run: --make-patch: a submodule or an embedded repository changed in '$dir': a patch cannot carry it" >&2
+    elif [[ -n "$(git -C "$dir" submodule foreach --quiet --recursive 'git status --porcelain' 2>/dev/null)" ]]; then
+        rc=2; echo "remote-run: --make-patch: a submodule of '$dir' has changes inside it: a patch cannot carry them" >&2
+    else
+        {
+            echo "# remote-run patch: base $head tree $tree"
+            GIT_INDEX_FILE=$idx git -C "$dir" diff --cached HEAD --binary --full-index --no-renames --no-ext-diff \
+                --no-textconv --no-color --no-relative --src-prefix=a/ --dst-prefix=b/
+        } > "$out" 2>/dev/null || { rc=2; echo "remote-run: --make-patch: git diff failed in '$dir'" >&2; }
+        [[ $rc -ne 0 ]] || cat "$out"
+    fi
+    rm -f "$idx" "$out"
+    return "$rc"
+}
+
+# patch_confirmed <log> <name> <sha256> <tree>: the pre-start part of the log holds exactly one
+# `=== remote-run patch applied: <name> sha256=<sha256> tree=<tree> files=<n>` line (a step's own line, printed
+# after `started`, never counts).
+patch_confirmed() {
+    local pre n
+    pre=$(sed '/^=== remote-run started$/q' "$1")
+    n=$(awk -v w="=== remote-run patch applied: $2 sha256=$3 tree=$4 files=" \
+        'index($0, w) == 1 && substr($0, length(w) + 1) ~ /^[0-9]+$/ {c++} END {print c + 0}' <<<"$pre")
+    [[ "$n" -eq 1 ]]
+}
 
 # ---- configuration ----------------------------------------------------------
 load_conf() {
@@ -103,7 +178,17 @@ summarize_log() {
     grep -E '^=== remote-run oom: ' <<<"$clean" || true
     echo "--- totals per step"
     grep -E '^=== remote-run totals:' <<<"$clean" || echo "(no step printed a totals line)"
-    echo "--- verdict: $(verdict_of_log "$log" "${NSTEPS:-}")"
+    if [[ -n "${PATCH_NAME:-}" ]]; then
+        # the remote's own lines come from before the run started; the driver's own lines are written after it
+        echo "--- patch"
+        { sed '/^=== remote-run started$/q' <<<"$clean" | grep -aE '^=== remote-run patch (applied|refused): ' || true
+          grep -aE '^=== remote-run (patch present locally|no stamp): ' <<<"$clean" || true; }
+    fi
+    if [[ -n "${PATCH_REFUSED_WHY:-}" ]]; then
+        echo "--- verdict: PATCH REFUSED: $PATCH_REFUSED_WHY"
+    else
+        echo "--- verdict: $(verdict_of_log "$log" "${NSTEPS:-}")"
+    fi
 }
 
 # verdict_of_log <log> [steps]: CLEAN, or why not. Every step needs rc=0 and no totals line with a
@@ -141,6 +226,13 @@ build_payload() {
         printf 'RR_JOBS_DEFAULT=%q\nRR_JOBS_HEAVY=%q\nRR_HEAVY_RE=%q\nRR_CACHE_MOUNTS=%q\nRR_CACHE_MIGRATE=%q\nRR_CACHE_SWEEP=%q\nRR_CONTAINER_ENV=%q\nRR_STAMP_ENV=%q\n' \
             "$JOBS_DEFAULT" "$JOBS_HEAVY" "$HEAVY_TARGET_RE" "$CACHE_MOUNTS" "${CACHE_MIGRATE:-}" "${CACHE_SWEEP:-}" "$CONTAINER_ENV" "$STAMP_ENV"
         printf 'RR_DEPS_REF=%q\n' "$DEPS_REF"
+        # always set (empty when unused): a value in the remote shell's environment can never act
+        if [[ "$mode" == run && -n "${PATCH_NAME:-}" ]]; then
+            printf 'RR_PATCH_NAME=%q\nRR_PATCH_B64=%s\nRR_PATCH_SHA256=%q\nRR_PATCH_TREE=%q\n' \
+                "$PATCH_NAME" "$PATCH_B64" "$PATCH_SHA" "$PATCH_TREE"
+        else
+            printf 'RR_PATCH_NAME=\nRR_PATCH_B64=\nRR_PATCH_SHA256=\nRR_PATCH_TREE=\n'
+        fi
         printf 'RR_EXTRA_URL=%q\nRR_EXTRA_REF_FILE=%q\nRR_EXTRA_REF_SED=%q\nRR_EXTRA_SPARSE=%q\nRR_EXTRA_MOUNT=%q\nRR_EXTRA_ENV=%q\n' \
             "${EXTRA_REPO_URL:-}" "${EXTRA_REF_FILE:-}" "${EXTRA_REF_SED:-}" "${EXTRA_SPARSE:-}" "${EXTRA_MOUNT:-}" "${EXTRA_ENV:-}"
         printf 'RR_INNER=%q\n' "$(cat "$HERE/container-side.sh")"
@@ -208,7 +300,8 @@ remote_cleanup() {
 main() {
     local warm=0 gate=0 probe=0 stream=0 warm_ref="" fallback_dir="" targets="" logdir="$HOME/tmp/remote-run"
     TIMEOUT="" DEPS_REF="" KEEP_GOING=0 LOCAL_SHELL=0 ID="" BRANCH="" SHA="" BASE=""
-    local base_repo=""
+    local base_repo="" make_patch_dir="" patch_file="" patch_set=0
+    PATCH_NAME="" PATCH_B64="" PATCH_SHA="" PATCH_TREE="" PATCH_REFUSED_WHY=""
     local -a pos=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -227,13 +320,26 @@ main() {
             --base-repo) [[ $# -ge 2 ]] || { usage >&2; exit 2; }; base_repo=$2; shift ;;
             --fallback-local) [[ $# -ge 2 ]] || { usage >&2; exit 2; }; fallback_dir=$2; shift ;;
             --conf)     [[ $# -ge 2 ]] || { usage >&2; exit 2; }; CONF=$2; shift ;;
+            --make-patch) [[ $# -ge 2 ]] || { usage >&2; exit 2; }; make_patch_dir=$2; shift ;;
+            --patch)    [[ $# -ge 2 ]] || { usage >&2; exit 2; }; patch_file=$2; patch_set=1; shift ;;
             --) shift; pos+=("$@"); break ;;
             -*) echo "remote-run: unknown option '$1'" >&2; usage >&2; exit 2 ;;
             *)  pos+=("$1") ;;
         esac
         shift
     done
+    # an empty value (an unset shell variable) must never fall through to a run of the unmutated tree
+    [[ $patch_set -eq 0 || -n "$patch_file" ]] || refuse_patch_local "--patch needs a file name, got an empty value"
+    if [[ -n "$make_patch_dir" ]]; then
+        # generic: needs no project.conf, contacts nothing
+        [[ $warm -eq 0 && $gate -eq 0 && $probe -eq 0 && -z "$patch_file" && ${#pos[@]} -eq 0 ]] \
+            || die "--make-patch takes no other mode, branch, sha, target or --patch"
+        make_patch "$make_patch_dir"
+        exit $?
+    fi
     load_conf
+    [[ -z "$patch_file" || ( $warm -eq 0 && $gate -eq 0 && $probe -eq 0 ) ]] \
+        || refuse_patch_local "--patch is for plain runs: not with --warm, --gate or --probe"
     [[ $warm -eq 0 || $gate -eq 0 ]] || die "--warm and --gate exclude each other"
     [[ $probe -eq 0 || ( $warm -eq 0 && $gate -eq 0 && ${#pos[@]} -eq 0 ) ]] || die "--probe takes no other mode, branch, sha or target"
     [[ -z "$warm_ref" || $warm -eq 1 ]] || die "--ref is for --warm only"
@@ -272,6 +378,23 @@ main() {
         [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || die "the sha must be 40 lowercase hex digits (git rev-parse <branch>): '$SHA'"
     fi
     [[ "$BRANCH" =~ ^[A-Za-z0-9._][A-Za-z0-9._/-]*$ ]] || die "bad branch name '$BRANCH'"
+    if [[ -n "$patch_file" ]]; then
+        # every refusal is before anything is contacted: no ssh, no podman, no remote run directory, no log
+        local pbase=${patch_file##*/} pline=""
+        [[ -f "$patch_file" && -r "$patch_file" && -s "$patch_file" ]] || refuse_patch_local "'$patch_file' is missing, unreadable or empty"
+        [[ "$pbase" =~ ^[A-Za-z0-9._-]+$ && ${#pbase} -le 100 ]] \
+            || refuse_patch_local "the patch file name must match [A-Za-z0-9._-]+ and be at most 100 characters (it is written into the log)"
+        IFS= read -r pline < "$patch_file" || true
+        [[ "$pline" =~ ^"# remote-run patch: base "([0-9a-f]{40})" tree "([0-9a-f]{40})$ ]] \
+            || refuse_patch_local "'$pbase' has no '# remote-run patch: base <sha> tree <tree>' first line (make it with --make-patch)"
+        [[ "${BASH_REMATCH[1]}" == "$SHA" ]] \
+            || refuse_patch_local "the patch was made against ${BASH_REMATCH[1]}, not $SHA"
+        PATCH_TREE=${BASH_REMATCH[2]}
+        grep -q '^diff --git ' "$patch_file" || refuse_patch_local "'$pbase' holds no change (no 'diff --git' line)"
+        PATCH_NAME=$pbase
+        PATCH_B64=$(base64 -w0 < "$patch_file")
+        PATCH_SHA=$(sha256sum < "$patch_file" | cut -d' ' -f1)
+    fi
     # test-affected's base (GH #562): the merge base of the commit with LOCAL main, which the remote run tree
     # takes as its origin/main. Empty when there is no local main or no such commit: the remote falls back.
     # Not for --gate: a batch gate's TEST-AFFECTED MISS check compares against what was last pushed (origin/main);
@@ -329,7 +452,9 @@ main() {
     build_payload stamps "" "$PAYDIR/stamps"
     build_payload cleanup "" "$PAYDIR/cleanup"
 
+    local was_remote=0 patch_no_verdict=""
     if [[ $state == remote ]]; then
+        was_remote=1
         local tmp pidf rcf
         tmp=$PAYDIR
         pidf=$tmp/pid; rcf=$tmp/rc
@@ -359,7 +484,10 @@ main() {
         # a step that prints such a line must not turn a red run into a fallback.
         local pre
         pre=$(sed '/^=== remote-run started$/q' "$LOG")
-        if grep -q '^=== remote-run fallback:' <<<"$pre"; then
+        if [[ -n "$PATCH_NAME" ]] && grep -q '^=== remote-run patch refused: ' <<<"$pre"; then
+            state=patchrefused
+            PATCH_REFUSED_WHY=$(grep -am1 '^=== remote-run patch refused: ' <<<"$pre" | sed 's/^=== remote-run patch refused: //')
+        elif grep -q '^=== remote-run fallback:' <<<"$pre"; then
             state=fallback
         elif grep -q '^=== remote-run refused:' <<<"$pre"; then
             state=refused
@@ -372,27 +500,70 @@ main() {
         else
             echo "=== remote-run connection lost (transport status $tr_rc); the remote watchdog stops the run" >> "$LOG"
             rc=1
+            [[ -z "$PATCH_NAME" ]] || patch_no_verdict="the connection was lost after the start: no verdict (connection lost)"
+        fi
+        # For a mutant a red exit is the "good" answer (KILLED), so a status that says nothing about the mutant must never be one:
+        # a run-level timeout is the lane, not the mutant (a mutant that hangs hits the suite's own bound first and shows as a FAIL
+        # row), and a harness refusal (exit 2 from make, no Total line) is a refused run, not a failed row.
+        # (harness refusal: its own banner LINE only; a FAIL listing quotes the words indented behind '| ')
+        if [[ -n "$PATCH_NAME" && -z "$patch_no_verdict" ]]; then
+            if [[ $rc -eq 124 ]]; then patch_no_verdict="the run hit the run-level timeout: no verdict (time limit)"
+            elif [[ $rc -ne 0 ]] && grep -aEq '^[[:space:]]*TEST HARNESS REFUSES TO RUN[[:space:]]*$' <<<"$(sed -e 's/\x1b\[[0-9;]*m//g' "$LOG")"; then patch_no_verdict="the test harness refused to run: no verdict (REFUSES TO RUN)"
+            fi
+        fi
+        if [[ $state == remote && -n "$patch_no_verdict" ]]; then
+            PATCH_REFUSED_WHY=$patch_no_verdict
+            echo "=== remote-run patch refused: $PATCH_REFUSED_WHY" >> "$LOG"
+            state=patchrefused
+        fi
+        # A patch run counts only when the log proves the patch was applied, whatever the container said.
+        if [[ $state == remote && -n "$PATCH_NAME" ]] && ! patch_confirmed "$LOG" "$PATCH_NAME" "$PATCH_SHA" "$PATCH_TREE"; then
+            PATCH_REFUSED_WHY="the run cannot prove the patch was applied: no verdict"
+            echo "=== remote-run patch refused: $PATCH_REFUSED_WHY" >> "$LOG"
+            state=patchrefused
         fi
     fi
 
     if [[ $state == fallback ]]; then
         log_info "falling back: $(grep -h '^=== remote-run fallback:' "$LOG" | tail -n 1)"
         if [[ -n "$fallback_dir" && $warm -eq 0 ]]; then
-            set +e; run_local "$fallback_dir" "$targets"; rc=$?; set -e
+            local ptree_here=""
+            if [[ -n "$PATCH_NAME" ]]; then
+                # the local run must test the mutant: its tree must be the patch's, never a clean or re-edited one
+                ptree_here=$(tree_of "$fallback_dir") || ptree_here="unreadable"
+                if [[ "$ptree_here" != "$PATCH_TREE" ]]; then
+                    PATCH_REFUSED_WHY="$fallback_dir does not carry $PATCH_NAME (tree $ptree_here, the patch's $PATCH_TREE)"
+                    echo "=== remote-run patch refused: $PATCH_REFUSED_WHY" >> "$LOG"
+                    state=patchrefused
+                else
+                    echo "=== remote-run patch present locally: $PATCH_NAME sha256=$PATCH_SHA tree=$PATCH_TREE" | tee -a "$LOG" >&2
+                fi
+            fi
+            if [[ $state != patchrefused ]]; then
+                set +e; run_local "$fallback_dir" "$targets"; rc=$?; set -e
+            fi
         else
             rc=75
         fi
+    fi
+    if [[ $state == patchrefused ]]; then
+        log_info "PATCH REFUSED: $PATCH_REFUSED_WHY"
+        rc=2
     elif [[ $state == refused ]]; then
         log_info "$(grep -h '^=== remote-run refused:' "$LOG" | tail -n 1)"
         rc=3
-    elif [[ $rc -eq 0 && "$(verdict_of_log "$LOG" "$NSTEPS")" != CLEAN ]]; then
+    elif [[ $state == remote && $rc -eq 0 && "$(verdict_of_log "$LOG" "$NSTEPS")" != CLEAN ]]; then
         echo "remote-run: exit 0 but the log is not clean: failing the run" >&2
         rc=1
     fi
-    if [[ $state == remote && $warm -eq 0 && $rc -eq 0 ]]; then fetch_stamps; fi
-    if [[ $state == remote || $state == refused ]]; then remote_cleanup; fi
+    if [[ -n "$PATCH_NAME" && $state == remote ]]; then
+        echo "=== remote-run no stamp: a patch run" >> "$LOG"   # a mutant's green run must never stand in for the commit
+    elif [[ $state == remote && $warm -eq 0 && $rc -eq 0 ]]; then
+        fetch_stamps
+    fi
+    if [[ $state == remote || $state == refused || ( $state == patchrefused && $was_remote -eq 1 ) ]]; then remote_cleanup; fi
     rm -rf "$PAYDIR"
-    echo "remote-run summary: id=$ID branch=$BRANCH sha=${SHA:-tip} exit=$rc log=$LOG"
+    echo "remote-run summary: id=$ID branch=$BRANCH sha=${SHA:-tip}${PATCH_NAME:+ patch=$PATCH_NAME} exit=$rc log=$LOG"
     summarize_log "$LOG"
     exit "$rc"
 }

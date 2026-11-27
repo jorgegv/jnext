@@ -67,7 +67,12 @@ while IFS= read -r t <&3; do
     start=$SECONDS
     oom0=$(oom_count); sampler_start
     if [[ "$t" == sh:* ]]; then
-        bash -c "${t#sh:}" </dev/null 2>&1 | tee "$out"
+        # a make inside the step takes the lane's JOBS cap too (its Makefile assigns JOBS with :=, so only a make
+        # command-line variable, which MAKEFLAGS carries, wins): the heavy one when a word of the command is heavy
+        read -ra shwords <<<"${t#sh:}"
+        jobs=$RR_JOBS_DEFAULT
+        for w in "${shwords[@]}"; do [[ ! "$w" =~ $RR_HEAVY_RE ]] || jobs=$RR_JOBS_HEAVY; done
+        MAKEFLAGS="${MAKEFLAGS:+$MAKEFLAGS }JOBS=$jobs" bash -c "${t#sh:}" </dev/null 2>&1 | tee "$out"
         rc=${PIPESTATUS[0]}
     else
         read -ra words <<<"$t"

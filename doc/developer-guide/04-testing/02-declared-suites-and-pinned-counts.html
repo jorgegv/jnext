@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.7</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.15</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.7</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.15</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2947,6 +2947,8 @@
       
         
       
+        
+      
     
     
     
@@ -3067,6 +3069,34 @@
     
   
     A.3 House style
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../appendix-a-contributing/04-claude-code-mods.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A.4 Claude Code mods
   
 
     
@@ -3217,6 +3247,13 @@ everything look as though it were registered twice. It refuses when:</p>
   manifest, checks for the <code>.exe</code>, and prefixes every suite with
   <code>JNEXT_TEST_RUNNER</code> (wine, see <a href="../05-building/01-make-targets.html#test">5.1</a>),
   and <code>JNEXT_UNIT_TEST_JOBS</code> caps how many run at once (unset: one per CPU, from <code>nproc</code>; <code>0</code>: no cap). Starting every suite at once made the 300 s per-suite bound measure the host's queue, not the suite: on a 4-vCPU macOS Intel runner the longest suite took 89% of the bound, and new work pushed fourteen over it. Each suite's wall time is printed at the end of its result row.</li>
+<li><strong><code>JNEXT_SUITE_VMEM_KB</code> is not a positive number of KiB, or is set beside
+  <code>JNEXT_TEST_RUNNER</code>.</strong> The knob (<code>ulimit -v</code>, set inside each suite's own subshell) caps the
+  address space of the suite process tree and nothing else, never a build: a mutation run sends
+  it as a make variable (<code>make unit-test JNEXT_SUITE_VMEM_KB=3145728</code>) so one make target builds
+  and then runs the suites, on a local or a remote host, with the suites alone under 3 GB. Wine and
+  node reserve far more address space than they use, so a cap beside a runner would fail every
+  suite and read as a mutant killed: the harness refuses that combination.</li>
 <li>the run cannot make its <strong>private clone of the SD master</strong> under
   <code>~/.jnext/runs/</code> (no space, no permission): the run fails naming the cause,
   and never falls back to reading the shared master, which every other run

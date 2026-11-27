@@ -1055,6 +1055,22 @@ Emulator-side change (Task 58 Item 2) in `src/core/emulator.cpp`
 pending-cache bits turns both rows RED on their `mid == before`
 assertion.
 
+## GH #578 append (2026-11-27): F-key long-press timer (FNK-09..13)
+
+| ID | Test | VHDL |
+|----|------|------|
+| FNK-09 | bare `EmuFnKeys`, reset held 100 ticks: RESET_DONE, F1 (hard reset), not F4 | emu_fnkeys.vhd:55, :83-97, :190-192 |
+| FNK-10 | reset held 99 ticks: RESET_DONE, F4 (soft reset), not F1 | emu_fnkeys.vhd:55, :83-97, :190-194 |
+| FNK-11 | M1 held 99 ticks (ending in MF_CHECK), released: MF_DONE with F9 (MF NMI) | emu_fnkeys.vhd:55, :133-138, :188-189 |
+| FNK-12 | M1 held 102 ticks, released: MF_DONE without F9 (timer expired, saturates at 0) | emu_fnkeys.vhd:55, :93-94, :188-189 |
+| FNK-13 | the `Emulator`'s own `EmuFnKeys` instance: hold 99 -> F4, hold 100 -> F1 | emu_fnkeys.vhd:55, :190-194 |
+
+PERIOD = BUTTON_PERIOD_MS / CLOCK_EN_PERIOD_MS = 1000 / 10 = 100 (integer
+division of the generics, zxnext_top_issue2.vhd:1961-1962). One tick is one
+`CLK_28_DEBOUNCE_EN` pulse: 2^18 CLK_28 cycles, about 9.36 ms, so the
+threshold is about 936 ms. MF_DONE is reachable only on ticks 3k+1, hence
+the 99/102 hold pair for the Multiface path.
+
 ## Planned rows carried over from the traceability matrix (GH #196)
 
 These rows were recorded only in `TRACEABILITY-MATRIX.md`, which is now a

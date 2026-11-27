@@ -36,6 +36,7 @@ jobs:
       # The same list, checkout, safe.directory and emsdk cache as release.yml's `web` job; bump together.
       - name: Install build dependencies
         run: |
+          dnf upgrade -y
           dnf install -y make cmake git python3 zip unzip findutils coreutils diffutils \
             tar xz curl util-linux gawk grep sed
       - uses: actions/checkout@v5

@@ -1,0 +1,16 @@
+{
+  "name": "jnext",
+  "owner": { "name": "jnext" },
+  "plugins": [
+    {
+      "name": "conv-logs",
+      "source": "./.claude/mods/conv-logs",
+      "description": "Moves unrequested turns out of the conversation into a Logs pane, with links between the two"
+    },
+    {
+      "name": "run-status",
+      "source": "./.claude/mods/run-status",
+      "description": "A Run status pane for an autonomous run, refreshed every 5 minutes from the run's files, gh and the remote-run lanes"
+    }
+  ]
+}

@@ -2,12 +2,15 @@
 # remote-side.sh: the part of remote-run that runs ON the remote host. The driver sends it
 # over ssh stdin, after a prelude that sets every RR_* variable; nothing is installed there.
 # Modes (RR_MODE): run | warm | stamps | cleanup. Needs bash, git, podman (rootless), flock,
-# timeout, tar, sha256sum. All work data lives under RR_DIR: nothing is written outside it
+# timeout, tar, sha256sum, base64. All work data lives under RR_DIR: nothing is written outside it
 # except podman's rootless runtime state, which podman keeps under $XDG_RUNTIME_DIR.
 #
 # Result protocol, plain lines in the log: "=== remote-run exit: N" (the container's status),
 # "=== remote-run fallback: <why>" (exit 75: the caller runs locally),
-# "=== remote-run refused: <why>" (exit 3: the pushed ref is not what the caller expects).
+# "=== remote-run refused: <why>" (exit 3: the pushed ref is not what the caller expects),
+# "=== remote-run patch refused: <why>" (exit 2: the patch of a patch run does not apply to the commit, or is
+# not the one the caller made) and "=== remote-run patch applied: <name> sha256=<h> tree=<t> files=<n>" (before
+# `started`: the caller counts a patch run only when it sees this line).
 set -uo pipefail
 export LC_ALL=C LANG=C
 
@@ -53,7 +56,7 @@ mkdir -p "$RR_DIR" "$TMPDIR" "$STAMPS" "$RR_DIR/containers/storage" "$RR_DIR/con
     || fallback "cannot create the work directory $RR_DIR"
 
 # ---- preflight --------------------------------------------------------------
-for c in git podman flock timeout tar sha256sum; do
+for c in git podman flock timeout tar sha256sum base64; do
     command -v "$c" >/dev/null 2>&1 || fallback "required command not found on the remote: $c"
 done
 
@@ -341,6 +344,44 @@ git -C "$run/src" checkout -q --detach "$RR_SHA" || fallback "cannot check out $
 git -C "$run/src" submodule update --init --recursive --depth 1 -q </dev/null \
     || git -C "$run/src" submodule update --init --recursive -q </dev/null \
     || fallback "submodule fetch failed"
+
+# ---- patch ----
+# A patch run (a mutant): the caller's canonical patch (remote-run.sh --make-patch) goes onto the checkout as
+# UNCOMMITTED changes, like the local mutant worktree. The tree id is proved first: the patch applied to a fresh
+# index of HEAD must write the tree the caller computed, so another base, an edited patch or an offset
+# application is refused. No `add -A` here (another host's ignore rules cannot change the result) and every
+# format-sensitive choice is a flag (this host's apply.whitespace=error must not refuse trailing whitespace).
+# The tools' output is printed indented: it can never start a protocol line at column 0.
+if [[ -n "${RR_PATCH_B64:-}" ]]; then
+    refuse_patch() { echo "=== remote-run patch refused: $*"; exit 2; }
+    indent() { [[ -z "$1" ]] || sed 's/^/  /' <<<"$1"; }
+    pfile="$ctl/patch"; pidx="$ctl/patch.index"; rm -f "$pidx"
+    perr=$(printf '%s' "$RR_PATCH_B64" | base64 -d 2>&1 >"$pfile"); prc=$?
+    if [[ $prc -ne 0 ]]; then indent "$perr"; refuse_patch "the patch does not decode (base64 status $prc)"; fi
+    psha=$(sha256sum < "$pfile" | cut -d' ' -f1)
+    [[ "$RR_PATCH_TREE" =~ ^[0-9a-f]{40}$ ]] || refuse_patch "no tree id was sent with the patch"
+    perr=$(GIT_INDEX_FILE=$pidx git -C "$run/src" read-tree HEAD 2>&1 </dev/null); prc=$?
+    if [[ $prc -ne 0 ]]; then indent "$perr"; refuse_patch "cannot read the tree of $RR_SHA"; fi
+    perr=$(GIT_INDEX_FILE=$pidx git -C "$run/src" apply --cached --whitespace=nowarn "$pfile" 2>&1 </dev/null); prc=$?
+    if [[ $prc -ne 0 ]]; then indent "$perr"; refuse_patch "the patch does not apply to $RR_SHA"; fi
+    ptree=$(GIT_INDEX_FILE=$pidx git -C "$run/src" write-tree 2>/dev/null </dev/null) || ptree=""
+    [[ "$ptree" == "$RR_PATCH_TREE" ]] \
+        || refuse_patch "the patched tree is ${ptree:-unknown}, the patch's is $RR_PATCH_TREE (made against another base, or edited)"
+    # the dependency script and the pinned-core file are read from the COMMIT (image, FPGA pin), not the tree
+    pfiles=0
+    while IFS= read -r -d '' pf; do
+        pfiles=$((pfiles + 1))
+        if [[ "$pf" == "$RR_DEPS_SCRIPT" || ( -n "${RR_EXTRA_REF_FILE:-}" && "$pf" == "$RR_EXTRA_REF_FILE" ) ]]; then
+            refuse_patch "the patch changes $pf, which the remote reads from the commit: commit and push it instead"
+        fi
+    done < <(GIT_INDEX_FILE=$pidx git -C "$run/src" diff --cached --no-renames --name-only -z HEAD 2>/dev/null </dev/null)
+    perr=$(git -C "$run/src" apply --whitespace=nowarn "$pfile" 2>&1 </dev/null); prc=$?
+    if [[ $prc -ne 0 ]]; then indent "$perr"; refuse_patch "the patch does not apply to the work tree"; fi
+    rm -f "$pidx"
+    echo "=== remote-run patch applied: $RR_PATCH_NAME sha256=$psha tree=$ptree files=$pfiles"
+fi
+# ---- end patch ----
+
 printf '%s' "$RR_INNER" > "$ctl/inner.sh"
 {
     printf 'export RR_TARGETS=%q\n' "$RR_TARGETS"

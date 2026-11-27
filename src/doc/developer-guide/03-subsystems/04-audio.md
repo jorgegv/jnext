@@ -336,9 +336,7 @@ looks back along the recording (to twice the hold, all the relaxation needs);
 remainder, lengths the player holds) and 0 in a pulse phase, because the ZOT
 player does not keep the length of the pulse it has just started: the level is
 then taken as freshly changed, which keeps it as the board has it until the
-relaxation time, at most one pulse late for a pulse longer than that. A pause of 1 ms
-or less after a block that ends high forces the level low with no visible edge, so
-there the age counts from the pause.
+relaxation time, at most one pulse late for a pulse longer than that.
 `Emulator::tape_out_level`
 is the one model of that signal (the MIC jack of a tape save reads the same
 value), and it is refreshed into the beeper at the events that change it: a port
