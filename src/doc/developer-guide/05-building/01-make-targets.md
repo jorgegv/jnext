@@ -91,6 +91,21 @@ rule (it names the file). `make regression-rows ROWS="a-func b-func"` builds the
 binaries and runs just those rows, on the non-PGO Release build unless
 `ROWS_PGO=1`. [4.1](../04-testing/01-the-test-triplet.md) says where each fits.
 
+A third runs a mutant. `make mutant-test SUITES=a,b [ROWS="row-x row-y"]` builds only the
+named suites (`cmake --build build --target ...`; with ROWS also the whole `build/`
+tree, the SDL binary and the tools, because rows execute an open set of helper
+programs) and runs only them, then the rows against `build/jnext`. Every name is
+checked first, with `run-unit-tests.sh --only <list> --check`, which makes the
+manifest's registry, gate, OS, duplicate and source checks without needing a
+binary: a typo, a suite the configuration gates out and a row no manifest declares
+are refused before anything is built. It runs no documentation, CLI or smoke
+checks. Exit 0 prints `mutant-test: SURVIVED`, exit 1 `mutant-test: KILLED` (it
+stops at the first kill), exit 2 `mutant-test: NO VERDICT` after the harness's
+`TEST HARNESS REFUSES TO RUN` banner (a bad name, or a configure or build failure:
+a mutant that does not compile proves nothing). `make unit-test-configure`
+configures or verifies `build/` without building it; `make unit-test-build` runs it
+first.
+
 Two more targets run the SDL-only suites on other operating systems.
 `make unit-test-sdl` also works on macOS, where the test harness needs Homebrew's
 `bash`, `coreutils` and `grep` (`brew install bash coreutils grep`; the target

@@ -5158,6 +5158,7 @@ echo "$(basename "$0" .sh) ${JNEXT:+JNEXT=$JNEXT }$*" >>"$MT_LOG"
 if [[ -n "${MT_FAIL_ON:-}" && "$*" == *"$MT_FAIL_ON"* ]]; then exit "${MT_FAIL_RC:-1}"; fi
 exit 0
 MTEOF
+chmod +x "$T/mt-tool.sh"
 for n in mt-make mt-cmake mt-unit mt-reg; do cp "$T/mt-tool.sh" "$T/$n.sh"; done
 cat >"$T/mt-unit-real.sh" <<MTEOF
 #!/usr/bin/env bash

@@ -148,6 +148,10 @@ smoke set, `docs-check`, `cli-check` and one boot screenshot row (`boot-48k`). I
 says so; the full `make unit-test` runs once, just before landing, and the batch gate on `main` is
 unchanged.
 
+A mutation run, which asks whether named suites and rows notice one edit, uses `make mutant-test
+SUITES=a,b [ROWS="..."]` instead (the make-targets chapter describes it): it builds and runs only
+those, with no documentation check whose failure would read as a kill.
+
 The map is read from the build tree, not written by hand. Each object has a compiler depfile (the
 source and every header it read); each test executable is linked with a GNU ld map
 (`-Wl,-Map`, set in `test/CMakeLists.txt`), whose "Archive member included" section names the exact

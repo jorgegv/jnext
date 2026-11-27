@@ -9,7 +9,7 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-74. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-75. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -17,7 +17,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=74
+EXPECTED_ROWS=75
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -1269,6 +1269,12 @@ PATH="$TMP/dnfstub:$PATH" bash "$ROOT/test/ci-deps.sh" --list test >/dev/null 2>
 [[ ! -s "$DNF_LOG" ]] || dnf_ok=0
 unset DNF_LOG
 row RRUN-74 "$dnf_ok" "ci-deps.sh runs dnf upgrade -y then dnf install -y with the whole set, stops when the upgrade fails, and --list calls no dnf"
+
+# RRUN-75 (GH #585): mutant-test is a heavy target: the driver prints no "not a heavy target" notice for it
+reset_state
+drive --id hv3 feature "$SHA" mutant-test SUITES=a; hv_c=$OUT
+row RRUN-75 "$([[ "$hv_c" != *"is not a heavy target"* && "$hv_c" == *"mutant-test"* ]] && echo 1 || echo 0)" \
+    "mutant-test SUITES=a raises no heavy-target notice"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
 # the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green
