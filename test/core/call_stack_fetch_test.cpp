@@ -354,8 +354,8 @@ void csf_12() {
     // chain waits: the count does not grow at the cut boundaries, and grows at the boundary after
     // the chain's NOP, where the NMI is taken.
     Rig r;
-    Bytes prog(300, 0xDD);
-    prog.push_back(0x00);
+    Bytes prog(301, 0xDD);
+    prog[300] = 0x00;                                     // the NOP that ends the chain
     r.poke(kMain, prog);
     r.start(kMain);
     r.step();                                             // slot 1: cut after 65 prefixes
