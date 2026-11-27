@@ -357,6 +357,14 @@ public:
     // the transport ended the body without an error of its own.
     void fail(std::string& err, bool clean_eof);
     void cancelled();
+    // download_step() ends an attempt with stop(), which only RECORDS the verdict. The backend
+    // then tears the transfer down (closes its connection) and only then calls settle_stop(),
+    // which applies cancelled() / fail(): the network is let go of before any host file work
+    // (closing the .part, the size checks, the resume record), which can block for seconds on a
+    // loaded host. No-op when no stop is pending.
+    enum class Stop { None, Cancelled, Stalled };
+    void stop(Stop why) { stop_ = why; }
+    void settle_stop(std::string& err);
     uint64_t total() const { return total_; }
 
 private:
@@ -364,6 +372,7 @@ private:
     uint64_t part_size() const;
     std::string url_, dest_;
     bool ranged_ = false, begun_ = false, complete_ = false;
+    Stop stop_ = Stop::None;
     uint64_t have_ = 0, base_ = 0, total_ = 0;
     ResumeInfo rec_;
     FILE* f_ = nullptr;
@@ -472,9 +481,11 @@ private:
 
 // The per-tick decision both backends take after every completion and every idle
 // tick. `got` = body bytes of THIS response so far. True: go on. False: the
-// attempt is over, `err` is set and the partial settled: "cancelled by user" (the
-// ProgressFn said false; PartialDownload::cancelled()) or stall_reason() (the
-// watch ran out; PartialDownload::fail(), which adds "(after X of Y bytes)").
+// attempt is over and `err` is set: "cancelled by user" (the ProgressFn said false)
+// or stall_reason() (the watch ran out). The partial is NOT settled yet: the verdict
+// is recorded with PartialDownload::stop(), the backend closes the transfer, and then
+// calls PartialDownload::settle_stop(err) (cancelled(), or fail(), which adds
+// "(after X of Y bytes)"), so the network is let go of first.
 bool download_step(PartialDownload& part, const ProgressFn& progress, uint64_t got,
                    StallWatch& watch, const DownloadTimings& timings, std::string& err);
 
