@@ -1046,7 +1046,7 @@ refused58 gate --gate --patch "$TMP/pA.patch" pbase "$PSHA"
 refused58 warm --warm --patch "$TMP/pA.patch"
 refused58 probe --probe --patch "$TMP/pA.patch"
 bash "$DRIVER" --make-patch "$TMP/mutA" --patch "$TMP/pA.patch" >/dev/null 2>&1; rc_mp=$?
-find "$WORK"/runs* -mindepth 1 2>/dev/null | grep -q . && bad58+=" run-dirs"
+[[ -z "$(find "$WORK"/runs* -mindepth 1 2>/dev/null)" ]] || bad58+=" run-dirs"
 row RRUN-58 "$([[ -z "$bad58" && $rc_mp -eq 2 ]] && echo 1 || echo 0)" \
     "a patch with another base, no header, no diff, empty, missing, a bad name (space, newline), or beside --gate/--warm/--probe is exit 2 PATCH REFUSED with nothing contacted; --make-patch beside --patch is exit 2 (bad:$bad58 mp=$rc_mp)"
 
