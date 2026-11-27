@@ -62,9 +62,9 @@ if want sdcard-file-add-tree-func; then
 
     new_card() {    # new_card <name> — a private clone; prints its path
         mkdir -p "$BASE/$1/sdcard"
-        cp --reflink=auto "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" \
-                          "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
-        printf '%s\n' "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
+        cp --reflink=auto "$RUN_DIR/sdcard/${SD_CARD_NAME}" \
+                          "$BASE/$1/sdcard/${SD_CARD_NAME}"
+        printf '%s\n' "$BASE/$1/sdcard/${SD_CARD_NAME}"
     }
 
     add_tree() {    # add_tree <name> <host tree> — via the feature under test

@@ -30,10 +30,10 @@ if want sdcard-file-extract-func; then
     CFG="$RUN_DIR/private/sdcard-file-extract"
     W="$CFG/work"
     rm -rf "$CFG"; mkdir -p "$CFG/sdcard" "$W"
-    MASTER="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    MASTER="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     CARD="$W/card.img"
     cp --reflink=auto "$MASTER" "$CARD"
-    DEFAULT_CARD="$CFG/sdcard/cspect-next-1gb-fixed.img"
+    DEFAULT_CARD="$CFG/sdcard/${SD_CARD_NAME}"
     cp --reflink=auto "$MASTER" "$DEFAULT_CARD"
     part_lba=$(od -An -tu4 -j $((0x1BE + 8)) -N4 "$CARD" | tr -d ' ')
     OFF=$((part_lba * 512))

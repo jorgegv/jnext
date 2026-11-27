@@ -57,7 +57,7 @@ if want warm-start-chans-func; then
     export MTOOLS_SKIP_CHECK=1
     wc_w="$RUN_DIR/private/warm-start-chans"
     rm -rf "$wc_w"; mkdir -p "$wc_w"
-    wc_src="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    wc_src="$RUN_DIR/sdcard/${SD_CARD_NAME}"
 
     python3 - "$wc_w/probe.nex" <<'PY'
 import struct
@@ -171,12 +171,12 @@ PY
     # with its own config directory, so its warm-start cache is its own.
     wc_card() {
         mkdir -p "$wc_w/$1/sdcard"
-        cp --reflink=auto "$wc_src" "$wc_w/$1/sdcard/cspect-next-1gb-fixed.img"
+        cp --reflink=auto "$wc_src" "$wc_w/$1/sdcard/${SD_CARD_NAME}"
     }
     # wc_warm <name> <out>: a warm --load of the probe on card <name>.
     wc_warm() {
         JNEXT_CONFIG_DIR="$wc_w/$1" timeout --foreground --kill-after=5s 200s "$JNEXT" \
-            "${wc_args[@]}" --sdcard "$wc_w/$1/sdcard/cspect-next-1gb-fixed.img" \
+            "${wc_args[@]}" --sdcard "$wc_w/$1/sdcard/${SD_CARD_NAME}" \
             --load "$wc_w/probe.nex" --delayed-screenshot "$wc_w/$2.png" \
             --delayed-screenshot-frames 120 --delayed-automatic-exit-frames 130 \
             > "$wc_w/$2.log" 2>&1 || true
@@ -192,7 +192,7 @@ PY
     wc_card ab
     JNEXT_CONFIG_DIR="$wc_w/ab" timeout --foreground --kill-after=5s 120s "$JNEXT" \
         --sdcard-file-add "$wc_w/probe.nex" --sdcard-file-dest /PROBE.NEX \
-        --sdcard "$wc_w/ab/sdcard/cspect-next-1gb-fixed.img" \
+        --sdcard "$wc_w/ab/sdcard/${SD_CARD_NAME}" \
         > "$wc_w/add.log" 2>&1 \
         || wc_faults+=("harness: --sdcard-file-add of the probe failed")
 
@@ -265,7 +265,7 @@ PY
         local out=$1; shift
         JNEXT_CONFIG_DIR="$wc_w/ab" timeout --foreground --kill-after=5s 200s "$JNEXT" \
             --headless --machine next "$@" --magic-port 0xCAFE \
-            --magic-port-mode hex --sdcard "$wc_w/ab/sdcard/cspect-next-1gb-fixed.img" \
+            --magic-port-mode hex --sdcard "$wc_w/ab/sdcard/${SD_CARD_NAME}" \
             --load "$wc_w/rtc.nex" --delayed-automatic-exit-frames 40 > "$out" 2>&1 || true
     }
     wc_hex() {   # the three bytes between the markers, "SS MM HH"
@@ -296,7 +296,7 @@ print("yes" if any((t - (h * 60 + m)) % 1440 in (0, 1, 2) for h, m in ((h0, m0),
 
     # ---- F. a start-up menu NextZXOS cannot reach the Command Line from --------
     wc_card f
-    wc_f_img="$wc_w/f/sdcard/cspect-next-1gb-fixed.img"
+    wc_f_img="$wc_w/f/sdcard/${SD_CARD_NAME}"
     wc_flba=$(od -An -tu4 -j $((0x1BE + 8)) -N4 "$wc_f_img" | tr -d ' ')
     printf '=0\r\nNextZXOS\r\nB_rowser:i10\r\nC_alculator:i1\r\nCommand L_ine:i2\r\nN_extBASIC:i0\r\nG_uide:gNextZXOS\r\n' \
         > "$wc_w/enmenus.cfg"
@@ -327,7 +327,7 @@ print("yes" if any((t - (h * 60 + m)) % 1440 in (0, 1, 2) for h, m in ((h0, m0),
     wc_press wc_keys "$wc_f" enter
     wc_b_shot=$(bf $((wc_f + 300))); wc_b_exit=$(bf $((wc_f + 320)))   # boot-timeline frames (bf)
     JNEXT_CONFIG_DIR="$wc_w/ab-real" timeout --foreground --kill-after=5s 300s "$JNEXT" \
-        "${wc_args[@]}" --sdcard "$wc_w/ab/sdcard/cspect-next-1gb-fixed.img" \
+        "${wc_args[@]}" --sdcard "$wc_w/ab/sdcard/${SD_CARD_NAME}" \
         "${wc_keys[@]}" --delayed-screenshot "$wc_w/b.png" \
         --delayed-screenshot-frames "$wc_b_shot" \
         --delayed-automatic-exit-frames "$wc_b_exit" > "$wc_w/b.log" 2>&1 || true
@@ -346,7 +346,7 @@ print("yes" if any((t - (h * 60 + m)) % 1440 in (0, 1, 2) for h, m in ((h0, m0),
     wc_c_key=$(bf 577); wc_c_exit=$(bf 777)   # boot-timeline frames (bf)
     JNEXT_CONFIG_DIR="$wc_w/c" timeout --foreground --kill-after=5s 120s "$JNEXT" \
         --headless --machine next --rtc "$NEXTZXOS_RTC" \
-        --sdcard "$wc_w/c/sdcard/cspect-next-1gb-fixed.img" \
+        --sdcard "$wc_w/c/sdcard/${SD_CARD_NAME}" \
         --delayed-keypress-frames "$wc_c_key" d --delayed-automatic-exit-frames "$wc_c_exit" \
         > "$wc_w/c-welcome.log" 2>&1 || true
     wc_warm c c-run
@@ -357,7 +357,7 @@ print("yes" if any((t - (h * 60 + m)) % 1440 in (0, 1, 2) for h, m in ((h0, m0),
 
     # ---- D. a 60 Hz card -----------------------------------------------------
     wc_card d
-    wc_d_img="$wc_w/d/sdcard/cspect-next-1gb-fixed.img"
+    wc_d_img="$wc_w/d/sdcard/${SD_CARD_NAME}"
     wc_lba=$(od -An -tu4 -j $((0x1BE + 8)) -N4 "$wc_d_img" | tr -d ' ')
     wc_off=$(( ${wc_lba:-0} * 512 ))
     if mcopy -i "$wc_d_img@@$wc_off" ::/MACHINES/NEXT/CONFIG.INI "$wc_w/config.ini" 2>/dev/null \
@@ -384,7 +384,7 @@ print("yes" if any((t - (h * 60 + m)) % 1440 in (0, 1, 2) for h, m in ((h0, m0),
         wc_rtc=(); [[ "$wc_t" == "--no-rtc" ]] || read -ra wc_rtc <<<"$wc_t"
         JNEXT_CONFIG_DIR="$wc_w/e$wc_i" timeout --foreground --kill-after=5s 200s "$JNEXT" \
             --headless --machine next "${wc_rtc[@]}" \
-            --sdcard "$wc_w/ab/sdcard/cspect-next-1gb-fixed.img" --load "$wc_w/probe.nex" \
+            --sdcard "$wc_w/ab/sdcard/${SD_CARD_NAME}" --load "$wc_w/probe.nex" \
             --delayed-automatic-exit-frames 5 > "$wc_w/e$wc_i.log" 2>&1 || true
     done
     for wc_i in 2 3; do

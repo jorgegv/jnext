@@ -31,7 +31,7 @@
 //
 // Fixture: the canonical 1 GB NextZXOS image (MBR + FAT32-LBA, 8 KB
 // clusters) that jnext provisions for itself at
-// ~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img; JNEXT_TEST_SD_IMAGE overrides
+// ~/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img; JNEXT_TEST_SD_IMAGE overrides
 // it, and run-unit-tests.sh points it at a private per-run clone so a
 // concurrent writer cannot tear the read (GH #75/#77). The reference bytes
 // for SD-EXT-01/03/04/05 were captured offline via `mtools` so the test

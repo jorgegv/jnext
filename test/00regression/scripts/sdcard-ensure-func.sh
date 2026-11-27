@@ -28,13 +28,13 @@ if want sdcard-ensure-func; then
     cat > "$W/bin/jnext-stub" <<STUB
 #!/usr/bin/env bash
 echo x >> "$W/calls"
-printf 'PRISTINE-IMAGE-CONTENT\n' > "$H/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"
-printf '%s\n' '$WANT_RECIPE' > "$H/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img.recipe"
-printf '%s\n' '$WANT_DISTRO' > "$H/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img.distro"
+printf 'PRISTINE-IMAGE-CONTENT\n' > "$H/.jnext/sdcard/test-suite/sdcard/${SD_CARD_NAME}"
+printf '%s\n' '$WANT_RECIPE' > "$H/.jnext/sdcard/test-suite/sdcard/${SD_CARD_NAME}.recipe"
+printf '%s\n' '$WANT_DISTRO' > "$H/.jnext/sdcard/test-suite/sdcard/${SD_CARD_NAME}.distro"
 exit 0
 STUB
     chmod +x "$W/bin/jnext-stub"
-    IMG="$H/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"
+    IMG="$H/.jnext/sdcard/test-suite/sdcard/${SD_CARD_NAME}"
 
     # run_tool <args...>: run the tool on the scratch HOME; echoes the stub's call count and leaves
     # the exit status in $W/rc (the function runs in a command substitution, so no variable survives).

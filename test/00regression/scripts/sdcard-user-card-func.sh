@@ -22,16 +22,21 @@ if want sdcard-user-card-func; then
     W="$RUN_DIR/private/sdcard-user-card"
     H="$W/home"
     rm -rf "$W"; mkdir -p "$H/.jnext/sdcard" "$W/cfg/sdcard"
-    UC="$H/.jnext/sdcard/cspect-next-1gb-fixed.img"
+    UC="$H/.jnext/sdcard/${SD_CARD_NAME}"
     want_recipe=$(sd_expected_recipe) || want_recipe=""
     want_distro=$(sd_expected_distro) || want_distro=""
     [[ -n "$want_recipe" && -n "$want_distro" ]] || faults+=("sd_expected_recipe/distro could not read the provisioner")
     printf 'USER-CARD\n' > "$UC"
     printf '%s\n' "$want_recipe" > "$UC.recipe"
     printf '%s\n' "$want_distro" > "$UC.distro"
-    printf '%s  cspect-next-1gb-fixed.img\n' "$(sha256sum "$UC" | cut -d' ' -f1)" > "$UC.sha256"
+    printf '%s  %s\n' "$(sha256sum "$UC" | cut -d' ' -f1)" "$SD_CARD_NAME" > "$UC.sha256"
     chmod 0444 "$UC"; touch -d '2020-01-02 03:04:05' "$UC"
-    sig() { stat -c '%s:%a:%Y' "$UC"; cat "$UC.recipe" "$UC.distro" "$UC.sha256"; }
+    # GH #579: a user card still under its OLD name (cspect-next-1gb-fixed.img) beside the current one. No suite
+    # step may migrate it: only jnext's own default flow renames a card, and the suites never run it on this HOME.
+    LC="$H/.jnext/sdcard/cspect-next-1gb-fixed.img"
+    printf 'LEGACY-USER-CARD\n' > "$LC"; printf '%s\n' "$want_distro" > "$LC.distro"
+    chmod 0444 "$LC"; touch -d '2019-05-06 07:08:09' "$LC"
+    sig() { stat -c '%s:%a:%Y' "$UC" "$LC"; cat "$UC.recipe" "$UC.distro" "$UC.sha256" "$LC" "$LC.distro"; ls "$H/.jnext/sdcard"; }
     before=$(sig)
 
     probe() {   # probe: exit status of the master probe in the scratch HOME
@@ -45,12 +50,12 @@ if want sdcard-user-card-func; then
     [[ "$(sig)" == "$before" ]] || faults+=("the probe changed the user's card")
 
     # 2 - a current test master: the probe says nothing to do (0); the user's card is still untouched.
-    TM="$H/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"
+    TM="$H/.jnext/sdcard/test-suite/sdcard/${SD_CARD_NAME}"
     mkdir -p "$(dirname "$TM")"
     printf 'TEST-MASTER\n' > "$TM"
     printf '%s\n' "$want_recipe" > "$TM.recipe"
     printf '%s\n' "$want_distro" > "$TM.distro"
-    printf '%s  cspect-next-1gb-fixed.img\n' "$(sha256sum "$TM" | cut -d' ' -f1)" > "$TM.sha256"
+    printf '%s  %s\n' "$(sha256sum "$TM" | cut -d' ' -f1)" "$SD_CARD_NAME" > "$TM.sha256"
     rc=$(probe)
     [[ "$rc" == 0 ]] || faults+=("the probe exited $rc with a current test master (want 0)")
     [[ "$(sig)" == "$before" ]] || faults+=("a current test master still disturbed the user's card")
@@ -60,9 +65,9 @@ if want sdcard-user-card-func; then
     cat > "$W/jnext-stub" <<STUB
 #!/usr/bin/env bash
 d="\$JNEXT_CONFIG_DIR/sdcard"; mkdir -p "\$d"
-printf 'DERIVED\n' > "\$d/cspect-next-1gb-fixed.img"
-printf '%s\n' '$want_recipe' > "\$d/cspect-next-1gb-fixed.img.recipe"
-printf '%s\n' '$want_distro' > "\$d/cspect-next-1gb-fixed.img.distro"
+printf 'DERIVED\n' > "\$d/${SD_CARD_NAME}"
+printf '%s\n' '$want_recipe' > "\$d/${SD_CARD_NAME}.recipe"
+printf '%s\n' '$want_distro' > "\$d/${SD_CARD_NAME}.distro"
 STUB
     chmod +x "$W/jnext-stub"
     printf 'drift\n' >> "$TM"
@@ -71,7 +76,7 @@ STUB
     [[ "$(sig)" == "$before" && "$(cat "$UC")" == USER-CARD ]] || faults+=("re-deriving the test master disturbed the user's card")
 
     # 4 - the real binary: --sdcard-file-add into a default card says nothing about a shared image.
-    cp --reflink=auto "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" "$W/cfg/sdcard/cspect-next-1gb-fixed.img"
+    cp --reflink=auto "$RUN_DIR/sdcard/${SD_CARD_NAME}" "$W/cfg/sdcard/${SD_CARD_NAME}"
     printf 'payload\n' > "$W/payload.bin"
     rc=0
     out=$(JNEXT_CONFIG_DIR="$W/cfg" timeout --foreground --kill-after=5s 120s "$JNEXT" \

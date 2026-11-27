@@ -19,5 +19,5 @@ inline std::string test_sd_image_path()
     const char* home = std::getenv("HOME");
     if (!(home && *home)) home = std::getenv("USERPROFILE");
     return std::string(home ? home : ".") +
-           "/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img";
+           "/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img";
 }

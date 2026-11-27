@@ -14,7 +14,7 @@ set -euo pipefail
 
 JNEXT=$1
 WORK=$2
-MASTER=${3:-$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img}
+MASTER=${3:-$HOME/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RTC="2026-07-10T08:55:00"
 # BOOT_SHIFT: the card's boot delay in frames, the firmware's machine-type commit frame minus the
@@ -26,7 +26,7 @@ FRAMES=$(( ${PROBE_FRAMES:-6177} + BOOT_SHIFT ))
 mkdir -p "$WORK/card/sdcard"
 trap 'rm -rf "$WORK/card"' EXIT
 sha256sum "$MASTER" | cut -d' ' -f1 > "$WORK/sha256-master.txt"
-cp --reflink=auto "$MASTER" "$WORK/card/sdcard/cspect-next-1gb-fixed.img"
+cp --reflink=auto "$MASTER" "$WORK/card/sdcard/jnext-sdcard.img"
 
 python3 -I "$HERE/esxdos-write-probe.py" nex --mode rw "$WORK/W457RW.NEX"
 python3 -I "$HERE/esxdos-write-probe.py" nex --mode ro "$WORK/W457RO.NEX"

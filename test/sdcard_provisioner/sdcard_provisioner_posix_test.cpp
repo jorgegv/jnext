@@ -36,6 +36,8 @@
 #include "range_server.h"
 
 #include <algorithm>
+#include <fstream>
+#include <sys/stat.h>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -179,6 +181,45 @@ void test_reply_libcurl_cannot_use() {
           bad.empty(), bad);
 }
 
+// GH #579: the legacy-name migration renames, never copies (POSIX: inodes and symlinks).
+void test_rename_posix_rows() {
+    namespace fs = std::filesystem;
+    const std::string cfg = g_tmpdir + "/ren";
+    jtp::set_env("HOME", g_tmpdir.c_str());
+    jtp::set_env("JNEXT_CONFIG_DIR", cfg.c_str());
+    const std::string dir = sdcard::default_sdcard_dir();
+    const std::string leg = dir + "/" + sdcard::kLegacyFixedImageFileName, now = dir + "/" + sdcard::kFixedImageFileName;
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    auto put = [&](const std::string& path, const std::string& text) { std::ofstream f(path, std::ios::binary | std::ios::trunc); f << text; };
+    auto inode = [&](const std::string& path) { struct stat st{}; return ::stat(path.c_str(), &st) == 0 ? static_cast<uintmax_t>(st.st_ino) : uintmax_t(0); };
+    {
+        put(leg, "CARD-BYTES");
+        const uintmax_t ino0 = inode(leg);
+        std::string why;
+        const auto m = sdcard::migrate_legacy_names(dir, why, nullptr);
+        check("SDREN-15", "the card is renamed, not copied: the same inode before and after",
+              m == sdcard::MigrateStatus::Done && ino0 != 0 && inode(now) == ino0 && !fs::exists(leg, ec), why);
+        fs::remove(now, ec);
+    }
+    {
+        const std::string elsewhere = g_tmpdir + "/elsewhere";
+        fs::create_directories(elsewhere, ec);
+        const std::string target = elsewhere + "/card.img";
+        put(target, "LINKED-CARD");
+        const auto t0 = fs::last_write_time(target, ec);
+        fs::create_symlink(target, leg, ec);
+        std::string why;
+        const auto m = sdcard::migrate_legacy_names(dir, why, nullptr);
+        std::error_code e2;
+        check("SDREN-16", "a legacy card that is a symlink moves as a symlink to the same target, whose bytes and mtime are untouched",
+              m == sdcard::MigrateStatus::Done && fs::is_symlink(now, e2) && fs::read_symlink(now, e2) == fs::path(target) &&
+              !fs::is_symlink(leg, e2) && !fs::exists(leg, e2) && fs::last_write_time(target, e2) == t0 &&
+              fs::file_size(target, e2) == 11, why);
+    }
+    jtp::unset_env("JNEXT_CONFIG_DIR");
+}
+
 }  // namespace
 
 int main() {
@@ -187,6 +228,7 @@ int main() {
 
     test_proxy_refusal();
     test_reply_libcurl_cannot_use();
+    test_rename_posix_rows();
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);

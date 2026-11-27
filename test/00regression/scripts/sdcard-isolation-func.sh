@@ -43,12 +43,12 @@ if want sdcard-isolation-func; then
     # the variable it would name the master instead — and every screenshot row
     # in this suite would silently be booting the shared card.
     mkdir -p "$W/cfg/sdcard"
-    printf 'NOT-A-REAL-IMAGE\n' > "$W/cfg/sdcard/cspect-next-1gb-fixed.img"
+    printf 'NOT-A-REAL-IMAGE\n' > "$W/cfg/sdcard/${SD_CARD_NAME}"
     # A bogus image cannot boot; --delayed-automatic-exit bounds it either way
     # and the exit status is deliberately not asserted — only the resolution is.
     JNEXT_CONFIG_DIR="$W/cfg" timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine next \
         --delayed-automatic-exit 1 > "$W/resolve.log" 2>&1 || true
-    grep -qF "$W/cfg/sdcard/cspect-next-1gb-fixed.img" "$W/resolve.log" \
+    grep -qF "$W/cfg/sdcard/${SD_CARD_NAME}" "$W/resolve.log" \
         || faults+=("A: jnext did not resolve its SD image through \$JNEXT_CONFIG_DIR")
     grep -qF "$SD_MASTER_IMAGE" "$W/resolve.log" \
         && faults+=("B: jnext fell back to the shared master image $SD_MASTER_IMAGE")
@@ -56,7 +56,7 @@ if want sdcard-isolation-func; then
     # --- C: this run's clone exists, at exactly the path jnext will resolve,
     # and is a DISTINCT file from the master (not a symlink or a hard link, both
     # of which would still let a write reach the master).
-    CLONE="$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img"
+    CLONE="$JNEXT_CONFIG_DIR/sdcard/${SD_CARD_NAME}"
     if [[ ! -f "$CLONE" ]]; then
         faults+=("C: no per-run clone at $CLONE — the run would boot the master")
     else

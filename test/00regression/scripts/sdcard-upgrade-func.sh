@@ -43,11 +43,11 @@ if want sdcard-upgrade-func; then
 
     if [[ ${#su_missing[@]} -gt 0 ]]; then
         fail_row " (tools absent: ${su_missing[*]})"
-    elif [[ ! -f "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" ]]; then
+    elif [[ ! -f "$RUN_DIR/sdcard/${SD_CARD_NAME}" ]]; then
         skip_row " (no SD-card image clone for this run)"
     else
         export MTOOLS_SKIP_CHECK=1
-        su_card="$su_dir/cfg/sdcard/cspect-next-1gb-fixed.img"
+        su_card="$su_dir/cfg/sdcard/${SD_CARD_NAME}"
         su_old="$su_dir/old.img"
         su_zip="$su_dir/sn-emulator-99.99.zip"
         su_off=32256   # partition at sector 63
@@ -71,7 +71,7 @@ with zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED) as z:
     z.write(sys.argv[1], "cspect-next-1gb.img")
 PY
         rm -f "$su_dir/dist.img"
-        cp --reflink=auto "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" "$su_old"
+        cp --reflink=auto "$RUN_DIR/sdcard/${SD_CARD_NAME}" "$su_old"
         su_old_sha=$(sha256sum < "$su_old" | cut -d' ' -f1)
         su_reset() { cp --reflink=auto "$su_old" "$su_card"; rm -f "$su_card".distro "$su_card".distro-declined "$su_card".recipe \
                        "$su_dir/cfg/sdcard/cspect-next-1gb.img" "$su_dir/cfg/sdcard/cspect-next-1gb.img".*; }
@@ -123,7 +123,7 @@ PY
             # 5b: fresh: a new card, the old one kept in previous/
             printf 'sn-emulator-99.99.zip\n' > "$su_card.distro-declined"
             rc=$(su_run five --sdcard-upgrade fresh)
-            [[ "$(sha256sum < "$su_dir/cfg/sdcard/previous/cspect-next-1gb-fixed.img" 2>/dev/null | cut -d' ' -f1)" == "$su_old_sha" ]] \
+            [[ "$(sha256sum < "$su_dir/cfg/sdcard/previous/${SD_CARD_NAME}" 2>/dev/null | cut -d' ' -f1)" == "$su_old_sha" ]] \
                 || su_faults+=("5: the old card is not in previous/ byte-identical")
             [[ -f "$su_card" && "$(su_card_sha)" != "$su_old_sha" ]] || su_faults+=("5: the card was not replaced")
             LANG=C mcopy -n -i "$su_card@@$su_off" ::/MARKER.TXT "$su_dir/marker.out" </dev/null >/dev/null 2>&1 || true
@@ -141,15 +141,15 @@ PY
             seam="$su_dir/seam"; sd6="$su_dir/seam/sdcard"; rm -rf "$seam"; mkdir -p "$sd6"
             if [[ -f "$raw" && -f "$raw.sha256" && -f "$raw.distro" ]]; then
                 cp --reflink=auto "$raw" "$sd6/"; cp "$raw.sha256" "$raw.distro" "$sd6/"
-                cp --reflink=auto "$su_card" "$sd6/cspect-next-1gb-fixed.img"
-                printf '%s  cspect-next-1gb-fixed.img\n' "$(sha256sum < "$sd6/cspect-next-1gb-fixed.img" | cut -d' ' -f1)" > "$sd6/cspect-next-1gb-fixed.img.sha256"
-                printf '2\n' > "$sd6/cspect-next-1gb-fixed.img.recipe"
+                cp --reflink=auto "$su_card" "$sd6/${SD_CARD_NAME}"
+                printf '%s  %s\n' "$(sha256sum < "$sd6/${SD_CARD_NAME}" | cut -d' ' -f1)" "$SD_CARD_NAME" > "$sd6/${SD_CARD_NAME}.sha256"
+                printf '2\n' > "$sd6/${SD_CARD_NAME}.recipe"
                 for run in 1 2; do
                     LANG=C JNEXT_REGRESSION_BOOT_ANCHOR=off JNEXT_REGRESSION_SD_STATE_DIR="$seam" HOME="$su_dir/seamhome" \
                         JNEXT="$JNEXT" bash "$SCRIPT_DIR/scripts/01-sdcard-provision.sh" > "$su_dir/seam$run.out" 2>&1 || true
                     sed 's/\x1b\[[0-9;]*m//g' "$su_dir/seam$run.out" | tr -d '\r' > "$su_dir/seam$run.txt"
-                    [[ -f "$sd6/cspect-next-1gb-fixed.img" ]] || su_faults+=("6: run $run: the seam's card was lost")
-                    [[ -f "$sd6/cspect-next-1gb-fixed.img.recipe" && "$(tr -d '[:space:]' < "$sd6/cspect-next-1gb-fixed.img.recipe")" == 3 ]] \
+                    [[ -f "$sd6/${SD_CARD_NAME}" ]] || su_faults+=("6: run $run: the seam's card was lost")
+                    [[ -f "$sd6/${SD_CARD_NAME}.recipe" && "$(tr -d '[:space:]' < "$sd6/${SD_CARD_NAME}.recipe")" == 3 ]] \
                         || su_faults+=("6: run $run: the card is not at recipe 3: $(grep 'sdcard-provision\|PASS\|FAIL' "$su_dir/seam$run.txt" | tail -n 1 | cut -c1-200)")
                 done
                 grep -q 're-derived with recipe 3' "$su_dir/seam1.txt" || su_faults+=("6: run 1 did not take the recipe path")
@@ -160,7 +160,7 @@ PY
         fi
     fi
 
-    if [[ ${#su_missing[@]} -gt 0 ]]; then :; elif [[ ! -f "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" ]]; then :
+    if [[ ${#su_missing[@]} -gt 0 ]]; then :; elif [[ ! -f "$RUN_DIR/sdcard/${SD_CARD_NAME}" ]]; then :
     elif [[ ${#su_faults[@]} -eq 0 ]]; then
         pass_row " (a newer distribution is offered and never forced: headless keeps the card and says how to upgrade; no / never / ask behave; --sdcard refuses the option; yes replaces the card with the new distribution's, its own serial, atomically; the seam's offline re-derive keeps its card)"
     else

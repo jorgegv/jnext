@@ -53,7 +53,7 @@ if want nextsync-func; then
     peer_py="$SCRIPT_DIR/nextsync-peer.py"
     dot_src="$SCRIPT_DIR/nextsync/dot/sync"
     sdfile="$TEST_BIN_DIR/sdfile_tool"
-    sd_image="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    sd_image="$RUN_DIR/sdcard/${SD_CARD_NAME}"
 
     syncroot="$TMP_DIR/nextsync-root"
     ready="$TMP_DIR/nextsync_ready"

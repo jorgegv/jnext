@@ -14,7 +14,7 @@ start-up error box and the browser's counterpart. The sources are `src/core/sdca
 
 | File | Content | Written by |
 |---|---|---|
-| `cspect-next-1gb-fixed.img` | the user's card | the provisioner, then the guest |
+| `jnext-sdcard.img` | the user's card | the provisioner, then the guest |
 | `cspect-next-1gb.img` | the original distribution image the card was made from | the provisioner |
 | `<card>.distro`, `<raw>.distro` | the distribution (zip name) of each; none means 24.11 | the provisioner |
 | `<card>.recipe` | the recipe number that made the card; none means 1 | the provisioner |
@@ -27,6 +27,39 @@ start-up error box and the browser's counterpart. The sources are `src/core/sdca
 | `go-back-work/` | the swap's scratch, `SWAPPING` and the `gN.done` marks | go back |
 | `<state dir>/locks/<hash>.lock` | the image lock files | `image_lock.cpp` |
 | `test-suite/` | the harness's own card; owned by the test suites, never by a user | the harness |
+
+## The old name
+
+Before this name the card was `cspect-next-1gb-fixed.img` (`kLegacyFixedImageFileName`, the only
+product text that still spells it). `provision_sd_card` calls `migrate_legacy_names` first in the
+default flow, before the interrupted-upgrade and go-back recovery, because recovery names files by
+`upgrade::set_names()`, the one list of a set's file names that recovery, go back and the migration
+all read. `--sdcard-go-back` and `--sdcard-delete-backup` call it too, after taking the card's lock.
+
+The rule, per directory: when a legacy-named card is there and nothing is at the new name, the
+card's sidecars (`.distro`, `.recipe`, `.distro-declined`, `.newer-seen`) are copied to the new
+names first, then the card is renamed, which is the commit point, then the legacy sidecars are
+removed. The card is never copied: a copy changes its modification time, which the writes files
+and the warm-start recording bind to, and costs a gigabyte. A rename keeps size and mtime, so those
+bindings hold. A crash before the rename leaves the complete legacy set, one after it the complete
+new set, and the next start finishes the clean-up. Both names present: neither is touched (a log
+warning) and the new one is used. Anything but a regular file at the new name is a refusal.
+
+The live directory is migrated under the legacy card's lock (an older jnext holding the card is the
+usual lock refusal); `main` holds the new path's lock already, so two new jnexts cannot both
+migrate. `previous/`, `previous.new/` and `go-back-work/cur/` are migrated by the same rule without
+a lock, and a failure there only logs (the backup stays on disk, unseen until the next start); in
+those scratch and backup directories legacy sidecars an older version's half-done move left beside a
+new-named card are renamed as well. The raw distribution image keeps its name. A failure on the live
+directory refuses the start with the reason, the paths and the `--sdcard <old name>` remedy: there
+is deliberately no fallback to the old name, because the machinery that names the set's files
+(upgrade, go back, delete, recovery, the File menu, the lock) would have to run in two naming modes
+and a backup could end up orphaned under the other one. A saved Preferences card path that names
+the legacy default card is read as the new one once the old file is gone (`legacy_card_alias`);
+`--sdcard` is never aliased and its refusal for a missing old name says where the card is now.
+
+The tests are `SDREN-01..16` in `sdcard_provisioner_test` (and its POSIX sibling for inodes and
+symlinks) and the row `sdcard-rename-func`.
 
 ## Identifying a version
 

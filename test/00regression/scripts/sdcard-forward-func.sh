@@ -22,7 +22,7 @@ if want sdcard-forward-func; then
     BASE="$RUN_DIR/private/sdcard-forward"
     W="$BASE/work"
     CFG="$BASE/cfg"
-    MASTER="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    MASTER="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     if [[ ${#missing[@]} -gt 0 ]]; then
         fail_row " (tools absent: ${missing[*]} - install mtools, python3 and coreutils)"
     elif [[ ! -x "$JNEXT_SDL" ]]; then
@@ -217,14 +217,14 @@ PY
     stop_holder "$h8"
     [[ "$(sha "$BASE/g.img")" == "$gi" ]] || faults+=("sha: the card changed")
     CFGD="$BASE/cfg-default"; mkdir -p "$CFGD/sdcard"
-    cp --reflink=auto "$MASTER" "$CFGD/sdcard/cspect-next-1gb-fixed.img"
-    sd_card_sidecars "$MASTER" "$CFGD/sdcard/cspect-next-1gb-fixed.img"
+    cp --reflink=auto "$MASTER" "$CFGD/sdcard/${SD_CARD_NAME}"
+    sd_card_sidecars "$MASTER" "$CFGD/sdcard/${SD_CARD_NAME}"
     JNEXT_CONFIG_DIR="$CFGD" "$JNEXT" --headless --machine 48k --rewind-buffer-size 0 --zrcp-port 0 \
         --delayed-automatic-exit 900 > "$W/h9.log" 2>&1 &
     h9=$!
     HOLD_PIDS+=("$h9"); HOLD_PID=$h9
     wait_listening h9
-    di=$(sha "$CFGD/sdcard/cspect-next-1gb-fixed.img")
+    di=$(sha "$CFGD/sdcard/${SD_CARD_NAME}")
     for opt in "--sdcard-download-force" "--sdcard-upgrade yes"; do
         lbl="dflt-${opt%% *}"
         TRY_RC=0
@@ -235,7 +235,7 @@ PY
         log_has "$lbl" "${opt%% *} cannot be used for a copy through a running jnext (process $h9): it acts on the card itself"
     done
     stop_holder "$h9"
-    [[ "$(sha "$CFGD/sdcard/cspect-next-1gb-fixed.img")" == "$di" ]] || faults+=("dflt: the default card changed")
+    [[ "$(sha "$CFGD/sdcard/${SD_CARD_NAME}")" == "$di" ]] || faults+=("dflt: the default card changed")
 
     # 13. every frontend installs the hook: an SDL holder and a Qt holder each take one forwarded copy
     JNEXT_CONFIG_DIR="$CFG" env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy "$JNEXT_SDL" --silent \

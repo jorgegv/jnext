@@ -58,7 +58,7 @@ if want soft-reset-shadow-screen-func; then
 
     shsc_png="$TMP_DIR/jnext_test_soft_reset_shadow_screen.png"
     sdfile="$TEST_BIN_DIR/sdfile_tool"
-    sd_image="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    sd_image="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     beast_nex="$PROJECT_DIR/test/00regression/nex/beast.nex"
     inject_log="$TMP_DIR/shadow_reset_inject.log"
     verdict=""

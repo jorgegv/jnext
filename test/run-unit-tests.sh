@@ -143,11 +143,11 @@ trap 'unit_cleanup; exit 143' TERM
 SD_CLONE_MODE=none
 sd_clone_for_run() {
     if [[ -n "${JNEXT_TEST_SD_IMAGE:-}" ]]; then SD_CLONE_MODE=preset; return 0; fi
-    local sd_master="$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"
+    local sd_master="$HOME/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img"
     [[ -f "$sd_master" ]] || { SD_CLONE_MODE=absent; return 0; }
 
     UNIT_RUN_DIR="$HOME/.jnext/runs/unit-$$-$RANDOM"
-    local sd_clone="$UNIT_RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    local sd_clone="$UNIT_RUN_DIR/sdcard/jnext-sdcard.img"
     local why=""
     if why=$(mkdir -p "$UNIT_RUN_DIR/sdcard" 2>&1); then
         if   cp --reflink=always "$sd_master" "$sd_clone" 2>/dev/null; then SD_CLONE_MODE=reflink

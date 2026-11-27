@@ -57,9 +57,9 @@ if want sdcard-file-add-func; then
     CFG="$RUN_DIR/private/sdcard-file-add"
     W="$CFG/work"
     mkdir -p "$CFG/sdcard" "$W"
-    cp --reflink=auto "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" \
-                      "$CFG/sdcard/cspect-next-1gb-fixed.img"
-    CARD="$CFG/sdcard/cspect-next-1gb-fixed.img"
+    cp --reflink=auto "$RUN_DIR/sdcard/${SD_CARD_NAME}" \
+                      "$CFG/sdcard/${SD_CARD_NAME}"
+    CARD="$CFG/sdcard/${SD_CARD_NAME}"
 
     # The partition's byte offset, READ from the MBR rather than assumed: mtools
     # needs it for @@, and fsck.vfat has no offset option at all, so the
@@ -341,7 +341,7 @@ if want sdcard-file-add-func; then
         && faults+=("an explicit --sdcard still printed the shared-image warning")
     # No spelling of the default image warns either.
     run_add 0 "default-quiet-dotpath" \
-        --sdcard "$CFG/sdcard/./cspect-next-1gb-fixed.img" \
+        --sdcard "$CFG/sdcard/./${SD_CARD_NAME}" \
         --sdcard-file-add "$W/long.bin" --sdcard-file-dest /WARNCHK3.BIN
     grep -q "DEFAULT SD-card image" <<< "$ADD_OUT" \
         && faults+=("a './' spelling of the default image printed the shared-image warning")

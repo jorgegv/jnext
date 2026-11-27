@@ -1148,7 +1148,7 @@ sdcard-image:
 	printf "sdcard-image: the SD master is missing or not this tree's -- provisioning it (jnext's own download)\n"; \
 	$(MAKE) --no-print-directory unit-test-sdl-build || exit 1; \
 	PATH="$(UNIT_TEST_PATH)" tools/sd-master-ensure.sh $(BUILD_DIR_SDL_UNIT_TEST)/jnext || { \
-		printf "$(BADGE_FAIL) ERROR $(RESET) the SD image could not be provisioned at %s (the reason is above).\n" "$$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"; \
+		printf "$(BADGE_FAIL) ERROR $(RESET) the SD image could not be provisioned at %s (the reason is above).\n" "$$HOME/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img"; \
 		exit 1; }
 
 # Configure + build the SDL-only test tree (prerequisite for unit-test-sdl)
@@ -1495,7 +1495,7 @@ worktree-bootstrap:
 	@# there). Failing the target over a self-healing condition would be a false
 	@# alarm. And it REPORTS rather than initialising: this target has never mutated
 	@# a checkout, and `git submodule update --init` is a write to someone's tree.
-	@sd="$$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"; \
+	@sd="$$HOME/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img"; \
 	pending=0; \
 	if [ ! -f roms/nextboot.rom ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) roms/nextboot.rom missing — this is a tracked file; the checkout is broken\n"; \
@@ -1751,7 +1751,7 @@ docs-screenshots: unit-test-build
 	@# crash. A clone can still be orphaned that way; it is a plain directory
 	@# under $$HOME/.jnext/runs and `rm -rf` is the whole recovery.
 	@set -e; \
-	 sd="$${JNEXT_TEST_SD_IMAGE:-$$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img}"; \
+	 sd="$${JNEXT_TEST_SD_IMAGE:-$$HOME/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img}"; \
 	 if [ ! -f "$$sd" ]; then \
 	   printf "$(BADGE_FAIL) FAIL $(RESET) no NextZXOS SD image at $$sd\n"; \
 	   printf "        provision it with 'JNEXT_CONFIG_DIR=$$HOME/.jnext/sdcard/test-suite ./build/jnext --headless --sdcard-download-confirm',\n"; \

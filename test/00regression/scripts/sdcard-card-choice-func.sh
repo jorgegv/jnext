@@ -21,7 +21,7 @@ if want sdcard-card-choice-func; then
     done
     BASE="$RUN_DIR/private/sdcard-card-choice"
     W="$BASE/work"
-    MASTER="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    MASTER="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     if [[ ${#missing[@]} -gt 0 ]]; then
         fail_row " (tools absent: ${missing[*]} - install mtools, python3 and coreutils)"
     elif [[ ! -f "$MASTER" ]]; then
@@ -87,8 +87,8 @@ if want sdcard-card-choice-func; then
 
     # 3. a holder on the default card of a config dir does not stop a card-2 command
     CFGD="$BASE/cfg-default"; mkdir -p "$CFGD/sdcard"
-    cp --reflink=auto "$MASTER" "$CFGD/sdcard/cspect-next-1gb-fixed.img"
-    sd_card_sidecars "$MASTER" "$CFGD/sdcard/cspect-next-1gb-fixed.img"
+    cp --reflink=auto "$MASTER" "$CFGD/sdcard/${SD_CARD_NAME}"
+    sd_card_sidecars "$MASTER" "$CFGD/sdcard/${SD_CARD_NAME}"
     hold hd "$CFGD"
     hd=$HOLD_PID
     run c2held 0 "$CFGD" --sdcard2 "$BASE/b.img" --sdcard-file-add p.bin --sdcard-file-dest /C2H.BIN

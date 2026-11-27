@@ -96,7 +96,11 @@ lookup instead, and the suite provisions that image for itself in the
   before anything reads it, under the same lock; a current master is not
   touched. A derive that fails prints jnext's own reason (each failed download
   attempt and the final error), not a guess; `sdcard-ensure-func` tests the tool.
-  The master is **never the user's own card**, the `cspect-next-1gb-fixed.img`
+  Every script that sources the library reads the card's file name from
+  `$SD_CARD_NAME`, which `sd_card_name` takes from its one definition,
+  `kFixedImageFileName` in `src/core/sdcard_provisioner.cpp` (`HS-204`); the
+  few files that cannot source it carry the same literal.
+  The master is **never the user's own card**, the `jnext-sdcard.img`
   directly under `~/.jnext/sdcard/`: the gate deletes and re-derives its card
   whenever the distribution or the recipe moves, and a developer's saved files
   must not go with it. `sd_test_state_dir` (shell) and `test/test_sd_image.h`
@@ -196,7 +200,7 @@ the same tree twice (the same non-PGO `jnext`, master A = the default, master B
    ```
 
    The state directory then holds `sdcard/cspect-next-1gb.img` (the raw card),
-   its `.sha256` sidecar and `cspect-next-1gb-fixed.img` (the patched card).
+   its `.sha256` sidecar and `jnext-sdcard.img` (the patched card).
    Never run it without `JNEXT_CONFIG_DIR`: a forced download would replace the
    shared master.
 2. **Say what differs**, with the read-only inventory tool. It prints the MBR
@@ -244,7 +248,7 @@ the same tree twice (the same non-PGO `jnext`, master A = the default, master B
    The `[sdcard-provision]` row names the master in use.
 
    **What the seam directory must hold.** A candidate card is never deleted
-   unless a verified raw rebuilds it, and never replaced by a download. `sdcard/cspect-next-1gb-fixed.img` is the
+   unless a verified raw rebuilds it, and never replaced by a download. `sdcard/jnext-sdcard.img` is the
    card under test. With no witness beside it, the card is used as it is and a
    witness is written. If the card is missing, or no longer matches its
    witness, the row can only rebuild it from `sdcard/cspect-next-1gb.img` plus

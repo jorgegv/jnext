@@ -30,7 +30,7 @@ if want sdcard2-func; then
     BASE="$RUN_DIR/private/sdcard2"
     W="$BASE/work"
     mkdir -p "$W"
-    MASTER="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    MASTER="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     missing=()
     for tool in mformat mdir; do
         command -v "$tool" &>/dev/null || missing+=("$tool")
@@ -44,8 +44,8 @@ if want sdcard2-func; then
         export MTOOLS_SKIP_CHECK=1
         clone_a() {   # clone_a <name> - a config dir whose fallback card 0 is a clone of the master
             mkdir -p "$BASE/$1/sdcard"
-            cp --reflink=auto "$MASTER" "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
-            sd_card_sidecars "$MASTER" "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
+            cp --reflink=auto "$MASTER" "$BASE/$1/sdcard/${SD_CARD_NAME}"
+            sd_card_sidecars "$MASTER" "$BASE/$1/sdcard/${SD_CARD_NAME}"
         }
         clone_a d
         clone_a control

@@ -71,7 +71,7 @@
 //                  unset or empty falls back to the canonical URL.
 //   PROV-FIXED-01  Skip-redownload: with a valid raw cspect-next-1gb.img
 //                  (+ matching .sha256) present, provision produces
-//                  cspect-next-1gb-fixed.img WITHOUT a download; both files
+//                  jnext-sdcard.img WITHOUT a download; both files
 //                  exist afterwards AND the raw is byte-identical (pristine).
 //   PROV-COPY-FAIL-01  A CopyFn that fails → Failed AND the fixed image is
 //                  removed (no truncated fixed left behind).
@@ -144,6 +144,9 @@
 #include "core/fat32_image.h"
 #include "core/sdcard_provisioner.h"
 #include "core/sdcard_backup.h"
+#include "core/sdcard_upgrade.h"
+#include "core/image_lock.h"
+#include "peripheral/sd_write_journal.h"
 #include "range_server.h"
 
 #include <zlib.h>
@@ -2765,6 +2768,299 @@ void test_retry_rows() {
     jtp::unset_env("JNEXT_CONFIG_DIR");
 }
 
+
+// GH #579: the card an earlier jnext named cspect-next-1gb-fixed.img is renamed to jnext-sdcard.img.
+// Oracle: the migration rule in sdcard_provisioner.h (sidecars copied, the card RENAMED as the commit
+// point, the legacy sidecars last; both names present: neither touched) and rename(2)/MoveFileEx, which
+// keep a file's size and mtime. Every row runs in its own config directory under the fake HOME, with a
+// download seam that counts and fails and a confirm seam that counts.
+void test_rename_rows() {
+    namespace fs = std::filesystem;
+    const std::string cfg = g_tmpdir + "/ren";
+    jtp::set_env("JNEXT_CONFIG_DIR", cfg.c_str());
+    const std::string dir = sdcard::default_sdcard_dir();
+    const std::string newn = sdcard::kFixedImageFileName, legn = sdcard::kLegacyFixedImageFileName;
+    const std::string rawn = sdcard::kImageFileName;
+    const std::string sfx[] = {".distro", ".recipe", ".distro-declined", ".newer-seen"};
+    const std::string cur_distro = sdcard::distribution_of_url(sdcard::kDistroUrl);
+    jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+
+    int downloads = 0, confirms = 0;
+    auto dl = [&](const std::string&, const std::string&, const sdcard::ProgressFn&, std::string& err) {
+        ++downloads; err = "stub: a download must not happen"; return false; };
+    auto opts = [&]() {
+        sdcard::ProvisionOptions o;
+        o.download = dl;
+        o.confirm = [&](const std::string&) { ++confirms; return false; };
+        o.upgrade = [&](const std::string&, const std::string&, const std::string&, bool) {
+            ++confirms; return sdcard::UpgradeChoice::Keep; };
+        return o;
+    };
+    auto wipe = [&]() { std::error_code ec; fs::remove_all(cfg, ec); fs::create_directories(dir, ec); downloads = confirms = 0; };
+    auto put = [&](const std::string& path, const std::string& text) {
+        std::ofstream f(path, std::ios::binary | std::ios::trunc); f << text; };
+    auto gone = [&](const std::string& path) {
+        std::error_code ec; return fs::symlink_status(path, ec).type() == fs::file_type::not_found; };
+    // A legacy-named set in `d`: card (bytes `card_text`), its four sidecars, the raw and its three.
+    auto legacy_set = [&](const std::string& d, const std::string& card_text, const std::string& distro) {
+        fs::create_directories(d);
+        put(d + "/" + legn, card_text);
+        put(d + "/" + legn + ".distro", distro + "\n");
+        put(d + "/" + legn + ".recipe", "3\n");
+        put(d + "/" + legn + ".distro-declined", "sn-emulator-99.99.zip\n");
+        put(d + "/" + legn + ".newer-seen", "sn-emulator-99.99.zip\n");
+    };
+    auto raw_set = [&]() {
+        put(dir + "/" + rawn, "RAWBYTES");
+        put(dir + "/" + rawn + ".sha256", "abc  " + rawn + "\n");
+        put(dir + "/" + rawn + ".distro", cur_distro + "\n");
+        put(dir + "/" + rawn + ".verified", "v\n");
+    };
+    auto same_sidecars = [&](const std::string& d, const std::string& distro) {
+        return slurp_text(d + "/" + newn + ".distro") == distro + "\n" && slurp_text(d + "/" + newn + ".recipe") == "3\n" &&
+               slurp_text(d + "/" + newn + ".distro-declined") == "sn-emulator-99.99.zip\n" &&
+               slurp_text(d + "/" + newn + ".newer-seen") == "sn-emulator-99.99.zip\n";
+    };
+    auto none_legacy = [&](const std::string& d) {
+        if (!gone(d + "/" + legn)) return false;
+        for (const std::string& x : sfx) if (!gone(d + "/" + legn + x)) return false;
+        return true;
+    };
+    const std::string card_bytes = "THE-USERS-CARD";
+
+    // 01: nothing there.
+    {
+        wipe();
+        std::string why;
+        const auto m = sdcard::migrate_legacy_names(dir, why, nullptr);
+        std::error_code ec;
+        check("SDREN-01", "an empty directory: the migration is Done and creates nothing; the default card is dir/jnext-sdcard.img",
+              m == sdcard::MigrateStatus::Done && fs::is_empty(dir, ec) &&
+              sdcard::default_sdcard_image_path() == dir + "/jnext-sdcard.img", why);
+    }
+    // 02: a legacy-only set, through provision_sd_card.
+    {
+        wipe(); legacy_set(dir, card_bytes, cur_distro); raw_set();
+        std::error_code ec;
+        const auto t0 = fs::last_write_time(dir + "/" + legn, ec);
+        const uintmax_t sz0 = fs::file_size(dir + "/" + legn, ec);
+        const std::string dig0 = sdcard::sha256_file(dir + "/" + legn);
+        const sdcard::ProvisionResult r = sdcard::provision_sd_card(opts());
+        check("SDREN-02", "a legacy-only set: Ok on the new path, the card's digest, size and mtime unchanged, its sidecars follow, "
+              "the raw and its sidecars keep their names and bytes, no download, no question",
+              r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + newn &&
+              sdcard::sha256_file(dir + "/" + newn) == dig0 && fs::file_size(dir + "/" + newn, ec) == sz0 &&
+              fs::last_write_time(dir + "/" + newn, ec) == t0 && same_sidecars(dir, cur_distro) && none_legacy(dir) &&
+              slurp_text(dir + "/" + rawn) == "RAWBYTES" && slurp_text(dir + "/" + rawn + ".sha256") == "abc  " + rawn + "\n" &&
+              slurp_text(dir + "/" + rawn + ".distro") == cur_distro + "\n" && slurp_text(dir + "/" + rawn + ".verified") == "v\n" &&
+              downloads == 0 && confirms == 0, r.error);
+        // 12: the same distribution after the move reaches use_existing without an offer.
+        check("SDREN-12", "the card's distribution survives the move: no upgrade offer, no download",
+              r.status == sdcard::ProvisionStatus::Ok && confirms == 0 && downloads == 0);
+    }
+    // 03: a writes journal bound to the legacy card still binds after the rename and stays listed.
+    {
+        wipe(); legacy_set(dir, card_bytes, cur_distro);
+        const std::string ov = cfg + "/user.jsdw";
+        sd_write_journal::Binding b;
+        std::error_code ec;
+        b.bytes = fs::file_size(dir + "/" + legn, ec);
+        b.mtime = static_cast<int64_t>(fs::last_write_time(dir + "/" + legn, ec).time_since_epoch().count());
+        std::string jwhy;
+        const bool bound = sd_write_journal::bind(dir + "/" + legn, ov, b, true, jwhy);
+        sd_write_journal::forget_image(dir + "/" + legn);
+        sdcard::upgrade::register_overlay(dir, ov);
+        const sdcard::ProvisionResult r = sdcard::provision_sd_card(opts());
+        const auto listed = sdcard::upgrade::usable_overlays(dir, dir + "/" + newn, {});
+        sd_write_journal::Binding nb;
+        nb.bytes = fs::file_size(dir + "/" + newn, ec);
+        nb.mtime = static_cast<int64_t>(fs::last_write_time(dir + "/" + newn, ec).time_since_epoch().count());
+        const auto info = sd_write_journal::peek_file(ov);
+        check("SDREN-03", "a writes file bound to the legacy card is still listed and still binds to the renamed card",
+              bound && r.status == sdcard::ProvisionStatus::Ok && listed.size() == 1 && listed[0] == ov &&
+              info.is_journal && sd_write_journal::binding_matches(info.binding, nb), jwhy + r.error);
+    }
+    // 04: both names present.
+    {
+        wipe(); legacy_set(dir, "LEGACY-CARD", cur_distro);
+        put(dir + "/" + newn, "NEW-CARD");
+        put(dir + "/" + newn + ".distro", cur_distro + "\n");
+        const std::string dl0 = slurp_text(dir + "/" + legn + ".distro");
+        const sdcard::ProvisionResult r = sdcard::provision_sd_card(opts());
+        check("SDREN-04", "both names present: both cards and every sidecar are byte-identical afterwards and the new one is used",
+              r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + newn &&
+              slurp_text(dir + "/" + legn) == "LEGACY-CARD" && slurp_text(dir + "/" + newn) == "NEW-CARD" &&
+              slurp_text(dir + "/" + legn + ".distro") == dl0 && slurp_text(dir + "/" + legn + ".recipe") == "3\n" &&
+              slurp_text(dir + "/" + legn + ".newer-seen") == "sn-emulator-99.99.zip\n" &&
+              slurp_text(dir + "/" + newn + ".distro") == cur_distro + "\n" && gone(dir + "/" + newn + ".recipe") &&
+              downloads == 0, r.error);
+    }
+    // 05: the new card exists, the legacy one is gone, legacy sidecars are left over.
+    {
+        wipe();
+        put(dir + "/" + newn, "NEW-CARD");
+        put(dir + "/" + newn + ".distro", cur_distro + "\n");
+        put(dir + "/" + legn + ".distro", "sn-emulator-24.11.zip\n");
+        put(dir + "/" + legn + ".recipe", "1\n");
+        std::string why;
+        const auto m = sdcard::migrate_legacy_names(dir, why, nullptr);
+        check("SDREN-05", "the new card exists and the legacy one is gone: left-over legacy sidecars are not moved or changed",
+              m == sdcard::MigrateStatus::Done && slurp_text(dir + "/" + legn + ".distro") == "sn-emulator-24.11.zip\n" &&
+              slurp_text(dir + "/" + legn + ".recipe") == "1\n" && slurp_text(dir + "/" + newn + ".distro") == cur_distro + "\n" &&
+              gone(dir + "/" + newn + ".recipe") && slurp_text(dir + "/" + newn) == "NEW-CARD", why);
+    }
+    // 06: a resume after a crash before the commit: a stale new-name sidecar must not win.
+    {
+        wipe(); legacy_set(dir, card_bytes, cur_distro);
+        std::remove((dir + "/" + legn + ".distro-declined").c_str());
+        put(dir + "/" + newn + ".distro", "sn-emulator-23.01.zip\n");
+        put(dir + "/" + newn + ".distro-declined", "sn-emulator-23.01.zip\n");
+        std::string why;
+        const auto m = sdcard::migrate_legacy_names(dir, why, nullptr);
+        check("SDREN-06", "a stale new-name .distro is overwritten by the legacy one and a stale .distro-declined with no legacy counterpart is removed",
+              m == sdcard::MigrateStatus::Done && slurp_text(dir + "/" + newn + ".distro") == cur_distro + "\n" &&
+              gone(dir + "/" + newn + ".distro-declined") && slurp_text(dir + "/" + newn) == card_bytes && none_legacy(dir), why);
+    }
+    // 07: the card rename fails.
+    {
+        wipe(); legacy_set(dir, card_bytes, cur_distro); raw_set();
+        sdcard::g_fail_legacy_rename_for_test = true;
+        const sdcard::ProvisionResult r = sdcard::provision_sd_card(opts());
+        sdcard::g_fail_legacy_rename_for_test = false;
+        bool untouched = slurp_text(dir + "/" + legn) == card_bytes && slurp_text(dir + "/" + legn + ".distro") == cur_distro + "\n" &&
+                         slurp_text(dir + "/" + legn + ".recipe") == "3\n" && slurp_text(dir + "/" + legn + ".distro-declined") == "sn-emulator-99.99.zip\n" &&
+                         slurp_text(dir + "/" + legn + ".newer-seen") == "sn-emulator-99.99.zip\n" && gone(dir + "/" + newn);
+        for (const std::string& x : sfx) untouched = untouched && gone(dir + "/" + newn + x);
+        check("SDREN-07", "a failed card rename: Failed and refused, the error names both paths and --sdcard, the legacy set is byte-identical, "
+              "no new-name file exists, no download, no question",
+              r.status == sdcard::ProvisionStatus::Failed && r.refused && r.error.find(dir + "/" + legn) != std::string::npos &&
+              r.error.find(dir + "/" + newn) != std::string::npos && r.error.find("--sdcard") != std::string::npos &&
+              untouched && downloads == 0 && confirms == 0, r.error);
+        const sdcard::ProvisionResult r2 = sdcard::provision_sd_card(opts());
+        check("SDREN-07b", "the next start, with the failure gone, migrates",
+              r2.status == sdcard::ProvisionStatus::Ok && r2.path == dir + "/" + newn && slurp_text(dir + "/" + newn) == card_bytes &&
+              none_legacy(dir), r2.error);
+    }
+    // 08: another jnext holds the legacy card.
+    {
+        wipe(); legacy_set(dir, card_bytes, cur_distro);
+        std::string lwhy;
+        auto held = sdcard::ImageLock::acquire(dir + "/" + legn, sdcard::ImageLock::Kind::Image, lwhy);
+        const sdcard::ProvisionResult r = sdcard::provision_sd_card(opts());
+        std::string mwhy;
+        const auto m = sdcard::migrate_legacy_names(dir, mwhy, nullptr);
+        check("SDREN-08", "a lock on the legacy path: refused as in use, naming the legacy path, nothing renamed, no download",
+              held.has_value() && r.status == sdcard::ProvisionStatus::Failed && r.refused &&
+              r.error.find("in use") != std::string::npos && r.error.find(dir + "/" + legn) != std::string::npos &&
+              m == sdcard::MigrateStatus::InUse && slurp_text(dir + "/" + legn) == card_bytes && gone(dir + "/" + newn) &&
+              downloads == 0 && confirms == 0, r.error);
+    }
+    // 09: a legacy-named backup in previous/.
+    {
+        wipe();
+        legacy_set(dir + "/previous", "OLD-CARD", "sn-emulator-24.11.zip");
+        put(dir + "/" + newn, "NEW-CARD");
+        put(dir + "/" + newn + ".distro", cur_distro + "\n");
+        std::string why;
+        const auto m = sdcard::migrate_legacy_names(dir, why, nullptr);
+        const sdcard::backup::Status st = sdcard::backup::card_set_status(dir, cur_distro, false);
+        const sdcard::backup::MenuState ms = sdcard::backup::menu_state(st, true);
+        check("SDREN-09", "a legacy-named backup in previous/ is renamed: the set status sees it (24.11) and go back is enabled",
+              m == sdcard::MigrateStatus::Done && st.backup && st.backup_distro == "sn-emulator-24.11.zip" && ms.go_back_enabled &&
+              none_legacy(dir + "/previous") && slurp_text(dir + "/previous/" + newn) == "OLD-CARD", why + st.backup_distro);
+    }
+    // 10: an upgrade an older jnext began and stopped after step 1, finished by this one.
+    {
+        wipe();
+        // Make the half-done state with this code, then spell it with the old names, as the old jnext wrote it.
+        const SharedSrc& shared = shared_src();
+        if (!shared.ok) {
+            check("SDREN-10", "an older version's interrupted upgrade is finished under the new names", false, shared.err);
+        } else {
+            put(dir + "/" + newn, "OLD-CARD");
+            put(dir + "/" + newn + ".distro", "sn-emulator-24.11.zip\n");
+            put(dir + "/" + newn + ".recipe", "3\n");
+            const std::string url = "http://127.0.0.1:1/sn-emulator-99.99.zip";
+            jtp::set_env("JNEXT_SDCARD_DISTRO_URL", url.c_str());
+            sdcard::ProvisionOptions o = opts();
+            o.download = [&](const std::string&, const std::string& dst, const sdcard::ProgressFn&, std::string&) {
+                ++downloads;
+                std::error_code ec;
+                fs::copy_file(shared.zip, dst, fs::copy_options::overwrite_existing, ec);
+                return !ec; };
+            o.upgrade = [&](const std::string&, const std::string&, const std::string&, bool) {
+                return sdcard::UpgradeChoice::Replace; };
+            sdcard::upgrade::g_fail_switch_step_for_test = 2;
+            (void)sdcard::provision_sd_card(o);
+            sdcard::upgrade::g_fail_switch_step_for_test = 0;
+            // spell every card file of the dir and of previous.new/ with the legacy name
+            int spelled = 0;
+            for (const std::string& d : {dir, dir + "/previous.new"}) {
+                std::error_code ec;
+                for (const auto& e : fs::directory_iterator(d, ec)) {
+                    const std::string n = e.path().filename().string();
+                    if (n.compare(0, newn.size(), newn) == 0) {
+                        fs::rename(e.path(), fs::path(d) / (legn + n.substr(newn.size())), ec);
+                        ++spelled;
+                    }
+                }
+            }
+            const bool marker = fs::exists(dir + "/upgrade-work/SWITCHING");
+            const sdcard::ProvisionResult r = sdcard::provision_sd_card(o);
+            check("SDREN-10", "an older version's interrupted upgrade (legacy names in the directory and in previous.new/) is migrated, then recovered: "
+                  "the new card and the backup carry the new names and the right distributions, no legacy name remains",
+                  marker && spelled > 0 && r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + newn &&
+                  slurp_text(dir + "/" + newn + ".distro") == "sn-emulator-99.99.zip\n" &&
+                  slurp_text(dir + "/previous/" + newn + ".distro") == "sn-emulator-24.11.zip\n" &&
+                  slurp_text(dir + "/previous/" + newn) == "OLD-CARD" && none_legacy(dir) && none_legacy(dir + "/previous"),
+                  r.error + " spelled=" + std::to_string(spelled) + " marker=" + std::to_string(marker));
+            jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+        }
+    }
+    // 11: a half-moved set: legacy sidecars in previous.new/ with the legacy card absent there.
+    {
+        wipe();
+        put(dir + "/previous.new/" + newn, "OLD-CARD");
+        put(dir + "/previous.new/" + legn + ".distro", "sn-emulator-24.11.zip\n");
+        put(dir + "/previous.new/" + legn + ".recipe", "2\n");
+        std::string why;
+        const auto m = sdcard::migrate_legacy_names(dir, why, nullptr);
+        check("SDREN-11", "legacy sidecars left in previous.new/ beside a new-named card are renamed",
+              m == sdcard::MigrateStatus::Done && slurp_text(dir + "/previous.new/" + newn + ".distro") == "sn-emulator-24.11.zip\n" &&
+              slurp_text(dir + "/previous.new/" + newn + ".recipe") == "2\n" && none_legacy(dir + "/previous.new"), why);
+    }
+    // 13: the Preferences alias.
+    {
+        wipe();
+        const std::string leg = dir + "/" + legn, now = dir + "/" + newn;
+        put(now, "NEW-CARD");
+        const bool maps = sdcard::legacy_card_alias(leg) == now;
+        put(leg, "LEGACY");
+        const bool legacy_present = sdcard::legacy_card_alias(leg) == leg;
+        std::remove(leg.c_str());
+        std::remove(now.c_str());
+        const bool new_absent = sdcard::legacy_card_alias(leg) == leg;
+        put(now, "NEW-CARD");
+        const std::string other = cfg + "/elsewhere/" + legn, suffixed = dir + "/x" + legn;
+        fs::create_directories(cfg + "/elsewhere");
+        check("SDREN-13", "the alias maps the legacy default path once that file is gone and the new one exists; it leaves the path alone when the legacy file exists, "
+              "when the new card is absent, for the same name in another directory and for a name that only ends in it",
+              maps && legacy_present && new_absent && sdcard::legacy_card_alias(other) == other &&
+              sdcard::legacy_card_alias(suffixed) == suffixed && sdcard::legacy_card_alias("") == "");
+    }
+    // 14: something that is not a card in the way of the new name.
+    {
+        wipe(); legacy_set(dir, card_bytes, cur_distro);
+        fs::create_directories(dir + "/" + newn);
+        const sdcard::ProvisionResult r = sdcard::provision_sd_card(opts());
+        check("SDREN-14", "a directory at the new name with a legacy card present: Failed, naming both, nothing changed, no download, no question",
+              r.status == sdcard::ProvisionStatus::Failed && r.refused && r.error.find(dir + "/" + newn) != std::string::npos &&
+              r.error.find(dir + "/" + legn) != std::string::npos && slurp_text(dir + "/" + legn) == card_bytes &&
+              fs::is_directory(dir + "/" + newn) && downloads == 0 && confirms == 0, r.error);
+    }
+    jtp::unset_env("JNEXT_CONFIG_DIR");
+}
+
 int main() {
     // Isolated HOME so path/default-location tests are hermetic.
     g_tmpdir = jtp::make_temp_dir("jnext_prov_");
@@ -2780,8 +3076,8 @@ int main() {
         const std::string raw   = sdcard::default_sdcard_raw_image_path();
         check("PROV-PATH-01", "default dir == $HOME/.jnext/sdcard",
               dir == g_tmpdir + "/.jnext/sdcard", dir);
-        check("PROV-PATH-01b", "default (used) image == dir/cspect-next-1gb-fixed.img",
-              fixed == dir + "/cspect-next-1gb-fixed.img", fixed);
+        check("PROV-PATH-01b", "default (used) image == dir/jnext-sdcard.img",
+              fixed == dir + "/jnext-sdcard.img", fixed);
         check("PROV-PATH-01c", "raw download image == dir/cspect-next-1gb.img",
               raw == dir + "/cspect-next-1gb.img", raw);
     }
@@ -2803,7 +3099,7 @@ int main() {
         check("PROV-PATH-02b", "override dir is NOT under $HOME/.jnext",
               dir.find(g_tmpdir + "/.jnext") == std::string::npos, dir);
         check("PROV-PATH-02c", "fixed image follows the override",
-              fixed == over + "/sdcard/cspect-next-1gb-fixed.img", fixed);
+              fixed == over + "/sdcard/jnext-sdcard.img", fixed);
         check("PROV-PATH-02d", "raw image follows the override",
               raw == over + "/sdcard/cspect-next-1gb.img", raw);
 
@@ -2871,11 +3167,11 @@ int main() {
         auto r = sdcard::provision_sd_card(o);
         check("PROV-PATH-03", "provision resolves to the $JNEXT_CONFIG_DIR image",
               r.status == sdcard::ProvisionStatus::Ok &&
-              r.path == over + "/sdcard/cspect-next-1gb-fixed.img", r.path);
+              r.path == over + "/sdcard/jnext-sdcard.img", r.path);
         check("PROV-PATH-03b", "provision does NOT fall back to the $HOME image",
               r.path.find(g_tmpdir + "/.jnext/sdcard") == std::string::npos, r.path);
         jtp::unset_env("JNEXT_CONFIG_DIR");
-        std::remove((g_tmpdir + "/.jnext/sdcard/cspect-next-1gb-fixed.img").c_str());
+        std::remove((g_tmpdir + "/.jnext/sdcard/jnext-sdcard.img").c_str());
     }
 
     // -- SHA256-01: known-answer digests (non-circular NIST vectors) --
@@ -3664,6 +3960,7 @@ int main() {
     test_retry_rows();
     test_console_rows();
     test_upgrade_rows();
+    test_rename_rows();
 
     for (const auto& d : g_deferred) d();   // joins the PROV-STALL-08 thread before g_tmpdir goes
     std::printf("\n====================================\n");

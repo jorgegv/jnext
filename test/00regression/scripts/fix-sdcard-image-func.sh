@@ -55,7 +55,7 @@ if want fix-sdcard-image-func; then
         || faults+=("the script's ZX81_16K_SHA256 ($script_sha) is not kZx81Rom16kSha256 ($cpp_sha)")
 
     # --- 2: the known 16 KB file, from this run's canonical image ---
-    CARD="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    CARD="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     part_lba=$(od -An -tu4 -j $((0x1BE + 8)) -N4 "$CARD" 2>/dev/null | tr -d ' ' || true)
     KNOWN="$W/known.rom"
     rm -f "$W/card-zx81.rom"

@@ -64,7 +64,7 @@ run without it reaches the NextZXOS command line and answers
 mutates it, so never point this at your master:
 
 ```
-cp --reflink=auto ~/.jnext/sdcard/cspect-next-1gb-fixed.img /path/to/sd.img
+cp --reflink=auto ~/.jnext/sdcard/jnext-sdcard.img /path/to/sd.img
 ```
 
 **2. Install the dot command onto that image, at `/dot/sync`.** The dots are

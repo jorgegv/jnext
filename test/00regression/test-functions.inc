@@ -254,7 +254,7 @@ sd_clone_for_run() {
     SD_CLONE_MODE=absent
     SD_CLONE_SIDECARS=none
     [[ -f "$SD_MASTER_IMAGE" ]] || return 1
-    local dst="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    local dst="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     mkdir -p "$RUN_DIR/sdcard" || { SD_CLONE_MODE=failed; return 1; }
     rm -f "$dst"
     if cp --reflink=always "$SD_MASTER_IMAGE" "$dst" 2>/dev/null; then
@@ -296,10 +296,10 @@ sd_card_sidecars() {
 # locks the card it boots, so a row that runs two jnext at once on the card gives every instance but
 # one such a dir: JNEXT_CONFIG_DIR="$(sd_extra_cfg b)" "$JNEXT" ... Fails when the link cannot be made.
 sd_extra_cfg() {
-    local d="$RUN_DIR/extra/$1" img="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    local d="$RUN_DIR/extra/$1" img="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     mkdir -p "$d/sdcard" || return 1
     ln -f "$img" "$d/sdcard/" || return 1
-    sd_card_sidecars "$img" "$d/sdcard/cspect-next-1gb-fixed.img" || return 1
+    sd_card_sidecars "$img" "$d/sdcard/${SD_CARD_NAME}" || return 1
     printf '%s\n' "$d"
 }
 
@@ -324,9 +324,24 @@ sd_expected_recipe() {
     grep -E "$pat" "$src" | grep -oE '[0-9]+'
 }
 
+# sd_card_name [source] - print the file name of jnext's default SD card (GH #579). Read from its
+# one definition, sdcard::kFixedImageFileName in src/core/sdcard_provisioner.cpp (or from [source],
+# a test seam for HS-203), the way sd_expected_recipe reads the recipe: the binary under test is built
+# from this same tree, so no second spelling exists to drift. Prints nothing and fails unless exactly
+# one line matches, so a reworded or doubled definition is loud, never a guess. Every script that
+# sources this library reads the name from $SD_CARD_NAME, set once below.
+sd_card_name() {
+    local src="${1:-${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}/src/core/sdcard_provisioner.cpp}"
+    local pat='^const char\* const kFixedImageFileName = "[^"]+";$'
+    [[ "$(grep -cE "$pat" "$src" 2>/dev/null)" == 1 ]] || return 1
+    grep -E "$pat" "$src" | sed -E 's/^[^"]*"([^"]+)";$/\1/'
+}
+SD_CARD_NAME=$(sd_card_name) || { echo "FATAL: the default card's file name (kFixedImageFileName) cannot be read from src/core/sdcard_provisioner.cpp: it must stay one line, const char* const kFixedImageFileName = \"...\";" >&2; exit 2; }
+export SD_CARD_NAME
+
 # ---- The SD master gate: shared by 01-sdcard-provision.sh and tools/sd-master-ensure.sh ----
 # sd_test_state_dir: the jnext state dir whose sdcard/ holds the suites' OWN master card (GH #555).
-# It is ~/.jnext/sdcard/test-suite, never the user's own card (the cspect-next-1gb-fixed.img directly under ~/.jnext/sdcard):
+# It is ~/.jnext/sdcard/test-suite, never the user's own card (the jnext-sdcard.img directly under ~/.jnext/sdcard):
 # the gate below deletes and re-derives its master whenever the distribution or the recipe moves,
 # and a user's saved files must not go with it. JNEXT_REGRESSION_SD_STATE_DIR (the candidate-card
 # seam) replaces it. The same relative path is spelled in test/test_sd_image.h (HS-196 checks).
@@ -335,7 +350,7 @@ sd_test_state_dir() { printf '%s\n' "${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jne
 # JNEXT_REGRESSION_SD_STATE_DIR, moves them). Sets the SD_MASTER_* names and the short aliases the gate uses.
 sd_master_paths() {
     SD_MASTER_DIR="$(sd_test_state_dir)/sdcard"
-    SD_MASTER_IMAGE="$SD_MASTER_DIR/cspect-next-1gb-fixed.img"
+    SD_MASTER_IMAGE="$SD_MASTER_DIR/${SD_CARD_NAME}"
     SD_MASTER_WITNESS="$SD_MASTER_IMAGE.sha256"
     # Written by jnext itself when it derives the image: the number of the
     # recipe that made it (sdcard::kFixedImageRecipe, GH #284). Absent on any
@@ -858,7 +873,7 @@ regression_lib_init() {
     #
     #  2. The SD-card image. src/core/sdcard_provisioner.cpp resolves the
     #     fallback image under this same directory, so the run boots
-    #     $RUN_DIR/sdcard/cspect-next-1gb-fixed.img — a private clone — and
+    #     $RUN_DIR/sdcard/jnext-sdcard.img — a private clone — and
     #     never the master. NextZXOS WRITES BACK to the card it boots, so
     #     without this the suite mutates the very artefact its reference
     #     screenshots were generated against. That is not hypothetical: a drift

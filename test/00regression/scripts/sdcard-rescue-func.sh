@@ -25,7 +25,7 @@ if want sdcard-rescue-func; then
     export MTOOLS_SKIP_CHECK=1
     W="$RUN_DIR/private/sdcard-rescue"
     rm -rf "$W"; mkdir -p "$W/src"
-    MASTER="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    MASTER="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     BASE="$W/base.img"; A="$W/a.img"
     cp --reflink=auto "$MASTER" "$BASE"
     cp --reflink=auto "$MASTER" "$A"

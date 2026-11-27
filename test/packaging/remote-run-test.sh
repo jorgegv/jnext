@@ -542,7 +542,7 @@ row RRUN-25 "$([[ $c9 -eq 0 && -d "$WORK/stamps/recent" && ! -e "$WORK/stamps/an
 # RRUN-26: the SD master and every run's clone/scratch share ONE bind mount (a clone across mounts
 # cannot be a reflink: sdcard-isolation-func D/E), and an old sdcard cache dir is migrated into it
 reset_state
-mkdir -p "$WORK/cache/sdcard"; echo master > "$WORK/cache/sdcard/cspect-next-1gb-fixed.img"
+mkdir -p "$WORK/cache/sdcard"; echo master > "$WORK/cache/sdcard/jnext-sdcard.img"
 rm -rf "$WORK/cache/jnext-home"
 drive --id m1 feature "$SHA" unit-test
 m1=$RC
@@ -556,10 +556,10 @@ covering() {
     done < <(grep -oE -- '-v [^ ]+' <<<"$runline" | cut -d' ' -f2)
     echo "$best"
 }
-cov_master=$(covering /root/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img)
-cov_runs=$(covering /root/.jnext/runs/1-2-3/sdcard/cspect-next-1gb-fixed.img)
+cov_master=$(covering /root/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img)
+cov_runs=$(covering /root/.jnext/runs/1-2-3/sdcard/jnext-sdcard.img)
 row RRUN-26 "$([[ $m1 -eq 0 && -n "$cov_master" && "$cov_master" == "$cov_runs" && "$cov_master" == "$WORK/cache/jnext-home" \
-    && "$(cat "$WORK/cache/jnext-home/sdcard/cspect-next-1gb-fixed.img" 2>/dev/null)" == master && ! -e "$WORK/cache/sdcard" ]] && echo 1 || echo 0)" \
+    && "$(cat "$WORK/cache/jnext-home/sdcard/jnext-sdcard.img" 2>/dev/null)" == master && ! -e "$WORK/cache/sdcard" ]] && echo 1 || echo 0)" \
     "the SD master and a run's clone path are under one mount ($cov_master), the old cache dir was migrated (rc=$m1)"
 
 # RRUN-27: the container exiting non-zero while every step printed rc=0 (a podman 125 at teardown, an

@@ -19,7 +19,7 @@ if want sdcard-lock-func; then
     W="$BASE/work"
     CFG="$BASE/cfg"
     mkdir -p "$W" "$CFG"
-    MASTER="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    MASTER="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     for c in a x y z q; do cp --reflink=auto "$MASTER" "$BASE/$c.img"; done
     HOLD_PIDS=()
 
