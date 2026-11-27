@@ -1075,6 +1075,12 @@ void test_parity() {
 // ── Round A1 review: the operand menus, the removal half of both menus, the refusal tooltip, the data
 // requests, a real flag click ───────────────────────────────────────────────
 
+std::string fmt_addr(uint16_t a) {
+    char b[16];
+    std::snprintf(b, sizeof b, "%04X ", a);
+    return b;
+}
+
 /// The viewport point of the text "10" on the Source tab's line 10 ("REM line 10"): a numeric operand.
 QPoint source_number_point(QPlainTextEdit* ed) {
     QTextBlock b = ed->document()->findBlockByNumber(9);
@@ -1137,11 +1143,13 @@ void test_review_a1() {
     {
         // a line at or after the program: the lines before it are NOPs and have no operand
         int line = 0;
+        std::string detail;
         for (; line < 16; ++line) {
             press_text_line(d, line);
+            detail += fmt_addr(d->selected_address());
             if (d->selected_address() >= PROG) break;
         }
-        std::string detail;
+        detail += "| ";
         const bool ok = operand_menu_ok(set_view,
                                         [&]() { return right_click(d, QPoint(d->breakpoint_x() + 120, y_of(line))); },
                                         detail);
