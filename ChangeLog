@@ -15,6 +15,9 @@
 - File menu opens instantly; the SD card's original image is no longer checksummed on every open
 - TZX tapes with 1 ms pauses or stop blocks load in real time (no tape loading error, no skipped parts)
 
+### Internal JNEXT Development
+- Remote builds: mutation test runs go to the remote hosts as a patch on the pushed commit
+
 ### Contributors in this release
 - @janko-jj, @koseid72
 
