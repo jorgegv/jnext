@@ -394,7 +394,7 @@ Which space a view prints is a rule per view (design 10.3):
   its `@NN`, which is a different thing ([3.9.5.1](01-which-memory.md)).
 
 The instruction at the PC is read as the CPU will fetch it, not as a data read.
-`Debugger::memory_reader()` (`debugger_inspect.cpp:809`) takes the bytes of that one instruction
+`Debugger::memory_reader()` (`debugger_inspect.cpp:803`) takes the bytes of that one instruction
 (at most four) from `Emulator::predict_instruction_bytes()` and every other address from
 `Mmu::peek()`; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
 other bytes than the ones that execute. The Disassembly, `step_over()` (`debugger_control.cpp:180`: `is_call_like()` at `:190` and `instruction_length()` at `:196`

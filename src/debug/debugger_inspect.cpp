@@ -133,12 +133,6 @@ bool resolve_palette(Emulator& emu, PaletteId id, ::PaletteId& out) {
     return true;
 }
 
-/// Bytes in one NR 0x50-0x57 page. A `Page` read or write that runs past the
-/// end of the page is SHORT rather than wrapping into the next one: the spaces
-/// are separate stores, and silently continuing into a neighbour is the bug this
-/// bound exists to prevent.
-constexpr uint32_t PAGE_BYTES = 0x2000;
-
 }  // namespace
 
 void Debugger::Impl::note_mutation() {
