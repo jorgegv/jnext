@@ -1517,21 +1517,21 @@ void test_stall_rows() {
     // 12: the sentinel's arithmetic against a known answer, no threads (host_stalls.h). Oracle: interval
     // arithmetic on the spans given.
     {
-        auto near = [](double a, double b) { return std::abs(a - b) < 1e-9; };
+        auto close_to = [](double a, double b) { return std::abs(a - b) < 1e-9; };
         using hs::Span;
         const std::vector<Span> none;
-        const bool inside = near(hs::stall_overlap({{1.0, 2.0}}, 0.0, 5.0), 1.0);                   // a span inside the gap
-        const bool left   = near(hs::stall_overlap({{0.5, 1.5}}, 1.0, 5.0), 0.5);                   // cut at the gap's start
-        const bool right  = near(hs::stall_overlap({{4.5, 6.0}}, 1.0, 5.0), 0.5);                   // cut at the gap's end
-        const bool two    = near(hs::stall_overlap({{1.0, 1.5}, {3.0, 4.0}}, 0.0, 5.0), 1.5);       // two spans sum
-        const bool touch  = near(hs::stall_overlap({{0.0, 1.0}, {5.0, 6.0}}, 1.0, 5.0), 0.0);       // endpoints only
-        const bool empty  = near(hs::stall_overlap(none, 0.0, 5.0), 0.0);
+        const bool inside = close_to(hs::stall_overlap({{1.0, 2.0}}, 0.0, 5.0), 1.0);                   // a span inside the gap
+        const bool left   = close_to(hs::stall_overlap({{0.5, 1.5}}, 1.0, 5.0), 0.5);                   // cut at the gap's start
+        const bool right  = close_to(hs::stall_overlap({{4.5, 6.0}}, 1.0, 5.0), 0.5);                   // cut at the gap's end
+        const bool two    = close_to(hs::stall_overlap({{1.0, 1.5}, {3.0, 4.0}}, 0.0, 5.0), 1.5);       // two spans sum
+        const bool touch  = close_to(hs::stall_overlap({{0.0, 1.0}, {5.0, 6.0}}, 1.0, 5.0), 0.0);       // endpoints only
+        const bool empty  = close_to(hs::stall_overlap(none, 0.0, 5.0), 0.0);
         std::vector<Span> rec;
         const bool late15 = !hs::note_wake(rec, 1.0, 1.015) && rec.empty();                         // 15 ms late: not a stall
-        const bool late25 = hs::note_wake(rec, 2.0, 2.025) && rec.size() == 1 && near(rec[0].from, 2.0) &&
-                            near(rec[0].to, 2.025);                                                  // 25 ms late: recorded
-        const bool net = near(hs::stall_overlap({{1.0, 2.0}}, 0.5, 2.5) , 1.0) &&
-                         near((2.5 - 0.5) - hs::stall_overlap({{1.0, 2.0}}, 0.5, 2.5), 1.0);        // net = gap - overlap
+        const bool late25 = hs::note_wake(rec, 2.0, 2.025) && rec.size() == 1 && close_to(rec[0].from, 2.0) &&
+                            close_to(rec[0].to, 2.025);                                                  // 25 ms late: recorded
+        const bool net = close_to(hs::stall_overlap({{1.0, 2.0}}, 0.5, 2.5) , 1.0) &&
+                         close_to((2.5 - 0.5) - hs::stall_overlap({{1.0, 2.0}}, 0.5, 2.5), 1.0);        // net = gap - overlap
         check("PROV-STALL-12",
               "the host-stall sentinel's arithmetic: the overlap of recorded spans with a gap is the sum of the "
               "parts inside it (a span inside, cut at either end, two summed, touching endpoints and none give "
