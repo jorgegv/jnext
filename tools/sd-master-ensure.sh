@@ -42,5 +42,7 @@ case "$sd_state" in
     distro)      echo "sd-master-ensure: SD master was made from $sd_old_distro: re-derived from $sd_want_distro" ;;
     recipe)      echo "sd-master-ensure: SD master was made by recipe ${sd_old_recipe:-(none)}: re-derived with recipe $sd_want_recipe" ;;
     wrongrecipe) echo "sd-master-ensure: ERROR: $JNEXT derived recipe '${sd_got_recipe:-}', this tree builds '$sd_want_recipe': it is not built from this tree" >&2; exit 1 ;;
-    *)           echo "sd-master-ensure: ERROR: SD master not provisioned ($sd_state) at $SD_MASTER_IMAGE (network?)" >&2; exit 1 ;;
+    *)           echo "sd-master-ensure: ERROR: SD master not provisioned ($sd_state) at $SD_MASTER_IMAGE:" >&2
+                 printf '%s\n' "${sd_derive_why:-no reason recorded}" | sed 's/^/sd-master-ensure:   /' >&2
+                 exit 1 ;;
 esac

@@ -48,15 +48,18 @@
 ///                    (soft reset, short press) based on the press
 ///                    duration timer.
 ///
-/// Output produced on entering S_MF_DONE / S_RESET_DONE:
-///   local_fnkeys[10:1] — bit i = 1 indicates F(i) is "strobed" this
-///   FSM cycle. The Z80 top-level edge-detector (`hotkeys_0/_1` at
-///   zxnext.vhd:6328-6334) then pulse-emits one-cycle hotkey_X strobes
-///   on the rising edge of the corresponding fnkey signal.
+/// Output vector `local_fnkeys[10:1]`: bit i = 1 indicates F(i) is
+/// "strobed". F1..F5 are latched on entering S_MF_ROW_A11 and F6..F10
+/// on entering S_MF_ROW_A12; both are held through S_MF_CHECK.
+/// S_MF_DONE replaces the vector with the F9 term only, S_RESET_DONE
+/// with F1 or F4, and S_IDLE clears it. The Z80 top-level edge-detector
+/// (`hotkeys_0/_1` at zxnext.vhd:6328-6334) then pulse-emits one-cycle
+/// hotkey_X strobes on the rising edge of the corresponding fnkey bit.
 ///
 /// In the JNEXT C++ port, the **side-effect strobes** for F2/F3/F7/F8
-/// are emitted directly by `tick()` when the FSM transitions to
-/// S_MF_DONE with the corresponding `local_fnkeys` bit set. The host
+/// are emitted directly by `tick()` on the rising edge of the
+/// corresponding `local_fnkeys` bit, i.e. on the tick that enters
+/// S_MF_ROW_A11 (F2, F3) or S_MF_ROW_A12 (F7, F8). The host
 /// installs side-effect callbacks via `set_*_callback()` (one per key)
 /// and the strobes are gated by a `nr_06_hotkey_*_en` snapshot the
 /// host pushes via `set_nr_06_hotkey_enables()` before the tick.
@@ -68,10 +71,15 @@
 /// absent (G132 is scoped to F2/F3/F7/F8 only). F5/F6 (G147) are
 /// out-of-scope for G132 and tracked separately.
 ///
-/// Sequencing convention: `tick()` advances the FSM by one
-/// `i_CLK_EN`-period. The default `BUTTON_PERIOD_MS = 2000ms`
-/// (zxnext_top_*.vhd) at `CLOCK_EN_PERIOD_MS = 1ms` gives a 2000-tick
-/// timer. Tests can override via the constructor.
+/// Sequencing convention: one `tick()` is one `i_CLK_EN` period, i.e.
+/// one `CLK_28_DEBOUNCE_EN` pulse: 2^18 CLK_28 cycles of emulated time,
+/// about 9.36 ms (zxnext_top_issue2.vhd:313, :1168-1171, :1177, :1967).
+/// The long-press PERIOD is BUTTON_PERIOD_MS / CLOCK_EN_PERIOD_MS =
+/// 1000 / 10 = 100 ticks (emu_fnkeys.vhd:55), about 936 ms. The FSM's
+/// per-CLK_28 state steps are collapsed to one per tick, which the
+/// timer cannot see (it loads only in S_IDLE). Nothing in production
+/// ticks the FSM on a clock; only `simulate_mf_fkey_press()` drives it.
+/// Tests can override the period via the constructor.
 class EmuFnKeys {
 public:
     enum class State : uint8_t {
@@ -84,9 +92,15 @@ public:
         RESET_DONE  = 6
     };
 
+    // zxnext_top_issue2.vhd:1961-1962 (issue 4 :1791-1792, issue 5 :1969-1970)
+    static constexpr uint32_t kClockEnPeriodMs = 10;
+    static constexpr uint32_t kButtonPeriodMs  = 1000;
+    // emu_fnkeys.vhd:55 PERIOD (natural division) = 100 ticks of i_CLK_EN
+    static constexpr uint32_t kPeriodTicks = kButtonPeriodMs / kClockEnPeriodMs;
+
     /// Period for the long-press timer in `tick()` calls.
-    /// VHDL default: BUTTON_PERIOD_MS / CLOCK_EN_PERIOD_MS = 2000.
-    explicit EmuFnKeys(uint32_t button_period_ticks = 2000)
+    /// VHDL default: BUTTON_PERIOD_MS / CLOCK_EN_PERIOD_MS = 100.
+    explicit EmuFnKeys(uint32_t button_period_ticks = kPeriodTicks)
         : period_ticks_(button_period_ticks) { reset(); }
 
     /// Reset to power-on / `i_reset='1'` state.
@@ -145,8 +159,10 @@ public:
 
     // ── FSM strobe outputs (one per F-key, level-high during DONE) ────────
 
-    /// True iff the FSM is currently in MF_DONE / RESET_DONE and the
-    /// fnkey-i bit is asserted in the latched `local_fnkeys` vector.
+    /// True iff the fnkey-i bit is asserted in the latched `local_fnkeys`
+    /// vector. F1..F10 are latched in MF_ROW_A11/A12 and held through
+    /// MF_CHECK; MF_DONE carries only the F9 term, RESET_DONE F1 or F4,
+    /// and IDLE clears them.
     /// VHDL :77 — `o_fnkeys <= local_fnkeys`. The host edge-detects on
     /// these (zxnext.vhd:6330-6334).
     bool fnkey(int idx) const;
@@ -170,7 +186,7 @@ public:
     // ── Side-effect callbacks (host installs once at construction) ────────
 
     /// F2 — `hotkey_scandouble` (zxnext.vhd:5849-5852). Called once on
-    /// the rising edge of fnkey(2) when the FSM enters MF_DONE.
+    /// the rising edge of fnkey(2) (the tick that enters MF_ROW_A11).
     /// VHDL has no NR-06 gate on F2 (zxnext.vhd:6341).
     using Callback = std::function<void()>;
     void set_f2_scandouble_callback(Callback cb) { cb_f2_ = std::move(cb); }
@@ -188,23 +204,23 @@ public:
 
     /// Advance the FSM by one `i_CLK_EN`-period tick. Computes the new
     /// state from the current inputs, updates the local_fnkeys latch
-    /// per the VHDL processes, and if the new state is MF_DONE /
-    /// RESET_DONE, fires the F2/F3/F7/F8 side-effect callbacks (gated
-    /// by NR 0x06).
+    /// per the VHDL processes, and fires the F2/F3/F7/F8 side-effect
+    /// callbacks on the rising edge of their bits (gated by NR 0x06).
     ///
-    /// Production code calls this once per emulator tick (or once per
-    /// membrane scan cycle). Tests use it directly to step through
-    /// state transitions.
+    /// One call is one CLK_28_DEBOUNCE_EN period. No production code
+    /// ticks it on a clock: the host keys drive it through
+    /// `simulate_mf_fkey_press()`; tests also step it directly.
     void tick();
 
-    /// Convenience helper used by the test plan to drive a complete
-    /// MF F-key press cycle:
+    /// Helper used by both frontends (host F-key taps) and the tests to
+    /// drive a complete MF F-key press cycle:
     ///   1. press M1 + the F-key column,
     ///   2. tick() through MF_ROW_A11 → MF_ROW_A12 → MF_CHECK,
     ///   3. release M1,
-    ///   4. tick() one more time to enter MF_DONE (which fires the
-    ///      side-effect callback).
-    /// Returns the latched fnkey vector at MF_DONE (for assertion).
+    ///   4. tick() one more time to enter MF_DONE.
+    /// The side-effect callbacks fire earlier, on tick 1 (F1..F5) or
+    /// tick 2 (F6..F10). Returns the fnkey vector at MF_DONE, which
+    /// holds only the F9 term: 0 after an F-key press (`cancel_nmi`).
     uint16_t simulate_mf_fkey_press(int idx);
 
 private:
@@ -240,7 +256,7 @@ private:
 
     // VHDL :56-57 long-press timer.
     uint32_t timer_count_  = 0;
-    uint32_t period_ticks_ = 2000;
+    uint32_t period_ticks_ = kPeriodTicks;
 
     // High-level convenience: the F-key index the user is "logically
     // pressing" (1..10), or 0 if no key is pressed. tick() consults this
@@ -276,6 +292,6 @@ private:
     // Helper: compute filtered rows / cols (VHDL :159-160 combinational).
     void update_filtered_outputs();
 
-    // Helper: fire side-effect callbacks for F2/F3/F7/F8 on entering MF_DONE.
+    // Helper: fire side-effect callbacks for F2/F3/F7/F8 on rising edges.
     void fire_mf_side_effects();
 };

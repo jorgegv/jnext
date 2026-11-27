@@ -37,7 +37,7 @@ mentions them, so a test can no longer be absent from this document.
 | UART+I2C/RTC                               |   268 |  268 |    0 |    0 |       0 |          0 |
 | NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
-| Input                                      |   423 |  423 |    0 |    0 |       0 |          0 |
+| Input                                      |   428 |  428 |    0 |    0 |       0 |          0 |
 | Rewind                                     |   370 |  370 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |   113 |  113 |    0 |    0 |       0 |          0 |
@@ -71,9 +71,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   103 |  103 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6700 | 6700 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6705 | 6705 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6700**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6171**. Rows the 260 suites declared in `test/unit-tests.conf` run live: **18613**.
+Rows the sections above carry: **6705**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6176**. Rows the 260 suites declared in `test/unit-tests.conf` run live: **18640**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 207 suites (12526 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 207 suites (12548 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -205,7 +205,7 @@ These 207 suites (12526 live rows) have no VHDL-derived plan row to map, so they
 | `halt_batch_corpus_6_test` | 6 | cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `halt_batch_corpus_7_test` | 5 | cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `halt_batch_corpus_8_test` | 5 | cycle-batching equivalence over every kept NEX program (GH #452): batching off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal) |
-| `tzx_loader_test` | 141 | TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart |
+| `tzx_loader_test` | 163 | TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart |
 | `tape_save_test` | 59 | TZX / WAV writer (GH #89): the TZX 1.20 and RIFF/WAVE layouts, with FUSE/libspectrum as the foreign reader (host saver); its hardware rows, the tape-out signal (TSAVE-30, TSAVE-43), cite zxnext.vhd:6503 in their own source |
 | `snapshot_im_test` | 4 | snapshot loaders seeding the NR 0xC0 IM latch (host loaders; nextreg.txt NR 0xC0) |
 | `snapshot_machine_test` | 26 | which machine a .sna/.szx/.z80 loads as (libspectrum header tables, GH #323; host loaders) and the +3 / AY / NTSC state they restore; its hardware rows (SNM-27, 30, 31, 33) cite zxnext.vhd, zxula_timing.vhd and ports.txt in their own source |
@@ -502,19 +502,19 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | BOOT-Z80-06 | hardware mode 3 is 128K in a v2 .z80 (its page 5, bank 2, lands at 0x8000) and 48K in a v3 one | — | pass | test/mmu/mmu_test.cpp:4569 |
 | BOOT-SNAPSAVE-02 | SzxSaver::build() produces a spec-conformant .szx for +3 (machine_id=5): 8-byte header, ZXSTZ80REGS(37B)/ZXSTSPECREGS(8B)/ZXSTRAMPAGE chunks at their exact published offsets, all 8 physical RAM banks (0-7) with chPageNo == physical bank number and full content — spectaculator.com/docs/zx-state/{header,z80regs,specregs,rampage}.shtml + libspectrum szx.c:3337-3342 (128-memory-capability page set) (G35) | — | pass | test/mmu/mmu_test.cpp:4716 |
 | BOOT-SNAPSAVE-03 | NexSaver::build() produces a spec-conformant .nex V1.2: 512-byte header fields at their exact NexLoader-parsed offsets (magic/version/ram_required/num_banks/border/sp/pc/banks[]/preserve_regs/entry_bank), full bank payloads in NexLoader's kBankOrder — https://wiki.specnext.dev/NEX_file_format (G35) | — | pass | test/mmu/mmu_test.cpp:4939 |
-| BOOT-DECI-01 | TZX 0x15 Direct Recording: EAR(t) = sample[(t-t0)/77] MSB-first with used_bits=5 in the last byte; level 0 and stopped after the final sample (TZX spec v1.20 block 0x15) | — | pass | test/mmu/mmu_test.cpp:5054 |
-| BOOT-DECI-02 | TZX pause holds the block's final level ~1 ms (3500 T) before dropping low, preserving the terminating edge of pulse blocks and the un-inverted final sample of 0x15 blocks (empirical heuristic; measured 48K-ROM LD-BYTES terminating-edge requirement, Task 57) | — | pass | test/mmu/mmu_test.cpp:5147 |
-| BOOT-DECI-03 | WAV real-time EAR: 8-bit PCM 44.1 kHz frames mapped from the 3.5 MHz T-state clock, threshold at the 128 centre; 0 before start and past end (G37) | — | pass | test/mmu/mmu_test.cpp:5202 |
-| BOOT-DECI-04 | WAV EAR transitions at the linearly-interpolated 128 crossing (sub-sample precision), not quantised to the 79.4 T sample grid — frame 10.75 of a 96→160 crossing reads 1 (G37 fix discriminator) | — | pass | test/mmu/mmu_test.cpp:5258 |
-| BANK7-01 | MMU page 0x0E lands in the dedicated BRAM buffer, not in any SRAM page — VHDL zxnext.vhd:2962+6670 | zxnext.vhd:2962 | pass | test/mmu/mmu_test.cpp:6377 |
-| BANK7-02 | alt-ROM write to phys page 0x0E does not corrupt MMU-page-0x0E workspace (the $DA35 saved-SP NextZXOS boot killer) | — | pass | test/mmu/mmu_test.cpp:6401 |
-| BANK7-03 | MMU page 0x0A lands in the dedicated bank-5 VRAM, not in any SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:6424 |
-| BANK7-04 | config-mode NR $04=$17 window writes SRAM page 0x2E without touching the bank-7 BRAM — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6451 |
-| BANK7-05 | standalone-machine (rom_in_sram=false) bank-7 writes land in flat RAM pages 0x0E/0x0F, NOT the Next-only BRAM buffer | — | pass | test/mmu/mmu_test.cpp:6477 |
-| BANK5-01 | pages 0x0A/0x0B are the lower/upper 8K halves of the single 16K bank-5 VRAM — VHDL zxnext.vhd:6558 (addr_width 14) | zxnext.vhd:6558 | pass | test/mmu/mmu_test.cpp:6510 |
-| BANK5-02 | config-mode NR $04=$05 window writes SRAM page 0x0A without touching the bank-5 VRAM (the NextZXOS mid-boot-garbage killer) — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6535 |
-| BANK5-03 | standalone-machine (rom_in_sram=false) bank-5 writes land in flat RAM pages 0x0A/0x0B, NOT the Next-only VRAM buffer | — | pass | test/mmu/mmu_test.cpp:6555 |
-| BANK5-04 | CPU L2 window with bank 5 writes SRAM page 0x2A (unconditional layer2_A21_A13 formula), not page 0x0A and not the VRAM — VHDL zxnext.vhd:2966-2971 + 3100-3107 | zxnext.vhd:2966-2971 | pass | test/mmu/mmu_test.cpp:6580 |
+| BOOT-DECI-01 | TZX 0x15 Direct Recording: EAR(t) = sample[(t-t0)/77] MSB-first with used_bits=5 in the last byte; level 0 and stopped after the final sample's 1 ms hold (TZX spec v1.20 block 0x15) | — | pass | test/mmu/mmu_test.cpp:5062 |
+| BOOT-DECI-02 | TZX pause holds the block's final level ~1 ms (3500 T) before dropping low, preserving the terminating edge of pulse blocks and the un-inverted final sample of 0x15 blocks (empirical heuristic; measured 48K-ROM LD-BYTES terminating-edge requirement, Task 57) | — | pass | test/mmu/mmu_test.cpp:5155 |
+| BOOT-DECI-03 | WAV real-time EAR: 8-bit PCM 44.1 kHz frames mapped from the 3.5 MHz T-state clock, threshold at the 128 centre; 0 before start and past end (G37) | — | pass | test/mmu/mmu_test.cpp:5210 |
+| BOOT-DECI-04 | WAV EAR transitions at the linearly-interpolated 128 crossing (sub-sample precision), not quantised to the 79.4 T sample grid — frame 10.75 of a 96→160 crossing reads 1 (G37 fix discriminator) | — | pass | test/mmu/mmu_test.cpp:5266 |
+| BANK7-01 | MMU page 0x0E lands in the dedicated BRAM buffer, not in any SRAM page — VHDL zxnext.vhd:2962+6670 | zxnext.vhd:2962 | pass | test/mmu/mmu_test.cpp:6385 |
+| BANK7-02 | alt-ROM write to phys page 0x0E does not corrupt MMU-page-0x0E workspace (the $DA35 saved-SP NextZXOS boot killer) | — | pass | test/mmu/mmu_test.cpp:6409 |
+| BANK7-03 | MMU page 0x0A lands in the dedicated bank-5 VRAM, not in any SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:6432 |
+| BANK7-04 | config-mode NR $04=$17 window writes SRAM page 0x2E without touching the bank-7 BRAM — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6459 |
+| BANK7-05 | standalone-machine (rom_in_sram=false) bank-7 writes land in flat RAM pages 0x0E/0x0F, NOT the Next-only BRAM buffer | — | pass | test/mmu/mmu_test.cpp:6485 |
+| BANK5-01 | pages 0x0A/0x0B are the lower/upper 8K halves of the single 16K bank-5 VRAM — VHDL zxnext.vhd:6558 (addr_width 14) | zxnext.vhd:6558 | pass | test/mmu/mmu_test.cpp:6518 |
+| BANK5-02 | config-mode NR $04=$05 window writes SRAM page 0x0A without touching the bank-5 VRAM (the NextZXOS mid-boot-garbage killer) — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6543 |
+| BANK5-03 | standalone-machine (rom_in_sram=false) bank-5 writes land in flat RAM pages 0x0A/0x0B, NOT the Next-only VRAM buffer | — | pass | test/mmu/mmu_test.cpp:6563 |
+| BANK5-04 | CPU L2 window with bank 5 writes SRAM page 0x2A (unconditional layer2_A21_A13 formula), not page 0x0A and not the VRAM — VHDL zxnext.vhd:2966-2971 + 3100-3107 | zxnext.vhd:2966-2971 | pass | test/mmu/mmu_test.cpp:6588 |
 | G12-TAG-06 | a CPU attribute write at 7 MHz straddling a line start is tagged with the master-clock line it landed on (the 3.5 MHz formula puts it elsewhere) | — | pass | test/mmu/mmu_integration_test.cpp:2866 |
 | G12-TAG-07 | a CPU attribute write at 14 MHz straddling a line start is tagged with the master-clock line it landed on | — | pass | test/mmu/mmu_integration_test.cpp:2882 |
 | G12-TAG-08 | a CPU attribute write at 28 MHz straddling a line start is tagged with the master-clock line it landed on | — | pass | test/mmu/mmu_integration_test.cpp:2898 |
@@ -538,32 +538,32 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | L2LOG-TAG-08 | layer2.vhd:177-188 - a fetch reads the SRAM as it is at its instant and a frame boundary resets nothing: a frame logging fewer writes than the one before sees only its own, over the bytes the earlier frame left | layer2.vhd:177-188 | pass | test/mmu/mmu_integration_test.cpp:3461 |
 | L2LOG-TAG-09 | layer2.vhd:177-188 - every fetch reads the last write at or before its instant however many writes a frame holds (32768 entries, 16384 addresses), and after a re-init frees the log the next frame records again | layer2.vhd:177-188 | pass | test/mmu/mmu_integration_test.cpp:3535 |
 | L2LOG-TAG-10 | layer2.vhd:177-188 - a fetch reads the last write at or before its instant whatever render passes ran earlier in the frame: a write after a pass that read the byte is seen by the next pass, and a pass that fetches it at an earlier instant sees the earlier value | layer2.vhd:177-188 | pass | test/mmu/mmu_integration_test.cpp:3571 |
-| FSRC-01 | the boot ROM is served first (above Multiface, DivMMC, Layer 2), mirrored through 0x0000-0x3FFF, and gives way to the Multiface when disabled -- VHDL zxnext.vhd:1856-1857, 3199-3204, 3030-3035 | zxnext.vhd:1856-1857 | pass | test/mmu/mmu_test.cpp:6716 |
-| FSRC-02 | an active Multiface supplies 0x0000-0x3FFF (ROM half below 0x2000, RAM half above) over DivMMC conmem and the Layer 2 read mapping, and nothing above 0x3FFF; route_with() takes the Multiface and DivMMC as given, not as live -- VHDL zxnext.vhd:3030-3035, 2933-2950 | zxnext.vhd:3030-3035,2933-2950 | pass | test/mmu/mmu_test.cpp:6747 |
-| FSRC-03 | DivMMC ROM (conmem) is served over an MMU RAM page and over Layer 2, and Layer 2 takes over when port_divmmc_io_en is low -- VHDL zxnext.vhd:3043, 3084-3090, 3100; divmmc.vhd:94,98 | zxnext.vhd:3043,3084-3090,3100, divmmc.vhd:94,98 | pass | test/mmu/mmu_test.cpp:6768 |
-| FSRC-04 | DivMMC RAM: the control register's bank at 0x2000-0x3FFF, and bank 3 at 0x0000-0x1FFF under MAPRAM -- VHDL divmmc.vhd:95-96,99; zxnext.vhd:3092-3093 | divmmc.vhd:95-96,99, zxnext.vhd:3092-3093 | pass | test/mmu/mmu_test.cpp:6787 |
-| FSRC-05 | Layer 2 read mapping: layer2_active_page = ((bank + offset_pre + offset) << 1) \| cpu_a(13) for segment 00 and 11, the offset register and the shadow bank; the high half only at segment 11, never above 0xBFFF -- VHDL zxnext.vhd:2966-2969, 3065, 3077, 3100 | zxnext.vhd:2966-2969,3065,3077,3100 | pass | test/mmu/mmu_test.cpp:6818 |
-| FSRC-06 | alternate ROM read override: Alt ROM0/1 by sram_alt_128_n (7FFD bit 4, the locks, 48K), not in write-over mode, not in config mode, not over an MMU RAM page -- VHDL zxnext.vhd:2981-3008, 3037, 3050, 3078, 3116-3122 | zxnext.vhd | pass | test/mmu/mmu_test.cpp:6853 |
-| FSRC-07 | legacy ROM: Rom{sram_rom} with the half from cpu_a(13): 7FFD bit 4 on a Next, the NR 0x8C locks over it, 1FFD bit 2 : 7FFD bit 4 on a +3, ROM0 on a 48K, and an MMU page >= 0xE0 on slot 0 -- VHDL zxnext.vhd:2981-3008, 3037, 3052 | zxnext.vhd:2981-3008,3037,3052 | pass | test/mmu/mmu_test.cpp:6890 |
-| FSRC-08 | the cached source of every slot follows set_page, map_rom, 128K and +3 paging (normal and special), ports DFFD/EFF7, NR 0x8E/0x8F/0x8C, machine type, per-slot legacy ROM, ROM-in-SRAM, reset and load_state: all eight slots equal the VHDL derivation from the MMU registers (Page below 0xE0, Rom{sram_rom} on slot 0/1, Floating on slots 2-7) -- VHDL zxnext.vhd:2952-2964, 3037, 3052, 3060 | zxnext.vhd | pass | test/mmu/mmu_test.cpp:6961 |
+| FSRC-01 | the boot ROM is served first (above Multiface, DivMMC, Layer 2), mirrored through 0x0000-0x3FFF, and gives way to the Multiface when disabled -- VHDL zxnext.vhd:1856-1857, 3199-3204, 3030-3035 | zxnext.vhd:1856-1857 | pass | test/mmu/mmu_test.cpp:6724 |
+| FSRC-02 | an active Multiface supplies 0x0000-0x3FFF (ROM half below 0x2000, RAM half above) over DivMMC conmem and the Layer 2 read mapping, and nothing above 0x3FFF; route_with() takes the Multiface and DivMMC as given, not as live -- VHDL zxnext.vhd:3030-3035, 2933-2950 | zxnext.vhd:3030-3035,2933-2950 | pass | test/mmu/mmu_test.cpp:6755 |
+| FSRC-03 | DivMMC ROM (conmem) is served over an MMU RAM page and over Layer 2, and Layer 2 takes over when port_divmmc_io_en is low -- VHDL zxnext.vhd:3043, 3084-3090, 3100; divmmc.vhd:94,98 | zxnext.vhd:3043,3084-3090,3100, divmmc.vhd:94,98 | pass | test/mmu/mmu_test.cpp:6776 |
+| FSRC-04 | DivMMC RAM: the control register's bank at 0x2000-0x3FFF, and bank 3 at 0x0000-0x1FFF under MAPRAM -- VHDL divmmc.vhd:95-96,99; zxnext.vhd:3092-3093 | divmmc.vhd:95-96,99, zxnext.vhd:3092-3093 | pass | test/mmu/mmu_test.cpp:6795 |
+| FSRC-05 | Layer 2 read mapping: layer2_active_page = ((bank + offset_pre + offset) << 1) \| cpu_a(13) for segment 00 and 11, the offset register and the shadow bank; the high half only at segment 11, never above 0xBFFF -- VHDL zxnext.vhd:2966-2969, 3065, 3077, 3100 | zxnext.vhd:2966-2969,3065,3077,3100 | pass | test/mmu/mmu_test.cpp:6826 |
+| FSRC-06 | alternate ROM read override: Alt ROM0/1 by sram_alt_128_n (7FFD bit 4, the locks, 48K), not in write-over mode, not in config mode, not over an MMU RAM page -- VHDL zxnext.vhd:2981-3008, 3037, 3050, 3078, 3116-3122 | zxnext.vhd | pass | test/mmu/mmu_test.cpp:6861 |
+| FSRC-07 | legacy ROM: Rom{sram_rom} with the half from cpu_a(13): 7FFD bit 4 on a Next, the NR 0x8C locks over it, 1FFD bit 2 : 7FFD bit 4 on a +3, ROM0 on a 48K, and an MMU page >= 0xE0 on slot 0 -- VHDL zxnext.vhd:2981-3008, 3037, 3052 | zxnext.vhd:2981-3008,3037,3052 | pass | test/mmu/mmu_test.cpp:6898 |
+| FSRC-08 | the cached source of every slot follows set_page, map_rom, 128K and +3 paging (normal and special), ports DFFD/EFF7, NR 0x8E/0x8F/0x8C, machine type, per-slot legacy ROM, ROM-in-SRAM, reset and load_state: all eight slots equal the VHDL derivation from the MMU registers (Page below 0xE0, Rom{sram_rom} on slot 0/1, Floating on slots 2-7) -- VHDL zxnext.vhd:2952-2964, 3037, 3052, 3060 | zxnext.vhd | pass | test/mmu/mmu_test.cpp:6969 |
 | FSRC-09 | for all 64 K addresses of 14 configurations (boot ROM, legacy and 7FFD ROM, MMU RAM, BRAM pages, floating pages, DivMMC ROM/RAM, MAPRAM, Multiface, Layer 2 incl. bank 5 over the BRAM page numbers, alternate ROM, config mode, +3 and 48K standalone) route(a) names the store the FPGA memory map assigns it -- same byte pointer, peek(a) equal to the byte there -- with kind <= 15 and index <= 0xFF, and the sweep reaches all eleven kinds -- VHDL zxnext.vhd:2920-2927, 2964, 2971, 3031, 3045, 3085, 3093, 3117, 6562, 6670 | zxnext.vhd:2920-2927,2964,2971,3031,3045,3085,3093,3117,6562,6670 | pass | test/mmu/mmu_integration_test.cpp:3851 |
 | FSRC-10 | an instruction's fetch records its source: the RST at 0x8000 from MMU RAM page 4, then the instruction at 0x0008 from the DivMMC ROM that its own M1 mapped in (RST 0x08 instant-on) -- recorded by the fetch, and equal to what was predicted before each -- VHDL zxnext.vhd:4611-4618, 2892; divmmc.vhd:148 | zxnext.vhd:4611-4618,2892, divmmc.vhd:148 | pass | test/mmu/mmu_integration_test.cpp:4172 |
-| FSRC-11 | config mode: Config{nr_04} with a 16 KB offset on a ROM-mapped slot, below DivMMC and Layer 2 and below an MMU RAM page -- VHDL zxnext.vhd:3044-3050, 3037, 3084, 3100 | zxnext.vhd:3044-3050,3037,3084,3100 | pass | test/mmu/mmu_test.cpp:6990 |
-| FSRC-12 | no memory answers on slots 2-7 holding an MMU page >= 0xE0 or under a Layer 2 page whose bank sum is >= 0x70: Floating with no byte; sum 0x6F is Layer2{0xDE} -- VHDL zxnext.vhd:3060-3061, 2971, 3101-3102 | zxnext.vhd | pass | test/mmu/mmu_test.cpp:7010 |
-| FSRC-13 | the +3 floating-bus latch captures the byte of every contended read -- a Layer 2, DivMMC or Multiface read over a contended page included -- and nothing over a page that does not contend -- VHDL zxnext.vhd:4489-4493, 4498-4509 | zxnext.vhd:4489-4493,4498-4509 | pass | test/mmu/mmu_test.cpp:7077 |
-| FSRC-14 | the +3 floating-bus latch captures the byte of every contended write -- a Layer 2 write-over, DivMMC RAM, Multiface RAM and a write the arbiter drops included -- and nothing over a page that does not contend -- VHDL zxnext.vhd:4489-4493, 4498-4509 | zxnext.vhd:4489-4493,4498-4509 | pass | test/mmu/mmu_test.cpp:7137 |
-| FSRC-15 | a READ watchpoint fires on a boot-ROM read and on a floating-bus read (MMU page >= 0xE0), as it does on a RAM read, and a peek of either fires none -- the watch gate sits after every source (VHDL: the CPU's MREQ read cycle, zxnext.vhd:1856-1870, 3060-3061) | zxnext.vhd:1856-1870,3060-3061 | pass | test/mmu/mmu_test.cpp:7170 |
+| FSRC-11 | config mode: Config{nr_04} with a 16 KB offset on a ROM-mapped slot, below DivMMC and Layer 2 and below an MMU RAM page -- VHDL zxnext.vhd:3044-3050, 3037, 3084, 3100 | zxnext.vhd:3044-3050,3037,3084,3100 | pass | test/mmu/mmu_test.cpp:6998 |
+| FSRC-12 | no memory answers on slots 2-7 holding an MMU page >= 0xE0 or under a Layer 2 page whose bank sum is >= 0x70: Floating with no byte; sum 0x6F is Layer2{0xDE} -- VHDL zxnext.vhd:3060-3061, 2971, 3101-3102 | zxnext.vhd | pass | test/mmu/mmu_test.cpp:7018 |
+| FSRC-13 | the +3 floating-bus latch captures the byte of every contended read -- a Layer 2, DivMMC or Multiface read over a contended page included -- and nothing over a page that does not contend -- VHDL zxnext.vhd:4489-4493, 4498-4509 | zxnext.vhd:4489-4493,4498-4509 | pass | test/mmu/mmu_test.cpp:7085 |
+| FSRC-14 | the +3 floating-bus latch captures the byte of every contended write -- a Layer 2 write-over, DivMMC RAM, Multiface RAM and a write the arbiter drops included -- and nothing over a page that does not contend -- VHDL zxnext.vhd:4489-4493, 4498-4509 | zxnext.vhd:4489-4493,4498-4509 | pass | test/mmu/mmu_test.cpp:7145 |
+| FSRC-15 | a READ watchpoint fires on a boot-ROM read and on a floating-bus read (MMU page >= 0xE0), as it does on a RAM read, and a peek of either fires none -- the watch gate sits after every source (VHDL: the CPU's MREQ read cycle, zxnext.vhd:1856-1870, 3060-3061) | zxnext.vhd:1856-1870,3060-3061 | pass | test/mmu/mmu_test.cpp:7178 |
 | FSRC-16 | last_m1() is 'none recorded' (MemSpace::cpu()) after construction, after a reset and after a state restore, set by an instruction fetch, and left alone by an accepted NMI (no opcode fetched) -- the record belongs to the fetch that made it | zxnext.vhd:2920-2927 | pass | test/mmu/mmu_integration_test.cpp:4233 |
 | FSRC-17 | write() lands exactly where the write route names: for all 64 K addresses of the 14 FSRC-09 configurations plus Layer 2 write-enable only, alt ROM en+rw and MAPRAM bank 3, one write each changes the byte of the store the VHDL memory map resolves and no other byte of any store, and write_landed() is false exactly where sram_rdonly or not sram_active (the Multiface ROM half, DivMMC ROM and read-only RAM, a ROM slot, an inactive page, a floating slot); the boot ROM does not take a write -- VHDL zxnext.vhd:1856-1857, 2920-2927, 3029-3066, 3077-3078, 3081-3132, 3154; divmmc.vhd:100 | zxnext.vhd:1856-1857,2920-2927,3029-3066,3077-3078,3081-3132,3154, divmmc.vhd:100 | pass | test/mmu/mmu_integration_test.cpp:4078 |
-| FSRC-18 | a write with the boot ROM enabled lands where the SRAM arbiter puts it (the MMU RAM page, or the config window) and the boot ROM byte is unchanged and still what a read returns -- VHDL zxnext.vhd:1856-1857 (read data mux only), 3081-3132 | zxnext.vhd:1856-1857 | pass | test/mmu/mmu_test.cpp:7244 |
+| FSRC-18 | a write with the boot ROM enabled lands where the SRAM arbiter puts it (the MMU RAM page, or the config window) and the boot ROM byte is unchanged and still what a read returns -- VHDL zxnext.vhd:1856-1857 (read data mux only), 3081-3132 | zxnext.vhd:1856-1857 | pass | test/mmu/mmu_test.cpp:7252 |
 | FSRC-19 | for all 64 K addresses of the 14 FSRC-09 configurations, the offset of the read route and of the write route is space_offset(space, addr) -- & 0x3FFF for Rom, AltRom and Config, & 0x1FFF for every other space -- VHDL zxnext.vhd:3045, 3052, 3117 (the half is cpu_a(13)) | zxnext.vhd:3045,3052,3117 | pass | test/mmu/mmu_integration_test.cpp:4125 |
-| MCOV-01 | a read marks R at the route's (space, offset) for every read arm -- boot ROM, Multiface ROM/RAM, DivMMC ROM/RAM, Layer 2, alt ROM, config window, both ROM halves, an MMU page -- and nothing else, and a floating read marks nothing -- VHDL zxnext.vhd:1856-1857, 3030-3035, 3084-3131 | zxnext.vhd:1856-1857 | pass | test/mmu/mmu_test.cpp:7304 |
-| MCOV-02 | read_m1 marks X (not R) at the fetched byte, read_fetch (a prefix's inner M1) marks nothing, and an operand read marks R -- VHDL zxnext.vhd:1827 (M1 is the opcode fetch cycle) | zxnext.vhd:1827 | pass | test/mmu/mmu_test.cpp:7332 |
-| MCOV-03 | a write marks W at the route's (space, offset) where it landed -- Multiface RAM, DivMMC RAM, Layer 2 write-over, alt ROM en+rw, config window, an MMU page -- and marks nothing where it was dropped -- the Multiface ROM half, DivMMC ROM, MAPRAM bank 3, a ROM slot, an inactive Layer 2 page, a floating slot -- VHDL zxnext.vhd:3035, 3056, 3089, 3097, 3101-3102, 3060-3061, 3154; divmmc.vhd:100 | zxnext.vhd:3035,3056,3089,3097,3101-3102,3060-3061, divmmc.vhd:100 | pass | test/mmu/mmu_test.cpp:7385 |
-| MCOV-04 | only guest accesses mark: a read, fetch or write outside GuestExecutionScope, a peek, and any access under InspectionScope mark nothing; the same read inside execution marks R | — | pass | test/mmu/mmu_test.cpp:7417 |
-| MCOV-05 | mem_gate_live == (watchpoints_live \|\| mem_coverage_live) and mem_coverage_live == (guest access ? sink : null) after every transition: sink set/clear, guest and inspection scope in/out, persistent breakpoints, a client attaching, SuspendScope in/out | — | pass | test/mmu/mmu_test.cpp:7471 |
-| MCOV-06 | Layer 2 write-over with the read mapping off: the write marks W in Layer2{p}, the read of the same address marks R in the slot's Page{n}, and Page{n} has no W -- VHDL zxnext.vhd:3077 (write enable on a write, read enable on a read), 3100 | zxnext.vhd | pass | test/mmu/mmu_test.cpp:7493 |
-| MCOV-07 | MMU6 = 0x20: a read of 0xC010 marks R at Page{0x20}+0x10 only (Page{0x21} and Layer2{0x20} stay clear); remapped to 0x21 the next read marks Page{0x21}+0x10 too, one bit each -- VHDL zxnext.vhd:3059-3065 (the MMU page names the SRAM page) | zxnext.vhd:3059-3065 | pass | test/mmu/mmu_test.cpp:7521 |
+| MCOV-01 | a read marks R at the route's (space, offset) for every read arm -- boot ROM, Multiface ROM/RAM, DivMMC ROM/RAM, Layer 2, alt ROM, config window, both ROM halves, an MMU page -- and nothing else, and a floating read marks nothing -- VHDL zxnext.vhd:1856-1857, 3030-3035, 3084-3131 | zxnext.vhd:1856-1857 | pass | test/mmu/mmu_test.cpp:7312 |
+| MCOV-02 | read_m1 marks X (not R) at the fetched byte, read_fetch (a prefix's inner M1) marks nothing, and an operand read marks R -- VHDL zxnext.vhd:1827 (M1 is the opcode fetch cycle) | zxnext.vhd:1827 | pass | test/mmu/mmu_test.cpp:7340 |
+| MCOV-03 | a write marks W at the route's (space, offset) where it landed -- Multiface RAM, DivMMC RAM, Layer 2 write-over, alt ROM en+rw, config window, an MMU page -- and marks nothing where it was dropped -- the Multiface ROM half, DivMMC ROM, MAPRAM bank 3, a ROM slot, an inactive Layer 2 page, a floating slot -- VHDL zxnext.vhd:3035, 3056, 3089, 3097, 3101-3102, 3060-3061, 3154; divmmc.vhd:100 | zxnext.vhd:3035,3056,3089,3097,3101-3102,3060-3061, divmmc.vhd:100 | pass | test/mmu/mmu_test.cpp:7393 |
+| MCOV-04 | only guest accesses mark: a read, fetch or write outside GuestExecutionScope, a peek, and any access under InspectionScope mark nothing; the same read inside execution marks R | — | pass | test/mmu/mmu_test.cpp:7425 |
+| MCOV-05 | mem_gate_live == (watchpoints_live \|\| mem_coverage_live) and mem_coverage_live == (guest access ? sink : null) after every transition: sink set/clear, guest and inspection scope in/out, persistent breakpoints, a client attaching, SuspendScope in/out | — | pass | test/mmu/mmu_test.cpp:7479 |
+| MCOV-06 | Layer 2 write-over with the read mapping off: the write marks W in Layer2{p}, the read of the same address marks R in the slot's Page{n}, and Page{n} has no W -- VHDL zxnext.vhd:3077 (write enable on a write, read enable on a read), 3100 | zxnext.vhd | pass | test/mmu/mmu_test.cpp:7501 |
+| MCOV-07 | MMU6 = 0x20: a read of 0xC010 marks R at Page{0x20}+0x10 only (Page{0x21} and Layer2{0x20} stay clear); remapped to 0x21 the next read marks Page{0x21}+0x10 too, one bit each -- VHDL zxnext.vhd:3059-3065 (the MMU page names the SRAM page) | zxnext.vhd:3059-3065 | pass | test/mmu/mmu_test.cpp:7529 |
 | N8E-05a | NR 0x8E read-back {dffd(0),7FFD(2:0),1,1FFD(0),1FFD(2),bit0} — VHDL zxnext.vhd:6158-6159 | zxnext.vhd:6158-6159 | pass | test/mmu/mmu_test.cpp:1259 |
 | N8E-05b | NR 0x8E read-back bit 0 flips with 1FFD(0) selector — VHDL zxnext.vhd:6159 | zxnext.vhd:6159 | pass | test/mmu/mmu_test.cpp:1276 |
 | EFP-01 | port 7FFD/1FFD select this machine's legacy ROM pages in slots 0/1 (VHDL zxnext.vhd:2981-3008) | zxnext.vhd:2981-3008 | pass | test/mmu/mmu_test.cpp:1863 |
@@ -617,44 +617,44 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | BOOT-SNAPSAVE-02D | SzxSaver::build()/ram_page_set() refuse (empty return, error message set) for any chMachineId outside {1,2,4,5} — 48K/128K/+2A/+3 are the only machines .szx can represent | — | pass | test/mmu/mmu_test.cpp:4846 |
 | BOOT-SNAPSAVE-03B | NexSaver::build() clamps to the format's 112-bank ceiling on >1792 KB installs and reports the clamp rather than overflowing banks[112] or writing an unrepresentable ram_required — nex_loader.h banks[112]/kBankOrder (G155) | — | pass | test/mmu/mmu_test.cpp:4975 |
 | BOOT-SNAPSAVE-03C | NexSaver::build() detects a non-contiguous slot 6/7 bank pair and flags contiguous_entry_bank=false rather than silently mis-saving (NexSaver class doc-comment) | — | pass | test/mmu/mmu_test.cpp:5000 |
-| MMU-PR-01 | slot_in_rom_area at reset (NR 0x50/51 = 0xFF): true for slots 0/1 (VHDL :2964 mmu_A21_A13(8)=1 when effective page >= 0xE0) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5331 |
-| MMU-PR-02 | slot_in_rom_area false when NR 0x50 = 0x0A (RAM bank 5) — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5345 |
-| MMU-PR-03 | slot_in_rom_area true at boundary NR 0x50 = 0xE0 (VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5356 |
-| MMU-PR-04 | slot_in_rom_area false at NR 0x50 = 0xDF (just below VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5368 |
-| MMU-PR-05 | pre_override(2)=0 for PC>=0x4000 (cpu_a(15:14)!=00) — VHDL zxnext.vhd:3029,3065 | zxnext.vhd:3029,3065 | pass | test/mmu/mmu_test.cpp:5378 |
-| PR-06 | pre_override(2)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 — MF wins, override='000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5388 |
-| PR-07 | pre_override(2)=1 for PC<0x4000 with mf_active=0 — VHDL zxnext.vhd:3043,3050,3057 | zxnext.vhd:3043,3050,3057 | pass | test/mmu/mmu_test.cpp:5398 |
-| PR-08 | pre_override(0)=1 in normal ROM mode (VHDL zxnext.vhd:3057 → '111') | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5412 |
-| PR-09 | pre_override(0)=0 when config_mode=1 (VHDL zxnext.vhd:3044,3050) | zxnext.vhd:3044,3050 | pass | test/mmu/mmu_test.cpp:5423 |
-| PR-10 | pre_override(0)=0 for slot 0 RAM-mapped (VHDL zxnext.vhd:3037,3043) | zxnext.vhd:3037,3043 | pass | test/mmu/mmu_test.cpp:5435 |
-| PR-11 | pre_override(0)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 → '000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5445 |
-| PR-12 | pre_override(0)=0 for PC>=0x4000 — VHDL zxnext.vhd:3065 | zxnext.vhd:3065 | pass | test/mmu/mmu_test.cpp:5455 |
-| PR-13 | pre_override(0)=1 in slot 1 (PC=0x2000) with NR 0x51=0xFF — VHDL zxnext.vhd:3057 | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5467 |
-| PR-14 | pre_override(0) tracks per-slot ROM/RAM mode (VHDL zxnext.vhd:2952 mem_active_page selects MMU0..MMU7 by cpu_a(15:13)) | zxnext.vhd:2952 | pass | test/mmu/mmu_test.cpp:5486 |
-| FIX-NR5xFF-01 | NR $51=$FF (engage_legacy_rom_paging_slot(1)) preserves slot 0 RAM mapping — VHDL zxnext.vhd:4686-4696 nr_mmu_we per-slot | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5531 |
-| FIX-NR5xFF-02 | NR $52=$FF → slot 2 inactive: read returns 0xFF, write dropped (VHDL zxnext.vhd:3061 sram_pre_active=0 when mmu_A21_A13(8)=1) | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5556 |
-| FIX-NR5xFF-03 | NR $56=$FF → slot 6 inactive (NOT legacy RAM auto-paged) — VHDL zxnext.vhd:3061 sram_pre_active=0 | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5576 |
-| FIX-PLUS3-01 | +3 special-mode 1→0 transition reverts slots 2-5 to bank 5 / bank 2 — VHDL zxnext.vhd:4655-4670 | zxnext.vhd:4655-4670 | pass | test/mmu/mmu_test.cpp:5613 |
-| FIX-PLUS3-02 | +3 special: port_7FFD write does NOT clobber special table — VHDL zxnext.vhd:4623 (arbiter rewrites 0..7) | zxnext.vhd:4623 | pass | test/mmu/mmu_test.cpp:5643 |
-| FIX-PLUS3-03 | port_1ffd_special_old persisted across save/load — exit after load fires slot 2-5 revert (VHDL :3716,3729; commit 45d8b30) | zxnext.vhd:3716/3729 | pass | test/mmu/mmu_test.cpp:5677 |
-| FIX-NR8C-CACHE-01 | NR 0x8C lock_rom1 flip refreshes slot-0 cached read pointer (pre→0x00, post→0x40) — VHDL zxnext.vhd:2981-3008,3052; commit 3dd4e73 | zxnext.vhd:2981-3008,3052 | pass | test/mmu/mmu_test.cpp:5728 |
-| FIX-NR8C-CACHE-02 | NR 0x8C write with no lock change preserves slot 0 RAM mapping AND cached read pointer — VHDL zxnext.vhd:3813 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5780 |
-| FIX-SLOT01-HIPAGE-01 | NR $50=0xE5 routes slot 0 to legacy ROM (sram_rom-derived) — VHDL zxnext.vhd:2964 mmu_A21_A13(8)=1 + :3052; commit 3dd4e73 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5827 |
-| FIX-UNLOCK-01 | unlock_paging() clears bit 5 of port_7ffd_ AND paging_locked_ — VHDL zxnext.vhd:3654-3656; commit 31d1786 | zxnext.vhd:3654-3656 | pass | test/mmu/mmu_test.cpp:5856 |
-| FIX-NR8C-PRESERVE-01 | NR 0x8C write preserves slot 0 explicit RAM mapping — VHDL zxnext.vhd:3813 no port_memory_change_dly; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5884 |
-| FIX-NR8C-PRESERVE-02 | NR 0x8C with sram_rom-changing lock preserves slot 1 RAM mapping — VHDL zxnext.vhd:3813; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5903 |
-| FIX-EFF7-FF-01 | NR $50=$FF under EFF7(3)=1: nr_mmu_[0]=0xFF verbatim, slot 0 → legacy ROM (not RAM) — VHDL :4686-4696 nr_mmu_we; commits 31d1786 + 560cb18 | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5936 |
-| FIX-NRMMU-SAVE-01 | nr_mmu_[0]=0xE5 verbatim round-trips through save/load — VHDL zxnext.vhd:4686-4696 + :6059-6081 NR readback; commit 560cb18 | zxnext.vhd:4686-4696,6059-6081 | pass | test/mmu/mmu_test.cpp:5976 |
-| FIX-NR12-PROP-01 | Mmu::set_l2_active_bank propagates to CPU L2 read path — VHDL zxnext.vhd:2968 + :2969 layer2_active_page; commit 560cb18 | zxnext.vhd:2968,2969 | pass | test/mmu/mmu_test.cpp:6010 |
-| FIX-RESET-CFG-01-A | reset with config_mode=0 leaves boot_rom_en cleared — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:6041 |
-| FIX-RESET-CFG-01-B | reset with config_mode=1 re-arms boot_rom_en — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:6059 |
-| FIX-MTC-SPECIAL-01 | set_machine_type during +3 special preserves special-mapping slots 0/1 — VHDL zxnext.vhd:4623-4632 (table independent of sram_rom); commit 165835d | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:6092 |
-| FIX-CURRSRAMROM-128K-01 | 128K with lock_rom1=1: sram_rom = lock_rom1 = 1 (NOT 7ffd(4)=0) — VHDL zxnext.vhd:2997-3007 shared else branch; commit b6b42dd | zxnext.vhd:2997-3007 | pass | test/mmu/mmu_test.cpp:6122 |
-| FIX-L2-OVERLAY-LOWHALF-01 | L2 write-over with seg=01 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043 sram_pre_override(1)=1; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:6155 |
-| FIX-L2-OVERLAY-LOWHALF-02 | L2 write-over with seg=10 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:6175 |
-| FIX-L2-ROM-AREA-01 | L2 read with bank=0x70 → sram_active=0 → 0xFF (NOT ROM-area wrap) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:6205 |
-| FIX-L2-ROM-AREA-02 | L2 write with bank=0x70 → sram_active=0 → write dropped (NOT corrupting ROM area) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:6234 |
-| V11-MEM-01-A | NR $50=0xE5 + save_state + load_state: rebuild_ptr serves legacy ROM (sram_rom*2+slot=0) via consistent slots_[] — VHDL zxnext.vhd:3037-3057 :3052; verify11-memory | zxnext.vhd:3037-3057 | pass | test/mmu/mmu_test.cpp:6326 |
+| MMU-PR-01 | slot_in_rom_area at reset (NR 0x50/51 = 0xFF): true for slots 0/1 (VHDL :2964 mmu_A21_A13(8)=1 when effective page >= 0xE0) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5339 |
+| MMU-PR-02 | slot_in_rom_area false when NR 0x50 = 0x0A (RAM bank 5) — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5353 |
+| MMU-PR-03 | slot_in_rom_area true at boundary NR 0x50 = 0xE0 (VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5364 |
+| MMU-PR-04 | slot_in_rom_area false at NR 0x50 = 0xDF (just below VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5376 |
+| MMU-PR-05 | pre_override(2)=0 for PC>=0x4000 (cpu_a(15:14)!=00) — VHDL zxnext.vhd:3029,3065 | zxnext.vhd:3029,3065 | pass | test/mmu/mmu_test.cpp:5386 |
+| PR-06 | pre_override(2)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 — MF wins, override='000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5396 |
+| PR-07 | pre_override(2)=1 for PC<0x4000 with mf_active=0 — VHDL zxnext.vhd:3043,3050,3057 | zxnext.vhd:3043,3050,3057 | pass | test/mmu/mmu_test.cpp:5406 |
+| PR-08 | pre_override(0)=1 in normal ROM mode (VHDL zxnext.vhd:3057 → '111') | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5420 |
+| PR-09 | pre_override(0)=0 when config_mode=1 (VHDL zxnext.vhd:3044,3050) | zxnext.vhd:3044,3050 | pass | test/mmu/mmu_test.cpp:5431 |
+| PR-10 | pre_override(0)=0 for slot 0 RAM-mapped (VHDL zxnext.vhd:3037,3043) | zxnext.vhd:3037,3043 | pass | test/mmu/mmu_test.cpp:5443 |
+| PR-11 | pre_override(0)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 → '000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5453 |
+| PR-12 | pre_override(0)=0 for PC>=0x4000 — VHDL zxnext.vhd:3065 | zxnext.vhd:3065 | pass | test/mmu/mmu_test.cpp:5463 |
+| PR-13 | pre_override(0)=1 in slot 1 (PC=0x2000) with NR 0x51=0xFF — VHDL zxnext.vhd:3057 | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5475 |
+| PR-14 | pre_override(0) tracks per-slot ROM/RAM mode (VHDL zxnext.vhd:2952 mem_active_page selects MMU0..MMU7 by cpu_a(15:13)) | zxnext.vhd:2952 | pass | test/mmu/mmu_test.cpp:5494 |
+| FIX-NR5xFF-01 | NR $51=$FF (engage_legacy_rom_paging_slot(1)) preserves slot 0 RAM mapping — VHDL zxnext.vhd:4686-4696 nr_mmu_we per-slot | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5539 |
+| FIX-NR5xFF-02 | NR $52=$FF → slot 2 inactive: read returns 0xFF, write dropped (VHDL zxnext.vhd:3061 sram_pre_active=0 when mmu_A21_A13(8)=1) | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5564 |
+| FIX-NR5xFF-03 | NR $56=$FF → slot 6 inactive (NOT legacy RAM auto-paged) — VHDL zxnext.vhd:3061 sram_pre_active=0 | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5584 |
+| FIX-PLUS3-01 | +3 special-mode 1→0 transition reverts slots 2-5 to bank 5 / bank 2 — VHDL zxnext.vhd:4655-4670 | zxnext.vhd:4655-4670 | pass | test/mmu/mmu_test.cpp:5621 |
+| FIX-PLUS3-02 | +3 special: port_7FFD write does NOT clobber special table — VHDL zxnext.vhd:4623 (arbiter rewrites 0..7) | zxnext.vhd:4623 | pass | test/mmu/mmu_test.cpp:5651 |
+| FIX-PLUS3-03 | port_1ffd_special_old persisted across save/load — exit after load fires slot 2-5 revert (VHDL :3716,3729; commit 45d8b30) | zxnext.vhd:3716/3729 | pass | test/mmu/mmu_test.cpp:5685 |
+| FIX-NR8C-CACHE-01 | NR 0x8C lock_rom1 flip refreshes slot-0 cached read pointer (pre→0x00, post→0x40) — VHDL zxnext.vhd:2981-3008,3052; commit 3dd4e73 | zxnext.vhd:2981-3008,3052 | pass | test/mmu/mmu_test.cpp:5736 |
+| FIX-NR8C-CACHE-02 | NR 0x8C write with no lock change preserves slot 0 RAM mapping AND cached read pointer — VHDL zxnext.vhd:3813 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5788 |
+| FIX-SLOT01-HIPAGE-01 | NR $50=0xE5 routes slot 0 to legacy ROM (sram_rom-derived) — VHDL zxnext.vhd:2964 mmu_A21_A13(8)=1 + :3052; commit 3dd4e73 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5835 |
+| FIX-UNLOCK-01 | unlock_paging() clears bit 5 of port_7ffd_ AND paging_locked_ — VHDL zxnext.vhd:3654-3656; commit 31d1786 | zxnext.vhd:3654-3656 | pass | test/mmu/mmu_test.cpp:5864 |
+| FIX-NR8C-PRESERVE-01 | NR 0x8C write preserves slot 0 explicit RAM mapping — VHDL zxnext.vhd:3813 no port_memory_change_dly; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5892 |
+| FIX-NR8C-PRESERVE-02 | NR 0x8C with sram_rom-changing lock preserves slot 1 RAM mapping — VHDL zxnext.vhd:3813; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5911 |
+| FIX-EFF7-FF-01 | NR $50=$FF under EFF7(3)=1: nr_mmu_[0]=0xFF verbatim, slot 0 → legacy ROM (not RAM) — VHDL :4686-4696 nr_mmu_we; commits 31d1786 + 560cb18 | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5944 |
+| FIX-NRMMU-SAVE-01 | nr_mmu_[0]=0xE5 verbatim round-trips through save/load — VHDL zxnext.vhd:4686-4696 + :6059-6081 NR readback; commit 560cb18 | zxnext.vhd:4686-4696,6059-6081 | pass | test/mmu/mmu_test.cpp:5984 |
+| FIX-NR12-PROP-01 | Mmu::set_l2_active_bank propagates to CPU L2 read path — VHDL zxnext.vhd:2968 + :2969 layer2_active_page; commit 560cb18 | zxnext.vhd:2968,2969 | pass | test/mmu/mmu_test.cpp:6018 |
+| FIX-RESET-CFG-01-A | reset with config_mode=0 leaves boot_rom_en cleared — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:6049 |
+| FIX-RESET-CFG-01-B | reset with config_mode=1 re-arms boot_rom_en — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:6067 |
+| FIX-MTC-SPECIAL-01 | set_machine_type during +3 special preserves special-mapping slots 0/1 — VHDL zxnext.vhd:4623-4632 (table independent of sram_rom); commit 165835d | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:6100 |
+| FIX-CURRSRAMROM-128K-01 | 128K with lock_rom1=1: sram_rom = lock_rom1 = 1 (NOT 7ffd(4)=0) — VHDL zxnext.vhd:2997-3007 shared else branch; commit b6b42dd | zxnext.vhd:2997-3007 | pass | test/mmu/mmu_test.cpp:6130 |
+| FIX-L2-OVERLAY-LOWHALF-01 | L2 write-over with seg=01 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043 sram_pre_override(1)=1; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:6163 |
+| FIX-L2-OVERLAY-LOWHALF-02 | L2 write-over with seg=10 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:6183 |
+| FIX-L2-ROM-AREA-01 | L2 read with bank=0x70 → sram_active=0 → 0xFF (NOT ROM-area wrap) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:6213 |
+| FIX-L2-ROM-AREA-02 | L2 write with bank=0x70 → sram_active=0 → write dropped (NOT corrupting ROM area) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:6242 |
+| V11-MEM-01-A | NR $50=0xE5 + save_state + load_state: rebuild_ptr serves legacy ROM (sram_rom*2+slot=0) via consistent slots_[] — VHDL zxnext.vhd:3037-3057 :3052; verify11-memory | zxnext.vhd:3037-3057 | pass | test/mmu/mmu_test.cpp:6334 |
 
 ## ULA Video — `test/ula/ula_test.cpp`
 
@@ -3812,26 +3812,26 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | MD6-11g | phase 0111 latches right bits 5:0 (md6_joystick_connector_x2.vhd:154-155) | md6_joystick_connector_x2.vhd:154-155 | pass | test/input/input_test.cpp:1851 |
 | MD6-11h | phase 1011 + 6-btn: latch right bits 11:8 (md6_joystick_connector_x2.vhd:168-171) | md6_joystick_connector_x2.vhd:168-171 | pass | test/input/input_test.cpp:1866 |
 | MD6-11i | phase 1010 without 6-btn: bits 11:8 NOT latched (md6_joystick_connector_x2.vhd:163-166 — six-button gate) | md6_joystick_connector_x2.vhd:163-166 | pass | test/input/input_test.cpp:1882 |
-| NRB2-01 | L.MODE → NR 0xB2 bit 0 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5442 |
-| NRB2-02 | L.Y → NR 0xB2 bit 1 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5443 |
-| NRB2-03 | L.Z → NR 0xB2 bit 2 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5444 |
-| NRB2-04 | L.X → NR 0xB2 bit 3 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5445 |
-| NRB2-05 | R.MODE → NR 0xB2 bit 4 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5460 |
-| NRB2-06 | R.Y → NR 0xB2 bit 5 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5461 |
-| NRB2-07 | R.Z → NR 0xB2 bit 6 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5462 |
-| NRB2-08 | R.X → NR 0xB2 bit 7 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5463 |
-| NRB2-09 | both pads, all extras → 0xFF (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:5482 |
-| NRB2-10 | no buttons / no pad → 0x00 | — | pass | test/input/input_test.cpp:5491 |
-| NRB2-11 | bits 7:0 of the vector do not leak into NR 0xB2 (mux reads only 11:8, zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:5502 |
-| NRB2-12 | Kempston mode does not gate NR 0xB2 (no NR 0x05 term at zxnext.vhd:6214-6215) | zxnext.vhd:6214-6215 | pass | test/input/input_test.cpp:5516 |
-| NRB2-13 | MD6 extras reach no port lane (zxnext.vhd:3470-3494) | zxnext.vhd:3470-3494 | pass | test/input/input_test.cpp:5530 |
-| NRB2-14 | guest read of NR 0xB2 returns the live pad extras | — | pass | test/input/input_test.cpp:5550 |
-| NRB2-15 | host raw pad buttons 5 / 7 reach NR 0xB2 as L.X / R.Z | — | pass | test/input/input_test.cpp:5565 |
-| NRB2-16 | controller shoulders → L.X / L.Z; face button does not | — | pass | test/input/input_test.cpp:5604 |
-| NRB2-17 | host raw pad button 6 reaches NR 0xB2 as L.Y | — | pass | test/input/input_test.cpp:5577 |
-| NRB2-18 | raw indices 5/6/7 map onto distinct X/Y/Z bits | — | pass | test/input/input_test.cpp:5590 |
-| NRB2-19 | LEFTSHOULDER alone → L.X (bit 3) | — | pass | test/input/input_test.cpp:5617 |
-| NRB2-20 | RIGHTSHOULDER alone → L.Z (bit 2) | — | pass | test/input/input_test.cpp:5625 |
+| NRB2-01 | L.MODE → NR 0xB2 bit 0 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5510 |
+| NRB2-02 | L.Y → NR 0xB2 bit 1 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5511 |
+| NRB2-03 | L.Z → NR 0xB2 bit 2 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5512 |
+| NRB2-04 | L.X → NR 0xB2 bit 3 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5513 |
+| NRB2-05 | R.MODE → NR 0xB2 bit 4 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5528 |
+| NRB2-06 | R.Y → NR 0xB2 bit 5 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5529 |
+| NRB2-07 | R.Z → NR 0xB2 bit 6 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5530 |
+| NRB2-08 | R.X → NR 0xB2 bit 7 (zxnext.vhd:6215) | zxnext.vhd:6215, md6_joystick_connector_x2.vhd:48-49 | pass | test/input/input_test.cpp:5531 |
+| NRB2-09 | both pads, all extras → 0xFF (zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:5550 |
+| NRB2-10 | no buttons / no pad → 0x00 | — | pass | test/input/input_test.cpp:5559 |
+| NRB2-11 | bits 7:0 of the vector do not leak into NR 0xB2 (mux reads only 11:8, zxnext.vhd:6215) | zxnext.vhd:6215 | pass | test/input/input_test.cpp:5570 |
+| NRB2-12 | Kempston mode does not gate NR 0xB2 (no NR 0x05 term at zxnext.vhd:6214-6215) | zxnext.vhd:6214-6215 | pass | test/input/input_test.cpp:5584 |
+| NRB2-13 | MD6 extras reach no port lane (zxnext.vhd:3470-3494) | zxnext.vhd:3470-3494 | pass | test/input/input_test.cpp:5598 |
+| NRB2-14 | guest read of NR 0xB2 returns the live pad extras | — | pass | test/input/input_test.cpp:5618 |
+| NRB2-15 | host raw pad buttons 5 / 7 reach NR 0xB2 as L.X / R.Z | — | pass | test/input/input_test.cpp:5633 |
+| NRB2-16 | controller shoulders → L.X / L.Z; face button does not | — | pass | test/input/input_test.cpp:5672 |
+| NRB2-17 | host raw pad button 6 reaches NR 0xB2 as L.Y | — | pass | test/input/input_test.cpp:5645 |
+| NRB2-18 | raw indices 5/6/7 map onto distinct X/Y/Z bits | — | pass | test/input/input_test.cpp:5658 |
+| NRB2-19 | LEFTSHOULDER alone → L.X (bit 3) | — | pass | test/input/input_test.cpp:5685 |
+| NRB2-20 | RIGHTSHOULDER alone → L.Z (bit 2) | — | pass | test/input/input_test.cpp:5693 |
 | SINC1-01 | S1 LEFT → row 4 bit 4 (key 6) low | — | pass | test/input/input_test.cpp:1940 |
 | SINC1-02 | S1 RIGHT → row 4 bit 3 (key 7) low | — | pass | test/input/input_test.cpp:1945 |
 | SINC1-03 | S1 DOWN → row 4 bit 2 (key 8) low | — | pass | test/input/input_test.cpp:1950 |
@@ -3917,6 +3917,11 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | HIC-19 | 128K, DI: a read whose instruction starts at or after the interrupt position (offset+4) sees the key and every earlier read does not, over a one-T sweep of the read's start | zxula_timing.vhd:551 | pass | test/input/input_integration_test.cpp:2573 |
 | FNK-02 | F3 press toggles NR 0x05 bit 2 (5060), readable after the frame edge only (VHDL :5839-5841; eff latch :6697-6700) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3451 |
 | FNK-03 | F2 press toggles NR 0x05 bit 0 (scandouble), readable after the frame edge only (VHDL :5849-5852; eff latch :6702) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3479 |
+| FNK-09 | reset held 100 enable ticks -> F1 hard reset (emu_fnkeys.vhd:55, :83-97, :190-192) | emu_fnkeys.vhd:55,83-97,190-192 | pass | test/input/input_test.cpp:3660 |
+| FNK-10 | reset held 99 enable ticks -> F4 soft reset (emu_fnkeys.vhd:55, :83-97, :190-194) | emu_fnkeys.vhd:55,83-97,190-194 | pass | test/input/input_test.cpp:3668 |
+| FNK-11 | M1 held 99 enable ticks -> MF NMI F9 (short press) (emu_fnkeys.vhd:55, :133-138, :188-189) | emu_fnkeys.vhd:55,133-138,188-189 | pass | test/input/input_test.cpp:3676 |
+| FNK-12 | M1 held 102 enable ticks -> no MF NMI (long press, timer saturates at 0) (emu_fnkeys.vhd:55, :93-94, :188-189) | emu_fnkeys.vhd:55,93-94,188-189 | pass | test/input/input_test.cpp:3684 |
+| FNK-13 | production EmuFnKeys instance carries PERIOD 100: hold 99 -> F4, hold 100 -> F1 (emu_fnkeys.vhd:55, :190-194) | emu_fnkeys.vhd:55,190-194 | pass | test/input/input_test.cpp:3699 |
 | EXTC-08a | LEFT folds to CAPS SHIFT + 5 (row 3 col 4) | — | pass | test/input/input_test.cpp:552 |
 | EXTC-08b | DOWN folds to CAPS SHIFT + 6 (row 4 col 4) | — | pass | test/input/input_test.cpp:553 |
 | EXTC-08c | UP folds to CAPS SHIFT + 7 (row 4 col 3) | — | pass | test/input/input_test.cpp:554 |
@@ -3937,194 +3942,194 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | FNK-07 | FSM IDLE→MF_ROW_A11→A12→CHECK→DONE→IDLE on M1 tap (VHDL :118-141) | — | pass | test/input/input_test.cpp:3588 |
 | FNK-08X | F8 press leaves NR 0x05 unchanged (row isolation, VHDL :159+:185) | — | pass | test/input/input_test.cpp:3609 |
 | FNK-08 | rows_filtered = 0xF7 in MF_ROW_A11, 0xEF in MF_ROW_A12 (VHDL :159) | — | pass | test/input/input_test.cpp:3630 |
-| SL-KBD-01 | Keyboard membrane matrix restored | — | pass | test/input/input_test.cpp:3715 |
-| SL-KBD-02 | Keyboard extended-key register (NR 0xB0/0xB1) restored | — | pass | test/input/input_test.cpp:3721 |
-| SL-KBD-03 | Keyboard in-flight auto-type queue restored | — | pass | test/input/input_test.cpp:3725 |
-| SL-JOY-01 | Joystick NR 0x05 modes + raw byte restored | — | pass | test/input/input_test.cpp:3746 |
-| SL-JOY-02 | Joystick raw 12-bit connector vectors restored | — | pass | test/input/input_test.cpp:3750 |
-| SL-MOU-01 | Kempston mouse X/Y counters restored | — | pass | test/input/input_test.cpp:3773 |
-| SL-MOU-02 | Kempston mouse buttons/wheel (port 0xFADF) restored | — | pass | test/input/input_test.cpp:3776 |
-| SL-MOU-03 | Kempston mouse NR 0x0A button-reverse + DPI restored | — | pass | test/input/input_test.cpp:3779 |
-| SL-MD6-01 | MD6 FSM state counter restored mid-sequence | — | pass | test/input/input_test.cpp:3801 |
-| SL-MD6-02 | MD6 latched connector words + NR 0xB2 restored | — | pass | test/input/input_test.cpp:3804 |
-| SL-MD6-03 | MD6 six-button-detect flags + seeded latches restored | — | pass | test/input/input_test.cpp:3823 |
-| SL-MD6-04 | MD6 CLK_EN accumulator restored (phase-accurate tick) | — | pass | test/input/input_test.cpp:3843 |
-| SL-MEM-01 | MembraneStick reprogrammed keymap cell restored | — | pass | test/input/input_test.cpp:3866 |
-| SL-MEM-02 | MembraneStick NR 0x28/0x29 sel + auto-inc addr restored | — | pass | test/input/input_test.cpp:3869 |
-| SL-IOM-01 | IoMode NR 0x0B raw byte + pin7 register restored | — | pass | test/input/input_test.cpp:3901 |
-| SL-IOM-02 | IoMode injected UART-TX / joystick-bit5 lines restored | — | pass | test/input/input_test.cpp:3915 |
-| SL-EMU-01 | Emulator::load_state accepts the input sentinel block | — | pass | test/input/input_test.cpp:3949 |
-| SL-EMU-02 | Emulator save/load restores mouse + MD6 + keyboard input | — | pass | test/input/input_test.cpp:3951 |
-| SL-REW-01 | rewind_to_frame restores MD6 FSM + mouse input state | — | pass | test/input/input_test.cpp:3979 |
-| SL-DISP-01 | JoystickDispatcher::resync stops stale bits_ stomping restored vector | — | pass | test/input/input_test.cpp:4001 |
-| SL-DISP-02 | MouseDispatcher::resync stops cumulative wheel shadow stomping restore | — | pass | test/input/input_test.cpp:4014 |
-| SL-DISP-03 | MouseDispatcher::resync stops stale button mask stomping restore | — | pass | test/input/input_test.cpp:4026 |
-| JSRC-D01 | default source is Sdl for both connectors | — | pass | test/input/input_test.cpp:4047 |
-| JSRC-D02 | cursor-key input ignored while source is Sdl | — | pass | test/input/input_test.cpp:4055 |
-| JSRC-D03 | cursor keys drive Kempston1 port 0x1F (R/L/D/U/Fire) | — | pass | test/input/input_test.cpp:4070 |
-| JSRC-D04 | SDL controller input ignored while source is CursorKeys | — | pass | test/input/input_test.cpp:4079 |
-| JSRC-D05 | changing source clears the held vector | — | pass | test/input/input_test.cpp:4088 |
-| JSRC-D06 | cursor keys route to the selected connector (Joy 2) | — | pass | test/input/input_test.cpp:4098 |
-| JSRC-K01 | arrow key drives joystick, not the ZX matrix, in cursor mode | — | pass | test/input/input_test.cpp:4115 |
-| JSRC-K02 | Space is Fire in cursor mode, not the ZX SPACE key | — | pass | test/input/input_test.cpp:4130 |
-| JSRC-K03 | with no cursor target, arrows remain ZX cursor keys | — | pass | test/input/input_test.cpp:4143 |
-| JSRC-K04 | non-arrow keys still reach the ZX matrix in cursor mode | — | pass | test/input/input_test.cpp:4157 |
-| JSRC-E01 | emulator default sources are Sdl/Sdl | — | pass | test/input/input_test.cpp:4165 |
-| JSRC-E02 | setting a connector to CursorKeys sets the keyboard target | — | pass | test/input/input_test.cpp:4172 |
-| JSRC-E03 | only one connector may use cursor keys (mutual exclusion) | — | pass | test/input/input_test.cpp:4181 |
-| JSRC-E04 | source change notifies the frontend callback | — | pass | test/input/input_test.cpp:4196 |
-| JSRC-E05 | refresh re-pushes both connectors to the frontend | — | pass | test/input/input_test.cpp:4205 |
-| JRAW-01 | raw button 0 -> Fire 1 (bit 4) | — | pass | test/input/input_test.cpp:4225 |
-| JRAW-02 | raw button 1 -> Fire 2 (bit 5) | — | pass | test/input/input_test.cpp:4232 |
-| JRAW-03 | raw button 2 -> MD A (bit 6) | — | pass | test/input/input_test.cpp:4239 |
-| JRAW-04 | raw button 3 -> START (bit 7) | — | pass | test/input/input_test.cpp:4249 |
-| JRAW-05 | raw button 4 -> MODE (bit 11) | — | pass | test/input/input_test.cpp:4258 |
-| JRAW-06 | raw buttons past the mapped range are dropped | — | pass | test/input/input_test.cpp:4272 |
-| JRAW-07 | raw button release clears its bit | — | pass | test/input/input_test.cpp:4280 |
-| JRAW-08 | raw axis 0 full negative -> LEFT (bit 1) | — | pass | test/input/input_test.cpp:4288 |
-| JRAW-09 | raw axis 0 full positive -> RIGHT (bit 0) | — | pass | test/input/input_test.cpp:4295 |
-| JRAW-10 | raw axis 1 full negative -> UP (bit 3) | — | pass | test/input/input_test.cpp:4303 |
-| JRAW-11 | raw axis 1 full positive -> DOWN (bit 2) | — | pass | test/input/input_test.cpp:4310 |
-| JRAW-12 | raw axis returning to the deadzone clears its bit | — | pass | test/input/input_test.cpp:4318 |
-| JRAW-13 | raw axis inside the deadzone does not fire | — | pass | test/input/input_test.cpp:4327 |
-| JRAW-14 | raw axes past index 1 are unmapped | — | pass | test/input/input_test.cpp:4335 |
-| JRAW-15 | raw hat UP -> bit 3 | — | pass | test/input/input_test.cpp:4342 |
-| JRAW-16 | raw hat diagonal sets both directions | — | pass | test/input/input_test.cpp:4351 |
-| JRAW-17 | raw hat centred clears every direction | — | pass | test/input/input_test.cpp:4359 |
-| JRAW-18 | raw hat centred leaves button bits untouched | — | pass | test/input/input_test.cpp:4368 |
-| JRAW-19 | raw button gated out on a CursorKeys connector | — | pass | test/input/input_test.cpp:4376 |
-| JRAW-20 | raw axis gated out on a CursorKeys connector | — | pass | test/input/input_test.cpp:4384 |
-| JRAW-21 | raw hat gated out on a CursorKeys connector | — | pass | test/input/input_test.cpp:4392 |
-| JRAW-22 | out-of-range connector index is ignored on raw paths | — | pass | test/input/input_test.cpp:4400 |
-| JRAW-23 | raw input on connector 1 drives the right lane | — | pass | test/input/input_test.cpp:4408 |
-| JRAW-24 | SDL_EVENT_JOYSTICK_BUTTON_DOWN routes via the instance map | — | pass | test/input/input_test.cpp:4420 |
-| JRAW-25 | SDL_EVENT_JOYSTICK_BUTTON_UP clears the bit | — | pass | test/input/input_test.cpp:4434 |
-| JRAW-26 | SDL_EVENT_JOYSTICK_AXIS_MOTION routes to the mapped connector | — | pass | test/input/input_test.cpp:4445 |
-| JRAW-27 | SDL_EVENT_JOYSTICK_HAT_MOTION routes to the mapped connector | — | pass | test/input/input_test.cpp:4456 |
-| JRAW-28 | raw event from an unmapped device is refused | — | pass | test/input/input_test.cpp:4468 |
-| JRAW-29 | instance id 0 (SDL3's invalid id) is never mapped nor resolved, and does not consume a device-map entry (GH #57) | — | pass | test/input/input_test.cpp:4504 |
-| JRAW-30 | unmapping frees the device-map entry for reuse (the free marker is 0, representable in SDL3's Uint32 id) and leaves the freed entries carrying no connector (GH #57) | — | pass | test/input/input_test.cpp:4534 |
-| JRAW-31 | mapping the invalid id 0 leaves no device-map entry that is both free and assigned to a connector (GH #57) | — | pass | test/input/input_test.cpp:4559 |
-| JRAW-32 | the invalid id matches no free entry and cannot disturb a live mapping (GH #57) | — | pass | test/input/input_test.cpp:4578 |
-| JMRG-01 | hat release keeps a direction the analogue stick still holds | — | pass | test/input/input_test.cpp:4608 |
-| JMRG-02 | D-pad release keeps a direction the analogue stick still holds | — | pass | test/input/input_test.cpp:4617 |
-| JMRG-03 | centring one hat does not cancel another still held | — | pass | test/input/input_test.cpp:4625 |
-| JMRG-04 | two hats OR their directions together | — | pass | test/input/input_test.cpp:4633 |
-| JMRG-05 | shared direction survives while one source still holds it | — | pass | test/input/input_test.cpp:4643 |
-| JMRG-06 | direction clears once every source has released it | — | pass | test/input/input_test.cpp:4654 |
-| JMRG-07 | hat index past MAX_HATS is ignored, not aliased to hat 0 | — | pass | test/input/input_test.cpp:4661 |
-| JMRG-08 | direction churn leaves the fire button held | — | pass | test/input/input_test.cpp:4671 |
-| JMRG-09 | switching source clears every held direction source | — | pass | test/input/input_test.cpp:4682 |
-| JMRG-10 | cursor direction release leaves fire held | — | pass | test/input/input_test.cpp:4696 |
-| JRST-01 | D-pad release after resync clears a restored direction | — | pass | test/input/input_test.cpp:4721 |
-| JRST-02 | hat centring after resync clears a restored direction | — | pass | test/input/input_test.cpp:4731 |
-| JRST-03 | cursor-key release after resync clears a restored direction | — | pass | test/input/input_test.cpp:4741 |
-| JRST-04 | axis returning to centre after resync clears it too | — | pass | test/input/input_test.cpp:4750 |
-| JRST-05 | fire press after resync preserves the restored direction | — | pass | test/input/input_test.cpp:4761 |
-| JRST-06 | a live direction supersedes the restored guess entirely | — | pass | test/input/input_test.cpp:4772 |
-| JRST-07 | D-pad release supersedes only its own pair, UP survives | — | pass | test/input/input_test.cpp:4792 |
-| JRST-08 | X-axis centring leaves a restored UP untouched | — | pass | test/input/input_test.cpp:4801 |
-| JRST-09 | cursor-key release supersedes only its own pair | — | pass | test/input/input_test.cpp:4811 |
-| JRST-10 | a hat speaks for both pairs, so it supersedes all four | — | pass | test/input/input_test.cpp:4823 |
-| JRST-11 | pressing the opposing direction replaces its pair only | — | pass | test/input/input_test.cpp:4833 |
-| JRST-12 | accepted: a second hat's event clobbers all restored bits | — | pass | test/input/input_test.cpp:4857 |
-| T77J-01 | raw btn0 → B, port 0x1F bit4, Kempston1 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:4905 |
-| T77J-02 | raw btn0 → B, port 0x1F bit4, Md3Left | — | pass | test/input/input_test.cpp:4907 |
-| T77J-03 | raw btn1 → C, port 0x1F bit5, Kempston1 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:4914 |
-| T77J-04 | raw btn1 → C, port 0x1F bit5, Md3Left | — | pass | test/input/input_test.cpp:4916 |
-| T77J-05 | raw btn2 → A, port 0x1F bit6 set in Md3Left | zxnext.vhd:3477-3478 | pass | test/input/input_test.cpp:4926 |
-| T77J-06 | raw btn2 → A, port 0x1F bit6 GATED OFF in Kempston1 | — | pass | test/input/input_test.cpp:4928 |
-| T77J-07 | raw btn3 → START, port 0x1F bit7 set in Md3Left | — | pass | test/input/input_test.cpp:4937 |
-| T77J-08 | raw btn3 → START, port 0x1F bit7 GATED OFF in Kempston1 | — | pass | test/input/input_test.cpp:4939 |
-| T77J-09 | raw btn0..3 → distinct bits 7:4 (0xF0) in Md3Left | — | pass | test/input/input_test.cpp:4951 |
-| T77J-10 | raw btn4 → MODE, bit 11 of the 12-bit vector | zxnext.vhd:3477-3479 | pass | test/input/input_test.cpp:4962 |
-| T77J-11 | raw btn4 (MODE) reaches no port in either mode | — | pass | test/input/input_test.cpp:4966 |
-| T77J-12 | raw btn3 release clears START | — | pass | test/input/input_test.cpp:4979 |
-| T77J-13 | controller Y → START, bit7 set in Md3Left | — | pass | test/input/input_test.cpp:4989 |
-| T77J-14 | controller Y → START, bit7 GATED OFF in Kempston1 | — | pass | test/input/input_test.cpp:4991 |
-| T77J-15 | controller A/B/X/Y → bits 7:4 (0xF0) in Md3Left | — | pass | test/input/input_test.cpp:5005 |
-| T77J-16 | controller BACK → MODE, bit 11 of the vector | — | pass | test/input/input_test.cpp:5015 |
-| T77J-17 | controller START still → START bit7 in Md3Left | — | pass | test/input/input_test.cpp:5022 |
-| T77J-18 | raw btn3 → START on port 0x37, Md3Right | zxnext.vhd:3489-3494 | pass | test/input/input_test.cpp:5034 |
-| T77K-01 | Tab → EXTEND MODE = CS + SYM SHIFT | — | pass | test/input/input_test.cpp:5085 |
-| T77K-19 | Esc → BREAK = CS + SPACE | — | pass | test/input/input_test.cpp:5089 |
-| T77K-02 | grave (key left of 1) → TRUE VIDEO = CS + 3 | — | pass | test/input/input_test.cpp:5092 |
-| T77K-03 | Alt+grave → INV VIDEO = CS + 4 | — | pass | test/input/input_test.cpp:5095 |
-| T77K-05 | Alt+E → EDIT = CS + 1 | — | pass | test/input/input_test.cpp:5098 |
-| T77K-20 | Alt+G → GRAPH = CS + 9 | — | pass | test/input/input_test.cpp:5101 |
-| T77K-21 | Alt+C → CAPS LOCK = CS + 2 | — | pass | test/input/input_test.cpp:5104 |
-| T77K-06 | apostrophe → '"' = SS + P | — | pass | test/input/input_test.cpp:5107 |
-| T77K-07 | semicolon → ';' = SS + O | — | pass | test/input/input_test.cpp:5110 |
-| T77K-08 | period → '.' = SS + M | — | pass | test/input/input_test.cpp:5113 |
-| T77K-09 | comma → ',' = SS + N | — | pass | test/input/input_test.cpp:5116 |
-| T77K-10 | Backspace → DELETE = CS + 0 (unchanged) | — | pass | test/input/input_test.cpp:5122 |
-| T77K-11 | Alt+E does not leak the plain ZX 'E' key | — | pass | test/input/input_test.cpp:5132 |
-| T77K-22 | Alt+G does not leak the plain ZX 'G' key | — | pass | test/input/input_test.cpp:5143 |
-| T77K-23 | Alt+C does not leak the plain ZX 'C' key | — | pass | test/input/input_test.cpp:5153 |
-| T77K-12 | plain E is still ZX 'E' and asserts no CS/1 | — | pass | test/input/input_test.cpp:5165 |
-| T77K-13 | Alt released before key still clears CS+1 | — | pass | test/input/input_test.cpp:5181 |
-| T77K-14 | Alt pressed mid-hold still clears the plain key | — | pass | test/input/input_test.cpp:5194 |
-| T77K-15 | Alt alone presses no ZX key | — | pass | test/input/input_test.cpp:5207 |
-| T77K-16 | RAlt+E → EDIT = CS + 1, same as LAlt | — | pass | test/input/input_test.cpp:5216 |
-| T77K-17 | reset clears held Alt; E resolves plain again | — | pass | test/input/input_test.cpp:5232 |
-| T77K-18 | cursor-target arrows still bypass the ZX matrix | — | pass | test/input/input_test.cpp:5250 |
-| GH115-01 | LShift → CAPS SHIFT (row 0 col 0) | keymaps.vhd:83,113, ps2_keyb.vhd:198 | pass | test/input/input_test.cpp:5328 |
-| GH115-02 | RShift → CAPS SHIFT (row 0 col 0) | keymaps.vhd:83,131, ps2_keyb.vhd:198 | pass | test/input/input_test.cpp:5333 |
-| GH115-03 | LCtrl → SYMBOL SHIFT (row 7 col 1) | keymaps.vhd:84,113, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5338 |
-| GH115-04 | RCtrl → SYMBOL SHIFT (row 7 col 1) | keymaps.vhd:84,165, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5343 |
-| GH115-05 | Shift leaves SYM SHIFT alone and Ctrl leaves CAPS SHIFT alone | keymaps.vhd:83-84, ps2_keyb.vhd:197-198 | pass | test/input/input_test.cpp:5360 |
-| GH115-06 | CapsLock → CAPS LOCK = CS + 2 | keymaps.vhd:43,89,131, membrane.vhd:236-237 | pass | test/input/input_test.cpp:5373 |
-| GH115-07 | backslash → INV VIDEO = CS + 4 | keymaps.vhd:44,94,131, membrane.vhd:236-237 | pass | test/input/input_test.cpp:5378 |
-| GH115-08 | slash → '/' = SS + V | keymaps.vhd:42,127, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5383 |
-| GH115-09 | minus → '-' = SS + J | keymaps.vhd:48,127, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5388 |
-| GH115-10 | equals → '=' = SS + L | keymaps.vhd:48,129, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5393 |
-| GH115-11 | CapsLock/backslash also report on NR 0xB1 | keymaps.vhd:43-44, membrane.vhd:253 | pass | test/input/input_test.cpp:5410 |
-| JASN-01 | normalize: uppercase -> lowercase, #1 dropped, #2 and #10 kept | — | pass | test/input/input_test.cpp:5669 |
-| JASN-02 | normalize rejects 31/33 hex, non-hex, #0, #, #x, #-1, a 7-digit ordinal and empty | — | pass | test/input/input_test.cpp:5683 |
-| JASN-03 | make_joy_device_id: ordinal 1 bare, 3 -> #3 | — | pass | test/input/input_test.cpp:5686 |
-| JASN-04 | next_joy_ordinal is the smallest free ordinal per GUID | — | pass | test/input/input_test.cpp:5688 |
-| JASN-05 | both Automatic, nothing current: first two in arrival order | — | pass | test/input/input_test.cpp:5695 |
-| JASN-06 | Joy 1 assigned H: H on Joy 1, Joy 2 takes the first other | — | pass | test/input/input_test.cpp:5698 |
-| JASN-07 | Joy 2 assigned G: Automatic Joy 1 skips the device R2 took | — | pass | test/input/input_test.cpp:5701 |
-| JASN-08 | explicit pre-empts the connector holding the device | — | pass | test/input/input_test.cpp:5704 |
-| JASN-09 | absent assigned id falls back to the first free controller | — | pass | test/input/input_test.cpp:5707 |
-| JASN-10 | sticky: current bindings are kept when still valid | — | pass | test/input/input_test.cpp:5710 |
-| JASN-11 | a vacated Automatic connector adopts an idle controller | — | pass | test/input/input_test.cpp:5713 |
-| JASN-12 | source None binds nothing and leaves the device to the other connector | — | pass | test/input/input_test.cpp:5716 |
-| JASN-13 | a dormant id on a Keys connector reserves nothing | — | pass | test/input/input_test.cpp:5719 |
-| JASN-14 | joy_choices order and labels; only Automatic checked | — | pass | test/input/input_test.cpp:5733 |
-| JASN-15 | joy_choices adds a checked '(not connected)' entry for an absent id | — | pass | test/input/input_test.cpp:5743 |
-| JASN-16 | joy_choices checks Cursor Keys / None for those sources only; one entry checked even with a dormant absent id | — | pass | test/input/input_test.cpp:5753 |
-| JDEV-01 | default controller assignment is empty (Automatic) on both connectors | — | pass | test/input/input_test.cpp:5766 |
-| JDEV-02 | the same controller on the other connector clears the first (last pick wins) | — | pass | test/input/input_test.cpp:5776 |
-| JDEV-03 | re-setting an unchanged assignment fires no callback | — | pass | test/input/input_test.cpp:5788 |
-| JDEV-04 | refresh pushes both assignments to the frontend | — | pass | test/input/input_test.cpp:5797 |
-| JDEV-05 | 'none' parses, prints back, and None frees the cursor-key target | — | pass | test/input/input_test.cpp:5808 |
-| JDEV-06 | a None connector ignores both pad and cursor-key input | — | pass | test/input/input_test.cpp:5821 |
-| GH289-01 | the crafted documents below patch keys that are really there — auto00_row1/col1 and auto01_row2/col2 all present in an honest save | — | pass | test/input/input_test.cpp:5995 |
-| GH289-02 | an honest document still restores, byte-for-byte in the re-emitted JSON — the range check does not reject the sequences jnext itself queues | — | pass | test/input/input_test.cpp:6017 |
-| GH289-03 | row1 = 8, one past the last membrane row, is REFUSED | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6045 |
-| GH289-04 | row1 = -1 is REFUSED — the -1 sentinel belongs to the SECOND key, and the first key has no 'absent' form | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6048 |
-| GH289-05 | col1 = 5, one past the last membrane column, is REFUSED | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6052 |
-| GH289-06 | row2 = 8 beside a live col2 is REFUSED — the second key is checked whenever it is not the -1/-1 pair | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6055 |
-| GH289-07 | col2 = 5 beside a live row2 is REFUSED | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6059 |
-| GH289-08 | the 0x40000000 row from the issue report is REFUSED — the value that wrote 1 GB past the array | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6062 |
-| GH289-09 | col1 = 32 is REFUSED — `1 << col` past the width of the shift is undefined behaviour independently of the array bound | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6066 |
-| GH289-20 | col1 = -1 is REFUSED — the sentinel belongs to the second key, and a negative shift count is undefined | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6070 |
-| GH289-21 | row2 = -1 beside a LIVE col2 is REFUSED — half a sentinel is not a sentinel | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6079 |
-| GH289-22 | col2 = -1 beside a LIVE row2 is REFUSED — the other half of the same rule | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6083 |
-| GH289-10 | the -1/-1 'no second key' pair is ACCEPTED in both slots — the sentinel is legal, so the refusal is not over-broad | — | pass | test/input/input_test.cpp:6123 |
-| GH289-11 | row 0, row 7, col 0 and col 4 are ACCEPTED in both the primary and the secondary position — the bounds are inclusive, so a `> 6` / `> 3` guard fails here and nowhere else | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6148 |
-| GH289-12 | `frames` is deliberately unchecked — 0 and INT32_MAX both load, because frames counts ticks and can neither size nor place a write, and no bound for it exists in the code to check against | — | pass | test/input/input_test.cpp:6172 |
-| GH289-18 | a forged count of 2^30 still loads: the range check walks the sixteen slots the DOCUMENT carries, not the count it claims, and the promoted padding is a valid 0/0 position | — | pass | test/input/input_test.cpp:6199 |
-| GH289-26 | garbage in a PADDING slot past the count is ACCEPTED — the range check is bounded by the live count as well as by the capacity, so a slot nothing will ever consume cannot refuse the file | — | pass | test/input/input_test.cpp:6224 |
-| GH289-13 | row1, col1 and the row2/col2 pair each refuse with their OWN message — no one message covers two different fields | — | pass | test/input/input_test.cpp:6248 |
-| GH289-14 | bytes 16-19 of Keyboard's 353-byte block are auto-type slot 0's row1 — the field the next row forges, proved by an honest save of a known key | — | pass | test/input/input_test.cpp:6274 |
-| GH289-15 | a forged coordinate in the REWIND stream leaves the queue at its pre-load value and still consumes the declared 353 bytes — the refusal must not desync a positional stream | — | pass | test/input/input_test.cpp:6286 |
-| GH289-19 | the rewind path NAMES the field it refused in the log, from load_state itself — load_state returns void, so a rewind cannot refuse, and an unlogged drop would leave a keyboard nobody saved with no trace | — | pass | test/input/input_test.cpp:6312 |
-| GH289-16 | an auto-type column outside 0..4 — 5 above and -1 below — is IGNORED by set_matrix_bit, leaving the raw membrane bytes untouched, while the last LEGAL column still presses (0xEF) so the row cannot pass by failing to observe a write | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6360 |
-| GH289-17 | an auto-type row outside 0..7 — 8 above and -1 below — is IGNORED: the membrane is untouched, the queue drains, and the object is still functional afterwards, while row 7 (the last legal one) still presses | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6391 |
-| GH289-18B | set_matrix_bit LOGS each out-of-range coordinate it ignores — row 8, row -1, col 5 and col -1 — which is the only defined observation of the two LOW bounds, whose mutants write somewhere undefined instead of somewhere visible | — | pass | test/input/input_test.cpp:6432 |
+| SL-KBD-01 | Keyboard membrane matrix restored | — | pass | test/input/input_test.cpp:3783 |
+| SL-KBD-02 | Keyboard extended-key register (NR 0xB0/0xB1) restored | — | pass | test/input/input_test.cpp:3789 |
+| SL-KBD-03 | Keyboard in-flight auto-type queue restored | — | pass | test/input/input_test.cpp:3793 |
+| SL-JOY-01 | Joystick NR 0x05 modes + raw byte restored | — | pass | test/input/input_test.cpp:3814 |
+| SL-JOY-02 | Joystick raw 12-bit connector vectors restored | — | pass | test/input/input_test.cpp:3818 |
+| SL-MOU-01 | Kempston mouse X/Y counters restored | — | pass | test/input/input_test.cpp:3841 |
+| SL-MOU-02 | Kempston mouse buttons/wheel (port 0xFADF) restored | — | pass | test/input/input_test.cpp:3844 |
+| SL-MOU-03 | Kempston mouse NR 0x0A button-reverse + DPI restored | — | pass | test/input/input_test.cpp:3847 |
+| SL-MD6-01 | MD6 FSM state counter restored mid-sequence | — | pass | test/input/input_test.cpp:3869 |
+| SL-MD6-02 | MD6 latched connector words + NR 0xB2 restored | — | pass | test/input/input_test.cpp:3872 |
+| SL-MD6-03 | MD6 six-button-detect flags + seeded latches restored | — | pass | test/input/input_test.cpp:3891 |
+| SL-MD6-04 | MD6 CLK_EN accumulator restored (phase-accurate tick) | — | pass | test/input/input_test.cpp:3911 |
+| SL-MEM-01 | MembraneStick reprogrammed keymap cell restored | — | pass | test/input/input_test.cpp:3934 |
+| SL-MEM-02 | MembraneStick NR 0x28/0x29 sel + auto-inc addr restored | — | pass | test/input/input_test.cpp:3937 |
+| SL-IOM-01 | IoMode NR 0x0B raw byte + pin7 register restored | — | pass | test/input/input_test.cpp:3969 |
+| SL-IOM-02 | IoMode injected UART-TX / joystick-bit5 lines restored | — | pass | test/input/input_test.cpp:3983 |
+| SL-EMU-01 | Emulator::load_state accepts the input sentinel block | — | pass | test/input/input_test.cpp:4017 |
+| SL-EMU-02 | Emulator save/load restores mouse + MD6 + keyboard input | — | pass | test/input/input_test.cpp:4019 |
+| SL-REW-01 | rewind_to_frame restores MD6 FSM + mouse input state | — | pass | test/input/input_test.cpp:4047 |
+| SL-DISP-01 | JoystickDispatcher::resync stops stale bits_ stomping restored vector | — | pass | test/input/input_test.cpp:4069 |
+| SL-DISP-02 | MouseDispatcher::resync stops cumulative wheel shadow stomping restore | — | pass | test/input/input_test.cpp:4082 |
+| SL-DISP-03 | MouseDispatcher::resync stops stale button mask stomping restore | — | pass | test/input/input_test.cpp:4094 |
+| JSRC-D01 | default source is Sdl for both connectors | — | pass | test/input/input_test.cpp:4115 |
+| JSRC-D02 | cursor-key input ignored while source is Sdl | — | pass | test/input/input_test.cpp:4123 |
+| JSRC-D03 | cursor keys drive Kempston1 port 0x1F (R/L/D/U/Fire) | — | pass | test/input/input_test.cpp:4138 |
+| JSRC-D04 | SDL controller input ignored while source is CursorKeys | — | pass | test/input/input_test.cpp:4147 |
+| JSRC-D05 | changing source clears the held vector | — | pass | test/input/input_test.cpp:4156 |
+| JSRC-D06 | cursor keys route to the selected connector (Joy 2) | — | pass | test/input/input_test.cpp:4166 |
+| JSRC-K01 | arrow key drives joystick, not the ZX matrix, in cursor mode | — | pass | test/input/input_test.cpp:4183 |
+| JSRC-K02 | Space is Fire in cursor mode, not the ZX SPACE key | — | pass | test/input/input_test.cpp:4198 |
+| JSRC-K03 | with no cursor target, arrows remain ZX cursor keys | — | pass | test/input/input_test.cpp:4211 |
+| JSRC-K04 | non-arrow keys still reach the ZX matrix in cursor mode | — | pass | test/input/input_test.cpp:4225 |
+| JSRC-E01 | emulator default sources are Sdl/Sdl | — | pass | test/input/input_test.cpp:4233 |
+| JSRC-E02 | setting a connector to CursorKeys sets the keyboard target | — | pass | test/input/input_test.cpp:4240 |
+| JSRC-E03 | only one connector may use cursor keys (mutual exclusion) | — | pass | test/input/input_test.cpp:4249 |
+| JSRC-E04 | source change notifies the frontend callback | — | pass | test/input/input_test.cpp:4264 |
+| JSRC-E05 | refresh re-pushes both connectors to the frontend | — | pass | test/input/input_test.cpp:4273 |
+| JRAW-01 | raw button 0 -> Fire 1 (bit 4) | — | pass | test/input/input_test.cpp:4293 |
+| JRAW-02 | raw button 1 -> Fire 2 (bit 5) | — | pass | test/input/input_test.cpp:4300 |
+| JRAW-03 | raw button 2 -> MD A (bit 6) | — | pass | test/input/input_test.cpp:4307 |
+| JRAW-04 | raw button 3 -> START (bit 7) | — | pass | test/input/input_test.cpp:4317 |
+| JRAW-05 | raw button 4 -> MODE (bit 11) | — | pass | test/input/input_test.cpp:4326 |
+| JRAW-06 | raw buttons past the mapped range are dropped | — | pass | test/input/input_test.cpp:4340 |
+| JRAW-07 | raw button release clears its bit | — | pass | test/input/input_test.cpp:4348 |
+| JRAW-08 | raw axis 0 full negative -> LEFT (bit 1) | — | pass | test/input/input_test.cpp:4356 |
+| JRAW-09 | raw axis 0 full positive -> RIGHT (bit 0) | — | pass | test/input/input_test.cpp:4363 |
+| JRAW-10 | raw axis 1 full negative -> UP (bit 3) | — | pass | test/input/input_test.cpp:4371 |
+| JRAW-11 | raw axis 1 full positive -> DOWN (bit 2) | — | pass | test/input/input_test.cpp:4378 |
+| JRAW-12 | raw axis returning to the deadzone clears its bit | — | pass | test/input/input_test.cpp:4386 |
+| JRAW-13 | raw axis inside the deadzone does not fire | — | pass | test/input/input_test.cpp:4395 |
+| JRAW-14 | raw axes past index 1 are unmapped | — | pass | test/input/input_test.cpp:4403 |
+| JRAW-15 | raw hat UP -> bit 3 | — | pass | test/input/input_test.cpp:4410 |
+| JRAW-16 | raw hat diagonal sets both directions | — | pass | test/input/input_test.cpp:4419 |
+| JRAW-17 | raw hat centred clears every direction | — | pass | test/input/input_test.cpp:4427 |
+| JRAW-18 | raw hat centred leaves button bits untouched | — | pass | test/input/input_test.cpp:4436 |
+| JRAW-19 | raw button gated out on a CursorKeys connector | — | pass | test/input/input_test.cpp:4444 |
+| JRAW-20 | raw axis gated out on a CursorKeys connector | — | pass | test/input/input_test.cpp:4452 |
+| JRAW-21 | raw hat gated out on a CursorKeys connector | — | pass | test/input/input_test.cpp:4460 |
+| JRAW-22 | out-of-range connector index is ignored on raw paths | — | pass | test/input/input_test.cpp:4468 |
+| JRAW-23 | raw input on connector 1 drives the right lane | — | pass | test/input/input_test.cpp:4476 |
+| JRAW-24 | SDL_EVENT_JOYSTICK_BUTTON_DOWN routes via the instance map | — | pass | test/input/input_test.cpp:4488 |
+| JRAW-25 | SDL_EVENT_JOYSTICK_BUTTON_UP clears the bit | — | pass | test/input/input_test.cpp:4502 |
+| JRAW-26 | SDL_EVENT_JOYSTICK_AXIS_MOTION routes to the mapped connector | — | pass | test/input/input_test.cpp:4513 |
+| JRAW-27 | SDL_EVENT_JOYSTICK_HAT_MOTION routes to the mapped connector | — | pass | test/input/input_test.cpp:4524 |
+| JRAW-28 | raw event from an unmapped device is refused | — | pass | test/input/input_test.cpp:4536 |
+| JRAW-29 | instance id 0 (SDL3's invalid id) is never mapped nor resolved, and does not consume a device-map entry (GH #57) | — | pass | test/input/input_test.cpp:4572 |
+| JRAW-30 | unmapping frees the device-map entry for reuse (the free marker is 0, representable in SDL3's Uint32 id) and leaves the freed entries carrying no connector (GH #57) | — | pass | test/input/input_test.cpp:4602 |
+| JRAW-31 | mapping the invalid id 0 leaves no device-map entry that is both free and assigned to a connector (GH #57) | — | pass | test/input/input_test.cpp:4627 |
+| JRAW-32 | the invalid id matches no free entry and cannot disturb a live mapping (GH #57) | — | pass | test/input/input_test.cpp:4646 |
+| JMRG-01 | hat release keeps a direction the analogue stick still holds | — | pass | test/input/input_test.cpp:4676 |
+| JMRG-02 | D-pad release keeps a direction the analogue stick still holds | — | pass | test/input/input_test.cpp:4685 |
+| JMRG-03 | centring one hat does not cancel another still held | — | pass | test/input/input_test.cpp:4693 |
+| JMRG-04 | two hats OR their directions together | — | pass | test/input/input_test.cpp:4701 |
+| JMRG-05 | shared direction survives while one source still holds it | — | pass | test/input/input_test.cpp:4711 |
+| JMRG-06 | direction clears once every source has released it | — | pass | test/input/input_test.cpp:4722 |
+| JMRG-07 | hat index past MAX_HATS is ignored, not aliased to hat 0 | — | pass | test/input/input_test.cpp:4729 |
+| JMRG-08 | direction churn leaves the fire button held | — | pass | test/input/input_test.cpp:4739 |
+| JMRG-09 | switching source clears every held direction source | — | pass | test/input/input_test.cpp:4750 |
+| JMRG-10 | cursor direction release leaves fire held | — | pass | test/input/input_test.cpp:4764 |
+| JRST-01 | D-pad release after resync clears a restored direction | — | pass | test/input/input_test.cpp:4789 |
+| JRST-02 | hat centring after resync clears a restored direction | — | pass | test/input/input_test.cpp:4799 |
+| JRST-03 | cursor-key release after resync clears a restored direction | — | pass | test/input/input_test.cpp:4809 |
+| JRST-04 | axis returning to centre after resync clears it too | — | pass | test/input/input_test.cpp:4818 |
+| JRST-05 | fire press after resync preserves the restored direction | — | pass | test/input/input_test.cpp:4829 |
+| JRST-06 | a live direction supersedes the restored guess entirely | — | pass | test/input/input_test.cpp:4840 |
+| JRST-07 | D-pad release supersedes only its own pair, UP survives | — | pass | test/input/input_test.cpp:4860 |
+| JRST-08 | X-axis centring leaves a restored UP untouched | — | pass | test/input/input_test.cpp:4869 |
+| JRST-09 | cursor-key release supersedes only its own pair | — | pass | test/input/input_test.cpp:4879 |
+| JRST-10 | a hat speaks for both pairs, so it supersedes all four | — | pass | test/input/input_test.cpp:4891 |
+| JRST-11 | pressing the opposing direction replaces its pair only | — | pass | test/input/input_test.cpp:4901 |
+| JRST-12 | accepted: a second hat's event clobbers all restored bits | — | pass | test/input/input_test.cpp:4925 |
+| T77J-01 | raw btn0 → B, port 0x1F bit4, Kempston1 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:4973 |
+| T77J-02 | raw btn0 → B, port 0x1F bit4, Md3Left | — | pass | test/input/input_test.cpp:4975 |
+| T77J-03 | raw btn1 → C, port 0x1F bit5, Kempston1 | zxnext.vhd:3479 | pass | test/input/input_test.cpp:4982 |
+| T77J-04 | raw btn1 → C, port 0x1F bit5, Md3Left | — | pass | test/input/input_test.cpp:4984 |
+| T77J-05 | raw btn2 → A, port 0x1F bit6 set in Md3Left | zxnext.vhd:3477-3478 | pass | test/input/input_test.cpp:4994 |
+| T77J-06 | raw btn2 → A, port 0x1F bit6 GATED OFF in Kempston1 | — | pass | test/input/input_test.cpp:4996 |
+| T77J-07 | raw btn3 → START, port 0x1F bit7 set in Md3Left | — | pass | test/input/input_test.cpp:5005 |
+| T77J-08 | raw btn3 → START, port 0x1F bit7 GATED OFF in Kempston1 | — | pass | test/input/input_test.cpp:5007 |
+| T77J-09 | raw btn0..3 → distinct bits 7:4 (0xF0) in Md3Left | — | pass | test/input/input_test.cpp:5019 |
+| T77J-10 | raw btn4 → MODE, bit 11 of the 12-bit vector | zxnext.vhd:3477-3479 | pass | test/input/input_test.cpp:5030 |
+| T77J-11 | raw btn4 (MODE) reaches no port in either mode | — | pass | test/input/input_test.cpp:5034 |
+| T77J-12 | raw btn3 release clears START | — | pass | test/input/input_test.cpp:5047 |
+| T77J-13 | controller Y → START, bit7 set in Md3Left | — | pass | test/input/input_test.cpp:5057 |
+| T77J-14 | controller Y → START, bit7 GATED OFF in Kempston1 | — | pass | test/input/input_test.cpp:5059 |
+| T77J-15 | controller A/B/X/Y → bits 7:4 (0xF0) in Md3Left | — | pass | test/input/input_test.cpp:5073 |
+| T77J-16 | controller BACK → MODE, bit 11 of the vector | — | pass | test/input/input_test.cpp:5083 |
+| T77J-17 | controller START still → START bit7 in Md3Left | — | pass | test/input/input_test.cpp:5090 |
+| T77J-18 | raw btn3 → START on port 0x37, Md3Right | zxnext.vhd:3489-3494 | pass | test/input/input_test.cpp:5102 |
+| T77K-01 | Tab → EXTEND MODE = CS + SYM SHIFT | — | pass | test/input/input_test.cpp:5153 |
+| T77K-19 | Esc → BREAK = CS + SPACE | — | pass | test/input/input_test.cpp:5157 |
+| T77K-02 | grave (key left of 1) → TRUE VIDEO = CS + 3 | — | pass | test/input/input_test.cpp:5160 |
+| T77K-03 | Alt+grave → INV VIDEO = CS + 4 | — | pass | test/input/input_test.cpp:5163 |
+| T77K-05 | Alt+E → EDIT = CS + 1 | — | pass | test/input/input_test.cpp:5166 |
+| T77K-20 | Alt+G → GRAPH = CS + 9 | — | pass | test/input/input_test.cpp:5169 |
+| T77K-21 | Alt+C → CAPS LOCK = CS + 2 | — | pass | test/input/input_test.cpp:5172 |
+| T77K-06 | apostrophe → '"' = SS + P | — | pass | test/input/input_test.cpp:5175 |
+| T77K-07 | semicolon → ';' = SS + O | — | pass | test/input/input_test.cpp:5178 |
+| T77K-08 | period → '.' = SS + M | — | pass | test/input/input_test.cpp:5181 |
+| T77K-09 | comma → ',' = SS + N | — | pass | test/input/input_test.cpp:5184 |
+| T77K-10 | Backspace → DELETE = CS + 0 (unchanged) | — | pass | test/input/input_test.cpp:5190 |
+| T77K-11 | Alt+E does not leak the plain ZX 'E' key | — | pass | test/input/input_test.cpp:5200 |
+| T77K-22 | Alt+G does not leak the plain ZX 'G' key | — | pass | test/input/input_test.cpp:5211 |
+| T77K-23 | Alt+C does not leak the plain ZX 'C' key | — | pass | test/input/input_test.cpp:5221 |
+| T77K-12 | plain E is still ZX 'E' and asserts no CS/1 | — | pass | test/input/input_test.cpp:5233 |
+| T77K-13 | Alt released before key still clears CS+1 | — | pass | test/input/input_test.cpp:5249 |
+| T77K-14 | Alt pressed mid-hold still clears the plain key | — | pass | test/input/input_test.cpp:5262 |
+| T77K-15 | Alt alone presses no ZX key | — | pass | test/input/input_test.cpp:5275 |
+| T77K-16 | RAlt+E → EDIT = CS + 1, same as LAlt | — | pass | test/input/input_test.cpp:5284 |
+| T77K-17 | reset clears held Alt; E resolves plain again | — | pass | test/input/input_test.cpp:5300 |
+| T77K-18 | cursor-target arrows still bypass the ZX matrix | — | pass | test/input/input_test.cpp:5318 |
+| GH115-01 | LShift → CAPS SHIFT (row 0 col 0) | keymaps.vhd:83,113, ps2_keyb.vhd:198 | pass | test/input/input_test.cpp:5396 |
+| GH115-02 | RShift → CAPS SHIFT (row 0 col 0) | keymaps.vhd:83,131, ps2_keyb.vhd:198 | pass | test/input/input_test.cpp:5401 |
+| GH115-03 | LCtrl → SYMBOL SHIFT (row 7 col 1) | keymaps.vhd:84,113, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5406 |
+| GH115-04 | RCtrl → SYMBOL SHIFT (row 7 col 1) | keymaps.vhd:84,165, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5411 |
+| GH115-05 | Shift leaves SYM SHIFT alone and Ctrl leaves CAPS SHIFT alone | keymaps.vhd:83-84, ps2_keyb.vhd:197-198 | pass | test/input/input_test.cpp:5428 |
+| GH115-06 | CapsLock → CAPS LOCK = CS + 2 | keymaps.vhd:43,89,131, membrane.vhd:236-237 | pass | test/input/input_test.cpp:5441 |
+| GH115-07 | backslash → INV VIDEO = CS + 4 | keymaps.vhd:44,94,131, membrane.vhd:236-237 | pass | test/input/input_test.cpp:5446 |
+| GH115-08 | slash → '/' = SS + V | keymaps.vhd:42,127, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5451 |
+| GH115-09 | minus → '-' = SS + J | keymaps.vhd:48,127, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5456 |
+| GH115-10 | equals → '=' = SS + L | keymaps.vhd:48,129, ps2_keyb.vhd:197 | pass | test/input/input_test.cpp:5461 |
+| GH115-11 | CapsLock/backslash also report on NR 0xB1 | keymaps.vhd:43-44, membrane.vhd:253 | pass | test/input/input_test.cpp:5478 |
+| JASN-01 | normalize: uppercase -> lowercase, #1 dropped, #2 and #10 kept | — | pass | test/input/input_test.cpp:5737 |
+| JASN-02 | normalize rejects 31/33 hex, non-hex, #0, #, #x, #-1, a 7-digit ordinal and empty | — | pass | test/input/input_test.cpp:5751 |
+| JASN-03 | make_joy_device_id: ordinal 1 bare, 3 -> #3 | — | pass | test/input/input_test.cpp:5754 |
+| JASN-04 | next_joy_ordinal is the smallest free ordinal per GUID | — | pass | test/input/input_test.cpp:5756 |
+| JASN-05 | both Automatic, nothing current: first two in arrival order | — | pass | test/input/input_test.cpp:5763 |
+| JASN-06 | Joy 1 assigned H: H on Joy 1, Joy 2 takes the first other | — | pass | test/input/input_test.cpp:5766 |
+| JASN-07 | Joy 2 assigned G: Automatic Joy 1 skips the device R2 took | — | pass | test/input/input_test.cpp:5769 |
+| JASN-08 | explicit pre-empts the connector holding the device | — | pass | test/input/input_test.cpp:5772 |
+| JASN-09 | absent assigned id falls back to the first free controller | — | pass | test/input/input_test.cpp:5775 |
+| JASN-10 | sticky: current bindings are kept when still valid | — | pass | test/input/input_test.cpp:5778 |
+| JASN-11 | a vacated Automatic connector adopts an idle controller | — | pass | test/input/input_test.cpp:5781 |
+| JASN-12 | source None binds nothing and leaves the device to the other connector | — | pass | test/input/input_test.cpp:5784 |
+| JASN-13 | a dormant id on a Keys connector reserves nothing | — | pass | test/input/input_test.cpp:5787 |
+| JASN-14 | joy_choices order and labels; only Automatic checked | — | pass | test/input/input_test.cpp:5801 |
+| JASN-15 | joy_choices adds a checked '(not connected)' entry for an absent id | — | pass | test/input/input_test.cpp:5811 |
+| JASN-16 | joy_choices checks Cursor Keys / None for those sources only; one entry checked even with a dormant absent id | — | pass | test/input/input_test.cpp:5821 |
+| JDEV-01 | default controller assignment is empty (Automatic) on both connectors | — | pass | test/input/input_test.cpp:5834 |
+| JDEV-02 | the same controller on the other connector clears the first (last pick wins) | — | pass | test/input/input_test.cpp:5844 |
+| JDEV-03 | re-setting an unchanged assignment fires no callback | — | pass | test/input/input_test.cpp:5856 |
+| JDEV-04 | refresh pushes both assignments to the frontend | — | pass | test/input/input_test.cpp:5865 |
+| JDEV-05 | 'none' parses, prints back, and None frees the cursor-key target | — | pass | test/input/input_test.cpp:5876 |
+| JDEV-06 | a None connector ignores both pad and cursor-key input | — | pass | test/input/input_test.cpp:5889 |
+| GH289-01 | the crafted documents below patch keys that are really there — auto00_row1/col1 and auto01_row2/col2 all present in an honest save | — | pass | test/input/input_test.cpp:6063 |
+| GH289-02 | an honest document still restores, byte-for-byte in the re-emitted JSON — the range check does not reject the sequences jnext itself queues | — | pass | test/input/input_test.cpp:6085 |
+| GH289-03 | row1 = 8, one past the last membrane row, is REFUSED | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6113 |
+| GH289-04 | row1 = -1 is REFUSED — the -1 sentinel belongs to the SECOND key, and the first key has no 'absent' form | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6116 |
+| GH289-05 | col1 = 5, one past the last membrane column, is REFUSED | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6120 |
+| GH289-06 | row2 = 8 beside a live col2 is REFUSED — the second key is checked whenever it is not the -1/-1 pair | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6123 |
+| GH289-07 | col2 = 5 beside a live row2 is REFUSED | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6127 |
+| GH289-08 | the 0x40000000 row from the issue report is REFUSED — the value that wrote 1 GB past the array | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6130 |
+| GH289-09 | col1 = 32 is REFUSED — `1 << col` past the width of the shift is undefined behaviour independently of the array bound | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6134 |
+| GH289-20 | col1 = -1 is REFUSED — the sentinel belongs to the second key, and a negative shift count is undefined | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6138 |
+| GH289-21 | row2 = -1 beside a LIVE col2 is REFUSED — half a sentinel is not a sentinel | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6147 |
+| GH289-22 | col2 = -1 beside a LIVE row2 is REFUSED — the other half of the same rule | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6151 |
+| GH289-10 | the -1/-1 'no second key' pair is ACCEPTED in both slots — the sentinel is legal, so the refusal is not over-broad | — | pass | test/input/input_test.cpp:6191 |
+| GH289-11 | row 0, row 7, col 0 and col 4 are ACCEPTED in both the primary and the secondary position — the bounds are inclusive, so a `> 6` / `> 3` guard fails here and nowhere else | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6216 |
+| GH289-12 | `frames` is deliberately unchecked — 0 and INT32_MAX both load, because frames counts ticks and can neither size nor place a write, and no bound for it exists in the code to check against | — | pass | test/input/input_test.cpp:6240 |
+| GH289-18 | a forged count of 2^30 still loads: the range check walks the sixteen slots the DOCUMENT carries, not the count it claims, and the promoted padding is a valid 0/0 position | — | pass | test/input/input_test.cpp:6267 |
+| GH289-26 | garbage in a PADDING slot past the count is ACCEPTED — the range check is bounded by the live count as well as by the capacity, so a slot nothing will ever consume cannot refuse the file | — | pass | test/input/input_test.cpp:6292 |
+| GH289-13 | row1, col1 and the row2/col2 pair each refuse with their OWN message — no one message covers two different fields | — | pass | test/input/input_test.cpp:6316 |
+| GH289-14 | bytes 16-19 of Keyboard's 353-byte block are auto-type slot 0's row1 — the field the next row forges, proved by an honest save of a known key | — | pass | test/input/input_test.cpp:6342 |
+| GH289-15 | a forged coordinate in the REWIND stream leaves the queue at its pre-load value and still consumes the declared 353 bytes — the refusal must not desync a positional stream | — | pass | test/input/input_test.cpp:6354 |
+| GH289-19 | the rewind path NAMES the field it refused in the log, from load_state itself — load_state returns void, so a rewind cannot refuse, and an unlogged drop would leave a keyboard nobody saved with no trace | — | pass | test/input/input_test.cpp:6380 |
+| GH289-16 | an auto-type column outside 0..4 — 5 above and -1 below — is IGNORED by set_matrix_bit, leaving the raw membrane bytes untouched, while the last LEGAL column still presses (0xEF) so the row cannot pass by failing to observe a write | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6428 |
+| GH289-17 | an auto-type row outside 0..7 — 8 above and -1 below — is IGNORED: the membrane is untouched, the queue drains, and the object is still functional afterwards, while row 7 (the last legal one) still presses | membrane.vhd:38-39 | pass | test/input/input_test.cpp:6459 |
+| GH289-18B | set_matrix_bit LOGS each out-of-range coordinate it ignores — row 8, row -1, col 5 and col -1 — which is the only defined observation of the two LOW bounds, whose mutants write somewhere undefined instead of somewhere visible | — | pass | test/input/input_test.cpp:6500 |
 
 ## Rewind — `test/rewind/rewind_test.cpp`
 

@@ -203,6 +203,26 @@ static int tzx_parse_tap_block(TZXPlayer *p) {
  * BLOCK PARSING -- TZX FORMAT
  * =================================================================== */
 
+/* jnext (GH #567): before a stop or the end of the tape, finish a high
+ * level. tzx_update() has just toggled the level for the block's
+ * terminating edge; if that edge went high and the deck stopped in the
+ * same call, the level would be forced low before any sample saw it and
+ * the ROM loader would lose the last bit (libspectrum/FUSE toggle the
+ * level for a stop block before stopping). Hold the level for 1 ms as one
+ * TONE pulse of the existing phase machine (a valid, serialisable deck
+ * state), WITHOUT advancing the offset: the stop (or the end) is parsed
+ * again when the pulse ends, with the level low, and stops for real.
+ * Returns 1 when the tail was set up. */
+static int tzx_stop_tail(TZXPlayer *p) {
+    /* gap_done: the level is the toggle that ended a pause (TZX 1.20: a
+     * pause ends low), not a block's terminating edge: nothing to finish. */
+    if (!p->level || p->gap_done) return 0;
+    p->tone_pulse = TSTATES_PER_MS;
+    p->tone_remaining = 1;
+    p->phase = TZX_PHASE_TONE;
+    return 1;
+}
+
 /* Parse the next TZX block. Sets up the phase state machine and
  * block parameters. Returns 1 if a block was parsed and pulses are
  * ready, 0 if end of tape or unrecoverable error. */
@@ -211,7 +231,10 @@ static int tzx_parse_next_block(TZXPlayer *p) {
     if (p->is_tap) return tzx_parse_tap_block(p);
 
     for (;;) {
-        if (p->offset >= p->len) return 0;  /* End of tape */
+        if (p->offset >= p->len) {
+            if (tzx_stop_tail(p)) return 1;   /* jnext (GH #567) */
+            return 0;  /* End of tape */
+        }
 
         uint8_t id = p->data[p->offset];
         const uint8_t *b = p->data + p->offset + 1;
@@ -370,6 +393,7 @@ static int tzx_parse_next_block(TZXPlayer *p) {
         case 0x20: {
             if (remaining < 2) return 0;
             uint16_t pause_ms = r16(b);
+            if (pause_ms == 0 && tzx_stop_tail(p)) return 1;   /* jnext (GH #567) */
             p->offset += 1 + 2;
             if (pause_ms == 0) {
                 /* printf("TZX: Stop the tape\n"); */
@@ -433,6 +457,7 @@ static int tzx_parse_next_block(TZXPlayer *p) {
          * on any other machine the block does nothing. */
         case 0x2A: {
             if (remaining < 4) return 0;
+            if (p->is_48k && tzx_stop_tail(p)) return 1;   /* jnext (GH #567) */
             p->offset += 1 + 4;
             if (!p->is_48k) continue;        /* jnext (GH #395): stops only on a 48K */
             /* printf("TZX: Stop (48K mode)\n"); */
@@ -449,6 +474,7 @@ static int tzx_parse_next_block(TZXPlayer *p) {
         case 0x2B: {
             if (remaining < 5) return 0;
             p->level = b[4] ? 1 : 0;
+            p->gap_done = 0;          /* jnext (GH #567): a set level is a real level */
             p->offset += 1 + 5;
             continue;
         }
@@ -592,8 +618,15 @@ static uint32_t tzx_next_pulse(TZXPlayer *p) {
                 p->held = 1;
                 return 0;
             }
-            p->gap_done = 0;
-            if (!tzx_parse_next_block(p)) return 0;
+            /* jnext (GH #567): gap_done stays set through the parse, so a
+             * stop right after a pause knows the high level it sees is the
+             * toggle that ended the pause (ZOT's leading edge for the next
+             * block, not an edge on the tape): no stop tail then. */
+            {
+                int parsed = tzx_parse_next_block(p);
+                p->gap_done = 0;
+                if (!parsed) return 0;
+            }
             continue;
 
         /* Pilot tone: emit identical pulses until count exhausted. */
@@ -669,18 +702,22 @@ static uint32_t tzx_next_pulse(TZXPlayer *p) {
         /* Post-block silence. A pause is LOW level, but the previous
          * block's final level must persist briefly before dropping --
          * forcing the level low immediately would SWALLOW the block's
-         * terminating edge whenever the final data pulse ended at level
-         * 0 (the caller-side toggle that produces that edge got
-         * overwritten). The 48K ROM loader times the last bit of every
-         * block against that terminating edge, so losing it fails the
-         * checksum byte of every block (measured in jnext: LD-BYTES
-         * returned error at the exact end-of-data T-state of every
-         * block -- see doc/issues/deciload-tzx/DECILOAD-TZX-LOADING.md).
-         * The ~1 ms hold-then-low is an empirically-derived heuristic
-         * validated by real loads (ROM standard, turbo, DeciLoad); it is
-         * NOT what libspectrum does (libspectrum treats the pause start
-         * as an ordinary toggle edge -- a workable alternative model,
-         * noted in the doc above, but not the one adopted here). */
+         * terminating edge whenever that edge went high (the caller-side
+         * toggle that produces it got overwritten). The 48K ROM loader
+         * times the last bit of every block against that terminating
+         * edge, so losing it fails the block (measured in jnext: see
+         * doc/issues/deciload-tzx/DECILOAD-TZX-LOADING.md).
+         *
+         * After a high edge: a pause longer than 1 ms holds the level for
+         * 1 ms, then spends the remainder low; a pause of 1 ms or less
+         * (1 ms is the smallest non-zero pause) is entirely the level the
+         * edge left, and the next block's first pulse brings it low. That
+         * is TZX 1.20: "there should be at least 1 ms. pause of the
+         * opposite level and only after that the pulse should go to
+         * 'low'" (jnext, GH #567). libspectrum holds the level for the
+         * whole pause; the 1 ms hold-then-low for longer pauses is the
+         * empirically derived heuristic validated by real loads (ROM
+         * standard, turbo, DeciLoad). */
         case TZX_PHASE_PAUSE: {
             uint32_t d = p->pause_tstates;
             if (p->level && d > TSTATES_PER_MS) {
@@ -690,9 +727,14 @@ static uint32_t tzx_next_pulse(TZXPlayer *p) {
                 p->phase = TZX_PHASE_PAUSE2;
                 return TSTATES_PER_MS;
             }
-            p->level = 0;
+            if (!p->level) {
+                p->phase = TZX_PHASE_IDLE;
+                p->gap_done = 1;              /* jnext (GH #395) */
+                return d;
+            }
+            /* jnext (GH #567): high level, pause <= 1 ms: keep it high. */
             p->phase = TZX_PHASE_IDLE;
-            p->gap_done = 1;                  /* jnext (GH #395) */
+            p->gap_done = 1;
             return d;
         }
 

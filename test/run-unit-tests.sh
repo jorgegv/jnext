@@ -48,6 +48,12 @@
 #                               WebAssembly ones under node: test/node-run.sh)
 #        JNEXT_UNIT_TEST_JOBS   cap on suites running at once (default: one per CPU;
 #                               0 = no cap)
+#        JNEXT_SUITE_VMEM_KB    address-space limit, in KiB, for each suite process tree (`ulimit -v`, set inside
+#                               the suite's own subshell: it binds the suite and nothing else, never a build;
+#                               GH #565, the owner's 3 GB mutant rule). A value that is not a positive integer, or
+#                               one set together with JNEXT_TEST_RUNNER (wine and node reserve far more address
+#                               space than they use, so the cap would fail every suite and read as a kill), is a
+#                               refusal (exit 2)
 
 set -euo pipefail
 
@@ -641,6 +647,12 @@ default_jobs=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || ech
 [[ "$default_jobs" =~ ^[1-9][0-9]*$ ]] || default_jobs=1
 MAX_JOBS="${JNEXT_UNIT_TEST_JOBS:-$default_jobs}"
 [[ "$MAX_JOBS" =~ ^[0-9]+$ ]] || die "JNEXT_UNIT_TEST_JOBS must be a number, not '${BOLD}$MAX_JOBS${RESET}'."
+SUITE_VMEM_KB="${JNEXT_SUITE_VMEM_KB:-}"
+if [[ -n "$SUITE_VMEM_KB" ]]; then
+    [[ "$SUITE_VMEM_KB" =~ ^[1-9][0-9]*$ ]] || die "JNEXT_SUITE_VMEM_KB must be a positive number of KiB, not '${BOLD}$SUITE_VMEM_KB${RESET}'."
+    [[ -z "${JNEXT_TEST_RUNNER:-}" ]] || die "JNEXT_SUITE_VMEM_KB cannot be used with JNEXT_TEST_RUNNER ('${BOLD}${JNEXT_TEST_RUNNER}${RESET}'): wine and node reserve far more address space than they use, so the cap would fail every suite."
+    ( ulimit -v "$SUITE_VMEM_KB" ) 2>/dev/null || die "JNEXT_SUITE_VMEM_KB=${BOLD}$SUITE_VMEM_KB${RESET} cannot be set here (above this shell's own hard limit)."
+fi
 for name in "${RUNNABLE[@]}"; do
     if (( MAX_JOBS > 0 )); then
         while (( $(jobs -rp | wc -l) >= MAX_JOBS )); do sleep 0.05; done
@@ -662,6 +674,8 @@ for name in "${RUNNABLE[@]}"; do
         export HOME="$TEST_HOME" XDG_CONFIG_HOME="$TEST_HOME/.config" \
                XDG_DATA_HOME="$TEST_HOME/.local/share" XDG_CACHE_HOME="$TEST_HOME/.cache" \
                XDG_STATE_HOME="$TEST_HOME/.local/state"
+        # the suite's own subshell: the cap binds the suite process tree and nothing else (GH #565)
+        [[ -z "$SUITE_VMEM_KB" ]] || ulimit -v "$SUITE_VMEM_KB" || true   # settable: checked above
         JNEXT_TEST_ROW_IDS="$TMPDIR_RUN/$name.ids" timeout --kill-after=5s "${SUITE_TIMEOUT}s" \
             ${JNEXT_TEST_RUNNER:-} "$BUILD/test/$name$EXE_SUFFIX" ${ARGS["$name"]} >"$TMPDIR_RUN/$name.out" 2>&1 || rc=$?
         echo "$((SECONDS - t0))" >"$TMPDIR_RUN/$name.secs"

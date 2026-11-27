@@ -1,0 +1,6 @@
+{
+  "name": "run-status",
+  "version": "0.1.0",
+  "description": "A Status pane, refreshed every 5 minutes: the jnext autonomous run's agents, queues, CI and remote hosts",
+  "types": "./types/index.d.ts"
+}

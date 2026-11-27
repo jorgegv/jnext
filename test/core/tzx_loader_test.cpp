@@ -45,6 +45,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 #include "../row_id.h"
 
@@ -1236,6 +1237,349 @@ int main(int argc, char** argv) {
         const Bytes code = concat({program, hdr(3, 5, 0x8000), b10(data_body())});
         check("TZXE-05", "standard blocks: Program only and Program + SCREEN$ do not hold code; Program + CODE does",
               !holds("e05a.tzx", program) && !holds("e05b.tzx", screen) && holds("e05c.tzx", code));
+    }
+
+    // ---- GH #567: the terminating edge of a block reaches the CPU ---------
+    // Oracles: TZX 1.20 pause rule ("at least 1 ms. pause of the opposite level
+    // and only after that the pulse should go to 'low'"); libspectrum 1.5.0
+    // tape.c:399-409 and :547-556 (a stop block and a tail pause are ordinary
+    // edges); FUSE 1.6.0 tape.c:870-901 (the level is toggled for a stop block
+    // before the tape stops) and loader.c:65-70 + tape.c:694-700 (every stop
+    // zeroes the loader's successive-read count). Expected values are the edge
+    // times those define.
+    {
+        using namespace ldrig;
+        auto b11 = [](uint32_t pilots, uint32_t pause, const Bytes& body) {
+            return concat({{0x11}, le16(2168), le16(667), le16(735), le16(855), le16(1710), le16(pilots),
+                           {8}, le16(pause), le24(static_cast<uint32_t>(body.size())), body});
+        };
+        // HI: 4+2+32 pulses, the last low: the terminating edge goes HIGH, at t0 + 51114.
+        // LO: pilot x5: the terminating edge goes LOW, at t0 + 53282.
+        auto HI = [&](uint32_t pause) { return b11(4, pause, {0xFF, 0x00}); };
+        auto LO = [&](uint32_t pause) { return b11(5, pause, {0xFF, 0x00}); };
+        const Bytes TONE4 = concat({{0x12}, le16(1000), le16(4)});
+        const Bytes STOP20 = {0x20, 0, 0};
+        const uint64_t t0 = 1000, TeHI = t0 + 51114, TeLO = t0 + 53282;
+        // One deck, started at t0 under a policy; step() advances it to T and returns its level.
+        struct Deck {
+            TzxLoader t; uint64_t now = 0; bool ok = false;
+            uint8_t step(uint64_t T) {
+                while (now + 13 < T) { now += 13; t.update(now); }
+                now = T;
+                return t.update(T);
+            }
+        };
+        auto open = [&](const std::string& name, const Bytes& tape, bool hold_gap, bool autop, bool is48) {
+            auto d = std::make_unique<Deck>();
+            d->ok = d->t.load(write_file(name, tape));
+            d->t.set_auto_policy(hold_gap, autop, is48);
+            d->t.start_playback(t0);
+            d->now = t0;
+            return d;
+        };
+        // Level at each (T - Te) point, in order; empty string when all as wanted.
+        auto levels = [&](Deck& d, uint64_t Te, std::initializer_list<std::pair<int64_t, int>> pts) {
+            std::string bad;
+            for (const auto& [dt, want] : pts) {
+                const int got = d.step(static_cast<uint64_t>(static_cast<int64_t>(Te) + dt));
+                if (got != want) bad += " Te" + std::string(dt >= 0 ? "+" : "") + std::to_string(dt) + ":" + std::to_string(got);
+            }
+            return bad;
+        };
+        auto offset_of = [](Deck& d) { return d.t.deck_state(d.now).offset; };
+
+        {   // TZXP-01
+            auto d = open("p01.tzx", concat({kHeader, HI(1), TONE4}), false, false, true);
+            std::string bad = levels(*d, TeHI, {{1, 1}, {1750, 1}, {3499, 1}, {3500, 0}, {4499, 0}, {4500, 1}});
+            check("TZXP-01", "a 1 ms pause after a block whose last edge goes high keeps that level for the whole pause; the next block's first pulse brings it low",
+                  d->ok && bad.empty() && d->t.is_playing(), bad);
+        }
+        {   // TZXP-02
+            auto d = open("p02.tzx", concat({kHeader, HI(2), TONE4}), false, false, true);
+            std::string bad = levels(*d, TeHI, {{1, 1}, {3499, 1}, {3500, 0}, {6999, 0}, {7000, 1}, {7999, 1}, {8000, 0}});
+            check("TZXP-02", "a 2 ms pause after a high edge holds it 1 ms, then spends the remaining 1 ms low",
+                  d->ok && bad.empty(), bad);
+        }
+        {   // TZXP-04
+            auto d = open("p04.tzx", concat({kHeader, HI(0), STOP20, TONE4}), false, false, true);
+            std::string bad = levels(*d, TeHI, {{1, 1}, {3499, 1}});
+            const bool before = d->t.is_playing();
+            const uint8_t lv = d->step(TeHI + 3500);
+            check("TZXP-04", "a stop block (0x20, pause 0) after a block whose last edge goes high holds the level 1 ms, then stops with it low at the next block",
+                  d->ok && bad.empty() && before && !d->t.is_playing() && lv == 0 &&
+                  offset_of(*d) == static_cast<int>(kHeader.size() + HI(0).size() + STOP20.size()),
+                  bad + " offset=" + std::to_string(offset_of(*d)));
+        }
+        {   // TZXP-05
+            const Bytes tape = concat({kHeader, HI(0), Bytes{0x2A, 0, 0, 0, 0}, TONE4});
+            auto d48 = open("p05.tzx", tape, false, false, true);
+            std::string bad = levels(*d48, TeHI, {{1, 1}, {3499, 1}});
+            const uint8_t lv48 = d48->step(TeHI + 3500);
+            auto dn = open("p05.tzx", tape, false, false, false);
+            std::string badn = levels(*dn, TeHI, {{1, 1}, {999, 1}, {1000, 0}});
+            check("TZXP-05", "a 0x2A block stops like 0x20 on a 48K machine (1 ms tail first); on any other machine there is no stop and no tail",
+                  d48->ok && bad.empty() && !d48->t.is_playing() && lv48 == 0 &&
+                  dn->ok && badn.empty() && dn->t.is_playing(), bad + badn);
+        }
+        {   // TZXP-06
+            auto d = open("p06.tzx", concat({kHeader, HI(0)}), false, false, true);
+            std::string bad = levels(*d, TeHI, {{1, 1}, {3499, 1}});
+            const uint8_t lv = d->step(TeHI + 3500);
+            check("TZXP-06", "the end of the tape after a block whose last edge goes high holds the level 1 ms before the deck stops",
+                  d->ok && bad.empty() && !d->t.is_playing() && lv == 0 && offset_of(*d) == static_cast<int>(kHeader.size() + HI(0).size()),
+                  bad);
+        }
+        {   // TZXP-07
+            const std::string p = write_file("p07.tzx", concat({kHeader, HI(0), STOP20, TONE4}));
+            auto a = open("p07.tzx", concat({kHeader, HI(0), STOP20, TONE4}), true, true, true);
+            auto b = std::make_unique<Deck>();
+            b->ok = b->t.load(p);
+            b->t.set_auto_policy(true, true, true);
+            bool early_hold = false, restored = false, same = true;
+            std::string why;
+            while (a->now + 13 < TeHI + 3499) {
+                const uint8_t la = a->step(a->now + 13);
+                if (a->t.is_held()) early_hold = true;
+                if (!restored && a->now >= TeHI + 1000) {          // mid-tail: restore B from A
+                    restored = b->ok && b->t.restore_deck(a->t.deck_state(a->now), a->now, why);
+                    b->now = a->now;
+                }
+                if (restored && a->now > b->now) {
+                    const uint8_t lb = b->step(a->now);
+                    if (a->t.is_held() != b->t.is_held() || a->t.is_playing() != b->t.is_playing() || la != lb) same = false;
+                }
+            }
+            a->step(TeHI + 3499); b->step(TeHI + 3499);
+            const bool before = !a->t.is_held() && a->t.is_playing();
+            const uint8_t lv = a->step(TeHI + 3500); b->step(TeHI + 3500);
+            if (a->t.is_held() != b->t.is_held() || !b->t.is_held()) same = false;
+            const bool held = a->t.is_held() && !a->t.is_playing() && lv == 0;
+            const uint64_t t1 = TeHI + 10000;
+            a->t.resume(t1); a->now = t1;
+            bool resumed_ok = true; std::string bad;
+            const std::pair<int64_t, int> pts[] = {{0, 1}, {500, 1}, {999, 1}, {1000, 0}, {1999, 0}, {2000, 1}};
+            for (const auto& [dt, want] : pts) {
+                if (a->step(static_cast<uint64_t>(static_cast<int64_t>(t1) + dt)) != want) { resumed_ok = false; bad += " t1+" + std::to_string(dt); }
+                if (a->t.is_held()) { resumed_ok = false; bad += " held@" + std::to_string(dt); }
+            }
+            check("TZXP-07", "a stop after a high edge holds exactly once (after the 1 ms tail, none before it); a resume plays the next block; a deck restored mid-tail behaves the same",
+                  a->ok && !early_hold && before && held && same && restored && resumed_ok, bad + " " + why);
+        }
+        {   // TZXP-08
+            auto d = open("p08.tzx", concat({kHeader, LO(0), STOP20, TONE4}), false, false, true);
+            const uint8_t lv = d->step(TeLO);
+            const bool stopped = !d->t.is_playing();
+            check("TZXP-08", "a stop after a block whose last edge goes low stops at once: no tail",
+                  d->ok && stopped && lv == 0 && offset_of(*d) == static_cast<int>(kHeader.size() + LO(0).size() + STOP20.size()));
+        }
+        {   // TZXP-12
+            const Bytes setlevel1 = concat({{0x2B}, le32(1), {1}});
+            const Bytes tape = concat({kHeader, setlevel1, STOP20, STOP20, STOP20, TONE4});
+            auto d = open("p12.tzx", tape, true, true, true);
+            int holds = 0, resumes = 0; uint64_t first_hold = 0; long updates = 0;
+            while (resumes < 10 && updates < 1000000) {
+                d->step(d->now + 1);
+                ++updates;
+                if (d->t.is_held() && !d->t.is_playing()) {
+                    ++holds;
+                    if (holds == 1) first_hold = d->now;
+                    d->t.resume(d->now);
+                    ++resumes;
+                    if (holds == 3) break;
+                }
+            }
+            d->step(d->now + 1);
+            d->step(d->now + 500);
+            const bool tone = d->t.is_playing() && d->t.deck_state(d->now).phase == "tone";
+            const uint64_t end_now = d->now;
+            d->step(end_now + 20);
+            check("TZXP-12", "three consecutive stop blocks after a set-level-high block hold exactly three times (each stop may carry its 1 ms tail), then the next block plays",
+                  d->ok && holds == 3 && resumes == 3 && first_hold == t0 + 3500 && tone && !d->t.is_held(),
+                  "holds=" + std::to_string(holds) + " first=" + std::to_string(first_hold - t0));
+        }
+        {   // TZXP-13
+            const Bytes direct = concat({{0x15}, le16(100), le16(0), {8}, le24(1), {0x01}});
+            auto d = open("p13.tzx", concat({kHeader, direct, STOP20, TONE4}), false, false, true);
+            std::string bad = levels(*d, t0, {{650, 0}, {750, 1}, {4299, 1}});
+            const uint8_t lv = d->step(t0 + 4300);
+            check("TZXP-13", "a direct recording whose last sample is high, then a stop: the high sample level is held 1 ms past its end before the deck stops",
+                  d->ok && bad.empty() && !d->t.is_playing() && lv == 0, bad);
+        }
+        {   // TZXP-14
+            const Bytes tape = concat({kHeader, Bytes{0x24, 2, 0}, HI(0), STOP20, Bytes{0x25}, TONE4});
+            auto d = open("p14.tzx", tape, true, true, true);
+            d->step(TeHI + 3499);
+            const bool no_hold1 = !d->t.is_held();
+            d->step(TeHI + 3500);
+            const bool hold1 = d->t.is_held() && !d->t.is_playing();
+            const uint64_t t1 = TeHI + 9000;
+            d->t.resume(t1); d->now = t1;
+            const uint64_t Te2 = t1 + 51114;
+            d->step(Te2 + 3499);
+            const bool no_hold2 = !d->t.is_held() && d->t.is_playing();
+            d->step(Te2 + 3500);
+            const bool hold2 = d->t.is_held() && !d->t.is_playing();
+            const uint64_t t2 = Te2 + 9000;
+            d->t.resume(t2); d->now = t2;
+            const uint8_t l0 = d->step(t2 + 500);
+            const uint8_t l1 = d->step(t2 + 1500);
+            check("TZXP-14", "a stop inside a two-iteration loop holds once per iteration, each 1 ms after its block's last edge; after the loop the next block plays",
+                  d->ok && no_hold1 && hold1 && no_hold2 && hold2 && l0 == 1 && l1 == 0 && !d->t.is_held() && d->t.is_playing(),
+                  std::to_string(no_hold1) + std::to_string(hold1) + std::to_string(no_hold2) + std::to_string(hold2));
+        }
+
+        {   // TZXP-15
+            // The poll run is restarted by a hold only: a program that polls through a
+            // 1000 ms gap (while the deck PLAYS) keeps its run, so no gap hold happens.
+            auto b10p = [](const Bytes& body, uint32_t pause) {
+                return concat({{0x10}, le16(pause), le16(static_cast<uint32_t>(body.size())), body});
+            };
+            const std::string path = write_file("p15.tzx", concat({kHeader, b10p(tap_body(0xFF, {1, 2, 3, 4, 5}), 1000),
+                                                                    b10p(tap_body(0xFF, {6, 7, 8, 9}), 1000)}));
+            auto emu = std::make_unique<Emulator>();
+            EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0; cfg.tape_auto_play = true;
+            const bool ok = emu->init(cfg) && emu->load_tzx(path, false);
+            const Bytes prog = {0xF3, 0xED, 0x78, 0x18, 0xFC};   // IN A,(C); JR: polls for ever
+            for (size_t i = 0; i < prog.size(); ++i) emu->mmu().write(uint16_t(0x8000 + i), prog[i]);
+            auto r = emu->cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0x9000; r.BC = 0xFFFE; r.IFF1 = r.IFF2 = 0;
+            emu->cpu().set_registers(r);
+            log_out.str("");
+            for (int i = 0; i < 160; ++i) emu->run_frame();      // block A ends ~frame 100, its gap is 50 frames
+            const bool no_hold = log_out.str().find("TZX: deck held") == std::string::npos;
+            check("TZXP-15", "a program that polls the port through a block's 1000 ms gap does not make the deck hold there (only a hold restarts the poll run)",
+                  ok && no_hold && emu->tzx_tape().is_playing());
+        }
+        // A stop (or the end of the tape) right after a PAUSE: the high level ZOT's
+        // end-of-pause toggle leaves is not an edge on the tape, so no 1 ms tail
+        // (TZX 1.20: a pause ends low; libspectrum/FUSE play no such pulse).
+        // Level 0 for the whole pause remainder, the deck stops at the pause end.
+        auto after_pause = [&](const char* name, const Bytes& blk, const Bytes& tail, uint64_t Te, size_t end_off) {
+            auto d = open(name, concat({kHeader, blk, tail}), false, false, true);
+            const uint64_t pe = Te + 1000ULL * 3500;
+            std::string bad = levels(*d, Te, {{3500, 0}, {1000 * 3500 - 1, 0}});
+            const bool before = d->t.is_playing();
+            const uint8_t lv = d->step(pe);
+            const bool stopped = !d->t.is_playing();
+            const uint8_t lv2 = d->step(pe + 5000);
+            return std::make_tuple(d->ok && bad.empty() && before && stopped && lv == 0 && lv2 == 0 &&
+                                   offset_of(*d) == static_cast<int>(end_off),
+                                   bad + " lv=" + std::to_string(lv) + " lv2=" + std::to_string(lv2) +
+                                   " stopped=" + std::to_string(stopped) + " off=" + std::to_string(offset_of(*d)));
+        };
+        {   // TZXP-16
+            auto [ok, why] = after_pause("p16.tzx", HI(1000), {}, TeHI, kHeader.size() + HI(1000).size());
+            check("TZXP-16", "end of the tape after a pause that followed a rising last edge: level stays low after the pause, the deck stops at the pause end (no phantom pulse)", ok, why);
+        }
+        {   // TZXP-17
+            auto [ok, why] = after_pause("p17.tzx", HI(1000), STOP20, TeHI, kHeader.size() + HI(1000).size() + STOP20.size());
+            check("TZXP-17", "a stop block after a pause that followed a rising last edge: level stays low after the pause, the deck stops at the pause end (no phantom pulse)", ok, why);
+        }
+        {   // TZXP-18
+            auto [ok, why] = after_pause("p18.tzx", LO(1000), {}, TeLO, kHeader.size() + LO(1000).size());
+            check("TZXP-18", "end of the tape after a pause that followed a falling last edge: level stays low, the deck stops at the pause end (no phantom pulse)", ok, why);
+        }
+        {   // TZXP-19
+            auto [ok, why] = after_pause("p19.tzx", LO(1000), STOP20, TeLO, kHeader.size() + LO(1000).size() + STOP20.size());
+            check("TZXP-19", "a stop block after a pause that followed a falling last edge: level stays low, the deck stops at the pause end (no phantom pulse)", ok, why);
+        }
+        {   // TZXP-20
+            // A set-level-high block AFTER the pause is a real level: the stop still finishes it.
+            const Bytes setlevel1 = concat({{0x2B}, le32(1), {1}});
+            auto d = open("p20.tzx", concat({kHeader, LO(1000), setlevel1, STOP20}), false, false, true);
+            const uint64_t pe = TeLO + 1000ULL * 3500;
+            d->step(pe - 1);
+            const uint8_t l1 = d->step(pe + 1), l2 = d->step(pe + 3499);
+            const uint8_t l3 = d->step(pe + 3500);
+            check("TZXP-20", "a set-level-high block after a pause is a real level: a stop after it holds it 1 ms, then stops low",
+                  d->ok && l1 == 1 && l2 == 1 && l3 == 0 && !d->t.is_playing(),
+                  std::to_string(l1) + std::to_string(l2) + std::to_string(l3));
+        }
+
+        {   // TZXP-21
+            // A paused block, then a block that ends high with pause 0, then a stop: the stop's
+            // tail belongs to the SECOND block's real edge (the earlier pause must not suppress it).
+            const uint64_t pe = TeLO + 1000ULL * 3500, Te2 = pe + 51114;
+            auto d = open("p21.tzx", concat({kHeader, LO(1000), HI(0), STOP20, TONE4}), false, false, true);
+            std::string bad = levels(*d, Te2, {{1, 1}, {3499, 1}});
+            const uint8_t lv = d->step(Te2 + 3500);
+            check("TZXP-21", "a stop after a pause-0 block that ends high keeps its 1 ms tail even when an earlier block had a pause",
+                  d->ok && bad.empty() && !d->t.is_playing() && lv == 0 &&
+                  offset_of(*d) == static_cast<int>(kHeader.size() + LO(1000).size() + HI(0).size() + STOP20.size()),
+                  bad + " lv=" + std::to_string(lv));
+        }
+        {   // TZXP-22
+            const uint64_t pe = TeLO + 1000ULL * 3500, Te2 = pe + 51114;
+            auto d = open("p22.tzx", concat({kHeader, LO(1000), HI(0)}), false, false, true);
+            std::string bad = levels(*d, Te2, {{1, 1}, {3499, 1}});
+            const uint8_t lv = d->step(Te2 + 3500);
+            check("TZXP-22", "the end of the tape after a pause-0 block that ends high keeps its 1 ms tail even when an earlier block had a pause",
+                  d->ok && bad.empty() && !d->t.is_playing() && lv == 0 &&
+                  offset_of(*d) == static_cast<int>(kHeader.size() + LO(1000).size() + HI(0).size()),
+                  bad + " lv=" + std::to_string(lv));
+        }
+
+        // ROM level: the 48K ROM's LD-BYTES in real time is the consumer.
+        const Bytes body5 = tap_body(0xFF, {1, 2, 3, 4, 5});
+        const Bytes follow = b10(tap_body(0x00, Bytes(17, 0x20)));
+        auto rom_case = [&](const char* name, const Bytes& tape) {
+            Case c; c.tzx = true; c.path = write_file(name, tape);
+            return c;
+        };
+        {   // TZXP-03
+            Result r = run(rom_case("p03.tzx", concat({kHeader, b11(3224, 1, body5), follow})), false, 600);
+            check("TZXP-03", "LD-BYTES in real time loads a block whose last edge goes high and that is followed by a 1 ms pause",
+                  r.built && r.reached && carry(r) && r.mem[0] == 1 && r.mem[4] == 5,
+                  "reached=" + std::to_string(r.reached) + " AF=" + std::to_string(r.r.AF));
+        }
+        {   // TZXP-09
+            Result r = run(rom_case("p09.tzx", concat({kHeader, b11(3224, 0, body5), STOP20, follow})), false, 600);
+            check("TZXP-09", "LD-BYTES in real time loads a block whose last edge goes high and that is followed by a stop block",
+                  r.built && r.reached && carry(r) && r.mem[0] == 1 && r.mem[4] == 5,
+                  "reached=" + std::to_string(r.reached) + " AF=" + std::to_string(r.r.AF));
+        }
+        {   // TZXP-10
+            const Bytes first = concat({{0x10}, le16(0), le16(static_cast<uint32_t>(body5.size())), body5});
+            Result r = run(rom_case("p10.tzx", concat({kHeader, first, STOP20, follow})), false, 600, 150);
+            check("TZXP-10", "a ROM load that reaches a stop block does not resume the deck: loaded, and the deck is still held at the next block 150 frames later",
+                  r.built && r.reached && carry(r) && r.mem[0] == 1 && r.mem[4] == 5 && r.deck_held &&
+                  r.deck_offset == static_cast<int>(kHeader.size() + first.size() + STOP20.size()),
+                  "reached=" + std::to_string(r.reached) + " AF=" + std::to_string(r.r.AF) + " held=" +
+                  std::to_string(r.deck_held) + " offset=" + std::to_string(r.deck_offset));
+        }
+        {   // TZXP-11
+            auto b10p = [](const Bytes& body, uint32_t pause) {
+                return concat({{0x10}, le16(pause), le16(static_cast<uint32_t>(body.size())), body});
+            };
+            const Bytes dataA = tap_body(0xFF, {1, 2, 3, 4, 5}), dataB = tap_body(0xFF, {6, 7, 8, 9});
+            const std::string path = write_file("p11.tzx", concat({kHeader, b10p(dataA, 0), STOP20, b10p(dataB, 1000)}));
+            bool all = true; std::string bad;
+            for (int n = 0; n < 8; ++n) {
+                auto emu = std::make_unique<Emulator>();
+                EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0; cfg.tape_auto_play = true;
+                const bool ok = emu->init(cfg) && emu->load_tzx(path, false);
+                Bytes prog = {0xF3}; prog.insert(prog.end(), static_cast<size_t>(n), 0x00);
+                prog.insert(prog.end(), {0xED, 0x78, 0x18, 0xFC});     // IN A,(C); JR $-2: one read per 24 T
+                for (size_t i = 0; i < prog.size(); ++i) emu->mmu().write(uint16_t(0x8000 + i), prog[i]);
+                auto r = emu->cpu().get_registers();
+                r.PC = 0x8000; r.SP = 0x9000; r.BC = 0xFFFE; r.IFF1 = r.IFF2 = 0;
+                emu->cpu().set_registers(r);
+                uint64_t t_hold = 0, t_res = 0;
+                while (emu->monotonic_tstates() < 30000000ULL) {
+                    emu->execute_single_instruction();
+                    if (!t_hold && emu->tzx_tape().is_held()) t_hold = emu->monotonic_tstates();
+                    if (t_hold && emu->tzx_tape().is_playing()) { t_res = emu->monotonic_tstates(); break; }
+                }
+                // 32 reads, 24 T apart, are 31 intervals; the 24 T slack is the instruction in which
+                // the hold was first seen (measured after it ends).
+                if (!ok || !t_hold || !t_res || t_res - t_hold < 31 * 24 - 24) {
+                    all = false;
+                    bad += " n=" + std::to_string(n) + ":" + std::to_string(t_hold) + "/" + std::to_string(t_res);
+                }
+            }
+            check("TZXP-11", "after a stop block holds the deck, auto play needs a fresh run of polling reads (about 31 read intervals) to resume it, at every instruction phase",
+                  all, bad);
+        }
     }
 
     Log::emulator()->sinks().pop_back();

@@ -22,6 +22,8 @@
 #   CIKEY-04  a distribution name with a trailing letter ("26.11a") parses, and the key
 #             must carry the letter: 99.12-recipe7 is refused for a 99.12a source, and
 #             99.12a-recipe7 for a 99.12 source
+#   CIKEY-06  every fedora container job that uses actions/cache runs `dnf upgrade -y` (or
+#             test/ci-deps.sh, which does) before its first cache step (GH #580)
 #
 set -u
 cd "$(dirname "$0")/../.." || exit 2   # repo root
@@ -61,6 +63,32 @@ check_keys() {
     done < <(keys "$dir")
     [ "$n" -gt 0 ] || { echo "no sdcard-image-distro key found under $dir"; return 2; }
     [ -z "$bad" ] || { echo "keys not $want*:$bad"; return 1; }
+    return 0
+}
+
+# upgrade_order <workflow dir> - GH #580: in a fedora container, installing a -devel from `updates` upgrades its
+# runtime library but not the base image's CLI of the same package (libzstd 1.6.0 beside zstd 1.5.7, whose CLI
+# refuses it), and actions/cache runs the container's tar --use-compress-program unzstd: every restore failed. So a
+# job whose container is fedora:* and that uses actions/cache must run `dnf upgrade -y` or `bash test/ci-deps.sh `
+# (which upgrades) on a line BEFORE its first cache step. Prints "<file>:<job>" per offender; fails loud (2) when it
+# finds no fedora job with a cache (a check that finds nothing proves nothing).
+upgrade_order() {
+    local out
+    out=$(awk '
+        function flush() {
+            if (fed && cache) { n++; if (!upg || upg > cache) print FILENAME ":" job }
+            fed = 0; cache = 0; upg = 0
+        }
+        FNR == 1 { flush(); job = "" }
+        /^  [A-Za-z0-9_-]+:[ \t]*$/ { flush(); job = $1; sub(/:$/, "", job); next }
+        /^[ \t]*#/ { next }
+        /^[ \t]+(container|image):[ \t]*fedora:/ { fed = 1 }
+        /uses:[ \t]*actions\/cache/ { if (!cache) cache = FNR }
+        /dnf upgrade -y|bash test\/ci-deps\.sh / { if (!upg) upg = FNR }
+        END { flush(); print "N=" n + 0 }' "$1"/*.yml)
+    grep -q '^N=[1-9]' <<<"$out" || { echo "no fedora job with an actions/cache step found under $1"; return 2; }
+    out=$(grep -v '^N=' <<<"$out" || true)
+    [ -z "$out" ] || { echo "$out"; return 1; }
     return 0
 }
 
@@ -129,6 +157,32 @@ oldlayout=""
 while IFS= read -r k; do [[ "$k" == *-recipe[0-9]*-ts-* ]] || oldlayout="$oldlayout $k"; done < <(keys "$tmp/wf-ok")
 if [ -z "$tsbad" ] && [ -n "$oldlayout" ]; then ok "CIKEY-05 every sdcard cache key carries the -ts- layout marker (and a key without it is detected)"
 else bad "CIKEY-05 keys without -ts-:$tsbad (detector saw old-layout keys: ${oldlayout:+yes}${oldlayout:-NO})"; fi
+
+# CIKEY-06 (GH #580): the real workflows pass; fixtures pin the rule both ways.
+mkdir -p "$tmp/up-comment" "$tmp/up-bad" "$tmp/up-ok" "$tmp/up-late" "$tmp/up-ubuntu" "$tmp/up-deps" "$tmp/up-none"
+job() {   # job <container> <steps...>: a one-job workflow on stdout
+    printf 'jobs:\n  build:\n    runs-on: ubuntu-latest\n    container: %s\n    steps:\n' "$1"; shift
+    printf '%s\n' "$@"
+}
+job fedora:45 '      - run: dnf install -y git' '      - uses: actions/cache@v5' > "$tmp/up-bad/a.yml"
+job fedora:45 '      - run: |' '          dnf upgrade -y' '          dnf install -y git' '      - uses: actions/cache/restore@v5' > "$tmp/up-ok/a.yml"
+job fedora:45 '      - uses: actions/cache@v5' '      - run: dnf upgrade -y' > "$tmp/up-late/a.yml"
+job ubuntu:24.04 '      - run: apt-get install -y git' '      - uses: actions/cache@v5' > "$tmp/up-ubuntu/a.yml"
+job fedora:45 '      # dnf upgrade -y (commented out: does not count)' '      - run: dnf install -y git' '      - uses: actions/cache@v5' > "$tmp/up-comment/a.yml"
+job fedora:45 '      # dnf upgrade -y (a comment does not count)' '      - run: bash test/ci-deps.sh test' '      - uses: actions/cache@v5' > "$tmp/up-deps/a.yml"
+job fedora:45 '      - run: dnf install -y git' > "$tmp/up-none/a.yml"
+out=$(upgrade_order "$WF"); rc=$?
+msg=""
+[ "$rc" -eq 0 ] || msg="$msg real-workflows: $out;"
+upgrade_order "$tmp/up-bad" >/dev/null && msg="$msg no-upgrade-accepted;"
+upgrade_order "$tmp/up-ok" >/dev/null || msg="$msg upgrade-before-cache-refused;"
+upgrade_order "$tmp/up-late" >/dev/null && msg="$msg upgrade-after-cache-accepted;"
+upgrade_order "$tmp/up-ubuntu" >/dev/null 2>&1 && msg="$msg ubuntu-only-treated-as-found;"
+upgrade_order "$tmp/up-deps" >/dev/null || msg="$msg ci-deps-before-cache-refused;"
+upgrade_order "$tmp/up-comment" >/dev/null && msg="$msg commented-upgrade-accepted;"
+upgrade_order "$tmp/up-none" >/dev/null && msg="$msg no-cache-job-accepted;"
+if [ -z "$msg" ]; then ok "CIKEY-06 every fedora container job that uses actions/cache upgrades the image before its first cache step (and a job without it, or with it after the cache, is refused)"
+else bad "CIKEY-06 $msg"; fi
 
 printf '\nTotal: %d  Pass: %d  Fail: %d\n' $((pass+fail)) "$pass" "$fail"
 [ "$fail" -eq 0 ]

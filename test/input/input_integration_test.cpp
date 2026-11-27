@@ -897,7 +897,7 @@ static void test_joy_wire(Emulator& emu) {
 // Path: GUI keyPressEvent (src/gui/main_window.cpp) and SDL on_key
 // (src/platform/sdl_app.cpp) call `Emulator::emu_fnkeys().simulate_mf_fkey_press(idx)`,
 // which advances the FSM IDLE → MF_ROW_A11 → MF_ROW_A12 → MF_CHECK →
-// MF_DONE in one host-event boundary. Entry to MF_DONE fires the
+// MF_DONE in one host-event boundary. Entry to MF_ROW_A11/A12 fires the
 // `cb_f3_` / `cb_f7_` / `cb_f8_` callbacks which write the NR side-effects.
 // F5/F6 (expbus enable / disable) are part of the FSM strobe vector but
 // have no current callback in jnext — VHDL :6343-6345 wires those to the
