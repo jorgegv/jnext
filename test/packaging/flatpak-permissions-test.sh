@@ -429,6 +429,171 @@ if grep -qx 'make flatpak-prefetch' <<<"$wfa" && grep -q 'flatpak-builder@' <<<"
     ok FPKP-21 "flatpak-build.yml runs make flatpak-prefetch before the flatpak-builder action"
 else bad FPKP-21 "flatpak-build.yml does not run 'make flatpak-prefetch' before the builder action"; fi
 
+# --- FPKP-25: the distro zip is restored from a CI cache before the prefetch (GH #583)
+# Oracle: the manifest's url/sha256 pairs, parsed as prefetch-sources.sh parses them. R1 restores by
+# content (key and path carry basename and sha256), R2 runs only on an R1 miss and its restore-keys is a
+# prefix of the action's save key, S1 saves only from main on an R1 miss; order checkout < R1 < R2 <
+# prefetch < builder action < S1. Fixtures (mutations of the real workflow) are refused.
+cat > "$WORK/srcchk.py" <<'PY'
+import sys, yaml, re
+wf, manifest, mut = sys.argv[1], sys.argv[2], (sys.argv[3] if len(sys.argv) > 3 else "")
+pairs, u = [], None
+for line in open(manifest):
+    m = re.match(r"\s*(?:- )?url:\s*(\S+)", line)
+    if m: u = m.group(1)
+    m = re.match(r"\s*sha256:\s*(\S+)", line)
+    if m and u: pairs.append((u.rsplit("/", 1)[1], m.group(1))); u = None
+d = yaml.safe_load(open(wf))
+steps = d["jobs"]["flatpak-build"]["steps"]
+def find(pred):
+    return [i for i, s in enumerate(steps) if pred(s)]
+isR1 = lambda s: str(s.get("uses", "")).startswith("actions/cache/restore@") and str((s.get("with") or {}).get("path", "")).startswith(".flatpak-builder/downloads/")
+isR2 = lambda s: str(s.get("uses", "")).startswith("actions/cache/restore@") and str((s.get("with") or {}).get("path", "")) == ".flatpak-builder"
+isS1 = lambda s: str(s.get("uses", "")).startswith("actions/cache/save@") and str((s.get("with") or {}).get("path", "")).startswith(".flatpak-builder/downloads/")
+# mutations of the parsed workflow
+if mut:
+    r1 = steps[find(isR1)[0]]; r2 = steps[find(isR2)[0]]; s1 = steps[find(isS1)[0]]
+    if mut == "stale-sha": r1["with"]["key"] = r1["with"]["key"][:-1] + "1"
+    if mut == "path-no-sha": r1["with"]["path"] = ".flatpak-builder/downloads"
+    if mut == "r1-after-prefetch":
+        steps.remove(r1); steps.insert(find(lambda s: s.get("run") == "make flatpak-prefetch")[0] + 1, r1)
+    if mut == "r2-no-miss": del r2["if"]
+    if mut == "r2-action-prefix": r2["with"]["restore-keys"] = "flatpak-builder-x86_64"
+    if mut == "s1-no-main": s1["if"] = s1["if"].replace(" && github.ref == 'refs/heads/main'", "")
+    if mut == "s1-no-miss": s1["if"] = s1["if"].replace(" && steps.srczip.outputs.cache-hit != 'true'", "")
+    if mut == "no-r1": steps.remove(r1)
+bad = []
+r1i, r2i, s1i = find(isR1), find(isR2), find(isS1)
+co = find(lambda s: str(s.get("uses", "")).startswith("actions/checkout@"))
+pf = find(lambda s: s.get("run") == "make flatpak-prefetch")
+fb = find(lambda s: str(s.get("uses", "")).startswith("flatpak/flatpak-github-actions/flatpak-builder@"))
+if not (r1i and r2i and s1i and co and pf and fb): print("missing step: R1=%s R2=%s S1=%s checkout=%s prefetch=%s builder=%s" % (r1i, r2i, s1i, co, pf, fb)); sys.exit(1)
+r1, r2, s1 = steps[r1i[0]], steps[r2i[0]], steps[s1i[0]]
+if not (co[0] < r1i[0] < r2i[0] < pf[0] < fb[0] < s1i[0]): bad.append("order checkout<R1<R2<prefetch<builder<S1 broken")
+for base, sha in pairs:
+    w = r1["with"]
+    if base not in str(w.get("key")) or sha not in str(w.get("key")): bad.append("R1 key lacks %s / %s" % (base, sha))
+    if sha not in str(w.get("path")): bad.append("R1 path lacks " + sha)
+if (s1.get("with") or {}) != r1["with"]: bad.append("S1 key/path differ from R1")
+rid = r1.get("id")
+if not rid or ("steps.%s.outputs.cache-hit != 'true'" % rid) not in str(r2.get("if", "")): bad.append("R2 if does not require R1 miss")
+conj = [c.strip() for c in str(s1.get("if", "")).replace("${{", "").replace("}}", "").split("&&")]
+for need in ("github.event_name == 'push'", "github.ref == 'refs/heads/main'", "steps.%s.outputs.cache-hit != 'true'" % rid):
+    if need not in conj: bad.append("S1 if lacks " + need)
+fbw = steps[fb[0]]["with"]
+save_key = str(fbw["cache-key"]) + "-x86_64"
+rk = str((r2.get("with") or {}).get("restore-keys", "")).strip()
+if str(r2["with"].get("key")) != save_key: bad.append("R2 key is not the action's save key")
+if not rk or not save_key.startswith(rk): bad.append("R2 restore-keys %r is not a prefix of the action save key" % rk)
+print("\n".join(bad)); sys.exit(1 if bad else 0)
+PY
+WFY=.github/workflows/flatpak-build.yml; MFY=packaging/flatpak/io.github.zxjogv.jnext.yml
+if ! command -v python3 >/dev/null 2>&1; then bad FPKP-25 "python3 missing: not run"
+else
+    why=""
+    out=$(python3 -I "$WORK/srcchk.py" "$WFY" "$MFY" 2>&1) || why="real workflow refused: $out"
+    for m in stale-sha path-no-sha r1-after-prefetch r2-no-miss r2-action-prefix s1-no-main s1-no-miss no-r1; do
+        python3 -I "$WORK/srcchk.py" "$WFY" "$MFY" "$m" >/dev/null 2>&1 && why="$why; fixture $m accepted"
+    done
+    if [ -z "$why" ]; then
+        ok FPKP-25 "flatpak-build.yml: R1 restores the zip by name+sha256, R2 only on a miss, S1 saves from main only, in order; 8 broken fixtures refused"
+    else bad FPKP-25 "$why"; fi
+fi
+
+# --- FPKP-26..28: what a failed prefetch attempt logs (GH #583). Fake fetcher: copies $FAKE_BODY to the
+# destination unless $FAKE_NOFILE, prints $FAKE_META (printf %b), exits $FAKE_RC.
+cat > "$WORK/fakefetch2" <<'FAKE'
+#!/usr/bin/env bash
+[ -n "${FAKE_NOFILE:-}" ] || cp "$FAKE_BODY" "$2"
+printf '%b' "${FAKE_META:-}"
+exit "${FAKE_RC:-0}"
+FAKE
+chmod +x "$WORK/fakefetch2"
+# pf2_run <body-file> <meta> <rc> [nofile]: stderr to $WORK/pf2.err; sets pf_rc
+pf2_run() {
+    rm -rf "$WORK/pfs" "$WORK/pfc"; mkdir -p "$WORK/pfs"
+    FAKE_STATE="$WORK/pfs" FAKE_BODY="$1" FAKE_META="$2" FAKE_RC="$3" FAKE_NOFILE="${4:-}" PREFETCH_FETCH="$WORK/fakefetch2" \
+        PREFETCH_SLEEP="$WORK/fakesleep" bash "$PF" "$pfm" "$WORK/pfc" >/dev/null 2>"$WORK/pf2.err"
+    pf_rc=$?
+    pf_diag=$(grep -c ' failed: curl exit ' "$WORK/pf2.err")
+    pf_nfiles=$(find "$WORK/pfc" -type f 2>/dev/null | wc -l)
+}
+# a Cloudflare-style 12097-byte page: the first 200 bytes are the literal below (no newline in them)
+h200='<!DOCTYPE html><html lang="en-US"><head><title>Just a moment...</title><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta name="robots" content="noindex,nofollow"></head><body><p'
+printf '%s' "$h200" > "$WORK/html.bin"
+head -c $((12097 - ${#h200})) /dev/zero | tr '\0' 'x' >> "$WORK/html.bin"
+pf2_run "$WORK/html.bin" '200 text/html; charset=UTF-8' 0
+errs=$(cat "$WORK/pf2.err"); why=""
+[ "${#h200}" -eq 200 ] && [ "$(wc -c < "$WORK/html.bin")" -eq 12097 ] || why="fixture is not 200/12097 bytes"
+[ "$pf_rc" -eq 0 ] && [ "$pf_diag" -eq 4 ] && [ "$pf_nfiles" -eq 0 ] || why="$why; rc=$pf_rc diag-lines=$pf_diag cached-files=$pf_nfiles"
+for n in 1 2 3 4; do grep -qF " attempt $n of 4 failed: " <<<"$errs" || why="$why; no 'attempt $n of 4'"; done
+hsum=$(sha256sum "$WORK/html.bin" | cut -d' ' -f1)
+while IFS= read -r l; do
+    case "$l" in *' failed: curl exit '*) ;; *) continue ;; esac
+    for want in 'curl exit 0, HTTP 200, 12097 bytes, type text/html; charset=UTF-8, sha256 '"$hsum"' (manifest '"$gsum"')' "starts: \"$h200\""; do
+        [[ "$l" == *"$want"* ]] || why="$why; line lacks '$want'"
+    done
+done <<<"$errs"
+if [ -z "$why" ]; then ok FPKP-26 "prefetch: a wrong 12097-byte 200 page logs one line per attempt (exit, HTTP, size, type, sha256, first 200 bytes), exit 0, nothing cached"
+else bad FPKP-26 "$why"; fi
+
+# FPKP-27: hostile body and content type: no control byte, no line starting with `::`, cut at byte 200
+{ printf 'AB\r\nC\033[31mD\000E\303\251F\n::error::pwned\n::add-mask::x'; head -c 204 /dev/zero | tr '\0' 'p'; printf 'MARK250'; head -c 500 /dev/zero | tr '\0' 'q'; } > "$WORK/hostile.bin"
+pf2_run "$WORK/hostile.bin" '200 text/html\r\n::warning::y' 0
+errs=$(cat "$WORK/pf2.err"); why=""
+want27='AB..C.[31mD.E..F.::error::pwned.::add-mask::x'$(printf 'p%.0s' $(seq 1 155))
+[ "${#want27}" -eq 200 ] || why="expected string is ${#want27} long"
+[ "$pf_diag" -eq 4 ] || why="$why; $pf_diag diagnostic lines"
+while IFS= read -r l; do
+    case "$l" in *' failed: curl exit '*) [[ "$l" == *"starts: \"$want27\""$'' ]] || why="$why; excerpt differs: ${l##*starts: }"
+        [[ "$l" == *'type text/html..::warning::y, sha256'* ]] || why="$why; type not sanitised" ;; esac
+done <<<"$errs"
+if grep -q '[^[:print:]]' <<<"$errs"; then why="$why; a non-printable byte reached the log"; fi
+if grep -q '^::' <<<"$errs"; then why="$why; a log line starts with ::"; fi
+if grep -q 'MARK250' <<<"$errs"; then why="$why; bytes beyond 200 were logged"; fi
+# a printable content type over 100 characters is cut at 100 (marker after character 100 must not appear)
+x89=$(printf 'x%.0s' $(seq 1 89)); x120=$(printf 'x%.0s' $(seq 1 120))
+pf2_run "$WORK/hostile.bin" "200 text/html; ${x120}CTMARK" 0
+grep -qF "type text/html; ${x89}, sha256 " "$WORK/pf2.err" || why="$why; long type not cut to exactly 100 characters"
+if grep -q 'CTMARK' "$WORK/pf2.err"; then why="$why; content type beyond 100 characters was logged"; fi
+if [ -z "$why" ]; then ok FPKP-27 "prefetch: hostile body/type is logged as printable ASCII, cut at byte 200 (type at 100 characters), never starting a line (no ::command::)"
+else bad FPKP-27 "$why"; fi
+
+# FPKP-28: an empty body, and a fetch that fails writing nothing, neither trips set -u
+: > "$WORK/empty.bin"
+pf2_run "$WORK/empty.bin" '200 text/plain' 0
+e_sum=$(sha256sum "$WORK/empty.bin" | cut -d' ' -f1)
+why=""
+[ "$pf_rc" -eq 0 ] && [ "$pf_diag" -eq 4 ] || why="empty: rc=$pf_rc diag=$pf_diag"
+grep -qF "HTTP 200, 0 bytes, type text/plain, sha256 $e_sum (manifest $gsum); starts: \"\"" "$WORK/pf2.err" || why="$why; empty-body line wrong: $(head -1 "$WORK/pf2.err")"
+pf2_run "$WORK/empty.bin" '' 7 nofile
+[ "$pf_rc" -eq 0 ] && [ "$pf_diag" -eq 4 ] && [ "$(grep -c 'retry [123] of 3' "$WORK/pf2.err")" -eq 3 ] || why="$why; nofile: rc=$pf_rc diag=$pf_diag"
+grep -qF 'curl exit 7, HTTP ?, 0 bytes, type ?, sha256 none (manifest' "$WORK/pf2.err" || why="$why; nofile line wrong: $(head -1 "$WORK/pf2.err")"
+grep -qi 'unbound' "$WORK/pf2.err" && why="$why; set -u tripped"
+if [ -z "$why" ]; then ok FPKP-28 "prefetch: an empty body and a failed fetch with no file log 0 bytes / sha256 none, retry 1+3 times, exit 0"
+else bad FPKP-28 "$why"; fi
+
+# FPKP-29: the real curl path keeps the error body: --fail-with-body and --write-out, never bare --fail
+rm -rf "$WORK/pfs" "$WORK/pfc" "$WORK/cbin"; mkdir -p "$WORK/pfs" "$WORK/cbin"
+cat > "$WORK/cbin/curl" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$WORK_ARGS"
+while [ $# -gt 0 ]; do [ "$1" = --output ] && out=$2; shift; done
+printf '<html>403 Forbidden stub body</html>' > "$out"
+printf '403 text/html'
+exit 22
+STUB
+chmod +x "$WORK/cbin/curl"
+WORK_ARGS="$WORK/pfs/curl-args" PREFETCH_SLEEP="$WORK/fakesleep" FAKE_STATE="$WORK/pfs" PATH="$WORK/cbin:$PATH" \
+    bash "$PF" "$pfm" "$WORK/pfc" >/dev/null 2>"$WORK/pf2.err"; pf_rc=$?
+cargs=$(cat "$WORK/pfs/curl-args" 2>/dev/null)
+if [ "$pf_rc" -eq 0 ] && grep -q -- '--fail-with-body' <<<"$cargs" && grep -q -- '--write-out' <<<"$cargs" \
+   && ! grep -qE -- '(^| )--fail( |$)' <<<"$cargs" \
+   && grep -qF 'curl exit 22, HTTP 403, 36 bytes, type text/html' "$WORK/pf2.err" \
+   && grep -qF 'starts: "<html>403 Forbidden stub body</html>"' "$WORK/pf2.err"; then
+    ok FPKP-29 "prefetch: real curl gets --fail-with-body and --write-out (no bare --fail); a 403 body is logged"
+else bad FPKP-29 "curl 403 path: rc=$pf_rc args='$cargs' err='$(head -2 "$WORK/pf2.err")'"; fi
+
 printf "\n"
 printf "Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n" \
     "$((pass + fail))" "$pass" "$fail" 0

@@ -97,7 +97,14 @@ some platforms need more:
   run by the shared workflow before the builder action) first puts that zip in
   flatpak-builder's download cache (`.flatpak-builder/downloads/<sha256>/`),
   checking the manifest's sha256 and retrying a wrong body up to three times, after
-  2, 4 and 8 s; if it still fails, flatpak-builder makes its own attempt as before;
+  2, 4 and 8 s; if it still fails, flatpak-builder makes its own attempt as before.
+  Each failed attempt logs one line with the curl exit, HTTP status, size, content
+  type, sha256 and the first 200 bytes of what came back (printable ASCII only), so
+  a wrong body is visible in the job log. In CI the zip is not downloaded at all
+  when a cache holds it: the shared workflow first restores it from a cache keyed
+  by its name and the manifest's sha256 (saved only from a push to `main`, and
+  never an artifact), else from the newest builder-state cache that `main` saved;
+  the prefetch then finds it already cached;
 - **macOS** uses clang's instrumentation (`-fprofile-instr-generate`, merged
   with `llvm-profdata` from Xcode). There a stale profile is an error but a
   translation unit with no profile at all is only a warning, and the library
