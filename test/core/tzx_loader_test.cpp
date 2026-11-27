@@ -1496,6 +1496,29 @@ int main(int argc, char** argv) {
                   std::to_string(l1) + std::to_string(l2) + std::to_string(l3));
         }
 
+        {   // TZXP-21
+            // A paused block, then a block that ends high with pause 0, then a stop: the stop's
+            // tail belongs to the SECOND block's real edge (the earlier pause must not suppress it).
+            const uint64_t pe = TeLO + 1000ULL * 3500, Te2 = pe + 51114;
+            auto d = open("p21.tzx", concat({kHeader, LO(1000), HI(0), STOP20, TONE4}), false, false, true);
+            std::string bad = levels(*d, Te2, {{1, 1}, {3499, 1}});
+            const uint8_t lv = d->step(Te2 + 3500);
+            check("TZXP-21", "a stop after a pause-0 block that ends high keeps its 1 ms tail even when an earlier block had a pause",
+                  d->ok && bad.empty() && !d->t.is_playing() && lv == 0 &&
+                  offset_of(*d) == static_cast<int>(kHeader.size() + LO(1000).size() + HI(0).size() + STOP20.size()),
+                  bad + " lv=" + std::to_string(lv));
+        }
+        {   // TZXP-22
+            const uint64_t pe = TeLO + 1000ULL * 3500, Te2 = pe + 51114;
+            auto d = open("p22.tzx", concat({kHeader, LO(1000), HI(0)}), false, false, true);
+            std::string bad = levels(*d, Te2, {{1, 1}, {3499, 1}});
+            const uint8_t lv = d->step(Te2 + 3500);
+            check("TZXP-22", "the end of the tape after a pause-0 block that ends high keeps its 1 ms tail even when an earlier block had a pause",
+                  d->ok && bad.empty() && !d->t.is_playing() && lv == 0 &&
+                  offset_of(*d) == static_cast<int>(kHeader.size() + LO(1000).size() + HI(0).size()),
+                  bad + " lv=" + std::to_string(lv));
+        }
+
         // ROM level: the 48K ROM's LD-BYTES in real time is the consumer.
         const Bytes body5 = tap_body(0xFF, {1, 2, 3, 4, 5});
         const Bytes follow = b10(tap_body(0x00, Bytes(17, 0x20)));
