@@ -7923,6 +7923,104 @@ static int test_gh402_tape_reattach()
               "saved=" + std::to_string(saved) + " boundary=" + std::to_string(at_boundary) + " j1=" + std::to_string(grace(j1)) + " j2=" + std::to_string(grace(j2)));
     }
 
+    // ── A DD/FD prefix pending at a boundary (GH #584) ──
+    // Oracle: the T80N's own state after a prefix M1 (t80n.vhd:513-520: the next M1 turns the pending DD/FD
+    // into IX or IY); a run of 65 DD ends a slot right after the 65th M1, so a snapshot taken there has to
+    // carry it, or the restored machine would run `21 34 12` as LD HL,nn instead of LD IX,nn.
+    {
+        auto at_cut = [&]() {
+            auto a = make();
+            Bytes prog(65, 0xDD);
+            prog.insert(prog.end(), {0x21, 0x34, 0x12, 0x18, 0xFE});
+            for (size_t i = 0; i < prog.size(); ++i) a->mmu().write(uint16_t(0x8000 + i), prog[i]);
+            auto r = a->cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0x9000; r.IFF1 = r.IFF2 = 0;
+            a->cpu().set_registers(r);
+            a->run_frame();                                       // reach a frame boundary...
+            r = a->cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0x9000; r.IFF1 = r.IFF2 = 0; r.HL = 0x5555; r.IX = 0; r.IY = 0;
+            a->cpu().set_registers(r);
+            a->execute_single_instruction();                      // ...then the cut slot, and save at once
+            return a;
+        };
+        auto finishes_as_ix = [&](Emulator& e) {
+            e.execute_single_instruction();                       // the resumed slot: LD IX,nn
+            const auto r = e.cpu().get_registers();
+            return r.IX == 0x1234 && r.HL == 0x5555 && r.IY == 0;
+        };
+        {
+            auto a = at_cut();
+            const bool cut = a->cpu().prefix_pending() == 0xDD && !a->frame_in_progress();
+            const Bytes full = stream(*a);
+            auto b = make();
+            StateReader rd(full.data(), full.size());
+            const bool l = b->load_state(rd);
+            const bool carried = l && b->cpu().prefix_pending() == 0xDD && finishes_as_ix(*b);
+            // A stream that predates the block (it is the last 5 bytes: the value and its sentinel) leaves nothing pending.
+            Bytes older(full.begin(), full.end() - 5);
+            StateReader rd2(older.data(), older.size());
+            auto c = at_cut();
+            const bool l2 = c->load_state(rd2);   // c had a pending prefix; the older stream says none
+            const bool absent_clears = l2 && c->cpu().prefix_pending() == 0;
+            check("PFXCH-SAVE-01", cut && carried && absent_clears,
+                  "a binary stream saved at the cut of a 65 DD run restores the pending prefix (the next slot writes IX, HL untouched); "
+                  "a stream without the block loads with no prefix pending",
+                  "cut=" + std::to_string(cut) + " carried=" + std::to_string(carried) + " absent_clears=" + std::to_string(absent_clears));
+        }
+        Bytes j1;
+        {
+            auto a = at_cut();
+            const bool saved = save(*a, j1);
+            auto b = make();
+            jnext::JnsLoadReport rep;
+            const bool l = saved && load(*b, j1, true, rep);
+            const std::string em = member_text(j1, "state/emulator.json");
+            check("PFXCH-SAVE-02", l && b->cpu().prefix_pending() == 0xDD && finishes_as_ix(*b) &&
+                  em.find("cpu_prefix_pending") != std::string::npos,
+                  "a .jns saved at the cut of a 65 DD run names cpu_prefix_pending in state/emulator.json and restores it",
+                  "saved=" + std::to_string(saved) + " loaded=" + std::to_string(l));
+        }
+        {
+            // The same file with the field's value edited: "fd" is a legal name (control: it loads, as FD), "zz" is not.
+            auto with_value = [&](const char* value, Bytes& out) {
+                jnext::zip::Reader r;
+                std::string why;
+                if (!r.open(j1.data(), j1.size(), why)) return false;
+                jnext::zip::Writer w(r.comment());
+                bool edited = false;
+                for (const auto& e : r.entries()) {
+                    std::vector<uint8_t> data;
+                    if (!r.read(e.name, data, why)) return false;
+                    if (e.name == "state/emulator.json") {
+                        nlohmann::json j = nlohmann::json::parse(std::string(data.begin(), data.end()), nullptr, false);
+                        if (!j.is_object() || !j.contains("cpu_prefix_pending")) return false;
+                        j["cpu_prefix_pending"] = value;
+                        edited = true;
+                        if (!w.add(e.name, j.dump(), jnext::zip::Method::Stored, why)) return false;
+                    } else if (!w.add(e.name, data.data(), data.size(), jnext::zip::Method::Stored, why)) {
+                        return false;
+                    }
+                }
+                return edited && w.finish(out, why);
+            };
+            Bytes jfd, jbad;
+            const bool made = !j1.empty() && with_value("fd", jfd) && with_value("zz", jbad);
+            auto b = make();
+            jnext::JnsLoadReport rep;
+            jnext::JnsLoadOptions o;
+            std::string why_fd, why_bad;
+            const bool fd_ok = made && b->load_jns(jfd.data(), jfd.size(), o, rep, why_fd) &&
+                               b->cpu().prefix_pending() == 0xFD;
+            auto c = make();
+            jnext::JnsLoadReport rep2;
+            const bool bad_refused = made && !c->load_jns(jbad.data(), jbad.size(), o, rep2, why_bad);
+            check("PFXCH-SAVE-03", fd_ok && bad_refused && why_bad.find("cpu_prefix_pending") != std::string::npos,
+                  "a .jns whose cpu_prefix_pending is not none, dd or fd is refused naming the field; \"fd\" loads as a pending FD",
+                  "made=" + std::to_string(made) + " fd_ok=" + std::to_string(fd_ok) + " refused=" +
+                      std::to_string(bad_refused) + " why=" + why_bad + " why_fd=" + why_fd);
+        }
+    }
+
     printf("Total so far: %d passed, %d failed\n", pass_count, fail_count);
     fs::remove_all(base, ec);
     return 0;
