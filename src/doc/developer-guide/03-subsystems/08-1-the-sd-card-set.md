@@ -47,6 +47,19 @@ metadata included. Cards are read through ChaN FatFs on two volumes at once (`FF
 and drive 1; a read-only attach never writes), or, for an under-clustered distribution image FatFs
 refuses, through the hand-rolled reader (`open_tree_lenient`, always on drive 1).
 
+Hashing the 1 GB original takes about half a second, so `pristine_base_ok` skips the hash while
+`<original>.verified` vouches for it. That record is one line, `<digest> <size> <mtime>` and a newline:
+the digest 64 lowercase hex digits, the size a decimal `uint64`, the mtime the `last_write_time` ticks of
+the original as a decimal `int64` (it may be negative). The record counts only when it is exactly that
+(a missing final newline, other case, a wrong length, an overflow or trailing text make it void) and its
+digest is the `.sha256` sidecar's digest and its size and mtime are the original's now. A void record
+means a hash; a match writes the record from the size and mtime read before the hash, so an original
+changed during the hash voids it. A write that fails is ignored (the next check hashes again). The limit,
+accepted on purpose: an in-place rewrite of the original that keeps its size and its mtime (a restored
+mtime, or a change inside the filesystem's timestamp resolution) is not noticed. `pristine_hash_count`
+counts the hashes, for tests. Only the Upgrade path asks for the check: the File menu and Delete call
+`card_set_status` with `check_pristine` false.
+
 "Changed" means a different type, size, content or R/H/S attribute; not the archive bit, a date, the 8.3
 name, a case-only rename or the volume label. There are two layers: the direct one (the card against the
 rebuilt original) and, for each writes file, the overlay one (the card seen through the file against the

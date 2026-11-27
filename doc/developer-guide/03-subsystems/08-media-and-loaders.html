@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.1</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.5</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.1</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.5</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4879,7 +4879,8 @@ only way is forward, and the next start finishes it (<code>upgrade::recover</cod
 asked to recover a card, still replaces atomically with <code>&lt;name&gt;.new</code> files and has no backup.</p>
 <p>The backup is managed by <code>src/core/sdcard_backup.cpp</code>. <code>card_set_status</code> reads the state of the set (the card's
 distribution against the one jnext downloads now, the pristine base and its reason, the backup's size and
-distribution) and <code>menu_state</code> turns it into the three File-menu entries: Upgrade (slot 0 holds the default card
+distribution; the pristine check, which may hash the original, runs only when <code>check_pristine</code> is true, which the
+File menu and Delete leave false) and <code>menu_state</code> turns it into the three File-menu entries: Upgrade (slot 0 holds the default card
 and it is older), Go Back and Delete (a backup exists; Delete's label carries <code>size_label</code>). <code>go_back</code> is a swap in
 four journalled steps (<code>go-back-work/SWAPPING</code>, <code>gN.done</code>): the current set and its overlays go to a scratch
 directory, the backup's set comes into place and its overlays are copied back to their recorded paths, the

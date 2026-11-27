@@ -1646,7 +1646,8 @@ asked to recover a card, still replaces atomically with `<name>.new` files and h
 
 The backup is managed by `src/core/sdcard_backup.cpp`. `card_set_status` reads the state of the set (the card's
 distribution against the one jnext downloads now, the pristine base and its reason, the backup's size and
-distribution) and `menu_state` turns it into the three File-menu entries: Upgrade (slot 0 holds the default card
+distribution; the pristine check, which may hash the original, runs only when `check_pristine` is true, which the
+File menu and Delete leave false) and `menu_state` turns it into the three File-menu entries: Upgrade (slot 0 holds the default card
 and it is older), Go Back and Delete (a backup exists; Delete's label carries `size_label`). `go_back` is a swap in
 four journalled steps (`go-back-work/SWAPPING`, `gN.done`): the current set and its overlays go to a scratch
 directory, the backup's set comes into place and its overlays are copied back to their recorded paths, the

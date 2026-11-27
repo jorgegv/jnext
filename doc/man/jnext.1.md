@@ -3609,6 +3609,11 @@ asked), with the plain picture otherwise.
     area before the click so the player is not black on load. The emulator replaces it
     when the visitor starts the player. Without it nothing is shown there.
 
+`creditIn` *element*
+:   Not a jnext setting: an element of the page, normally its controls bar, that holds the "JNext" link
+    (www.jnext.es) at its end instead of a row under the player; in a flex row it sits at the right end.
+    Without it the link goes under the player, aligned to its right edge.
+
 `file` *URL | {url} | {data, name} | {card}*
 :   **\--load**. The program to run (`.nex`, `.tap`, `.tzx`, `.wav`, a `.rzx` recording, or a `.jns`, `.sna`,
     `.szx` or `.z80` snapshot); without it the machine boots to the NextZXOS menu. A `.zip` is

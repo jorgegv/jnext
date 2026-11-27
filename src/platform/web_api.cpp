@@ -228,6 +228,11 @@ bool build_argv(std::string_view options_json, std::vector<std::string>& argv, s
                 if (no_card) out.push_back(flag_spelling(cli::OptId::NoSdcard));
                 break;
             }
+            if (std::string(t.name) == "creditIn") {
+                // The page layer turns the page's DOM element into true (it cannot be serialised).
+                if (!v.is_boolean()) return bad(t.name, "a DOM element");
+                break;
+            }
             const bool is_size = std::string(t.name) == "width" || std::string(t.name) == "height";
             if (is_size ? !(v.is_number() || v.is_string()) : !v.is_string())
                 return bad(t.name, is_size ? "a number or a string" : "a string");
