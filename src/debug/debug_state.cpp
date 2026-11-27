@@ -91,7 +91,7 @@ bool DebugState::step_out_sp_qualifies(uint16_t sp_before, uint16_t sp_after) co
     //    alone), and it makes every step that executes no instruction at all
     //    inert here — a DMA burst, a G156 boot hold or a parked CPU leaves SP
     //    unchanged, and an accepted NMI/INT moves it DOWN by two.
-    if (sp_after != static_cast<uint16_t>(sp_before + 2)) return false;
+    // (step_out_sp_past(), debug_state.h: conditions 1 and 3)
 
     // 3. STRICTLY past the arming point. `step_out_sp_` is SP at the moment F8
     //    was pressed, so the subroutine we are in returns by popping AT it
@@ -105,7 +105,7 @@ bool DebugState::step_out_sp_qualifies(uint16_t sp_before, uint16_t sp_after) co
     //    16-bit wrap is not modelled: a stack that wraps through 0x0000 while
     //    stepping out simply never satisfies this, and the step keeps running
     //    (the documented "subroutine that never returns" outcome).
-    return sp_after > step_out_sp_;
+    return step_out_sp_past(step_out_sp_, sp_before, sp_after);
 }
 
 bool DebugState::check_step_out(uint16_t sp_before, uint16_t sp_after,
@@ -135,11 +135,7 @@ bool DebugState::check_step_out(uint16_t sp_before, uint16_t sp_after,
     //      ED 01xxx101            RETI (ED 4D) / RETN (ED 45) and the
     //                             undocumented ED 55/5D/65/6D/75/7D aliases,
     //                             which the Z80 decodes as RETN too.
-    const bool is_return =
-        opcode == 0xC9 ||
-        (opcode & 0xC7) == 0xC0 ||
-        (opcode == 0xED && (opcode2 & 0xC7) == 0x45);
-    return is_return;
+    return step_out_returned(step_out_sp_, sp_before, sp_after, opcode, opcode2);
 }
 
 // ---------------------------------------------------------------------------

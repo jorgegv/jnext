@@ -319,16 +319,35 @@ Reply DzrpClient::wait_for(std::uint32_t ticket) {
             return r;
         }
         poll(1);
-        if (hook_) {
-            struct HookScope {   // cleared even if the hook throws
-                bool& f;
-                explicit HookScope(bool& flag) : f(flag) { f = true; }
-                ~HookScope() { f = false; }
-            } scope(in_hook_);
-            hook_();
-        }
+        call_hook();
     }
     return take(ticket);
+}
+
+void DzrpClient::call_hook() {
+    if (!hook_) return;
+    struct HookScope {   // cleared even if the hook throws
+        bool& f;
+        explicit HookScope(bool& flag) : f(flag) { f = true; }
+        ~HookScope() { f = false; }
+    } scope(in_hook_);
+    hook_();
+}
+
+Status DzrpClient::wait_pause() {
+    if (in_hook_) {
+        Log::debugger()->error("dzrp client: refused wait_pause: a wait from inside the wait hook");
+        return Status::Reentrant;
+    }
+    const auto deadline = now() + cfg_.response_timeout;
+    for (;;) {
+        if (!pauses_.empty()) return Status::Ok;
+        if (state_ == SessionState::Failed || state_ == SessionState::Closed) return Status::LinkLost;
+        if (state_ != SessionState::Ready) return Status::NotReady;
+        if (now() >= deadline) return Status::Timeout;
+        poll(1);
+        call_hook();
+    }
 }
 
 Reply DzrpClient::request(std::uint8_t id, std::vector<std::uint8_t> payload) {

@@ -162,6 +162,11 @@ public:
     /// Send what the window allows, move bytes, route replies and notifications, check timeouts.
     void poll(int wait_ms = 0);
     std::optional<PauseNotification> take_pause();
+    /// Block until a NTF_PAUSE is queued (then take_pause() has it): Ok. Polls the link and calls the wait
+    /// hook each turn, for at most `response_timeout` on the config clock: Timeout, which is NOT a session
+    /// failure (a CMD_CONTINUE may run for ever). LinkLost when the session is dead, NotReady before it is
+    /// up, Reentrant from inside the hook (as request()).
+    Status wait_pause();
     void set_wait_hook(WaitHook hook) { hook_ = std::move(hook); }
 
     /// CMD_CLOSE (a bounded request) if the gate lets it, then close the link.
@@ -196,6 +201,7 @@ private:
     void finish(Cmd& c, Status s, std::vector<std::uint8_t> payload, std::uint8_t seq);
     void teardown(SessionState to, Status failure, Status oldest, const std::string& why);
     Reply wait_for(std::uint32_t ticket);
+    void call_hook();
 
     std::unique_ptr<ClientLink> link_;
     ClientConfig                cfg_;

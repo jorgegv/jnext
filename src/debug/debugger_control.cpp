@@ -19,6 +19,7 @@
 //     `Debugger::state()` for why the backend has to remember it.
 // ---------------------------------------------------------------------------
 
+#include "debug/step_successors.h"
 #include "debug/debugger_impl.h"
 
 #include <optional>
@@ -193,8 +194,11 @@ Result Debugger::step_over(ClientId by) {
         return step_into(by);
     }
 
-    const int len = ::instruction_length(pc, memory_reader());
-    const uint16_t next_pc = static_cast<uint16_t>(pc + len);
+    // The targets come from step_successors(): the instruction after the CALL / RST / DJNZ, and for
+    // `RST $08` (an esxDOS call, which returns past its DEFB function byte) the byte after that too. A
+    // remote Step Over reads the same function, so the two never differ.
+    const jnext::dbg::StepSuccessors succ = jnext::dbg::step_successors(
+        impl_->emu->cpu().get_registers(), memory_reader(), operand_reader(), jnext::dbg::StepKind::Over);
     // GH #276 B2 — a REAL transient `Execute` subscription, replacing
     // `DebugState::step_over`'s single one-shot. §4.3 makes transient
     // subscriptions unlimited in number, exempt from the master switch and
@@ -206,13 +210,15 @@ Result Debugger::step_over(ClientId by) {
     // `step_over_subscribed()` is `step_over()` minus the one-shot: the step
     // MODE is unchanged, so `state().step_mode` still reports `Over` and every
     // CTL-04 row that asserts it still holds.
-    Subscription tgt;
-    tgt.kind      = EventKind::Execute;
-    tgt.filter.lo = next_pc;
-    tgt.filter.hi = next_pc;
-    tgt.transient = true;
-    tgt.action    = Action::Stop;
-    (void)subscribe(by, tgt);
+    for (uint8_t i = 0; i < succ.count; ++i) {
+        Subscription tgt;
+        tgt.kind      = EventKind::Execute;
+        tgt.filter.lo = succ.addr[i];
+        tgt.filter.hi = succ.addr[i];
+        tgt.transient = true;
+        tgt.action    = Action::Stop;
+        (void)subscribe(by, tgt);
+    }
     impl_->ds().step_over_subscribed();
     // ASYNCHRONOUS — the stop arrives later, and it is a step completing rather
     // than a run reaching a target, so the reason is Step (CTL-13's "a step verb

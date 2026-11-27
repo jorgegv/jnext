@@ -13,6 +13,23 @@ struct LatchEntry;
 
 enum class StepMode { NONE, INTO, OVER, OUT, RUN_TO_CYCLE, STEP_BACK, RUN_BACK_TO_CYCLE };
 
+/// Did the instruction just executed return OUT of the routine Step Out was armed in? The one Step Out
+/// predicate: DebugState (the local hot loop) and a remote Step Out (a loop of Step Overs) both ask it.
+///   1. the stack shrank by exactly one return address (`sp_after == sp_before + 2`): what tells a
+///      taken `RET cc` from an untaken one, and keeps a step that executed nothing inert;
+///   2. the instruction was a return: RET, RET cc, RETI/RETN and the RETN aliases (`op`, `op2` are the
+///      first two bytes at its PC), not a bare `POP rr`;
+///   3. the pop went STRICTLY past the arming point (`sp_after > armed_sp`): a nested call's own RET
+///      lands exactly on it and does not end the step.
+/// 16-bit wrap is not modelled, as before.
+inline bool step_out_sp_past(uint16_t armed_sp, uint16_t sp_before, uint16_t sp_after) {
+    return sp_after == static_cast<uint16_t>(sp_before + 2) && sp_after > armed_sp;   // conditions 1 and 3
+}
+inline bool step_out_returned(uint16_t armed_sp, uint16_t sp_before, uint16_t sp_after, uint8_t op, uint8_t op2) {
+    return step_out_sp_past(armed_sp, sp_before, sp_after) &&
+           (op == 0xC9 || (op & 0xC7) == 0xC0 || (op == 0xED && (op2 & 0xC7) == 0x45));
+}
+
 /// Manages the debugger's execution control state: pause/resume, step modes,
 /// and breakpoint checking.  Pure C++ — no GUI dependency.
 class DebugState {

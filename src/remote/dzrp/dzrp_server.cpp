@@ -941,6 +941,14 @@ void DzrpServer::cmd_continue(const Command& cmd) {
     }
     for (std::size_t at : {std::size_t{0}, std::size_t{3}}) {
         if (p[at] == 0) continue;
+        if (p.size() < at + 3) {
+            // The 5-byte form (the CSpect reference reads 5) is accepted, but a second temporary needs
+            // its two address bytes: the high one would be a byte past the payload.
+            Log::debugger()->warn("dzrp: CMD_CONTINUE second temporary breakpoint is incomplete "
+                                  "(payload of {} bytes): ignored",
+                                  p.size());
+            continue;
+        }
         Subscription sub;
         sub.kind      = EventKind::Execute;
         sub.filter.lo = sub.filter.hi = le16(p, at + 1);

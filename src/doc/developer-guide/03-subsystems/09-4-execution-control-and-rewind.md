@@ -105,6 +105,13 @@ slot body without asking for a batch, so a Step over a `HALT` is one repeat.
 | `RUN_TO_CYCLE` | `run_to_cycle()` | the master clock reaches the target |
 | `STEP_BACK`, `RUN_BACK_TO_CYCLE` | `step_back()`, `run_back_to_cycle()` | handled before the loop starts, by rewinding |
 
+The `OVER` targets come from `step_successors()` (`src/debug/step_successors.h`), a pure function over
+the registers and two byte readers that gives the addresses the PC can hold after one instruction: one for
+a `CALL`, `RST` or `DJNZ` (the next instruction), two for `RST $08` (the byte after it and the byte after
+its esxDOS function byte, where the call returns). It follows the CPU's own instruction boundaries (a
+DD/FD prefix chain and its opcode are one instruction, however long) and is checked against `Z80Cpu` over
+every opcode by `step_successors_test`.
+
 Run to Here is the same transient `Execute` subscription at a chosen address,
 through `run_to_subscribed()`. Run to End of Frame and Run to End of Scanline
 are `run_to_cycle()` with a computed target.
@@ -134,6 +141,8 @@ per-instruction body, ends the step when three things hold:
 - its opcode was a return form (`RET`, `RET cc`, `RETI`/`RETN` including the
   undocumented `ED` aliases);
 - the pop unwound the stack strictly past the armed SP.
+
+The three conditions are one free function, `step_out_returned()` in `debug_state.h`, which `check_step_out()` calls.
 
 The last condition is what makes a nested call's own `RET`, or an interrupt
 handler's `RETI`, return into the routine being stepped out of rather than end

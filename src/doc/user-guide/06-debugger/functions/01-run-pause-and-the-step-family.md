@@ -42,7 +42,9 @@ resumes, so a subroutine runs at full speed and you land on the following
 instruction. It only does this for instructions that can come back —
 `CALL nn`, `CALL cc,nn`, `RST n` and `DJNZ`. For anything else it is identical
 to Single Step. Note the consequence for `DJNZ`: stepping over it runs the
-whole loop.
+whole loop. `RST $08` is the esxDOS call (`RST $08 : DEFB function`): the call
+returns past its function byte, so Step Over lands on the instruction after
+the `DEFB`.
 
 **Step Out** resumes until a return instruction — `RET`, a taken `RET cc`,
 `RETI` or `RETN` — pops the stack back *past* its level when you pressed it;

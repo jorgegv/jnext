@@ -91,6 +91,13 @@ target_link_libraries(disasm_hint_test PRIVATE jnext_debug jnext_cpu)
 target_include_directories(disasm_hint_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME disasm_hint_tests COMMAND disasm_hint_test ${CMAKE_CURRENT_BINARY_DIR}/fuse)
 
+# GH #516 - step_successors(): the addresses a step drops temporary breakpoints on. Pure; Z80Cpu is
+# the oracle. Links jnext_debug + jnext_cpu only, so it runs in every configuration.
+add_executable(step_successors_test debug/step_successors_test.cpp)
+target_link_libraries(step_successors_test PRIVATE jnext_debug jnext_cpu)
+target_include_directories(step_successors_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME step_successors_tests COMMAND step_successors_test)
+
 # GH #370 - the Memory panel's find / fill / block-split helper (Qt-free, no file I/O).
 add_executable(mem_tools_test debug/mem_tools_test.cpp)
 target_link_libraries(mem_tools_test PRIVATE jnext_debug)

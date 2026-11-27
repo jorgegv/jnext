@@ -58,8 +58,12 @@
 	SUB(bytetemp);
       }
       break;
+    case 0x4d:		/* RETI: the VHDL emits RETN_LSB/RETN_MSB (the stackless
+			   substitution) for RETN only, so RETI always pops the stack */
+      IFF1=IFF2;
+      RET();
+      break;
     case 0x45:
-    case 0x4d:
     case 0x55:
     case 0x5d:
     case 0x65:

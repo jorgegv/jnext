@@ -1322,6 +1322,60 @@ static void wait_rows() {
                   log.count("from inside the wait hook") == 1,
               "regs=" + std::to_string(regs));
     }
+    // DZC-WP: wait_pause()
+    {
+        Script s;
+        auto c = make_client(s);
+        bring_up(*c, s);
+        bool sent = false;
+        int  hooks = 0;
+        c->set_wait_hook([&] {
+            ++hooks;
+            s.service();
+            if (!sent) { sent = true; s.notify({NTF_PAUSE, BREAK_BP, 0x00, 0x80, 0x0B, 'x', 0}); }
+        });
+        const Status st = c->wait_pause();
+        const auto   p  = c->take_pause();
+        // a pause already queued returns at once, without the hook
+        s.notify({NTF_PAUSE, BREAK_MANUAL, 0x34, 0x12, 0, 0});
+        c->poll(0);
+        hooks = 0;
+        const Status st2 = c->wait_pause();
+        const auto   p2  = c->take_pause();
+        check("DZC-WP-01", "wait_pause(): a notification that arrives while it waits returns Ok (reason 2, addr 0x8000, hook called); one already queued returns Ok without the hook",
+              st == Status::Ok && p && p->reason == 2 && p->addr == 0x8000 && sent &&
+                  st2 == Status::Ok && p2 && p2->addr == 0x1234 && hooks == 0,
+              "st=" + std::to_string(static_cast<int>(st)) + " st2=" + std::to_string(static_cast<int>(st2)));
+    }
+    {
+        Script s;
+        auto c = make_client(s);
+        bring_up(*c, s);
+        AutoMs fast(250);
+        const Status st = c->wait_pause();                    // the hook answers nothing: the response timeout passes
+        const bool   ready = c->state() == SessionState::Ready;
+        const Reply  r = c->request(CMD_GET_REGISTERS);       // and the session still works
+        check("DZC-WP-02", "wait_pause(): no notification within the response timeout is Timeout, the session stays Ready and serves the next request",
+              st == Status::Timeout && ready && r.status == Status::Ok,
+              "st=" + std::to_string(static_cast<int>(st)));
+    }
+    {
+        Script s;
+        auto c = make_client(s);
+        bring_up(*c, s);
+        Status inner = Status::Ok;
+        int    n = 0;
+        c->set_wait_hook([&] {
+            s.service();
+            if (n++ == 0) inner = c->wait_pause();
+            else if (n == 2) s.notify({NTF_PAUSE, BREAK_MANUAL, 0, 0, 0, 0});
+        });
+        LogTap log;
+        const Status outer = c->wait_pause();
+        check("DZC-WP-03", "wait_pause() from inside the wait hook is Reentrant and logged; the outer wait still completes Ok",
+              inner == Status::Reentrant && outer == Status::Ok && log.count("from inside the wait hook") == 1,
+              "inner=" + std::to_string(static_cast<int>(inner)) + " outer=" + std::to_string(static_cast<int>(outer)));
+    }
 }
 
 // ==============================================================================================
