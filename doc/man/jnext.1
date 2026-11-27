@@ -210,8 +210,10 @@ Open the SD image read\-only, so the host file is never modified.
 The emulated machine sees a write\-protected card: writes are rejected
 with the SD write\-error token rather than silently discarded.
 Use it when a run must not disturb an image other runs share.
+Also spelt \f[B]\-\-sdcard1\-readonly\f[R].
 .TP
 \f[B]\-\-sdcard\-writes\f[R] \f[I]FILE\f[R]
+Also spelt \f[B]\-\-sdcard1\-writes\f[R].
 Keep the writes the emulated machine makes to the SD card in
 \f[I]FILE\f[R], not in the image: the image is opened read\-only and
 never changes, and \f[I]FILE\f[R]\(cqs sectors are laid over it whenever
@@ -251,6 +253,7 @@ identity) do not see the writes.
 See \f[B]SD CARD AND ROMS\f[R].
 .TP
 \f[B]\-\-sdcard\-writes\-reset\f[R]
+Also spelt \f[B]\-\-sdcard1\-writes\-reset\f[R].
 Discard the writes kept in the \f[B]\-\-sdcard\-writes\f[R]
 \f[I]FILE\f[R] before the card is mounted, the stand\-in\(cqs file
 included, so the run starts on the image as it is.
@@ -1501,6 +1504,7 @@ schedules two presses.
 Requires \f[B]\-\-headless\f[R].
 .TP
 \f[B]\-\-delayed\-sdcard\-insert\-frames\f[R] \f[I]N\f[R] \f[I]FILE\f[R]
+Also spelt \f[B]\-\-delayed\-sdcard1\-insert\-frames\f[R].
 Insert SD\-card image \f[I]FILE\f[R] after \f[I]N\f[R] emulated frames,
 exactly as \f[B]File > Insert SD Card Image\f[R] does (see \f[B]SD CARD
 AND ROMS\f[R]).

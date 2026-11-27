@@ -120,6 +120,12 @@ Endpoint endpoint_now() { std::lock_guard<std::mutex> g(ep_mu()); return ep(); }
 
 }  // namespace
 
+// A pid is at most 9 digits (long is 32 bits on Windows: stol would throw on more); anything else is unknown (0).
+static long pid_of(const std::string& v)
+{
+    return all_digits(v, 9) ? std::stol(v) : 0;
+}
+
 LockHolder parse_lock_body(const std::string& whole)
 {
     const std::string text = whole.size() > 4096 ? whole.substr(0, 4096) : whole;
@@ -134,7 +140,7 @@ LockHolder parse_lock_body(const std::string& whole)
     }
     if (lines.empty()) return h;
     if (all_digits(lines[0], 10)) {           // the older, unlabelled form
-        h.pid = std::stol(lines[0]);
+        h.pid = pid_of(lines[0]);
         return h;
     }
     struct Field { int count = 0; std::string value; bool present() const { return count > 0; } };
@@ -151,7 +157,7 @@ LockHolder parse_lock_body(const std::string& whole)
         ++f->count;
         f->value = std::move(value);
     }
-    if (pid.count == 1 && all_digits(pid.value, 10)) h.pid = std::stol(pid.value);
+    if (pid.count == 1) h.pid = pid_of(pid.value);
     if (port.count != 1 || !all_digits(port.value, 5)) return h;
     const long p = std::stol(port.value);
     if (p < 1 || p > 65535) return h;

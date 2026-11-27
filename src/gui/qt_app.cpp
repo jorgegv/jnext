@@ -352,8 +352,7 @@ bool QtApp::init(int argc, char* argv[]) {
     // upgrade or a go back owns the card), else the same logic runs with no card operation in flight.
     if (!debug_servers_.start(*debugger_, config_,
             [this](const jnext::remote::zrcp::SdFileAddRequest& r) {
-                return main_window_ ? main_window_->remote_sd_file_add(r)
-                                    : sdmanager::remote_add(emulator_, r, {});
+                return route_sd_file_add(main_window_, emulator_, r);
             }))
         return false;
     // ── end GH #12 ──────────────────────────────────────────────────────────
@@ -1207,4 +1206,10 @@ void QtApp::on_status_tick() {
 bool QtApp::tape_realtime() const
 {
     return main_window_ ? !main_window_->tape_fast_load() : false;
+}
+
+jnext::remote::zrcp::SdFileAddReply QtApp::route_sd_file_add(MainWindow* window, Emulator& emu,
+                                                             const jnext::remote::zrcp::SdFileAddRequest& r)
+{
+    return window ? window->remote_sd_file_add(r) : sdmanager::remote_add(emu, r, {});
 }

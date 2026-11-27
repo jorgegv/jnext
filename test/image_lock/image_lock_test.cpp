@@ -277,9 +277,28 @@ int main() {
         while (big.size() < (1u << 20)) big += "zzz: " + std::string(100, 'x') + "\n";
         big += "zrcp_listening_port: 99\n";
         const LockHolder b = parse_lock_body(big);
-        check("SDLOCK-26", "a label given twice is ignored, CRLF is accepted, a NUL makes a value junk, a 1 MiB body is read only up to 4 KiB",
+        // every label counts: a repeated address drops the endpoint, a repeated pid leaves the pid unknown
+        const LockHolder addr2 = parse_lock_body("pid: 7\nzrcp_listening_address: 127.0.0.1\nzrcp_listening_address: 127.0.0.2\nzrcp_listening_port: 99\n");
+        const LockHolder pid2 = parse_lock_body("pid: 7\npid: 8\nzrcp_listening_port: 99\n");
+        check("SDLOCK-26", "a label given twice (port, address or pid) is ignored, CRLF is accepted, a NUL makes a value junk, a 1 MiB body is read only up to 4 KiB",
               !twice.has_endpoint && crlf.has_endpoint && crlf.port == 99 && crlf.pid == 7 && !nul.has_endpoint &&
-                  b.pid == 7 && !b.has_endpoint);
+                  b.pid == 7 && !b.has_endpoint && !addr2.has_endpoint && pid2.pid == 0 && pid2.has_endpoint);
+    }
+    {
+        // long is 32 bits on Windows: a pid of 10 digits above 2^31 must not throw (std::stol would), it is an unknown pid
+        // and the endpoint verdict is kept. This row runs under wine too.
+        bool threw = false;
+        LockHolder a, b, c, d;
+        try {
+            a = parse_lock_body("pid: 4294967295\nzrcp_listening_address: 127.0.0.1\nzrcp_listening_port: 99\n");
+            b = parse_lock_body("4294967295\n/x\n");
+            c = parse_lock_body("pid: 999999999\n");
+            d = parse_lock_body("pid: 99999999999999999999999\n");
+        } catch (...) {
+            threw = true;
+        }
+        check("SDLOCK-28", "a pid of 10 digits or more (above 2^31) in a lock file does not throw: the pid is unknown (0), the endpoint verdict is kept; 9 digits are kept",
+              !threw && a.pid == 0 && a.has_endpoint && a.port == 99 && b.pid == 0 && !b.has_endpoint && c.pid == 999999999 && d.pid == 0);
     }
     {
         const std::string notdir = d + "/notadir";

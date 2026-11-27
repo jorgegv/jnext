@@ -207,6 +207,36 @@ PY
     kill "$busy_py" 2>/dev/null || true; wait "$busy_py" 2>/dev/null || true
     stop_holder "$h5"
 
+    # 12b. options that act on the card itself are refused for a forwarded copy: --sdcard-sha256 on an explicit card, and
+    #      --sdcard-download-force / --sdcard-upgrade on the default card (their holder runs on a config dir's default card)
+    hold h8 --sdcard "$BASE/g.img"
+    h8=$HOLD_PID
+    gi=$(sha "$BASE/g.img")
+    fwd sha 5 "$BASE/other" --sdcard ../g.img --sdcard-sha256 "$(printf 'a%.0s' $(seq 1 64))" --sdcard-file-add p2.bin
+    log_has sha "--sdcard-sha256 cannot be used for a copy through a running jnext (process $h8): it acts on the card itself"
+    stop_holder "$h8"
+    [[ "$(sha "$BASE/g.img")" == "$gi" ]] || faults+=("sha: the card changed")
+    CFGD="$BASE/cfg-default"; mkdir -p "$CFGD/sdcard"
+    cp --reflink=auto "$MASTER" "$CFGD/sdcard/cspect-next-1gb-fixed.img"
+    sd_card_sidecars "$MASTER" "$CFGD/sdcard/cspect-next-1gb-fixed.img"
+    JNEXT_CONFIG_DIR="$CFGD" "$JNEXT" --headless --machine 48k --rewind-buffer-size 0 --zrcp-port 0 \
+        --delayed-automatic-exit 900 > "$W/h9.log" 2>&1 &
+    h9=$!
+    HOLD_PIDS+=("$h9"); HOLD_PID=$h9
+    wait_listening h9
+    di=$(sha "$CFGD/sdcard/cspect-next-1gb-fixed.img")
+    for opt in "--sdcard-download-force" "--sdcard-upgrade yes"; do
+        lbl="dflt-${opt%% *}"
+        TRY_RC=0
+        # shellcheck disable=SC2086
+        ( cd "$BASE/other" && JNEXT_CONFIG_DIR="$CFGD" timeout --foreground --kill-after=5s 120s "$JNEXT" $opt --sdcard-file-add p2.bin ) \
+            > "$W/$lbl.log" 2>&1 || TRY_RC=$?
+        [[ "$TRY_RC" == 5 ]] || faults+=("$lbl: exit $TRY_RC, wanted 5: $(head -c 300 "$W/$lbl.log")")
+        log_has "$lbl" "${opt%% *} cannot be used for a copy through a running jnext (process $h9): it acts on the card itself"
+    done
+    stop_holder "$h9"
+    [[ "$(sha "$CFGD/sdcard/cspect-next-1gb-fixed.img")" == "$di" ]] || faults+=("dflt: the default card changed")
+
     # 13. every frontend installs the hook: an SDL holder and a Qt holder each take one forwarded copy
     JNEXT_CONFIG_DIR="$CFG" env -u WAYLAND_DISPLAY SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy "$JNEXT_SDL" --silent \
         --machine 48k --sdcard "$BASE/h.img" --zrcp-port 0 --delayed-automatic-exit 900 > "$W/h6.log" 2>&1 &

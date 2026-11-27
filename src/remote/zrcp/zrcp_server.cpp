@@ -458,7 +458,7 @@ const ZrcpServer::CommandDef ZrcpServer::COMMANDS[] = {
     U("save-binary-internal", nullptr),
     U("save-screen", nullptr),
     {"sd-file-add", nullptr, "image file card-path [--force] [--card 1|2] [--writes file]",
-     "Copies the host file \"file\" onto the SD card image \"image\" mounted in this jnext, as "
+     "Copies the host file (or folder) \"file\" onto the SD card image \"image\" mounted in this jnext, as "
      "card-path (directories are created, an existing file needs --force). A jnext command: "
      "ZEsarUX has none. Every argument is percent-encoded (%XX for a space, % and control bytes) "
      "and absolute; --card says which card the image must be (1 or 2) and --writes the writes "

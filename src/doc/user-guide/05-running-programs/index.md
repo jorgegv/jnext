@@ -218,7 +218,7 @@ it: start the running one with `--zrcp-port 10000` (and `--sdcard mycard.img`) a
 `jnext --sdcard mycard.img --sdcard-file-add game.nex` from another terminal. The running
 JNEXT writes the file onto the card it has open and the second one exits with the status
 of that copy, so a NextZXOS that is running sees the file in its Browser without a reset.
-If the running JNEXT does not serve ZRCP, is busy with a debugger or an upgrade, or has
+If the running JNEXT does not serve ZRCP, is busy with a ZRCP client (a debugger) or an upgrade, or has
 the card read-only, the command says so and exits 5, and the card is left alone. The
 second card is named with `--sdcard2` instead of `--sdcard`
 (`jnext --sdcard2 card2.img --sdcard-file-add game.nex`). The man page, under A CARD IN

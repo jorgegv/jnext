@@ -177,10 +177,10 @@ naming the option and the value, and exits with status 1.
 :   Open the SD image read-only, so the host file is never modified. The
     emulated machine sees a write-protected card: writes are rejected with the
     SD write-error token rather than silently discarded. Use it when a run must
-    not disturb an image other runs share.
+    not disturb an image other runs share. Also spelt **\--sdcard1-readonly**.
 
 **\--sdcard-writes** *FILE*
-:   Keep the writes the emulated machine makes to the SD card in *FILE*, not in
+:   Also spelt **\--sdcard1-writes**. Keep the writes the emulated machine makes to the SD card in *FILE*, not in
     the image: the image is opened read-only and never changes, and *FILE*'s
     sectors are laid over it whenever the card is mounted, so the writes
     survive the next run. *FILE* belongs to one image, identified by its
@@ -209,7 +209,7 @@ naming the option and the value, and exits with status 1.
     **SD CARD AND ROMS**.
 
 **\--sdcard-writes-reset**
-:   Discard the writes kept in the **\--sdcard-writes** *FILE* before the card
+:   Also spelt **\--sdcard1-writes-reset**. Discard the writes kept in the **\--sdcard-writes** *FILE* before the card
     is mounted, the stand-in's file included, so the run starts on the image as
     it is. Requires
     **\--sdcard-writes**. A file that is not a **jnext** SD-writes file is
@@ -1188,7 +1188,7 @@ naming the option and the value, and exits with status 1.
     same list, so giving both schedules two presses. Requires **\--headless**.
 
 **\--delayed-sdcard-insert-frames** *N* *FILE*
-:   Insert SD-card image *FILE* after *N* emulated frames, exactly as
+:   Also spelt **\--delayed-sdcard1-insert-frames**. Insert SD-card image *FILE* after *N* emulated frames, exactly as
     **File > Insert SD Card Image** does (see **SD CARD AND ROMS**). The
     card keeps **\--sdcard-readonly**. The run exits non-zero if the insert
     is refused - while an RZX recording is made or played, while a directly

@@ -152,6 +152,21 @@ if want sdcard-card-choice-func; then
     run x-flat-need 1 "$CFGE" --sdcard2 "$BASE/b10.img" --sdcard-writes-flatten "$BASE/flat11.img"
     log_has x-flat-need "--sdcard-writes-flatten requires --sdcard2-writes FILE."
 
+    # 8b. the swap clears every card-2 option: a read-only card 2 is a source for extract, and an offline card-2 writes reset
+    #     works (both were refused with "needs --sdcard2 FILE" when the swap left the card-2 variables set)
+    mkdir -p "$BASE/out2"
+    ( cd "$BASE/out2" && JNEXT_CONFIG_DIR="$CFGE" timeout --foreground --kill-after=5s 120s "$JNEXT" --sdcard2 "$BASE/b8.img" --sdcard2-readonly --sdcard-file-extract /x.txt ) \
+        > "$W/x-ro-extract.log" 2>&1 || faults+=("x-ro-extract: exit $?: $(head -c 300 "$W/x-ro-extract.log")")
+    [[ "$(cat "$BASE/out2/x.txt" 2>/dev/null || true)" == "second card file" ]] || faults+=("x-ro-extract: a read-only card 2 was not extracted")
+    run x-reset 0 "$CFGE" --sdcard2 "$BASE/b4.img" --sdcard2-writes "$BASE/w4.jsdw" --sdcard2-writes-reset --sdcard-file-add p.bin --sdcard-file-dest /NEW4.BIN
+    cp --reflink=auto "$BASE/b4.img" "$W/b4-reset.img"
+    if python3 -I "$PROJECT_DIR/test/00regression/sdcard-writes-apply.py" "$W/b4-reset.img" "$BASE/w4.jsdw"; then
+        [[ "$(mt "$W/b4-reset.img" $D_OFF /NEW4.BIN)" == "payload" ]] || faults+=("x-reset: /NEW4.BIN is not in the fresh writes file")
+        LANG=C mdir -i "$W/b4-reset.img@@$D_OFF" ::/W4.BIN >/dev/null 2>&1 && faults+=("x-reset: the old journal content (/W4.BIN) survived the reset")
+    else
+        faults+=("x-reset: the writes file is not a valid journal")
+    fi
+
     # 9. (Qt build) the saved Preferences' second card is not mounted or locked by a card-1 command
     CFGQ="$BASE/cfg-qt"; mkdir -p "$CFGQ"
     printf '[paths]\nsd_card2_path=%s\n' "$BASE/b.img" > "$CFGQ/jnext.conf"

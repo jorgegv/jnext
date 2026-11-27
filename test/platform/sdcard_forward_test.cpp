@@ -227,6 +227,14 @@ int main() {
                   o.text == "Copied x" + tail,
               std::to_string(o.status) + " " + o.text);
     }
+    // SDFWD-14
+    {
+        Srv s;
+        s.reply = {0, std::string("Copied 100% of we ird%20.bin\x01 done")};
+        const Outcome o = via_server(s, sample());
+        check("SDFWD-14", "the client prints the DECODED text of an OK reply: a sentence holding % and a control byte comes out as sent",
+              o.status == 0 && o.text.rfind(std::string("Copied 100% of we ird%20.bin\x01 done (by the running jnext, process "), 0) == 0, o.text);
+    }
     // SDFWD-03
     {
         bool all = true;

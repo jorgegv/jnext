@@ -4804,21 +4804,23 @@ image</a>.</dd>
 <dd>Open the SD image read-only, so the host file is never modified. The
 emulated machine sees a write-protected card: writes are rejected
 with the SD write-error token rather than silently discarded. Use it
-when a run must not disturb an image other runs share.</dd>
+when a run must not disturb an image other runs share. Also spelt
+<strong>--sdcard1-readonly</strong>.</dd>
 <dt><strong>--sdcard-writes</strong> <em>FILE</em></dt>
-<dd>Keep the writes the emulated machine makes to the SD card in <em>FILE</em>,
-not in the image: the image is opened read-only and never changes,
-and <em>FILE</em>’s sectors are laid over it whenever the card is mounted,
-so the writes survive the next run. <em>FILE</em> belongs to one image,
-identified by its <strong>--sdcard-sha256</strong> digest or else by its size and
-modification time: a <em>FILE</em> made against another image is refused
-(exit status 1), and so is a file that is not a <strong>jnext</strong> SD-writes
-file. It is created at the first write and holds only the sectors
-the machine wrote (516 bytes each) and the one file jnext’s esxDOS
-stand-in keeps for a directly loaded NEX (see <strong>esxDOS calls from a
-directly loaded NEX</strong>), stored when the program closes it and handed
-back to the stand-in at the next start, whatever the program: it
-belongs to the card, not to the NEX that wrote it. Excludes
+<dd>Also spelt <strong>--sdcard1-writes</strong>. Keep the writes the emulated
+machine makes to the SD card in <em>FILE</em>, not in the image: the image
+is opened read-only and never changes, and <em>FILE</em>’s sectors are laid
+over it whenever the card is mounted, so the writes survive the next
+run. <em>FILE</em> belongs to one image, identified by its
+<strong>--sdcard-sha256</strong> digest or else by its size and modification
+time: a <em>FILE</em> made against another image is refused (exit status
+1), and so is a file that is not a <strong>jnext</strong> SD-writes file. It is
+created at the first write and holds only the sectors the machine
+wrote (516 bytes each) and the one file jnext’s esxDOS stand-in
+keeps for a directly loaded NEX (see <strong>esxDOS calls from a directly
+loaded NEX</strong>), stored when the program closes it and handed back to
+the stand-in at the next start, whatever the program: it belongs to
+the card, not to the NEX that wrote it. Excludes
 <strong>--sdcard-readonly</strong>; with <strong>--sdcard-file-add</strong> the copy goes into
 <em>FILE</em> and the image is not written. Do not change the image with
 another program while <em>FILE</em> has writes for it (hdfmonkey, mtools, a
@@ -4837,10 +4839,11 @@ state and does not change it. Files read from the image by the host
 <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an SD-card
 image</a>.</dd>
 <dt><strong>--sdcard-writes-reset</strong></dt>
-<dd>Discard the writes kept in the <strong>--sdcard-writes</strong> <em>FILE</em> before the
-card is mounted, the stand-in’s file included, so the run starts on
-the image as it is. Requires <strong>--sdcard-writes</strong>. A file that is not
-a <strong>jnext</strong> SD-writes file is refused, never removed.</dd>
+<dd>Also spelt <strong>--sdcard1-writes-reset</strong>. Discard the writes kept in
+the <strong>--sdcard-writes</strong> <em>FILE</em> before the card is mounted, the
+stand-in’s file included, so the run starts on the image as it is.
+Requires <strong>--sdcard-writes</strong>. A file that is not a <strong>jnext</strong>
+SD-writes file is refused, never removed.</dd>
 <dt><strong>--no-sdcard</strong></dt>
 <dd>Run a directly loaded NEX with no SD card at all: no NextZXOS, no
 ROMs and no warm start. An emulator convenience, like the esxDOS
@@ -5792,9 +5795,9 @@ spelling of <strong>--delayed-nmi</strong>, not an override of it: both forms
 queue into the same list, so giving both schedules two presses.
 Requires <strong>--headless</strong>.</dd>
 <dt><strong>--delayed-sdcard-insert-frames</strong> <em>N</em> <em>FILE</em></dt>
-<dd>Insert SD-card image <em>FILE</em> after <em>N</em> emulated frames, exactly as
-<strong>File &gt; Insert SD Card Image</strong> does (see <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an
-SD-card
+<dd>Also spelt <strong>--delayed-sdcard1-insert-frames</strong>. Insert SD-card image
+<em>FILE</em> after <em>N</em> emulated frames, exactly as <strong>File &gt; Insert SD
+Card Image</strong> does (see <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an SD-card
 image</a>). The
 card keeps <strong>--sdcard-readonly</strong>. The run exits non-zero if the
 insert is refused - while an RZX recording is made or played, while

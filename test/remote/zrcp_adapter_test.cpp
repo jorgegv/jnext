@@ -606,6 +606,13 @@ static void sd_file_add_rows() {
                              "'OK. Copied 100%25%0Ax' and 'Error. [4] exists%0Aline2 100%25', each ending at its prompt",
               r0 == "OK. Copied x\ncommand> " && r0e == "OK. Copied 100%25%0Ax\ncommand> " &&
                   r4 == "Error. [4] exists%0Aline2 100%25\ncommand> ", esc(r0) + esc(r0e) + esc(r4));
+        calls = 0;
+        rig.zrcp->set_sd_file_add([&](const SdFileAddRequest& r) { got = r; ++calls; return SdFileAddReply{0, "ok"}; });
+        c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p") + " --force");
+        const bool path_force = calls == 1 && got.card_path == "--force" && !got.force;
+        c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p") + " --card --force");
+        check("ZRCP-SDA-08", "a card path that starts with -- (--force, --card) is the third positional and reaches the hook as the card path; options are read only after the three positionals",
+              path_force && calls == 2 && got.card_path == "--card" && got.force && got.slot == -1, got.card_path);
         const std::string h = c.cmd("help sd-file-add");
         check("ZRCP-SDA-07", "help sd-file-add gives the syntax line with the options and says it is a jnext command",
               starts_with(h, "Syntax: sd-file-add image file card-path [--force] [--card 1|2] [--writes file]\n\nDescription\n") &&
