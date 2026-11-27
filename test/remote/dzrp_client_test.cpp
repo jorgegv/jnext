@@ -9,7 +9,7 @@
 // (doc/design/DEBUGGER-REMOTE-REAL-NEXT-PLAN.md section 3). The T80N core has no debugger: there is
 // no VHDL counterpart.
 //
-//   DZC-FR-*    framing: both length conventions, the cap, the chunk timeout, the serial preamble.
+//   DZC-FR-*    framing: both length conventions, the cap, the chunk timeout.
 //   DZC-SES-*   the session: CMD_INIT, sequence numbers, the window, timeouts, notifications, detach_link.
 //   DZC-ID-*    the identity rule: which remote is which profile.
 //   DZC-GATE-*  the send gate: nothing outside the profile's set, nothing to a running program.
@@ -539,47 +539,9 @@ static void framing_rows() {
               got.size() == 3 && got[0].seq == 1 && got[1].notification() && got[1].payload == pause &&
                   got[2].seq == 2 && off == stream.size());
     }
-    // FR-11: the preamble.
-    {
-        bool        all = true;
-        std::string why;
-        const Bytes frame = encode_response(3, Bytes{7, 8});
-        struct Case { Bytes junk; };
-        const std::vector<Bytes> junks = {Bytes{}, Bytes(1, 0), Bytes(1000, 0), Bytes{0x12, 0x34, 0x56}};
-        for (std::size_t i = 0; i < junks.size() && all; ++i) {
-            ResponseParser rp(ResponseParser::Options{true});
-            feed_all(rp, cat(cat(junks[i], Bytes{0xA5}), frame));
-            if (!rp.ready() || rp.swallowed() != junks[i].size() || rp.take().payload != Bytes{7, 8}) {
-                all = false;
-                why = "case " + std::to_string(i);
-            }
-        }
-        check("DZC-FR-11", "preamble: runs of 0, 1 and 1000 zero bytes and non-zero junk before 0xA5 are swallowed, the frame parses and swallowed() counts them",
-              all, why);
-    }
-    // FR-12
-    {
-        ResponseParser rp(ResponseParser::Options{true});
-        const Bytes    frame = encode_response(3, Bytes{7, 8});
-        rp.feed(Bytes{0x00, 0xA5}.data(), 2, g_now);
-        const bool hunting_over = !rp.ready();
-        feed_all(rp, frame);
-        check("DZC-FR-12", "preamble: an 0xA5 that ends one feed is not lost, the frame follows in the next feed",
-              hunting_over && rp.ready() && rp.take().payload == Bytes{7, 8});
-    }
-    // FR-13
-    {
-        ResponseParser rp(ResponseParser::Options{true});
-        const Bytes    frame = encode_response(0xA5, Bytes(164, 0xA5));   // length 165 = 0xA5
-        feed_all(rp, cat(Bytes{0xA5}, frame));
-        const bool ready = rp.ready();
-        const Response r = rp.take();
-        check("DZC-FR-13", "preamble: an 0xA5 inside a frame (length byte, seq, payload) is data",
-              ready && r.seq == 0xA5 && r.payload == Bytes(164, 0xA5));
-    }
     // FR-14
     {
-        // Option OFF: two frames of length 0xA5, whose first byte is 0xA5, decode literally.
+        // Two frames of length 0xA5, whose first byte is 0xA5, decode literally.
         const Bytes f = encode_response(1, Bytes(164, 0xA5));
         ResponseParser rp;
         const Bytes two = cat(f, f);
@@ -593,7 +555,7 @@ static void framing_rows() {
         }
         ResponseParser zero;
         feed_all(zero, Bytes{0, 0, 0, 0});
-        check("DZC-FR-14", "preamble OFF: a leading 0xA5 is a length byte (two frames decode literally) and a leading 0x00 is a length byte too",
+        check("DZC-FR-14", "a leading 0xA5 is a length byte (two frames decode literally) and a leading 0x00 is a length byte too",
               got.size() == 2 && got[0].payload == Bytes(164, 0xA5) && got[1].payload == got[0].payload &&
                   zero.failed());
     }
@@ -628,40 +590,6 @@ static void framing_rows() {
         feed_all(rp, encode_response(1, Bytes{1}));
         check("DZC-FR-16", "the parser error is sticky until reset(); after reset() a good frame parses",
               failed && sticky && !rp.failed() && rp.ready() && rp.take().payload == Bytes{1});
-    }
-    // FR-17: the serial stub prefixes EVERY frame: the hunt is re-armed after each one.
-    {
-        const Bytes f1 = encode_response(3, Bytes{7, 8});
-        const Bytes f2 = encode_response(4, Bytes{9});
-        const Bytes j1 = {0x00, 0x11, 0x00};
-        const Bytes j2 = {0x00, 0x00, 0x22, 0x33, 0x00};
-        const Bytes stream = cat(cat(cat(cat(j1, Bytes{0xA5}), f1), cat(j2, Bytes{0xA5})), f2);
-        auto parse = [&](std::size_t step, std::size_t& swallowed) {
-            ResponseParser rp(ResponseParser::Options{true});
-            std::vector<Response> got;
-            std::size_t off = 0;
-            while (off < stream.size()) {
-                const std::size_t n = std::min(step, stream.size() - off);
-                std::size_t used = 0;
-                while (used < n) {
-                    const std::size_t k = rp.feed(stream.data() + off + used, n - used, g_now);
-                    used += k;
-                    if (rp.ready()) got.push_back(rp.take());
-                    else if (k == 0) break;
-                }
-                off += n;
-            }
-            swallowed = rp.swallowed();
-            return got;
-        };
-        std::size_t sw1 = 0, sw2 = 0;
-        const auto one = parse(stream.size(), sw1);
-        const auto split = parse(1, sw2);
-        const std::size_t want = j1.size() + j2.size();
-        check("DZC-FR-17", "preamble: two frames back to back, the second with its own junk, parse in one feed and split byte by byte, and swallowed() counts the junk of both",
-              one.size() == 2 && split.size() == 2 && one[0].payload == Bytes{7, 8} && one[1].payload == Bytes{9} &&
-                  split[1].seq == 4 && sw1 == want && sw2 == want,
-              std::to_string(sw1) + "/" + std::to_string(sw2));
     }
 }
 
@@ -1183,27 +1111,31 @@ static void identity_rows() {
         s.ver[1] = 1;
         auto c = make_client(s, LinkKind::Serial);
         bring_up(*c, s);
-        std::vector<int> want = range_ids({{1, 6}, {8, 17}, {20, 23}});
-        check("DZC-ID-04", "the same remote over a serial link: DezogifSerial, no CMD 24, set {1..6, 8..17, 20..23}",
-              c->profile() == Profile::DezogifSerial && s.ids == std::vector<int>({CMD_INIT}) &&
-                  ids_of(c->command_set()) == want);
+        check("DZC-ID-10", "\"dezogif v...\" 2.1.0 over a serial-kind link is refused, naming the remote, its DZRP version and the WiFi dezogif_ng stub, no CMD 24",
+              c->state() == SessionState::Failed && c->failure() == Status::Refused &&
+                  s.ids == std::vector<int>({CMD_INIT}) && c->error().find("WiFi dezogif_ng") != std::string::npos &&
+                  c->error().find("dezogif v2.2.1") != std::string::npos && c->error().find("DZRP 2.1.0") != std::string::npos,
+              c->error());
     }
     {
         Script s;
         s.name = "dezogif v2.3.0-rc2";
-        s.bitfield = bitfield_of({1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20, 21, 22, 23, 24});
+        s.bitfield = bitfield_of({1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20, 21, 22, 23, 24, 40, 41});
         auto c = make_client(s);
         bring_up(*c, s);
-        const bool simple = c->profile() == Profile::Dezogif22 && c->breakpoint_mode() == BreakpointMode::Simple &&
-                            s.ids == std::vector<int>({CMD_INIT, CMD_GET_SUPPORTED_COMMANDS}) &&
-                            c->in_set(24) && c->in_set(17) && !c->in_set(18) && !c->in_set(40);
-        Script s2;
-        s2.name = "dezogif v2.3.0-rc2";
-        s2.bitfield = bitfield_of({1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20, 21, 22, 23, 24, 40, 41});
-        auto c2 = make_client(s2);
-        bring_up(*c2, s2);
-        check("DZC-ID-05", "\"dezogif v2.3.0-rc2\" 2.2.0: Dezogif22, CMD 24 sent, the set is the bitfield; Simple breakpoints, Normal once 40 and 41 are in it",
-              simple && c2->breakpoint_mode() == BreakpointMode::Normal && c2->window() == 1);
+        check("DZC-ID-11", "\"dezogif v2.3.0-rc2\" 2.2.0 over TCP is refused, naming the remote, its DZRP version and the WiFi dezogif_ng stub, no CMD 24 sent",
+              c->state() == SessionState::Failed && c->failure() == Status::Refused &&
+                  s.ids == std::vector<int>({CMD_INIT}) && c->error().find("WiFi dezogif_ng") != std::string::npos &&
+                  c->error().find("dezogif v2.3.0-rc2") != std::string::npos && c->error().find("DZRP 2.2.0") != std::string::npos,
+              c->error());
+    }
+    {
+        Script s;
+        s.name = "dezogif v2.3.0-rc2";
+        auto c = make_client(s, LinkKind::Serial);
+        bring_up(*c, s);
+        check("DZC-ID-12", "\"dezogif v...\" 2.2.0 over a serial-kind link is refused too",
+              c->state() == SessionState::Failed && c->failure() == Status::Refused);
     }
     {
         Script s;
@@ -1239,26 +1171,6 @@ static void identity_rows() {
                   line.find("mem:mem") != std::string::npos && line.find("profile jnext") != std::string::npos &&
                   line.find("window 15") != std::string::npos,
               line);
-    }
-    {
-        auto mode = [](std::initializer_list<int> extra) {
-            Script s;
-            s.name = "dezogif v2.3.0-rc2";
-            std::vector<int> ids = {1, 2, 3, 24};
-            ids.insert(ids.end(), extra.begin(), extra.end());
-            Bytes b;
-            for (int id : ids) {
-                if (b.size() <= static_cast<std::size_t>(id / 8)) b.resize(static_cast<std::size_t>(id / 8) + 1, 0);
-                b[id / 8] = static_cast<std::uint8_t>(b[id / 8] | (1u << (id % 8)));
-            }
-            s.bitfield = b;
-            auto c = make_client(s);
-            bring_up(*c, s);
-            return c->breakpoint_mode();
-        };
-        check("DZC-ID-09", "Dezogif22 breakpoints: 40 without 41 is Simple, 41 without 40 is Simple, both is Normal",
-              mode({40}) == BreakpointMode::Simple && mode({41}) == BreakpointMode::Simple &&
-                  mode({40, 41}) == BreakpointMode::Normal);
     }
 }
 
@@ -1297,14 +1209,6 @@ static void gate_rows() {
     {
         Script s;
         as_dezogif_ng(s);
-        auto c = make_client(s, LinkKind::Serial);
-        bring_up(*c, s);
-        check("DZC-GATE-02", "DezogifSerial: CMD 7, 18, 19, 40 and 41 are Refused, nothing sent",
-              refused_all(*c, s, {7, 18, 19, 40, 41}));
-    }
-    {
-        Script s;
-        as_dezogif_ng(s);
         auto c = make_client(s);
         bring_up(*c, s);
         const Reply cont = c->request(CMD_CONTINUE, {0, 0, 0, 0, 0});
@@ -1313,15 +1217,6 @@ static void gate_rows() {
         const Status pause = c->submit(CMD_PAUSE, {}, t);
         check("DZC-GATE-03", "DezogifNg after CMD_CONTINUE (running): CMD 3, 8 and 11 are Refused; CMD_PAUSE is sent",
               cont.status == Status::Ok && c->running() && refused && pause == Status::Ok);
-    }
-    {
-        Script s;
-        as_dezogif_ng(s);
-        auto c = make_client(s, LinkKind::Serial);
-        bring_up(*c, s);
-        const Reply cont = c->request(CMD_CONTINUE, {0, 0, 0, 0, 0});
-        check("DZC-GATE-04", "DezogifSerial running: CMD_PAUSE is Refused too (it is not in the set) and nothing at all reaches the peer",
-              cont.status == Status::Ok && refused_all(*c, s, {7, 3, 8}));
     }
     {
         Script s;
