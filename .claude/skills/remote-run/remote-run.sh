@@ -450,7 +450,9 @@ main() {
     build_payload stamps "" "$PAYDIR/stamps"
     build_payload cleanup "" "$PAYDIR/cleanup"
 
+    local was_remote=0
     if [[ $state == remote ]]; then
+        was_remote=1
         local tmp pidf rcf
         tmp=$PAYDIR
         pidf=$tmp/pid; rcf=$tmp/rc
@@ -542,7 +544,7 @@ main() {
     elif [[ $state == remote && $warm -eq 0 && $rc -eq 0 ]]; then
         fetch_stamps
     fi
-    if [[ $state == remote || $state == refused || $state == patchrefused ]]; then remote_cleanup; fi
+    if [[ $state == remote || $state == refused || ( $state == patchrefused && $was_remote -eq 1 ) ]]; then remote_cleanup; fi
     rm -rf "$PAYDIR"
     echo "remote-run summary: id=$ID branch=$BRANCH sha=${SHA:-tip}${PATCH_NAME:+ patch=$PATCH_NAME} exit=$rc log=$LOG"
     summarize_log "$LOG"
