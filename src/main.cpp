@@ -34,6 +34,9 @@
 #include "platform/emulator_boot.h"   // emulator_boot_machine (RZX playback)
 #include "platform/quit_signal.h"      // SIGINT/SIGTERM as a quit request (GH #364)
 #include "platform/sdcard_upgrade_box.h"   // the SDL frontend's upgrade offer
+#ifndef __EMSCRIPTEN__
+#include "platform/sdcard_forward.h"   // GH #568: --sdcard-file-add through a running jnext
+#endif
 #include "platform/startup_report.h"       // GH #555: start-up errors in a message box
 #include "platform/startup_error_sdl.h"
 #include "platform/pok_trainers.h"     // --delayed-pok-frames / --pok-trainers (GH #381)
@@ -777,6 +780,7 @@ static int run_main(int argc, char* argv[]) {
     // Argument-shortage behaviour is deliberately unchanged: an option whose
     // values run past the end of argv is reported as an unknown option, exactly
     // as the previous `arg == "--x" && i + 1 < argc` chain did.
+    const char* card1_spelling[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};   // GH #568
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
 
@@ -814,6 +818,29 @@ static int run_main(int argc, char* argv[]) {
                 return 1;
             }
 #endif
+
+            // GH #568: the first card's options have two spellings (--sdcard / --sdcard1, ...). One
+            // spelling per option on a command line: a repeat of the SAME spelling keeps its old meaning
+            // (the last wins, or the list grows), two different spellings of one option are refused.
+            {
+                int slot = -1;
+                switch (opt->id) {
+                case cli::OptId::Sdcard:                    slot = 0; break;
+                case cli::OptId::SdcardReadonly:            slot = 1; break;
+                case cli::OptId::SdcardWrites:              slot = 2; break;
+                case cli::OptId::SdcardWritesReset:         slot = 3; break;
+                case cli::OptId::DelayedSdcardInsertFrames: slot = 4; break;
+                default: break;
+                }
+                if (slot >= 0) {
+                    if (card1_spelling[slot] && std::strcmp(card1_spelling[slot], opt->name) != 0) {
+                        startup_report::report("%s and %s are the same option; give it once\n",
+                                               card1_spelling[slot], opt->name);
+                        return 1;
+                    }
+                    card1_spelling[slot] = opt->name;
+                }
+            }
 
             switch (opt->id) {
             case cli::OptId::LogLevel:
@@ -1579,8 +1606,7 @@ static int run_main(int argc, char* argv[]) {
                 // exit 0: an empty FILE is an EJECT to the emulator (a script
                 // with an unset variable would pull the card), and a bad N.
                 const bool second = opt->id == cli::OptId::DelayedSdcard2InsertFrames;
-                const char* flag = second ? "--delayed-sdcard2-insert-frames"
-                                          : "--delayed-sdcard-insert-frames";
+                const char* flag = opt->name;   // as typed (--delayed-sdcard1-insert-frames is the first slot's alias)
                 long n = 0;
                 if (!cli::parse_int(v[0], 0, INT_MAX, n)) {
                     startup_report::report("%s: N must be a "
@@ -2011,6 +2037,57 @@ static int run_main(int argc, char* argv[]) {
             return 1;
         }
     }
+    // GH #568 - the SD card commands (file-add, file-extract, writes-flatten, export-changes, import-changes)
+    // act on ONE card. Card 1 is named by --sdcard (or --sdcard1, or --set paths.sd_card_path) and card 2 by
+    // --sdcard2 (or --set paths.sd_card2_path), on the command line: saved Preferences never redirect a
+    // command. Naming both is refused; naming neither means card 1, as before. A command on card 2 never
+    // resolves, provisions, locks or mounts card 1, and a command on card 1 never mounts or locks card 2.
+    // The card-2 command is then run as the one-card command it is: the second card's image, writes file,
+    // reset and read-only flag stand in for the first card's below, and the card-1-only options are refused.
+    int verb_slot = 0;
+    const bool sd_verb = sdcard_file_add_count > 0 || sdcard_extract_count > 0 || sdcard_flatten_count > 0 ||
+                         sdcard_export_count > 0 || sdcard_import_count > 0;
+    if (sd_verb) {
+        const char* verb = sdcard_file_add_count > 0   ? "--sdcard-file-add"
+                         : sdcard_extract_count > 0    ? "--sdcard-file-extract"
+                         : sdcard_flatten_count > 0    ? "--sdcard-writes-flatten"
+                         : sdcard_export_count > 0     ? "--sdcard-export-changes"
+                                                       : "--sdcard-import-changes";
+        if (!sd_card_image.empty() && !sd_card2_image.empty()) {
+            startup_report::report("%s acts on one SD card: give --sdcard (or --sdcard1) or --sdcard2, not both.\n", verb);
+            return 1;
+        }
+        if (!sd_card2_image.empty()) {
+            const char* first_only = sdcard_readonly                 ? "--sdcard-readonly"
+                                   : !sdcard_writes_file.empty()     ? "--sdcard-writes"
+                                   : sdcard_writes_reset             ? "--sdcard-writes-reset"
+                                   : sdcard_sha256_given             ? "--sdcard-sha256"
+                                   : sdcard_download_confirm         ? "--sdcard-download-confirm"
+                                   : sdcard_download_force           ? "--sdcard-download-force"
+                                   : !sdcard_upgrade_arg.empty()     ? "--sdcard-upgrade"
+                                                                     : nullptr;
+            if (first_only) {
+                startup_report::report("%s is a first-card option; this command acts on the second card (--sdcard2)\n", first_only);
+                return 1;
+            }
+            if (sdcard2_readonly && (sdcard_file_add_count > 0 || sdcard_import_count > 0)) {
+                startup_report::report("%s cannot be combined with --sdcard2-readonly: it exists to write the card.\n", verb);
+                return 1;
+            }
+            verb_slot = 1;
+            sd_card_image = sd_card2_image;
+            sdcard_writes_file = sdcard2_writes_file;
+            sdcard_writes_reset = sdcard2_writes_reset;
+            sdcard_readonly = sdcard2_readonly;
+            sdcard_cli_given = true;
+            sd_card2_image.clear();
+            sdcard2_writes_file.clear();
+            sdcard2_writes_reset = false;
+            sdcard2_readonly = false;
+        }
+    }
+    const char* const verb_writes_flag = verb_slot == 1 ? "--sdcard2-writes" : "--sdcard-writes";
+
     // GH #269 — --sdcard-file-add is a copy-and-exit mode, so anything that
     // says "and then run this" contradicts it, and --sdcard-readonly says
     // "never write the image" to a mode whose whole job is writing it. Both
@@ -2068,7 +2145,10 @@ static int run_main(int argc, char* argv[]) {
         if (repeats) usage = "--sdcard-writes-flatten, --sdcard-export-changes, --sdcard-export-base and --sdcard-import-changes may each be given once.";
         else if (verbs > 1) usage = "--sdcard-file-add, --sdcard-writes-flatten, --sdcard-export-changes and --sdcard-import-changes are separate commands: give one per run.";
         else if (sdcard_export_base_count > 0 && sdcard_export_count == 0) usage = "--sdcard-export-base requires --sdcard-export-changes DIR.";
-        else if (sdcard_flatten_count > 0 && sdcard_writes_file.empty()) usage = "--sdcard-writes-flatten requires --sdcard-writes FILE.";
+        else if (sdcard_flatten_count > 0 && sdcard_writes_file.empty()) {
+            usage_text = std::string("--sdcard-writes-flatten requires ") + verb_writes_flag + " FILE.";
+            usage = usage_text.c_str();
+        }
         else if ((sdcard_flatten_count > 0 && sdcard_writes_flatten.empty()) ||
                  (sdcard_export_count > 0 && sdcard_export_dir.empty()) ||
                  (sdcard_import_count > 0 && sdcard_import_dir.empty()) ||
@@ -2221,7 +2301,7 @@ static int run_main(int argc, char* argv[]) {
         // GH #505: the saved second-card path, when no --sdcard2 / --set gave one. A saved
         // path that no longer works is logged and leaves the slot empty (only an explicit
         // flag refuses to start); a card that equals the first one is not mounted twice.
-        if (!no_sdcard && sd_card2_image.empty() && !gui_app_config.data().sd_card2_path.isEmpty()) {
+        if (!no_sdcard && !sd_verb && sd_card2_image.empty() && !gui_app_config.data().sd_card2_path.isEmpty()) {
             const std::string saved = gui_app_config.data().sd_card2_path.toStdString();
             const std::string why = Emulator::sd_image_refusal(saved);
             if (!why.empty()) {
@@ -2307,6 +2387,65 @@ static int run_main(int argc, char* argv[]) {
             std::fprintf(stdout, "Deleted the previous SD card backup\n");
         return 0;
     }
+    // GH #568 - a card another jnext holds, for --sdcard-file-add: ask that jnext to take the copy through its ZRCP
+    // server. Only a refusal "held by another process" (the LockHolder says so) is forwarded, and only before
+    // anything touches the writes file (every site precedes bind_card_writes, so this process never binds, compacts
+    // or resets the holder's writes file). Returns true with the exit status in `rc` when it handled the refusal.
+    auto forward_file_add = [&](const sdcard::LockHolder& holder, const std::string& why, const std::string& image,
+                                int& rc) -> bool {
+#ifdef __EMSCRIPTEN__
+        (void)holder; (void)why; (void)image; (void)rc;
+        return false;
+#else
+        if (sdcard_file_add_count == 0 || (holder.pid <= 0 && !holder.has_endpoint)) return false;
+        const std::string proc = holder.pid > 0 ? std::to_string(holder.pid) : std::string("?");
+        const char* acts = sdcard_writes_reset                      ? (verb_slot == 1 ? "--sdcard2-writes-reset" : "--sdcard-writes-reset")
+                         : sdcard_download_force                    ? "--sdcard-download-force"
+                         : !sdcard_upgrade_arg.empty()              ? "--sdcard-upgrade"
+                         : sdcard_sha256_given                      ? "--sdcard-sha256"
+                                                                    : nullptr;
+        if (acts) {
+            startup_report::report("error: %s cannot be used for a copy through a running jnext (process %s): it acts on "
+                                   "the card itself\n", acts, proc.c_str());
+            rc = static_cast<int>(sdcard::FileAddStatus::ImageUnusable);
+            return true;
+        }
+        namespace fs_ = std::filesystem;
+        std::error_code aec;
+        sdforward::ForwardRequest fr;
+        fr.image = fs_::absolute(fs_::path(image), aec).string();   // absolute, never canonical: a link keeps its name
+        fr.host = fs_::absolute(fs_::path(sdcard_file_add), aec).string();
+        fr.slot = verb_slot;
+        fr.force = sdcard_file_force;
+        fr.writes_lock = why.rfind("the SD-writes file", 0) == 0;
+        if (!sdcard_writes_file.empty()) {
+            fr.writes_given = true;
+            fr.writes = fs_::absolute(fs_::path(sdcard_writes_file), aec).string();
+        }
+        fr.card_path = sdcard_file_dest;
+        if (fr.card_path.empty()) {
+            std::string derr;
+            if (!sdcard::default_dest_path(sdcard_file_add, fr.card_path, derr)) {   // the name as typed
+                startup_report::report("error: --sdcard-file-add: %s\n", derr.c_str());
+                rc = static_cast<int>(sdcard::FileAddStatus::DestInvalid);
+                return true;
+            }
+        }
+        std::string text;
+        rc = sdforward::forward_file_add(holder, fr, text);
+        if (rc == 0) std::fprintf(stdout, "%s\n", text.c_str());
+        else         startup_report::report("%s\n", text.c_str());
+        return true;
+#endif
+    };
+    if (verb_slot == 1) {
+        // The second card is validated with the rules a live change applies, as --sdcard2 always was.
+        const std::string why = Emulator::sd_image_refusal(sd_card_image);
+        if (!why.empty()) {
+            startup_report::report("--sdcard2: %s\n", why.c_str());
+            return 1;
+        }
+    }
     if (!no_sdcard) {
         sdcard::ProvisionOptions opts;
         opts.explicit_path   = sd_card_image;
@@ -2380,7 +2519,9 @@ static int run_main(int argc, char* argv[]) {
         if (sd_card_image.empty()) {
             sdcard::sd_locks::set_enabled(true);
             std::string early_why;
-            if (!sdcard::sd_locks::hold(0, sdcard::default_sdcard_image_path(), sdcard_writes_file, early_why)) {
+            sdcard::LockHolder early_holder;
+            if (!sdcard::sd_locks::hold(0, sdcard::default_sdcard_image_path(), sdcard_writes_file, early_why, &early_holder)) {
+                if (int fwd_rc = 0; forward_file_add(early_holder, early_why, sdcard::default_sdcard_image_path(), fwd_rc)) return fwd_rc;
                 Log::emulator()->error("SD card refused: {}", early_why);
                 startup_report::report("error: %s\n", early_why.c_str());
                 return (sdcard_file_add_count > 0 || sdcard_flatten_count > 0 || sdcard_export_count > 0 ||
@@ -2463,8 +2604,10 @@ static int run_main(int argc, char* argv[]) {
     sdcard::sd_locks::set_enabled(true);
     {
         std::string lock_why;
+        sdcard::LockHolder lock_holder;
         if (!sd_card_image.empty() &&
-            !sdcard::sd_locks::hold(0, sd_card_image, sdcard_writes_file, lock_why)) {
+            !sdcard::sd_locks::hold(0, sd_card_image, sdcard_writes_file, lock_why, &lock_holder)) {
+            if (int fwd_rc = 0; forward_file_add(lock_holder, lock_why, sd_card_image, fwd_rc)) return fwd_rc;
             Log::emulator()->error("SD card refused: {}", lock_why);
             startup_report::report("error: %s\n", lock_why.c_str());
             return (sdcard_file_add_count > 0 || sdcard_flatten_count > 0 || sdcard_export_count > 0 ||
@@ -2477,8 +2620,8 @@ static int run_main(int argc, char* argv[]) {
     // written. Bound here, after resolution and after a browser zip has been
     // extracted, so it is the card that will be mounted; FILE records that
     // card's identity: the --sdcard-sha256 digest when given, else size + mtime.
-    if (!bind_card_writes("--sdcard-writes", "SD card", sd_card_image, sdcard_writes_file,
-                          sdcard_writes_reset, sdcard_readonly, sdcard_sha256_norm))
+    if (!bind_card_writes(verb_writes_flag, verb_slot == 1 ? "second SD card" : "SD card", sd_card_image,
+                          sdcard_writes_file, sdcard_writes_reset, sdcard_readonly, sdcard_sha256_norm))
         return 1;
 
     // GH #505 - the second card. Validated with the same rules a live change
@@ -2542,23 +2685,9 @@ static int run_main(int argc, char* argv[]) {
             return static_cast<int>(st);
         }
         // In journal mode the copy is in the writes file, not the image.
-        const std::string kept = sdcard_writes_file.empty()
-            ? std::string()
-            : ", kept in " + sdcard_writes_file + " (the image is not written)";
-        if (summary.is_dir) {
-            std::fprintf(stdout,
-                         "Copied directory '%s' to '%s' in %s (%u file(s), "
-                         "%u new director%s)%s\n",
-                         sdcard_file_add.c_str(), summary.dest.c_str(),
-                         sd_card_image.c_str(), summary.files,
-                         summary.dirs_created,
-                         summary.dirs_created == 1 ? "y" : "ies",
-                         kept.c_str());
-        } else {
-            std::fprintf(stdout, "Copied '%s' to '%s' in %s%s\n",
-                         sdcard_file_add.c_str(), summary.dest.c_str(),
-                         sd_card_image.c_str(), kept.c_str());
-        }
+        std::fprintf(stdout, "%s\n",
+                     sdcard::file_add_success_text(sdcard_file_add, sd_card_image, sdcard_writes_file,
+                                                   summary).c_str());
         return 0;
     }
 

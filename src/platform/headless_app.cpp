@@ -12,6 +12,7 @@
 #include "platform/rzx_startup.h"
 #include "platform/quit_signal.h"   // GH #364
 #include "core/log.h"
+#include "platform/sdcard_manager.h"
 #include "input/keyboard.h"
 #include "debug/inspect.h"
 #include "debug/debugger.h"
@@ -76,7 +77,9 @@ bool HeadlessApp::init(int argc, char* argv[]) {
     debugger_->set_loop_driver(driver);
     host_probe_ = HostProbe::from_env(emulator_, *debugger_);   // GH #276 B5
     // GH #12 (WP-5) — the socket debugger servers, on this loop's pump.
-    if (!debug_servers_.start(*debugger_, config_)) return false;
+    if (!debug_servers_.start(*debugger_, config_,
+            [this](const jnext::remote::zrcp::SdFileAddRequest& r) { return sdmanager::remote_add(emulator_, r, {}); }))
+        return false;
     // GH #351 - --source-map without --load (or with an RZX replay): the map of a z88dk dot command, attached
     // now (before the scripts, so a `file:line` rule resolves) and pending until the
     // guest runs the command. Any other map needs a program: refused.

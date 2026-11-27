@@ -3,7 +3,7 @@
 ZRCP is the text protocol the ZEsarUX emulator offers for remote control. DeZog
 can debug through it (its `zrcp` remote type), and because every command is a
 line of text you can also drive it by hand with `telnet`. JNEXT speaks ZRCP as
-ZEsarUX 12.0 does.
+ZEsarUX 12.0 does, with one command of its own, `sd-file-add` (below).
 
 ## Start JNEXT with a ZRCP port
 
@@ -152,6 +152,16 @@ the machine by hand.
   menu.
 - **`smartload`, `load-binary` and `save-binary` read and write files on the
   computer running JNEXT**, like ZEsarUX.
+- **`sd-file-add` is JNEXT's own command**; ZEsarUX has none. It copies a file on the
+  computer running JNEXT onto an SD card image the running JNEXT has mounted, as
+  `--sdcard-file-add` does: `sd-file-add image file card-path [--force] [--card 1|2]
+  [--writes file]`. The three paths are absolute, and every argument is
+  percent-encoded: `%20` for a space, `%25` for `%`, `%0A` for a newline.
+  `sd-file-add /home/me/mycard.img /home/me/game.nex /GAMES/game.nex --card 1` is
+  answered `OK. Copied '...'` or `Error. [N] text`, where *N* is the exit status
+  `--sdcard-file-add` would give (2 the file, 3 the card path, 4 it exists, 5 the card
+  cannot take it, 6 no room). A second JNEXT's `--sdcard-file-add` sends exactly this
+  when the card it was asked for is in use. `help sd-file-add` describes it.
 - **One client at a time.** A second connection is answered `Error. Another
   ZRCP client is connected` and closed.
 - **`hard-reset-cpu` and `reset-cpu` keep the session**: its breakpoints and
@@ -172,7 +182,7 @@ The server listens on `127.0.0.1` only. `--debug-listen-address` changes that
 for every debug server, and is refused unless a server port is given too.
 **ZRCP has no authentication**: anyone who can reach the port controls the
 machine and can read and write files on your computer through `smartload`,
-`load-binary` and `save-binary`, so widen it only on a network you trust.
+`load-binary`, `save-binary` and `sd-file-add`, so widen it only on a network you trust.
 
 A page can serve ZRCP too, through a bridge: see [8.6](../../08-web-page/06-debugging-from-the-page.md).
 

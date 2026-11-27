@@ -110,6 +110,11 @@ public:
     /// Task 66 — access to the main window for applying saved GUI
     /// preferences after init(). Valid only after a successful init().
     MainWindow* main_window() { return main_window_; }
+    /// GH #568: how the ZRCP `sd-file-add` of this loop owner is answered. The window answers while it exists (it knows
+    /// when an upgrade or a go back owns the card, and FatFs is not reentrant); with no window the same logic runs with no
+    /// card operation in flight. A function of its own so a test can pin the routing.
+    static jnext::remote::zrcp::SdFileAddReply route_sd_file_add(MainWindow* window, Emulator& emu,
+                                                                 const jnext::remote::zrcp::SdFileAddRequest& r);
 
     /// Task 70 — power-on cold boot: reconstruct the emulator in place and
     /// re-run the proven startup init() path. `load_file` empty = clean

@@ -305,7 +305,7 @@ bits and writes the whole unit back (`int_fits()`, `c_value.cpp:1700`, is its ra
 uses a synthetic record.
 
 The frontends: GDB `monitor set var [FRAME] PATH = VALUE` (`monitor_set_var()`, `rsp_server.cpp:1216`), and ZRCP `set-register CVAR(path)=value`
-(`cmd_set_register()`, `zrcp_server.cpp:1190`). A ZRCP command table cannot gain a command (its census pins ZEsarUX's), so it is the
+(`cmd_set_register()`, `zrcp_server.cpp:1200`). A ZRCP command table cannot gain a command of this kind (its census pins ZEsarUX's names; `sd-file-add` is the one exception, see [3.10](../12-the-zrcp-server.md)), so it is the
 `CVAR(` branch of the one assignment verb, in frame 0, with ZEsarUX's own failure text.
 
 ## Fixtures and rows

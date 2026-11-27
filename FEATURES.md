@@ -197,7 +197,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - Backwards execution (rewind): frame snapshot ring buffer, Step Back (Shift+F7), Frame Back (Shift+F6), rewind slider
 - Rewind preserves the SD card's SPI protocol state, so streaming programs resume correctly
 - Save Snapshot while paused mid-frame completes the frame and saves at the boundary
-- Magic breakpoint: `ED FF` (ZEsarUX), `FD 00` (CSpect, sjasmplus `break`) and `DD 01` (older CSpect) trigger a debugger pause
+- Magic breakpoint: `ED FF` (ZEsarUX) and `FD 00` (CSpect 2.19.9.1+, sjasmplus `break`) trigger a debugger pause; `DD 01` is not honoured (it is `LD BC,nn` on the hardware)
 - **Which memory an address is in**: every debugger view names the memory behind an address (`P0E`, `ROM0`, `DIVROM`, ...)
 - Debug > Physical Addresses (`--set debugger.physical_addresses=true`) shows the byte's place in the Next's memory
 - **Your own labels and comments**: right-click to add, rename or remove labels and comments in the Disassembly or Source tab
@@ -240,6 +240,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--sdcard-readonly` (write-protected card; the host file is never modified)
 - `--sdcard-writes FILE`, `--sdcard-writes-reset` (the image is never written: the machine's writes, and the esxDOS stand-in's file of a directly loaded NEX, go to FILE and are laid over the image on every run; reset discards them)
 - `--sdcard-file-add FILE [--sdcard-file-dest PATH]` copies a host file or directory tree into the SD image (with `--sdcard-writes`, into that file; the image is untouched) and exits
+- On a card another JNEXT has open, `--sdcard-file-add` copies the file through that JNEXT (its ZRCP server, found in the card lock): the running guest sees it; `--sdcard2` makes the SD card commands act on the second card, `--sdcard1*` spell the first card's options; ZRCP `sd-file-add` is the command underneath
 - `--sdcard-file-extract PATH` copies a file or directory off the SD card (any FAT12/16/32 card the Next mounts, long or 8.3 names in any case, through `--sdcard-writes` when given) into the current directory, never overwriting, and exits
 - `--sdcard-file-force` overwrites an existing destination file
 - `--warm-start-regenerate` (force a fresh warm-start recording)

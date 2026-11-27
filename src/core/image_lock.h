@@ -15,10 +15,33 @@
 // POSIX: flock(LOCK_EX|LOCK_NB). Windows: LockFileEx on a byte past the content, so the holder's
 // pid stays readable. Emscripten: a no-op that always succeeds (one page, one in-memory file system).
 #include "core/held_files.h"
+#include <cstdint>
 #include <optional>
 #include <string>
 
 namespace sdcard {
+
+/// What a lock file says about the process that holds it (GH #568). The body is labelled lines,
+/// each ending in a newline:
+///   pid: <pid>
+///   image: <canonical key>                  (a writes lock says "writes:")
+///   zrcp_listening_address: <numeric IP>    (only while the holder serves ZRCP on a socket)
+///   zrcp_listening_port: <port>
+/// A first line of digits alone is the older, unlabelled form: it gives the pid and no endpoint.
+struct LockHolder {
+    long        pid = 0;               ///< 0: unknown
+    bool        has_endpoint = false;  ///< the holder's ZRCP server, when it advertises one
+    std::string address;               ///< numeric IP the server is bound to
+    uint16_t    port = 0;              ///< 1..65535
+};
+
+/// The one parser of a lock file body. It is strict and bounded, because any process of the same
+/// user, an older jnext or a rewrite caught half-way can be the writer: it reads at most 4 KiB,
+/// takes complete lines only (a last line with no newline is ignored, so a rewrite in flight never
+/// yields a truncated port), strips CR, ignores unknown labels, drops a label given twice, takes a
+/// port of decimal digits in 1..65535 and an address that is a numeric IP, and gives "no endpoint"
+/// for anything doubtful. A port line with no address line means 127.0.0.1.
+LockHolder parse_lock_body(const std::string& text);
 
 class ImageLock {
 public:
@@ -35,15 +58,21 @@ public:
     /// On a refusal returns nullopt and `why` holds the user-facing message:
     ///   the SD card image <path> is in use by another jnext (process <pid>); give each jnext its own card (--sdcard FILE)
     ///   the SD-writes file <path> is in use by another jnext (process <pid>)
+    /// `holder`, when given, is filled from the lock file on a "held by another process" refusal
+    /// (and left empty for "cannot create the lock file").
     static std::optional<ImageLock> acquire(const std::string& path, Kind kind, std::string& why,
-                                            const std::string& lock_dir = {});
+                                            const std::string& lock_dir = {}, LockHolder* holder = nullptr);
 
     /// The canonical key the lock is taken on (what two spellings of one card share).
     const std::string& key() const { return key_; }
     bool held() const { return held_; }
+    /// Rewrite the lock file's body in place (the lock is not dropped), with the process-wide ZRCP
+    /// endpoint as it is now. sd_locks::set_zrcp_endpoint() calls it on every lock the slots hold.
+    void refresh_body();
 
 private:
     void release();
+    Kind        kind_ = Kind::Image;
     std::string key_;
     bool        held_ = false;
     held_files::Hold hold_;   // the lock file under <state dir>/locks: trashing it defeats the second-jnext refusal
@@ -65,8 +94,13 @@ void set_enabled(bool on);
 /// Take `image` (and `writes_file` when not empty) for `slot`, then drop what the slot held before.
 /// A path the slot already holds is kept, not taken twice. False and `why` on a refusal, with the
 /// slot's previous locks untouched. An empty `image` just releases the slot.
-bool hold(int slot, const std::string& image, const std::string& writes_file, std::string& why);
+bool hold(int slot, const std::string& image, const std::string& writes_file, std::string& why,
+          LockHolder* holder = nullptr);
 void release(int slot);
+/// Advertise the ZRCP server of this process in every lock it holds, and in every lock it takes
+/// from now on (a live card change): `address` and the BOUND `port`. Port 0 clears it. The lines
+/// are therefore present only while the process serves ZRCP on a socket.
+void set_zrcp_endpoint(const std::string& address, uint16_t port);
 /// True while `slot` holds the lock on `image` (the canonical key is compared).
 bool holds(int slot, const std::string& image);
 }  // namespace sd_locks

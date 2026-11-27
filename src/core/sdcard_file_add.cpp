@@ -1368,4 +1368,17 @@ FileAddStatus add_to_image(const std::string& image_path,
                             summary, dest_is_bytes);
 }
 
+std::string file_add_success_text(const std::string& host, const std::string& image,
+                                  const std::string& writes_file, const AddSummary& summary)
+{
+    const std::string kept = writes_file.empty()
+        ? std::string()
+        : ", kept in " + writes_file + " (the image is not written)";
+    if (summary.is_dir)
+        return "Copied directory '" + host + "' to '" + summary.dest + "' in " + image + " (" +
+               std::to_string(summary.files) + " file(s), " + std::to_string(summary.dirs_created) +
+               " new director" + (summary.dirs_created == 1 ? "y" : "ies") + ")" + kept;
+    return "Copied '" + host + "' to '" + summary.dest + "' in " + image + kept;
+}
+
 }  // namespace sdcard

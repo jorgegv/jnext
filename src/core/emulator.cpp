@@ -1287,7 +1287,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // gate), so closing the debugger window no longer disarms.
     debug_state_.set_persistent_breakpoints(cfg.persistent_breakpoints);
 
-    // Magic breakpoint: ED FF (ZEsarUX) / FD 00 (CSpect, sjasmplus break) / DD 01 (older CSpect) trigger debugger pause.
+    // Magic breakpoint: ED FF (ZEsarUX) / FD 00 (CSpect, sjasmplus break) trigger debugger pause.
     set_magic_breakpoint(cfg.magic_breakpoint);
 
     // Host-side compatibility for directly loaded NEX programs.
@@ -9297,7 +9297,7 @@ void Emulator::set_magic_breakpoint(bool enabled)
         cpu_.on_magic_breakpoint = nullptr;
         return;
     }
-    cpu_.on_magic_breakpoint = [this](uint16_t pc) -> bool {
+    cpu_.on_magic_breakpoint = [this](uint16_t pc) {
         Log::emulator()->info("Magic breakpoint hit at PC={:#06x}", pc);
         // GH #278 WP4c — HOLD the stop, on a machine nothing else may arm (no
         // client, no window, no flag): the hot loop honours a pause only inside
@@ -9316,7 +9316,6 @@ void Emulator::set_magic_breakpoint(bool enabled)
         // because pause() above has already destroyed the step mode and
         // nothing else distinguishes it from a user pause.
         debug_latch_magic_(pc);
-        return true;
     };
 }
 
@@ -16497,7 +16496,7 @@ void Emulator::debug_latch_magic_(uint16_t pc)
     e.kind = jnext::dbg::EventKind::Magic;
     // `pc` is NOT written into `e.pc`: the stamper owns that field. The two are
     // the same value — Z80Cpu passes the instruction's own PC to
-    // on_magic_breakpoint (z80_cpu.cpp, the `ED FF` / `FD 00` / `DD 01` forms read the
+    // on_magic_breakpoint (z80_cpu.cpp, the `ED FF` / `FD 00` forms read the
     // opcode AT `pc`), which is exactly what `debug_slot_pc_` holds. Asserting
     // the equality is debug_latch_magic_'s row in the suite, not a duplicate
     // write here.

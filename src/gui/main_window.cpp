@@ -40,6 +40,7 @@
 #include "core/sdcard_upgrade.h"
 #include "gui/sdcard_download_dialog.h"
 #include "gui/sdcard_manager_dialog.h"   // GH #558
+#include "remote/zrcp/zrcp_server.h"       // GH #568: SdFileAddRequest / Reply
 #include "peripheral/sd_card.h"
 #include "peripheral/sd_write_journal.h"
 #include "qt/menu_bar_alt_nav_qt.h"   // GH #268
@@ -1389,7 +1390,7 @@ void MainWindow::create_menus() {
 
     magic_bp_action_ = debug_menu->addAction(tr("Magic &Breakpoint"));
     magic_bp_action_->setCheckable(true);
-    magic_bp_action_->setToolTip(tr("Enable magic breakpoints (ED FF / FD 00 / DD 01)"));
+    magic_bp_action_->setToolTip(tr("Enable magic breakpoints (ED FF / FD 00)"));
     // Its checked state is the machine's, synced by set_emulator(): this runs
     // in the constructor, before any machine is bound (GH #278 WP6).
     connect(magic_bp_action_, &QAction::triggered, this, [this](bool checked) {
@@ -2242,6 +2243,12 @@ bool same_file(const std::string& a, const std::string& b) {
 }
 
 }  // namespace
+
+jnext::remote::zrcp::SdFileAddReply MainWindow::remote_sd_file_add(const jnext::remote::zrcp::SdFileAddRequest& r)
+{
+    if (!emulator_) return {5, "there is no machine in this jnext"};
+    return sdmanager::remote_add(*emulator_, r, card_op_ != CardOp::None ? "an upgrade or a go back" : "");
+}
 
 void MainWindow::refresh_card_set_actions() {
     if (!upgrade_sd_action_) return;
