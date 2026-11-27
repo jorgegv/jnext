@@ -268,6 +268,9 @@ struct CountingLink final : ClientLink {
 // -- The rig: a reference machine, a served machine, the shipped server, the target, a facade -------
 
 struct Pair {
+    // Declared first, so destroyed last: the Debuggers below keep pointers to them.
+    StopListener                rl;       // the remote facade's client
+    StopListener                refl;     // the reference facade's client
     Machine                     ref;
     Machine                     srv;
     std::unique_ptr<DzrpServer> server;
@@ -275,8 +278,6 @@ struct Pair {
     CountingLink*               link = nullptr;
     std::unique_ptr<DzrpTarget> tgt;
     std::unique_ptr<Debugger>   remote;
-    StopListener                rl;       // the remote facade's client
-    StopListener                refl;     // the reference facade's client
     ClientId                    ra = 0;   // client of the remote facade
     ClientId                    rc = 0;   // client of the reference facade
 
@@ -810,7 +811,8 @@ static void ins_rows_b() {
         p.remote->peek(MemSpace::cpu(), 0x9000, 4, b);
         const bool cached2 = p.link->since() == 0;
         // while running: one fetch per tick
-        p.remote->unsubscribe(p.ra, p.remote->subscriptions(true)[0].id);
+        const auto subs = p.remote->subscriptions(true);
+        if (!subs.empty()) p.remote->unsubscribe(p.ra, subs[0].id);
         p.remote->run(p.ra);
         p.tick();
         uint8_t v1[1], v2[1], v3[1];
@@ -1403,7 +1405,8 @@ static void wp_rows() {
         const auto a = p.remote->subscribe(p.ra, mem_sub(0x9000, 0x900F, Access::ReadWrite));
         const auto b = p.remote->subscribe(p.ra, mem_sub(0x9000, 0x900F, Access::ReadWrite));
         const int adds = p.link->count(CMD_ADD_WATCHPOINT);
-        const Bytes add_payload = *p.link->last_payload(CMD_ADD_WATCHPOINT);
+        const Bytes* add_frame  = p.link->last_payload(CMD_ADD_WATCHPOINT);
+        const Bytes  add_payload = add_frame ? *add_frame : Bytes();
         p.remote->unsubscribe(p.ra, a.value);
         const int mid = p.link->count(CMD_REMOVE_WATCHPOINT);
         p.remote->unsubscribe(p.ra, b.value);

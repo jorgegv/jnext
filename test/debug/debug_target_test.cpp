@@ -1498,9 +1498,17 @@ static void tgt05_rows() {
         n.t.clear();
         n.d.detach(n.a);
         const auto st = n.d.state();
+        // A target that lacks Run is never resumed by a detach either.
+        Remote nr;
+        nr.t.caps = all_but({Capability::Run});
+        nr.d.pause(nr.a);
+        nr.t.clear();
+        nr.d.detach(nr.a);
         check("TGT-05-13", "SES-01 over a target: the pausing client's detach resumes when it was the last arming "
-                           "client, and hands the pause to the one that remains otherwise",
-              released && n.t.count("resume") == 0 && st.paused && st.pause_reason.by == b);
+                           "client, and hands the pause to the one that remains otherwise; a target without Run is "
+                           "not resumed",
+              released && n.t.count("resume") == 0 && st.paused && st.pause_reason.by == b &&
+                  nr.t.count("resume") == 0);
     }
     {
         Running m;
