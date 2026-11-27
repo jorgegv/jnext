@@ -31,9 +31,8 @@
 // write that can move memory (a NextREG or port access). The first machine read after a
 // stop sends, pipelined in one round trip, the registers and the memory around the stop
 // (the PC, the SP): conditions read those. A miss fetches every missing line of the
-// request in one burst. Every WRITE is pipelined with the re-read of what it can change,
-// so the next read needs no fetch and shows what the remote really holds (ROM-dropped
-// bytes, NextREG side effects) rather than what was sent.
+// request in one burst. A memory WRITE is pipelined with the re-read of the lines it touched, so the next read shows what the remote holds (ROM-dropped
+// bytes) rather than what was sent, and it drops the cached lines of every other view that could alias them.
 //
 // ── FAILURE ─────────────────────────────────────────────────────────────────
 // A timeout, a lost link or a protocol error (a reply of the wrong length, a duplicate
@@ -156,6 +155,8 @@ private:
     bool store_mem_replies(const std::vector<int>& lines, const std::vector<Reply>& replies,
                            std::size_t first) const;
     std::vector<int> missing_cpu_lines(uint32_t addr, size_t n) const;
+    Reply              call(std::uint8_t id, Bytes payload = {}) const;
+    std::vector<Reply> call_all(std::vector<std::pair<std::uint8_t, Bytes>> burst) const;
     jnext::dbg::Result submit_ack(std::uint8_t id, Bytes payload);
     void on_pause_notification(const PauseNotification& n);
 

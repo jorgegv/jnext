@@ -401,6 +401,7 @@ struct Script {
     unsigned                           next_bp_id = 1;
     int                                bp_id_override = -1;   // >= 0: every CMD 40 answers this id
     std::uint8_t                       regs_len_delta = 0;    // a GET_REGISTERS reply this many bytes short
+    std::uint8_t                       regs_nslots = 8;       // the Nslots byte of a GET_REGISTERS reply
     std::uint8_t                       read_mem_extra = 0;    // a READ_MEM reply this many bytes long
     std::function<bool(Script&, const Command&)> custom;
 
@@ -437,12 +438,17 @@ struct Script {
             }
             for (std::uint8_t b : {std::uint8_t{0x12}, std::uint8_t{0x3F}, std::uint8_t{1}, std::uint8_t{0}, std::uint8_t{8}}) p.push_back(b);
             for (int i = 0; i < 8; ++i) p.push_back(static_cast<std::uint8_t>(i < 2 ? 0xFF : 0x10 + i));
+            p[28] = regs_nslots;
             p.resize(p.size() - regs_len_delta);
             return p;
         }
         if (c.id == CMD_READ_MEM && c.payload.size() >= 5) {
             const std::size_t n = static_cast<std::size_t>(c.payload[3] | (c.payload[4] << 8));
             return pattern(n + read_mem_extra, c.payload[1]);
+        }
+        if (c.id == CMD_READ_BANK_MEM && c.payload.size() >= 5) {
+            const std::size_t n = static_cast<std::size_t>(c.payload[3] | (c.payload[4] << 8));
+            return pattern(n, c.payload[0]);
         }
         if (c.id == CMD_READ_MEM_BLOCKS && c.payload.size() >= 4) {
             std::size_t total = 0;
@@ -790,10 +796,11 @@ static void ins_rows_b() {
         const std::size_t burst = p.link->since();
         const long before_reply = p.link->first_reply_at;
         p.link->mark();
-        uint8_t b[16];
+        uint8_t b[16], sp[16];
         p.remote->peek(MemSpace::cpu(), 0x8000, 16, b);
+        p.remote->peek(MemSpace::cpu(), r.SP, 16, sp);
         check("RTG-INS-12", "the first registers() after a breakpoint stop is one round trip of two frames (registers and "
-                            "the memory around PC and SP); a read of PC's line then costs nothing",
+                            "the memory around PC and SP); a read of PC's line and of SP's line then costs nothing",
               stopped && r.PC == 0x8003 && burst == 2 && before_reply == 2 && p.link->since() == 0);
     }
     {
@@ -890,9 +897,19 @@ static void ins_rows_b() {
                            s.d->subscribe(s.a, exec_sub(0x8000)).status == Result::Unsupported &&
                            s.d->registers().PC == 0;
         s.d->pump(PumpBudget{});
-        check("RTG-INS-17", "link loss: poke(Page) is Unsupported and logs no MUTATE; every verb is Unsupported; capabilities "
-                            "are empty with 'link lost: ...'; the validity is empty; peer_connected() is false; no Paused",
-              pk.status == Result::Unsupported && s.sl.mutates() == 0 && verbs && s.d->capabilities().bits() == 0 &&
+        // The write's OWN round trip failing: the page's line is already cached, so the facade's old-byte read costs
+        // nothing and the loss is met by the write itself.
+        Scripted t;
+        uint8_t  seen[4];
+        t.d->peek(MemSpace::page(3), 0, 4, seen);
+        t.s.close();
+        const auto pk2 = t.d->poke(t.a, MemSpace::page(3), 0, 4, data);
+        check("RTG-INS-17", "link loss: poke(Page) is Unsupported and logs no MUTATE, whether the loss is met by the "
+                            "facade's old-byte read or by the write's own round trip; every verb is Unsupported; "
+                            "capabilities are empty with 'link lost: ...'; the validity is empty; peer_connected() is "
+                            "false; no Paused",
+              pk2.status == Result::Unsupported && t.sl.mutates() == 0 && !t.tgt->connected() &&
+                  pk.status == Result::Unsupported && s.sl.mutates() == 0 && verbs && s.d->capabilities().bits() == 0 &&
                   s.d->why_unavailable(Capability::Run).rfind("link lost: ", 0) == 0 &&
                   s.d->register_validity().bits == 0 && !s.tgt->peer_connected() && !s.tgt->connected() &&
                   s.sl.paused.empty());
@@ -944,10 +961,18 @@ static void ins_rows_b() {
         // a hostile peer: a GET_REGISTERS reply one byte short ends the session
         Scripted s([](Script& sc) { sc.regs_len_delta = 1; }, true);
         const Z80Registers z = s.d->registers();
+        // and the verb stops talking to the peer it has just judged hostile
+        Scripted u([](Script& sc) { sc.regs_len_delta = 1; }, true);
+        uint8_t  mem[8];
+        const auto pk = u.d->peek(MemSpace::cpu(), 0x8000, 8, mem);
         check("RTG-INS-20", "a CMD_GET_REGISTERS reply of the wrong length is a protocol error: the target is lost, registers "
-                            "are zero and every verb Unsupported",
+                            "are zero, every verb Unsupported and exactly one CMD_GET_REGISTERS was sent; a Cpu read that "
+                            "meets the same reply sends no memory read after it",
               z.PC == 0 && !s.tgt->connected() && s.d->capabilities().bits() == 0 &&
-                  s.tgt->lost_reason().find("CMD_GET_REGISTERS") != std::string::npos);
+                  s.tgt->lost_reason().find("CMD_GET_REGISTERS") != std::string::npos &&
+                  s.s.count(CMD_GET_REGISTERS) == 1 && pk.status == Result::Unsupported && !u.tgt->connected() &&
+                  u.s.count(CMD_GET_REGISTERS) == 1 && u.s.count(CMD_READ_MEM) == 0 &&
+                  u.s.count(CMD_READ_MEM_BLOCKS) == 0);
     }
     {
         Scripted s([](Script& sc) {
@@ -958,6 +983,55 @@ static void ins_rows_b() {
         const auto r = s.d->peek(MemSpace::cpu(), 0x8000, 16, buf);
         check("RTG-INS-21", "a read reply longer than asked is a protocol error: the target is lost and nothing is returned",
               r.status == Result::Unsupported && !s.tgt->connected());
+    }
+    {
+        // 37 bytes, but a slot count that is not 8
+        Scripted s([](Script& sc) { sc.regs_nslots = 7; });
+        const Z80Registers z = s.d->registers();
+        check("RTG-INS-22", "a CMD_GET_REGISTERS reply of 37 bytes whose slot count is not 8 is a protocol error: the "
+                            "target is lost and registers are zero",
+              z.PC == 0 && !s.tgt->connected() && s.tgt->lost_reason().find("CMD_GET_REGISTERS") != std::string::npos);
+    }
+    {
+        // Two slots map one page: a write through one is seen through the other, as on the reference.
+        Pair p;
+        p.remote->set_mmu_slot(p.ra, 6, 20);
+        p.remote->set_mmu_slot(p.ra, 7, 20);
+        p.ref.dbg->set_mmu_slot(p.rc, 6, 20);
+        p.ref.dbg->set_mmu_slot(p.rc, 7, 20);
+        uint8_t old[4], a[4], b[4];
+        p.remote->peek(MemSpace::cpu(), 0xE000, 4, old);   // caches the line through slot 7
+        const uint8_t data[4] = {0x11, 0x22, 0x33, 0x44};
+        p.remote->poke(p.ra, MemSpace::cpu(), 0xC000, 4, data);
+        p.ref.dbg->poke(p.rc, MemSpace::cpu(), 0xC000, 4, data);
+        p.remote->peek(MemSpace::cpu(), 0xE000, 4, a);
+        p.ref.dbg->peek(MemSpace::cpu(), 0xE000, 4, b);
+        check("RTG-INS-23", "two slots mapping one page: a Cpu write through one is seen through the other (the cached "
+                            "line of the other slot is not left stale), as on the reference",
+              std::memcmp(a, b, 4) == 0 && std::memcmp(a, data, 4) == 0 && std::memcmp(old, data, 4) != 0);
+    }
+    {
+        // The other views: a Page write is seen through the Cpu view of a slot that maps it, and a Cpu write through the Page view.
+        Pair p;
+        p.remote->set_mmu_slot(p.ra, 6, 20);
+        p.ref.dbg->set_mmu_slot(p.rc, 6, 20);
+        uint8_t c0[4], c1[4], c2[4], g0[4], g1[4], g2[4];
+        p.remote->peek(MemSpace::cpu(), 0xC000, 4, c0);            // cached through the slot
+        const uint8_t via_page[4] = {0xA1, 0xA2, 0xA3, 0xA4};
+        p.remote->poke(p.ra, MemSpace::page(20), 0, 4, via_page);
+        p.ref.dbg->poke(p.rc, MemSpace::page(20), 0, 4, via_page);
+        p.remote->peek(MemSpace::cpu(), 0xC000, 4, c1);
+        p.ref.dbg->peek(MemSpace::cpu(), 0xC000, 4, c2);
+        const bool page_to_cpu = std::memcmp(c1, c2, 4) == 0 && std::memcmp(c1, via_page, 4) == 0 && std::memcmp(c0, via_page, 4) != 0;
+        p.remote->peek(MemSpace::page(20), 0, 4, g0);               // cached as a page line
+        const uint8_t via_cpu[4] = {0xB1, 0xB2, 0xB3, 0xB4};
+        p.remote->poke(p.ra, MemSpace::cpu(), 0xC000, 4, via_cpu);
+        p.ref.dbg->poke(p.rc, MemSpace::cpu(), 0xC000, 4, via_cpu);
+        p.remote->peek(MemSpace::page(20), 0, 4, g1);
+        p.ref.dbg->peek(MemSpace::page(20), 0, 4, g2);
+        check("RTG-INS-24", "a Page write is seen through the Cpu view of a slot that maps the page, and a Cpu write "
+                            "through the Page view, both as on the reference",
+              page_to_cpu && std::memcmp(g1, g2, 4) == 0 && std::memcmp(g1, via_cpu, 4) == 0 && std::memcmp(g0, via_cpu, 4) != 0);
     }
 }
 
@@ -1330,6 +1404,48 @@ static void run_rows_b() {
     }
 }
 
+static void run_rows_d() {
+    {
+        // A line read while the target runs, between two pumps, must not survive into the stop that follows.
+        Pair p;
+        p.remote->registers();
+        p.remote->subscribe(p.ra, exec_sub(0x8006));
+        p.remote->run(p.ra);
+        uint8_t before[1], after[1];
+        p.remote->peek(MemSpace::cpu(), 0x9000, 1, before);   // cached while running
+        p.srv.emu.run_frame();                                 // the loop writes 0x9000 and stops at 0x8006
+        p.srv.dbg->pump(PumpBudget{});
+        p.remote->pump(PumpBudget{});
+        const bool stopped = p.remote->state().paused;
+        p.remote->peek(MemSpace::cpu(), 0x9000, 1, after);
+        check("RTG-RUN-22", "a line cached while running is not served after the stop: the read after a breakpoint stop "
+                            "shows what the served machine holds",
+              stopped && after[0] == p.srv.emu.mmu().peek(0x9000) && after[0] != before[0]);
+    }
+    {
+        // The served jnext's own client resumed the machine behind the remote's back; the remote's pause() stops it and the
+        // NTF_PAUSE it owes must refresh the remote's picture.
+        Pair p;
+        jnext::dbg::ClientInfo ci;
+        ci.name = "own";
+        ci.kind = jnext::dbg::ClientKind::Test;
+        const ClientId oc = p.srv.dbg->attach(ci).value;
+        p.remote->registers();
+        uint8_t stale[1];
+        p.remote->peek(MemSpace::cpu(), 0x9000, 1, stale);   // cached before the machine moves
+        p.srv.dbg->run(oc);
+        for (int i = 0; i < 3; ++i) p.srv.emu.run_frame();
+        p.remote->pause(p.ra);
+        for (int i = 0; i < 4; ++i) p.tick();
+        uint8_t now[1];
+        p.remote->peek(MemSpace::cpu(), 0x9000, 1, now);
+        check("RTG-RUN-23", "pause() on a target believed paused that the served side resumed: the NTF_PAUSE it owes is taken "
+                            "and the registers and memory then equal the served machine's",
+              p.srv.dbg->state().paused && regs_equal(p.remote->registers(), p.srv.dbg->registers()) &&
+                  now[0] == p.srv.emu.mmu().peek(0x9000) && now[0] != stale[0]);
+    }
+}
+
 static void run_rows_c() {
     // The target's own stop mapping, below the facade: what each NTF_PAUSE becomes, and which page it names.
     Scripted s;
@@ -1523,6 +1639,7 @@ int main() {
     run_rows_a();
     run_rows_b();
     run_rows_c();
+    run_rows_d();
     wp_rows();
 
     std::printf("\n======================================================\n");

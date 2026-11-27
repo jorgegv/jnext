@@ -4047,17 +4047,21 @@ connects nothing itself.</p>
   at every <code>service_once()</code> while the target runs, and after a NextREG or port access or
   a slot write, which can move memory. The first read after a stop sends the registers and
   the memory around PC and SP in one round trip; a miss fetches every missing line of the
-  request in one burst. Every write is pipelined with the re-read of what it can change,
-  so the next read shows what the remote holds (a byte dropped on ROM, a NextREG's side
-  effect) and needs no fetch.</li>
+  request in one burst. A memory write is pipelined with the re-read of the lines it touched in
+  the same view, so the next read shows what the remote holds (a byte dropped on ROM) and needs no
+  fetch; it also drops every cached line of the other view (a Cpu write drops the Page lines and
+  every other Cpu line, which another slot mapping the same page would otherwise serve stale; a
+  Page write drops the Cpu lines). A NextREG or port access drops the whole cache.</li>
 <li><strong>Slots</strong>: a RAM slot is <code>Page{n}</code> with the NextREG value; a ROM slot is named through the
   CPU view (<code>MemSpace::cpu()</code> plus the slot's offset), because the wire says "ROM" without the
   ROM's index. <code>rom_select()</code> is <code>cpu()</code>, and <code>Rom{i}</code> and <code>DivMmcRam{b}</code> reads are
   <code>Unsupported</code>.</li>
 <li><strong>Not writable remotely</strong>: <code>IFF1</code> and <code>IFF2</code> (the one command sets both) and sprite
   attributes and patterns (no command writes them); all <code>Unsupported</code> with nothing sent.</li>
-<li><strong>Stops</strong>: <code>NTF_PAUSE</code> is read in <code>service_once()</code>; one stop is owed per <code>CMD_CONTINUE</code>,
-  and a notification beyond that, or with nothing owed, is dropped with a warning.
+<li><strong>Stops</strong>: <code>NTF_PAUSE</code> is read in <code>service_once()</code>; one stop is owed per <code>CMD_CONTINUE</code> and
+  one per <code>CMD_PAUSE</code> sent to a target believed paused (the remote's own client may have resumed it
+  behind this one's back, and the pause then stops it), and a notification beyond that, or with
+  nothing owed, is dropped with a warning. Each accepted stop drops the cache.
   <code>CMD_CONTINUE</code> carries eleven bytes, all zero.</li>
 <li><strong>Failure</strong>: a timeout, a lost link or a reply of the wrong length (a protocol error) ends the
   session. The target is then lost: its capabilities are empty with "link lost: ...", every

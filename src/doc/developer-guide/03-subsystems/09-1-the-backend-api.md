@@ -515,17 +515,21 @@ connects nothing itself.
   at every `service_once()` while the target runs, and after a NextREG or port access or
   a slot write, which can move memory. The first read after a stop sends the registers and
   the memory around PC and SP in one round trip; a miss fetches every missing line of the
-  request in one burst. Every write is pipelined with the re-read of what it can change,
-  so the next read shows what the remote holds (a byte dropped on ROM, a NextREG's side
-  effect) and needs no fetch.
+  request in one burst. A memory write is pipelined with the re-read of the lines it touched in
+  the same view, so the next read shows what the remote holds (a byte dropped on ROM) and needs no
+  fetch; it also drops every cached line of the other view (a Cpu write drops the Page lines and
+  every other Cpu line, which another slot mapping the same page would otherwise serve stale; a
+  Page write drops the Cpu lines). A NextREG or port access drops the whole cache.
 - **Slots**: a RAM slot is `Page{n}` with the NextREG value; a ROM slot is named through the
   CPU view (`MemSpace::cpu()` plus the slot's offset), because the wire says "ROM" without the
   ROM's index. `rom_select()` is `cpu()`, and `Rom{i}` and `DivMmcRam{b}` reads are
   `Unsupported`.
 - **Not writable remotely**: `IFF1` and `IFF2` (the one command sets both) and sprite
   attributes and patterns (no command writes them); all `Unsupported` with nothing sent.
-- **Stops**: `NTF_PAUSE` is read in `service_once()`; one stop is owed per `CMD_CONTINUE`,
-  and a notification beyond that, or with nothing owed, is dropped with a warning.
+- **Stops**: `NTF_PAUSE` is read in `service_once()`; one stop is owed per `CMD_CONTINUE` and
+  one per `CMD_PAUSE` sent to a target believed paused (the remote's own client may have resumed it
+  behind this one's back, and the pause then stops it), and a notification beyond that, or with
+  nothing owed, is dropped with a warning. Each accepted stop drops the cache.
   `CMD_CONTINUE` carries eleven bytes, all zero.
 - **Failure**: a timeout, a lost link or a reply of the wrong length (a protocol error) ends the
   session. The target is then lost: its capabilities are empty with "link lost: ...", every

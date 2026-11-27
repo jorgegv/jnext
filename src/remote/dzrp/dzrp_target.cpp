@@ -161,8 +161,28 @@ bool DzrpTarget::length_is(const Reply& r, std::size_t n) const {
     return false;
 }
 
+// Every request goes through these two. Once the target is lost (a protocol error found by an earlier
+// reply of the same verb, say) nothing more is sent to the peer: the answer is an aborted reply.
+Reply DzrpTarget::call(std::uint8_t id, Bytes payload) const {
+    if (lost_) {
+        Reply r;
+        r.id = id;
+        return r;   // status Aborted
+    }
+    return cl_->request(id, std::move(payload));
+}
+
+std::vector<Reply> DzrpTarget::call_all(std::vector<std::pair<std::uint8_t, Bytes>> burst) const {
+    if (lost_) {
+        std::vector<Reply> out(burst.size());
+        for (std::size_t i = 0; i < burst.size(); ++i) out[i].id = burst[i].first;
+        return out;
+    }
+    return cl_->request_all(std::move(burst));
+}
+
 Result DzrpTarget::submit_ack(std::uint8_t id, Bytes payload) {
-    const Reply r = cl_->request(id, std::move(payload));
+    const Reply r = call(id, std::move(payload));
     return good(r) ? Result::Ok : Result::Unsupported;
 }
 
@@ -269,7 +289,7 @@ bool DzrpTarget::fetch(bool want_regs, const std::vector<int>& cpu_lines) const 
     const std::size_t first = reqs.size();
     for (auto& r : mem_requests(cpu_lines)) reqs.push_back(std::move(r));
     if (reqs.empty()) return true;
-    const std::vector<Reply> replies = cl_->request_all(std::move(reqs));
+    const std::vector<Reply> replies = call_all(std::move(reqs));
     for (const Reply& r : replies)
         if (!good(r)) return false;
     if (want_regs && (!length_is(replies[0], kRegisterReply) || !store_registers(replies[0].payload)))
@@ -317,7 +337,7 @@ bool DzrpTarget::fetch_page_lines(uint8_t page, const std::vector<int>& lines) c
         put16(p, static_cast<std::uint16_t>(r.second * kLineBytes));
         reqs.push_back({CMD_READ_BANK_MEM, std::move(p)});
     }
-    const std::vector<Reply> replies = cl_->request_all(std::move(reqs));
+    const std::vector<Reply> replies = call_all(std::move(reqs));
     for (const Reply& r : replies)
         if (!good(r)) return false;
     for (std::size_t i = 0; i < runs.size(); ++i) {
@@ -335,7 +355,7 @@ bool DzrpTarget::fetch_page_lines(uint8_t page, const std::vector<int>& lines) c
 bool DzrpTarget::fetch_nr_line(unsigned line) const {
     std::vector<std::pair<std::uint8_t, Bytes>> reqs;
     for (unsigned i = 0; i < 16; ++i) reqs.push_back({CMD_GET_TBBLUE_REG, {static_cast<std::uint8_t>(line * 16 + i)}});
-    const std::vector<Reply> replies = cl_->request_all(std::move(reqs));
+    const std::vector<Reply> replies = call_all(std::move(reqs));
     for (const Reply& r : replies)
         if (!good(r)) return false;
     for (unsigned i = 0; i < 16; ++i) {
@@ -348,7 +368,7 @@ bool DzrpTarget::fetch_nr_line(unsigned line) const {
 
 bool DzrpTarget::fetch_sprites() const {
     if (spr_valid_) return true;
-    const Reply r = cl_->request(CMD_GET_SPRITES, {0, static_cast<std::uint8_t>(jnext::dbg::SPRITE_COUNT)});
+    const Reply r = call(CMD_GET_SPRITES, {0, static_cast<std::uint8_t>(jnext::dbg::SPRITE_COUNT)});
     if (!good(r) || !length_is(r, jnext::dbg::SPRITE_COUNT * jnext::dbg::SPRITE_ATTR_BYTES)) return false;
     spr_       = r.payload;
     spr_valid_ = true;
@@ -357,7 +377,7 @@ bool DzrpTarget::fetch_sprites() const {
 
 bool DzrpTarget::fetch_patterns() const {
     if (pat_valid_) return true;
-    const Reply r = cl_->request(CMD_GET_SPRITE_PATTERNS, {0, 64});
+    const Reply r = call(CMD_GET_SPRITE_PATTERNS, {0, 64});
     if (!good(r) || !length_is(r, jnext::dbg::PATTERN_RAM_BYTES)) return false;
     pat_       = r.payload;
     pat_valid_ = true;
@@ -366,7 +386,7 @@ bool DzrpTarget::fetch_patterns() const {
 
 bool DzrpTarget::fetch_palette(int bank) const {
     if (pal_valid_[static_cast<std::size_t>(bank)]) return true;
-    const Reply r = cl_->request(CMD_GET_SPRITES_PALETTE, {static_cast<std::uint8_t>(bank)});
+    const Reply r = call(CMD_GET_SPRITES_PALETTE, {static_cast<std::uint8_t>(bank)});
     if (!good(r) || !length_is(r, 512)) return false;
     for (std::size_t i = 0; i < 256; ++i)
         pal_[static_cast<std::size_t>(bank)][i] =
@@ -377,7 +397,7 @@ bool DzrpTarget::fetch_palette(int bank) const {
 
 bool DzrpTarget::fetch_clip() const {
     if (clip_valid_) return true;
-    const Reply r = cl_->request(CMD_GET_SPRITES_CLIP_WINDOW_AND_CONTROL);
+    const Reply r = call(CMD_GET_SPRITES_CLIP_WINDOW_AND_CONTROL);
     if (!good(r) || !length_is(r, 5)) return false;
     clip_.x1   = r.payload[0];
     clip_.x2   = r.payload[1];
@@ -403,7 +423,7 @@ Result DzrpTarget::set_register(RegId reg, uint16_t value) {
     prime();
     Bytes p = {static_cast<std::uint8_t>(idx)};
     put16(p, value);
-    const std::vector<Reply> r = cl_->request_all({{CMD_SET_REGISTER, std::move(p)}, {CMD_GET_REGISTERS, {}}});
+    const std::vector<Reply> r = call_all({{CMD_SET_REGISTER, std::move(p)}, {CMD_GET_REGISTERS, {}}});
     if (!good(r[0]) || !good(r[1])) return Result::Unsupported;
     if (!length_is(r[1], kRegisterReply) || !store_registers(r[1].payload)) return Result::Unsupported;
     return Result::Ok;
@@ -466,7 +486,7 @@ Expected<size_t> DzrpTarget::write(MemSpace space, uint32_t addr, size_t n, cons
                 put16(p, static_cast<uint16_t>(r.second * kLineBytes));
                 reqs.push_back({CMD_READ_BANK_MEM, std::move(p)});
             }
-            const std::vector<Reply> replies = cl_->request_all(std::move(reqs));
+            const std::vector<Reply> replies = call_all(std::move(reqs));
             for (const Reply& r : replies)
                 if (!good(r)) return E{Result::Unsupported, 0};
             const auto runs = runs_of(lines);
@@ -503,9 +523,12 @@ Expected<size_t> DzrpTarget::write(MemSpace space, uint32_t addr, size_t n, cons
     const std::vector<int> lines(touched.begin(), touched.end());
     std::vector<std::pair<std::uint8_t, Bytes>> reqs = {{CMD_WRITE_MEM, std::move(w)}};
     for (auto& r : mem_requests(lines)) reqs.push_back(std::move(r));
-    const std::vector<Reply> replies = cl_->request_all(std::move(reqs));
+    const std::vector<Reply> replies = call_all(std::move(reqs));
     for (const Reply& r : replies)
         if (!good(r)) return E{Result::Unsupported, 0};
+    // Another slot may map the same page (128K bank 5 at two addresses, an MMU alias): its cached lines
+    // describe the bytes from before the write. Only the touched lines are re-read, so drop every Cpu line.
+    drop_cpu_lines();
     if (!store_mem_replies(lines, replies, 1)) return E{Result::Unsupported, 0};
     // Page lines may alias what was written.
     for (auto it = lines_.begin(); it != lines_.end();) {
@@ -553,7 +576,7 @@ std::array<SlotInfo, 8> DzrpTarget::mmu_slots() const {
 Result DzrpTarget::set_mmu_slot(int slot, uint8_t page) {
     if (!usable() || slot < 0 || slot > 7) return Result::Unsupported;
     prime();
-    const std::vector<Reply> r = cl_->request_all(
+    const std::vector<Reply> r = call_all(
         {{CMD_SET_SLOT, {static_cast<std::uint8_t>(slot), page}}, {CMD_GET_REGISTERS, {}}});
     if (!good(r[0]) || !good(r[1])) return Result::Unsupported;
     if (!length_is(r[0], 1) || !length_is(r[1], kRegisterReply)) return Result::Unsupported;
@@ -585,7 +608,7 @@ Expected<uint8_t> DzrpTarget::port_in(uint16_t port) {
     prime();
     Bytes p;
     put16(p, port);
-    const Reply r = cl_->request(CMD_READ_PORT, std::move(p));
+    const Reply r = call(CMD_READ_PORT, std::move(p));
     if (!good(r)) return make_refused<uint8_t>(Result::Unsupported);
     drop_cache();   // an IN can page memory
     if (r.payload.empty()) return make_refused<uint8_t>(Result::RefusedUnavailable);
@@ -740,7 +763,7 @@ Expected<uint32_t> DzrpTarget::add_breakpoint(uint16_t addr, uint16_t page) {
     put16(p, addr);
     p.push_back(bank1);
     p.push_back(0);   // the condition, empty: conditions run in this client
-    const Reply r = cl_->request(CMD_ADD_BREAKPOINT, std::move(p));
+    const Reply r = call(CMD_ADD_BREAKPOINT, std::move(p));
     if (!good(r) || !length_is(r, 2)) return make_refused<uint32_t>(Result::Unsupported);
     const uint16_t id = static_cast<uint16_t>(r.payload[0] | (r.payload[1] << 8));
     if (id == 0) return make_refused<uint32_t>(Result::RefusedUnavailable);
@@ -777,7 +800,7 @@ Expected<uint32_t> DzrpTarget::add_watchpoint(uint16_t lo, uint16_t hi, uint16_t
     p.push_back(w.bank1);
     put16(p, w.size);
     p.push_back(w.access);
-    const Reply r = cl_->request(CMD_ADD_WATCHPOINT, std::move(p));
+    const Reply r = call(CMD_ADD_WATCHPOINT, std::move(p));
     if (!good(r) || !length_is(r, 1)) return make_refused<uint32_t>(Result::Unsupported);
     if (r.payload[0] != 0) return make_refused<uint32_t>(Result::RefusedUnavailable);
     const uint32_t h = next_wp_++;
