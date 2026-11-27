@@ -2024,6 +2024,9 @@ package-rpm:
 	@# GH #297: the packaged binary is a PGO build (needs the SD image to train).
 	$(call PGO_BUILD,$(BUILD_DIR_RPM_RELEASE),$(CMAKE) -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DJNEXT_WERROR=OFF)
 	cd $(BUILD_DIR_RPM_RELEASE) && cpack -G RPM
+	@# GH #572: the rpm's binary must be stripped (CPACK_STRIP_FILES).
+	ver=$$(grep '^version:' version.yaml | awk '{print $$2}') && \
+	 bash packaging/verify-stripped.sh $(BUILD_DIR_RPM_RELEASE)/jnext-$$ver-*.rpm
 	@printf "$(BOLD)RPM(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_RPM_RELEASE)/*.rpm
 
 # Provide SDL3 dev files on a distro that ships none (Ubuntu 24.04 LTS); no-op elsewhere
@@ -2042,6 +2045,9 @@ package-deb: sdl3-vendor
 		-DCMAKE_BUILD_TYPE=Release -DENABLE_QT_UI=ON -DENABLE_TESTS=OFF -DJNEXT_WERROR=OFF \
 		$$([ -d build/sdl3-vendor/prefix ] && echo "-DCMAKE_PREFIX_PATH=$(CURDIR)/build/sdl3-vendor/prefix -DJNEXT_SDL3_VENDORED=ON"))
 	cd $(BUILD_DIR_DEB_RELEASE) && cpack -G DEB
+	@# GH #572: the deb's binary must be stripped (CPACK_STRIP_FILES).
+	ver=$$(grep '^version:' version.yaml | awk '{print $$2}') && \
+	 bash packaging/verify-stripped.sh $(BUILD_DIR_DEB_RELEASE)/jnext_$${ver}_*.deb
 	@printf "$(BOLD)DEB(s) produced:$(RESET)\n"; ls -1 $(BUILD_DIR_DEB_RELEASE)/*.deb
 
 # Build a Flatpak bundle from packaging/flatpak (needs flatpak-builder + the KDE runtime/SDK)
@@ -2155,6 +2161,9 @@ package-win: win-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Windows bundle.\n"; exit 1; \
 		fi; \
 	 done && \
+	 find "$$stage" -type f \( -iname '*.exe' -o -iname '*.dll' \) \
+		-exec x86_64-w64-mingw32-strip --strip-all {} + && \
+	 bash packaging/verify-stripped.sh "$$stage" && \
 	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN_RELEASE)/$$name.zip" && \
@@ -2180,6 +2189,9 @@ package-win-sdl: win-sdl-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the SDL-only bundle.\n"; exit 1; \
 		fi; \
 	 done && \
+	 find "$$stage" -type f \( -iname '*.exe' -o -iname '*.dll' \) \
+		-exec x86_64-w64-mingw32-strip --strip-all {} + && \
+	 bash packaging/verify-stripped.sh "$$stage" && \
 	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN_SDL_RELEASE)/$$name.zip" && \
@@ -2206,6 +2218,9 @@ package-win-qt5: win-qt5-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
 		fi; \
 	 done && \
+	 find "$$stage" -type f \( -iname '*.exe' -o -iname '*.dll' \) \
+		-exec x86_64-w64-mingw32-strip --strip-all {} + && \
+	 bash packaging/verify-stripped.sh "$$stage" && \
 	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN_QT5_RELEASE)/$$name.zip" && \
@@ -2232,6 +2247,9 @@ package-win32-qt5: win32-qt5-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the Qt5 bundle.\n"; exit 1; \
 		fi; \
 	 done && \
+	 find "$$stage" -type f \( -iname '*.exe' -o -iname '*.dll' \) \
+		-exec i686-w64-mingw32-strip --strip-all {} + && \
+	 bash packaging/verify-stripped.sh "$$stage" && \
 	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN32_QT5_RELEASE)/$$name.zip" && \
@@ -2258,6 +2276,9 @@ package-win32-sdl: win32-sdl-release
 			printf "$(BADGE_FAIL) ERROR $(RESET) $$f missing from the SDL-only bundle.\n"; exit 1; \
 		fi; \
 	 done && \
+	 find "$$stage" -type f \( -iname '*.exe' -o -iname '*.dll' \) \
+		-exec i686-w64-mingw32-strip --strip-all {} + && \
+	 bash packaging/verify-stripped.sh "$$stage" && \
 	 cp LICENSE README.md ChangeLog USAGE.md data/48rom.map "$$stage"/ && \
 	 cp -r doc/user-guide "$$stage"/user-guide && \
 	 rm -f "$(BUILD_DIR_WIN32_SDL_RELEASE)/$$name.zip" && \
@@ -2331,6 +2352,7 @@ verify-macos-dmg:
 		bash packaging/macos/verify-bundle.sh "$$mnt/jnext.app" </dev/null; \
 	test -f "$$mnt/jnext.app/Contents/Resources/48rom.map" \
 		|| { echo "error: the .dmg's jnext.app has no Contents/Resources/48rom.map" >&2; exit 1; }; \
+	bash packaging/verify-stripped.sh "$$mnt/jnext.app"; \
 	printf "$(BOLD)dmg verified:$(RESET) $$dmg\n"
 
 # Self-test packaging-test.sh's failure path: a failing sub-test's log must surface inline (GH #80)
