@@ -1273,8 +1273,10 @@ row RRUN-74 "$dnf_ok" "ci-deps.sh runs dnf upgrade -y then dnf install -y with t
 # RRUN-75 (GH #585): mutant-test is a heavy target: the driver prints no "not a heavy target" notice for it
 reset_state
 drive --id hv3 feature "$SHA" mutant-test SUITES=a; hv_c=$OUT
-row RRUN-75 "$([[ "$hv_c" != *"is not a heavy target"* && "$hv_c" == *"mutant-test"* ]] && echo 1 || echo 0)" \
-    "mutant-test SUITES=a raises no heavy-target notice"
+reset_state
+drive --id hv4 feature "$SHA" unit-test-build SUITES=a; hv_d=$OUT
+row RRUN-75 "$([[ "$hv_c" != *"is not a heavy target"* && "$hv_d" == *"'unit-test-build' is not a heavy target"* ]] && echo 1 || echo 0)" \
+    "mutant-test SUITES=a raises no heavy-target notice (the control unit-test-build SUITES=a does)"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
 # the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green

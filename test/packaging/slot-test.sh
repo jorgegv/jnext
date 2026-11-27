@@ -950,7 +950,7 @@ out=$(slot --patch env LANG=C make -C "$MUT" mutant-test SUITES=a,b 'ROWS=r1 r2'
 c80=$(rr_calls)
 fresh
 out2=$(slot env LANG=C make -C "$WT" mutant-test SUITES=a 2>&1); rc2=$?
-row SLOT-80 "$([[ $rc -eq 0 && "$c80" == *"gh900-demo $MSHA sh:make mutant-test SUITES=a,b ROWS=r1\\ r2 JNEXT_SUITE_VMEM_KB=3145728"* && ! -e "$STATE/make-calls" \
+row SLOT-80 "$([[ $rc -eq 0 && "$c80" == *"gh900-demo $MSHA sh:make mutant-test SUITES=a\\,b ROWS=r1\\ r2 JNEXT_SUITE_VMEM_KB=3145728"* && ! -e "$STATE/make-calls" \
     && $rc2 -eq 0 && "$(rr_calls)" == *" gh900-demo "*" mutant-test SUITES=a"* && "$out2" != *"is not a heavy target"* ]] && echo 1 || echo 0)" \
     "a spaced ROWS value is one quoted sh: target; a clean pushed issue branch is eligible for mutant-test without --patch (rc=$rc/$rc2)"
 
