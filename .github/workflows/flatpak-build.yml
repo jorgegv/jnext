@@ -33,7 +33,7 @@
 #     make -C /w verify-flatpak-permissions BUNDLE=<path>
 #
 # The image carries GNU Make 4.4.1, git 2.55.0, awk, sed, find, bash, Flatpak
-# 1.18.1 and flatpak-builder 1.4.9 (it is a Freedesktop SDK 25.08 runtime, so
+# 1.18.1 and flatpak-builder 1.4 (it is a Freedesktop SDK 25.08 runtime, so
 # they live under /usr/sbin). The version-derive `awk` step below yields
 # 1.0.28 from version.yaml. With no bundle the recipe printed the missing-bundle
 # diagnostic and exited non-zero; with a real bundle it installed into a
@@ -148,11 +148,40 @@ jobs:
         id: ver
         run: echo "ver=$(awk '/^version:/{print $2}' version.yaml)" >> "$GITHUB_OUTPUT"
 
-      # GH #497 — specnext.com sometimes serves a ~12 KB page instead of the
-      # distro zip and flatpak-builder has no retry. This plain make target
-      # fetches the zip into flatpak-builder's download cache with checked
-      # retries and backoff, so the action finds it there; if it still fails,
-      # flatpak-builder makes its own attempt as before.
+      # GH #583: specnext.com serves GitHub runners a ~12 KB body instead of the
+      # distro zip, so the zip comes from a CI CACHE, never from the network when
+      # one is available. A cache is not an artifact: the zip goes only into
+      # Actions cache entries, written only by a push to main (like every cache
+      # here, GH #547), and is never uploaded, released or packaged.
+      #   R1 restores the zip by CONTENT: the key carries its name and the sha256
+      #      the manifest pins (FPKP-25 holds both to the manifest), so a hit is
+      #      never stale. The path is flatpak-builder's own download layout.
+      #   R2 runs only on an R1 miss and restores the newest builder-state entry
+      #      the action below saved from main, which holds the zip. Not the whole
+      #      state on every run: its ccache would be re-saved and grow each push.
+      #      The action's own restore can never match (it looks for the prefix
+      #      flatpak-builder-x86_64, our saved keys are flatpak-builder-<sha>-x86_64),
+      #      hence restore-cache: false below.
+      - name: Restore the Flatpak source zip (R1)
+        id: srczip
+        uses: actions/cache/restore@v5
+        with:
+          path: .flatpak-builder/downloads/0245d847da440155fb6f55d6cfadc64c0158118d7cea98066395d68f93fb3ab0
+          key: flatpak-source-sn-emulator-26.11a.zip-0245d847da440155fb6f55d6cfadc64c0158118d7cea98066395d68f93fb3ab0
+
+      - name: Restore the builder state holding the zip (R2)
+        if: steps.srczip.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v5
+        with:
+          path: .flatpak-builder
+          key: flatpak-builder-${{ github.sha }}-x86_64
+          restore-keys: flatpak-builder-
+
+      # GH #497: flatpak-builder has no retry. This plain make target checks the
+      # zip in flatpak-builder's download cache against the manifest's sha256
+      # (cached by R1/R2: nothing is fetched), else fetches it with checked
+      # retries and backoff and logs what a bad fetch returned (status, size,
+      # type, first bytes). If it still fails, flatpak-builder makes its own attempt.
       - name: Prefetch sources with retry (make flatpak-prefetch)
         run: make flatpak-prefetch
 
@@ -169,8 +198,19 @@ jobs:
           artifact-name: jnext-linux-flatpak
           manifest-path: packaging/flatpak/io.github.zxjogv.jnext.yml
           cache-key: flatpak-builder-${{ github.sha }}
-          # GH #547: restore always, save only from a push to main (the 10 GB repository limit).
+          # R2 does the restoring (see above); the action's own lookup never matches.
+          restore-cache: false
+          # GH #547: save only from a push to main (the 10 GB repository limit).
           save-cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      # S1: the zip, saved once per distribution from main, after a green build
+      # (a wrong zip fails flatpak-builder's own sha256 check, so it cannot be saved).
+      - name: Save the Flatpak source zip (S1)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.srczip.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .flatpak-builder/downloads/0245d847da440155fb6f55d6cfadc64c0158118d7cea98066395d68f93fb3ab0
+          key: flatpak-source-sn-emulator-26.11a.zip-0245d847da440155fb6f55d6cfadc64c0158118d7cea98066395d68f93fb3ab0
 
       # GH #271 — the permission gate, on the bundle THIS job produced. It
       # installs that bundle into a throwaway FLATPAK_USER_DIR and reads the

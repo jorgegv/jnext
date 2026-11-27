@@ -18,8 +18,17 @@
 # flatpak-builder then makes its own attempt exactly as it did before this
 # script existed. A source already in the cache with the right sha256 is kept.
 #
+# Every failed attempt logs one line saying what came back (curl exit, HTTP status,
+# bytes written, content type, sha256 and the first 200 bytes), because a runner
+# was once served a wrong body and the evidence was thrown away (GH #583). The body
+# and the content type are network data: they are cut, every byte outside
+# [:print:] becomes `.`, and they sit mid-line after a fixed prefix, so nothing a
+# server sends can start a log line (no `::error::` workflow command) or reach the
+# terminal raw.
+#
 # Test seams (never needed in production): PREFETCH_FETCH = command run as
-# `$PREFETCH_FETCH <url> <dest>` instead of curl; PREFETCH_SLEEP = command run as
+# `$PREFETCH_FETCH <url> <dest>` instead of curl; it may print one line
+# `<http_code> <content_type>` on stdout; PREFETCH_SLEEP = command run as
 # `$PREFETCH_SLEEP <seconds>` instead of sleep.
 set -u
 export LC_ALL=C LANG=C
@@ -36,14 +45,33 @@ if [ -z "$fetch" ]; then
         # A stall must end the attempt (and be retried, then handed to flatpak-builder), not hold the job:
         # no connection in 30 s, or under 1 KB/s for 30 s, aborts the transfer.
         default_curl() {
-            curl --fail --silent --show-error --location --connect-timeout 30 \
-                 --speed-limit 1024 --speed-time 30 --output "$2" "$1"
+            # --fail-with-body: exit 22 on HTTP >= 400 but keep the body for the log (curl >= 7.76)
+            curl --fail-with-body --silent --show-error --location --connect-timeout 30 \
+                 --speed-limit 1024 --speed-time 30 \
+                 --write-out '%{http_code} %{content_type}' --output "$2" "$1"
         }
     else
         echo "prefetch-sources: curl not found; flatpak-builder will download the sources itself" >&2
         exit 0
     fi
 fi
+
+# report_failure <url> <n> <curl-rc> <meta> <file> <want-sha>: one stderr line on what the attempt returned
+report_failure() {
+    local meta code ctype size got excerpt
+    meta=$(printf '%s' "$4" | head -c 300 | tr -c '[:print:]' '.')
+    code=${meta%% *}; ctype=${meta#* }
+    [[ "$code" =~ ^[0-9]{3}$ ]] || code='?'
+    [ "$ctype" != "$meta" ] && [ -n "$ctype" ] || ctype='?'
+    ctype=${ctype:0:100}
+    size=0; got=none; excerpt=
+    if [ -f "$5" ]; then
+        size=$(wc -c < "$5" | tr -d ' ')
+        got=$(sha256sum "$5" | cut -d' ' -f1)
+        excerpt=$(head -c 200 "$5" | tr -c '[:print:]' '.')
+    fi
+    echo "prefetch-sources: $1: attempt $2 of $((retries + 1)) failed: curl exit $3, HTTP $code, $size bytes, type $ctype, sha256 $got (manifest $6); starts: \"$excerpt\"" >&2
+}
 
 # url/sha256 pairs: a `url:` line followed by its `sha256:` line.
 pairs=$(awk '
@@ -63,9 +91,11 @@ while read -r url sum; do
     attempt=0; wait_s=2; got=0
     while :; do
         rm -f "$dest.part"
-        if $fetch "$url" "$dest.part" && [ "$(sha256sum "$dest.part" | cut -d' ' -f1)" = "$sum" ]; then
+        meta=$($fetch "$url" "$dest.part"); rc=$?
+        if [ "$rc" -eq 0 ] && [ -f "$dest.part" ] && [ "$(sha256sum "$dest.part" | cut -d' ' -f1)" = "$sum" ]; then
             mv "$dest.part" "$dest"; got=1; break
         fi
+        report_failure "$url" "$((attempt + 1))" "$rc" "$meta" "$dest.part" "$sum"
         rm -f "$dest.part"
         [ "$attempt" -lt "$retries" ] || break
         attempt=$((attempt + 1))

@@ -1,0 +1,6 @@
+{
+  "name": "conv-logs",
+  "version": "0.1.0",
+  "description": "Moves unrequested turns (agent hand-backs, task notifications and Claude's replies to them) out of the conversation into a Logs pane, with links between the two",
+  "types": "./types/index.d.ts"
+}

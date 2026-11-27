@@ -16,11 +16,17 @@
 #            negation and a trailing || term are refused; a commented-out or `true` flatpak save-cache;
 #            a combined cache, a save with no (or a wrong) condition, a
 #            restore with no save, a save with no restore, a workflow with no cache step at all
+#   CICS-05  flatpak-build.yml (GH #583): no combined cache step, every cache save needs a main push, every
+#            restore is fed by a save of the same key and path or by the builder action's save
+#            (path .flatpak-builder, key <cache-key>-x86_64), and every save has a restore
+#   CICS-06  the checker refuses flatpak-build fixtures: a save without the main condition, a save whose key
+#            differs from its restore, a restore of the builder state whose key is not the action's save key,
+#            a restore with no feeder
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 WF=${CI_CACHE_SAVE_WF:-$ROOT/.github/workflows/ci.yml}   # the override is for mutation runs
-EXPECTED_ROWS=4
+EXPECTED_ROWS=6
 total=0; passed=0; failed=0
 row() {
     local id=$1 ok=$2 text=$3
@@ -34,7 +40,7 @@ finish() {
     [[ $failed -eq 0 ]]
     exit
 }
-command -v python3 >/dev/null 2>&1 || { echo "  missing tool: python3"; for i in 1 2 3 4; do row "CICS-0$i" 0 "not run: python3 missing"; done; finish; }
+command -v python3 >/dev/null 2>&1 || { echo "  missing tool: python3"; for i in 1 2 3 4 5 6; do row "CICS-0$i" 0 "not run: python3 missing"; done; finish; }
 
 # check <workflow> <rule>: print the offending steps, one per line; exit 1 when any, 2 when the file has no cache step
 check() {
@@ -78,7 +84,7 @@ for jn, j in (d.get("jobs") or {}).items():
         elif u.startswith("actions/cache/save@"):
             saves.append((jn, str(w.get("key")), str(w.get("path")), ident))
             c = str(st.get("if", ""))
-            if rule == "cond" and not cond_ok(c): bad.append("save without a main-push condition: " + ident)
+            if rule in ("cond", "fpwf") and not cond_ok(c): bad.append("save without a main-push condition: " + ident)
 if rule == "flatpak":
     n = 0
     for jn, j in (d.get("jobs") or {}).items():
@@ -89,6 +95,19 @@ if rule == "flatpak":
     if n == 0: sys.exit(2)
     print("\n".join(bad)); sys.exit(1 if bad else 0)
 if n == 0: sys.exit(2)
+if rule == "fpwf":
+    # restores must be fed by a save of the same key and path, or by the flatpak-builder action'"'"'s own save
+    ksave = []
+    for jn, j in (d.get("jobs") or {}).items():
+        for st in j.get("steps") or []:
+            if str(st.get("uses", "")).startswith("flatpak/flatpak-github-actions/flatpak-builder"):
+                w = st.get("with") or {}
+                if cond_ok(w.get("save-cache", "")): ksave.append((jn, str(w.get("cache-key")) + "-x86_64", ".flatpak-builder"))
+    for r in restores:
+        if not any(s[:3] == r[:3] for s in saves) and not any(k == r[:3] for k in ksave): bad.append("restore without a feeding save: " + r[3])
+    for s in saves:
+        if not any(s[:3] == r[:3] for r in restores): bad.append("save without a restore: " + s[3])
+    print("\n".join(bad)); sys.exit(1 if bad else 0)
 if rule == "pair":
     for r in restores:
         if not any(s[:3] == r[:3] for s in saves): bad.append("restore without a save of the same key and path: " + r[3])
@@ -115,6 +134,12 @@ for pair in "CICS-01:plain:holds no combined actions/cache step" \
     if [[ $rc -eq 0 ]]; then row "$id" 1 "ci.yml $text"
     else row "$id" 0 "ci.yml: ${out:-checker exit $rc}"; fi
 done
+
+# CICS-05: the flatpak-build.yml cache steps (GH #583)
+FPW=${CI_CACHE_SAVE_FLATPAK:-$ROOT/.github/workflows/flatpak-build.yml}
+out=$(check "$FPW" fpwf); rc=$?
+if [[ $rc -eq 0 ]]; then row CICS-05 1 "flatpak-build.yml restores are fed, saves need a push to main and have a restore"
+else row CICS-05 0 "flatpak-build.yml: ${out:-checker exit $rc}"; fi
 
 # CICS-04: fixtures
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/ci-cache-save-test.XXXXXX"); trap 'rm -rf "$TMP"' EXIT
@@ -160,5 +185,21 @@ for f in fb-commented fb-true fb-or; do check "$TMP/$f.yml" flatpak >/dev/null &
 check "$TMP/ok.yml" flatpak >/dev/null; [[ $? -eq 2 ]] || msg+=" no-flatpak-step-not-refused;"
 if [[ -z "$msg" ]]; then row CICS-04 1 "the checker accepts a good fixture and refuses each broken one"
 else row CICS-04 0 "$msg"; fi
+
+# CICS-06: flatpak-build fixtures, made from the real workflow by one edit each
+TMPF=$(mktemp -d "${TMPDIR:-/tmp}/ci-cache-save-fp.XXXXXX")
+msg=""
+check "$FPW" fpwf >/dev/null || msg+=" real-refused;"
+sed "s| \&\& github.ref == 'refs/heads/main' \&\& steps| \&\& steps|" "$FPW" > "$TMPF/s1-nomain.yml"
+awk '/\(S1\)/{f=1} f && /^ *key:/{$0=$0 "x"; f=0} {print}' "$FPW" > "$TMPF/s1-otherkey.yml"
+sed 's|key: flatpak-builder-\${{ github.sha }}-x86_64|key: flatpak-builder-${{ github.sha }}-x86_65|' "$FPW" > "$TMPF/r2-otherkey.yml"
+awk '/- name: Save the Flatpak source zip/{skip=1} skip && /^$/{skip=0; next} !skip{print}' "$FPW" > "$TMPF/nofeeder.yml"
+for f in s1-nomain s1-otherkey r2-otherkey nofeeder; do
+    cmp -s "$FPW" "$TMPF/$f.yml" && msg+=" $f-fixture-unchanged;"
+    check "$TMPF/$f.yml" fpwf >/dev/null && msg+=" $f-accepted;"
+done
+rm -rf "$TMPF"
+if [[ -z "$msg" ]]; then row CICS-06 1 "the checker accepts the real flatpak-build.yml and refuses each broken variant"
+else row CICS-06 0 "$msg"; fi
 
 finish

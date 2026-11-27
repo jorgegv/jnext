@@ -227,6 +227,19 @@ A **bugfix** PR also needs a full bug description (or a linked bug issue); a
 
 Full rules: **[PULL-REQUEST-PROTOCOL.md](doc/PULL-REQUEST-PROTOCOL.md)**.
 
+### Claude Code mods (optional)
+
+Two opt-in [Claude Code](https://claude.com/claude-code) mods live under
+`.claude/mods/`: `conv-logs` (a Logs pane for unrequested messages) and
+`run-status` (a Run status pane for an autonomous run). Install them with:
+
+```
+/plugin install conv-logs --marketplace jorgegv/jnext
+/plugin install run-status --marketplace jorgegv/jnext
+```
+
+See [A.4 Claude Code mods](src/doc/developer-guide/appendix-a-contributing/04-claude-code-mods.md).
+
 ## About this project
 
 JNEXT is being fully developed using Claude (Anthropic's AI), with human guidance

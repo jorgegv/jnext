@@ -18,6 +18,7 @@
 ### Internal JNEXT Development
 - Remote builds: mutation test runs go to the remote hosts as a patch on the pushed commit
 - Download stall tests no longer fail on a loaded host
+- Claude Code mods for contributors: a Logs pane for unrequested messages and a live Run status pane
 
 ### Contributors in this release
 - @janko-jj, @koseid72

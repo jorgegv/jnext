@@ -3633,6 +3633,74 @@ static void test_fnkeys() {
               DETAIL("rows@A11=0x%02X rows@A12=0x%02X (expected 0xF7, 0xEF)",
                      r_a11, r_a12));
     }
+
+    // ── FNK-09..13: F-key long-press timer, PERIOD = 1000/10 = 100 ticks ──
+    // emu_fnkeys.vhd:55 PERIOD = BUTTON_PERIOD_MS / CLOCK_EN_PERIOD_MS, with
+    // 1000 / 10 per zxnext_top_issue2.vhd:1961-1962; timer :83-97.
+    // "Reset held h": reset low, tick() h times, reset high, tick() once
+    // more (the tick that enters RESET_DONE).
+    auto reset_held = [](EmuFnKeys& f, int h) {
+        f.set_button_reset_n(false);
+        for (int i = 0; i < h; ++i) f.tick();
+        f.set_button_reset_n(true);
+        f.tick();
+    };
+    // M1 held for n ticks (n = 3k, ending in MF_CHECK), released, one more tick.
+    auto m1_held = [](EmuFnKeys& f, int n) {
+        f.set_button_m1_n(false);
+        for (int i = 0; i < n; ++i) f.tick();
+        const bool at_check = (f.state() == EmuFnKeys::State::MF_CHECK);
+        f.set_button_m1_n(true);
+        f.tick();
+        return at_check;
+    };
+    {
+        EmuFnKeys f;
+        reset_held(f, 100);
+        check("FNK-09",
+              "reset held 100 enable ticks -> F1 hard reset (emu_fnkeys.vhd:55, :83-97, :190-192)",
+              f.state() == EmuFnKeys::State::RESET_DONE && f.fnkey(1) && !f.fnkey(4),
+              DETAIL("state=%d F1=%d F4=%d", (int)f.state(), f.fnkey(1), f.fnkey(4)));
+    }
+    {
+        EmuFnKeys f;
+        reset_held(f, 99);
+        check("FNK-10",
+              "reset held 99 enable ticks -> F4 soft reset (emu_fnkeys.vhd:55, :83-97, :190-194)",
+              f.state() == EmuFnKeys::State::RESET_DONE && f.fnkey(4) && !f.fnkey(1),
+              DETAIL("state=%d F1=%d F4=%d", (int)f.state(), f.fnkey(1), f.fnkey(4)));
+    }
+    {
+        EmuFnKeys f;
+        const bool at_check = m1_held(f, 99);
+        check("FNK-11",
+              "M1 held 99 enable ticks -> MF NMI F9 (short press) (emu_fnkeys.vhd:55, :133-138, :188-189)",
+              at_check && f.state() == EmuFnKeys::State::MF_DONE && f.fnkey(9),
+              DETAIL("at_check=%d state=%d F9=%d", at_check, (int)f.state(), f.fnkey(9)));
+    }
+    {
+        EmuFnKeys f;
+        const bool at_check = m1_held(f, 102);
+        check("FNK-12",
+              "M1 held 102 enable ticks -> no MF NMI (long press, timer saturates at 0) (emu_fnkeys.vhd:55, :93-94, :188-189)",
+              at_check && f.state() == EmuFnKeys::State::MF_DONE && !f.fnkey(9),
+              DETAIL("at_check=%d state=%d F9=%d", at_check, (int)f.state(), f.fnkey(9)));
+    }
+    {
+        Emulator emu;
+        build_next_emulator_for_nmi(emu);
+        EmuFnKeys& f = emu.emu_fnkeys();
+        f.reset();
+        reset_held(f, 99);
+        const bool leg1 = f.fnkey(4) && !f.fnkey(1);
+        f.reset();
+        reset_held(f, 100);
+        const bool leg2 = f.fnkey(1) && !f.fnkey(4);
+        check("FNK-13",
+              "production EmuFnKeys instance carries PERIOD 100: hold 99 -> F4, hold 100 -> F1 (emu_fnkeys.vhd:55, :190-194)",
+              leg1 && leg2,
+              DETAIL("leg1(99: F4 only)=%d leg2(100: F1 only)=%d", leg1, leg2));
+    }
 }
 
 // ── main ────────────────────────────────────────────────────────────────
