@@ -1679,6 +1679,14 @@ static void probe_rows() {
         check("DZC-PRB-07", "a refused handshake counts as a failed command: exit 1 and a summary of \"1 commands, 1 failed\"",
               r.rc == 1 && has(r.out, "summary: 1 commands, 1 failed"), "rc=" + std::to_string(r.rc) + "\n" + r.out);
     }
+    {
+        Script s;
+        s.bitfield = bitfield_of({1, 2, 3, 8, 24});   // no CMD_GET_TBBLUE_REG: the gate refuses it
+        const ProbeRun r = run_probe_args({"--timeout-ms", "100", "tcp:1.2.3.4:5"}, script_env(s));
+        check("DZC-PRB-08", "a step the gate refuses stops the probe with \"stopped at the first failed step\" (not the malformed-reply wording) and exit 1",
+              r.rc == 1 && has(r.out, "stopped at the first failed step") && !has(r.out, "malformed reply") &&
+                  has(r.out, "refused"), "rc=" + std::to_string(r.rc) + "\n" + r.out);
+    }
 }
 
 int main() {

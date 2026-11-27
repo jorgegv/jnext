@@ -193,6 +193,7 @@ struct Probe {
     std::FILE*       out;
     int              commands = 0;
     int              failed   = 0;
+    bool             malformed = false;   // the last failed step was a reply the decoder rejected
     std::vector<double> rtts;
 
     Probe(const Options& opts, const ProbeEnv& e, std::FILE* f) : o(opts), env(e), out(f) {}
@@ -275,6 +276,7 @@ struct Probe {
                      static_cast<unsigned>(r.seq), ok ? "ok" : "MALFORMED", ms(r.rtt), tag.c_str());
         if (!ok) {
             ++failed;
+            malformed = true;
             std::fprintf(out, "  malformed (%zu bytes): %s\n", r.payload.size(),
                          hex_bytes(r.payload.data(), r.payload.size(), 64).c_str());
         } else if (!detail.empty()) {
@@ -468,7 +470,7 @@ int run_probe(int argc, char** argv, std::FILE* out, const ProbeEnv& env) {
     int rc = seq_ok ? 0 : 1;
     if (!seq_ok) {
         if (client.state() == SessionState::Ready)
-            std::fputs("stopped at the malformed reply\n", out);
+            std::fputs(p.malformed ? "stopped at the malformed reply\n" : "stopped at the first failed step\n", out);
         else
             std::fprintf(out, "session ended: %s\n", client.error().c_str());
         return p.summary(1);
