@@ -41,6 +41,7 @@ pages below say which rule came from which.
 - [A.1 Issues and pull requests](01-issues-and-pull-requests.md)
 - [A.2 Branches, worktrees and review](02-branches-worktrees-and-review.md)
 - [A.3 House style](03-house-style.md)
+- [A.4 Claude Code mods](04-claude-code-mods.md)
 
 ## Thank you
 

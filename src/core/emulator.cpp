@@ -5959,7 +5959,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // ── F-key FSM side-effect callbacks (G132) ─────────────────────────
     // VHDL zxnext.vhd:5789-5791, :5839-5841, :5849-5852, :5861-5863.
     // Each callback fires once on the rising edge of the corresponding
-    // local_fnkey strobe (i.e. on entering MF_DONE) AND only if the
+    // local_fnkey strobe (i.e. on entering MF_ROW_A11/A12) AND only if the
     // corresponding NR 0x06 gate bit is set (handled inside EmuFnKeys
     // for F3/F8). F1/F4 reset and F9/F10 NMI dispatch are owned by the
     // existing on_hotkey_f*() handlers (G152) — EmuFnKeys does not

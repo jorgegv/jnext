@@ -2231,7 +2231,7 @@ static void test_debug_menu()
 // GH223-03 is not decoration, but be precise about what it defends. A "no-op"
 // F5 that fell through would reach `case Qt::Key_F5` further down MainWindow::
 // keyPressEvent and drive the guest's F-key FSM — and TODAY that is INERT:
-// jnext implements no F5 side effect at all (emu_fnkeys.h:68-69 puts F5/F6 out
+// jnext implements no F5 side effect at all (emu_fnkeys.h:71-72 puts F5/F6 out
 // of scope for G132, tracked under G147; fire_mf_side_effects() dispatches
 // F2/F3/F7/F8 only), so no NextREG is written. The fall-through mutation below
 // measures exactly that — the FSM moves and nothing else does.
