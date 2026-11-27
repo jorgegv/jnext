@@ -19,8 +19,9 @@ fixed in 3.02.05 (unreleased, work in progress), which adds the versioned boot c
 `tbblue.zip` and HDMI work for issue 4/5. jnext emulates issue 2 and the 3.02.03 behaviour. On
 that board the visible differences are the core version, the new boot code with its overlay and
 the NR 0x0A lock; the Pi debug control is not emulated, and the hotkey regression and its fix do
-not affect jnext. Nothing needs changing unless the owner adopts a newer core; detail in sections
-1 and 4.
+not affect jnext. The Pi debug control (the Pi reading and writing the Next's memory) is analysed in
+[FPGA-CORE-3.02.04-PI-DEBUG-CONTROL.md](FPGA-CORE-3.02.04-PI-DEBUG-CONTROL.md). Nothing needs
+changing unless the owner adopts a newer core; detail in sections 1 and 4.
 
 | Finding | Impact | Core |
 |---|---|---|
@@ -31,7 +32,7 @@ not affect jnext. Nothing needs changing unless the owner adopts a newer core; d
 | SPI master under DMA | none, jnext already matches | 3.02.04 |
 | MD six-button detection | none in practice (host gamepads cannot trigger it); fidelity only | 3.02.04 |
 | Hotkey repeat regression | none, jnext keeps the 3.02.03 behaviour (real Next: NMI+F7/F8 step several times) | 3.02.04, fixed in 3.02.05 |
-| Pi debug control, NMI+QWERT tape hotkeys | not emulated; NextPi software on issue 4/5 only | 3.02.04 |
+| Pi debug control, NMI+QWERT tape hotkeys | not emulated; NextPi software on issue 4/5 only; see [the Pi debug analysis](FPGA-CORE-3.02.04-PI-DEBUG-CONTROL.md) | 3.02.04 |
 | "Complete" Z80N | no change; shipped on no board; exposes a pre-existing BIT n,(HL) flag divergence | 3.02.04 |
 | `tbblue.zip` boot code archive | relevant to jnext's build, as the official versioned boot code | 3.02.05 |
 | F-key long-press timer | no user-visible effect today; jnext default is wrong (pre-existing, section 4C) | none (3.02.03 too) |
