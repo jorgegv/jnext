@@ -1226,7 +1226,7 @@ rc71=$RC; o71=$OUT
 reset_state
 FAKE_SLEEP=1 pdrive --id p71b --timeout 3 --patch "$TMP/pA.patch" pbase "$PSHA" unit-test
 rc71b=$RC; o71b=$OUT
-row RRUN-71 "$([[ $rc71 -eq 2 && "$o71" == *"PATCH REFUSED"*"no verdict (REFUSES TO RUN)"* && $rc71b -eq 2 && "$o71b" == *"PATCH REFUSED"*"no verdict (timeout)"* ]] && echo 1 || echo 0)" \
+row RRUN-71 "$([[ $rc71 -eq 2 && "$o71" == *"PATCH REFUSED"*"no verdict (REFUSES TO RUN)"* && $rc71b -eq 2 && "$o71b" == *"PATCH REFUSED"*"no verdict (time limit)"* ]] && echo 1 || echo 0)" \
     "a harness refusal and a run-level timeout of a patch run are exit 2 'no verdict', not a kill (rc=$rc71 / $rc71b)"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with

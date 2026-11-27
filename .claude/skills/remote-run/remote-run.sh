@@ -506,7 +506,7 @@ main() {
         # a run-level timeout is the lane, not the mutant (a mutant that hangs hits the suite's own bound first and shows as a FAIL
         # row), and a harness refusal (exit 2 from make, no Total line) is a refused run, not a failed row.
         if [[ -n "$PATCH_NAME" && -z "$patch_no_verdict" ]]; then
-            if [[ $rc -eq 124 ]]; then patch_no_verdict="the run hit the run-level timeout: no verdict (timeout)"
+            if [[ $rc -eq 124 ]]; then patch_no_verdict="the run hit the run-level timeout: no verdict (time limit)"
             elif [[ $rc -ne 0 ]] && grep -aq 'TEST HARNESS REFUSES TO RUN' "$LOG"; then patch_no_verdict="the test harness refused to run: no verdict (REFUSES TO RUN)"
             fi
         fi
