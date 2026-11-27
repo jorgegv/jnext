@@ -3629,7 +3629,7 @@ a run override like <code>debugger.attached</code>).</p>
 <code>Debugger::memory_reader()</code> (<code>debugger_inspect.cpp:833</code>) takes the bytes of that one instruction
 (at most four) from <code>Emulator::predict_instruction_bytes()</code> and every other address from
 <code>Mmu::peek()</code>; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
-other bytes than the ones that execute. The Disassembly, <code>step_over()</code> (<code>debugger_control.cpp:180</code>: <code>is_call_like()</code> at <code>:190</code> and <code>instruction_length()</code> at <code>:196</code>
+other bytes than the ones that execute. The Disassembly, <code>step_over()</code> (<code>debugger_control.cpp:181</code>: <code>is_call_like()</code> at <code>:191</code> and <code>step_successors()</code> at <code>:200</code>
 read through it) and ZRCP <code>cpu-step-over</code>
 (<code>ZrcpServer::cmd_cpu_step_over</code>) all use it (rows <code>LADDR-17</code> to <code>LADDR-20</code>).</p>
 <h2 id="gdb-zrcp-dzrp-scripts">GDB, ZRCP, DZRP, scripts<a class="headerlink" href="#gdb-zrcp-dzrp-scripts" title="Permanent link">&para;</a></h2>

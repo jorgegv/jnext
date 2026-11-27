@@ -397,7 +397,7 @@ The instruction at the PC is read as the CPU will fetch it, not as a data read.
 `Debugger::memory_reader()` (`debugger_inspect.cpp:833`) takes the bytes of that one instruction
 (at most four) from `Emulator::predict_instruction_bytes()` and every other address from
 `Mmu::peek()`; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
-other bytes than the ones that execute. The Disassembly, `step_over()` (`debugger_control.cpp:180`: `is_call_like()` at `:190` and `instruction_length()` at `:196`
+other bytes than the ones that execute. The Disassembly, `step_over()` (`debugger_control.cpp:181`: `is_call_like()` at `:191` and `step_successors()` at `:200`
 read through it) and ZRCP `cpu-step-over`
 (`ZrcpServer::cmd_cpu_step_over`) all use it (rows `LADDR-17` to `LADDR-20`).
 
