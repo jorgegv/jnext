@@ -414,9 +414,10 @@ PausedInfo Debugger::Impl::paused_info() const {
 // ---------------------------------------------------------------------------
 
 void Debugger::Impl::sync_notifications() {
-    if (!emu) return;   // Paused / Resumed / FrameEnded are the local machine's edges
-    const bool     paused = ds().paused();
-    const uint64_t gen    = ds().resume_generation();
+    // A facade over a target has Paused and Resumed (the target's run state and this
+    // facade's resume count) but no FrameEnded: nothing over DZRP tells the time.
+    const bool     paused = emu ? ds().paused() : target.run_state().paused;
+    const uint64_t gen    = emu ? ds().resume_generation() : remote_resume_gen;
     // The frame's START CYCLE, not the frame number. Not `frame_tag()`: the tag
     // clamps (`raw > 0 ? raw - 1 : 0`) and reads 0 both before anything has run
     // and after frame 0 has ended, so comparing tags never saw the first frame
@@ -426,7 +427,7 @@ void Debugger::Impl::sync_notifications() {
     // ends without the counter moving. `current_frame_cycle()` advances exactly
     // when a frame ends and goes back on a rewind. The PAYLOAD is still the tag,
     // the frame that ended.
-    const uint64_t frame  = emu->current_frame_cycle();
+    const uint64_t frame  = emu ? emu->current_frame_cycle() : 0;
     const uint64_t rev    = events.revision();
 
     if (!notif_primed) {
@@ -482,7 +483,7 @@ void Debugger::Impl::sync_notifications() {
     if (frame != last_frame_cycle) {
         const bool forward = frame > last_frame_cycle;
         last_frame_cycle   = frame;
-        if (forward) notify_frame_ended(frame_tag(*emu));
+        if (forward && emu) notify_frame_ended(frame_tag(*emu));
     }
 }
 
@@ -584,6 +585,10 @@ ServiceHint Debugger::pump(const PumpBudget& budget) {
                elapsed_ms() < budget.budget_ms)
             step = s->service_once(budget.drain_ms);
     }
+
+    // A facade over a target: the stops it reported go through the delivery first,
+    // so a hit's verdict (stop, or resume at once) is known before the edges below.
+    impl_->service_target_stops();
 
     // AFTER the drain, so a stop a command caused in this pump is notified in
     // this pump — and so a `Paused` packet is written by the same

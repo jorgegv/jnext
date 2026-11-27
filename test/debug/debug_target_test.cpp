@@ -519,10 +519,12 @@ static void tgt01_dispatch_rows() {
     {
         Remote m;
         const auto st = m.d.state();
-        check("TGT-01-13", "state() is the target's run_state() with pause_reason None; cycle and frame are 0 "
-                           "because a facade over a target has no MachineTime",
+        check("TGT-01-13", "state() is the target's run_state(); a paused target nothing explains reports User with no "
+                           "owner (the local fallback); cycle and frame are 0 because a facade over a target has no "
+                           "MachineTime",
               st.paused && st.cycle == 0 && st.frame == 0 && st.pc == 0x4321 &&
-                  st.pause_reason.kind == jnext::dbg::PauseReason::Kind::None);
+                  st.pause_reason.kind == jnext::dbg::PauseReason::Kind::User &&
+                  st.pause_reason.by == jnext::dbg::CLIENT_NONE);
     }
 }
 
@@ -530,16 +532,19 @@ static void tgt01_refusal_rows() {
     using jnext::dbg::Subscription;
     {
         Remote m;
+        const Result pr = m.d.pause(m.a);
+        const Result rr = m.d.run(m.a);
         const Result r[] = {
-            m.d.pause(m.a), m.d.run(m.a), m.d.step_into(m.a), m.d.step_over(m.a), m.d.step_out(m.a),
+            m.d.step_into(m.a), m.d.step_over(m.a), m.d.step_out(m.a),
             m.d.run_to(m.a, 0x8000), m.d.run_to_source_line(m.a, "x.c:1"),
             m.d.source_step(m.a, Debugger::SourceStep::Into), m.d.source_step(m.a, Debugger::SourceStep::Over),
             m.d.source_step(m.a, Debugger::SourceStep::Out)};
         bool all = true;
         for (Result x : r) all = all && x == Result::Unsupported;
-        check("TGT-01-14", "pause, run, the steps, run_to, run_to_source_line and source_step Into/Over/Out are "
-                           "Unsupported; step_instruction is never called",
-              all && !m.t.called("step_instruction") && m.t.calls.empty());
+        check("TGT-01-14", "pause and run reach the target (one call each); the steps, run_to, run_to_source_line "
+                           "and source_step Into/Over/Out are Unsupported; step_instruction is never called",
+              pr == Result::Ok && rr == Result::Ok && all && !m.t.called("step_instruction") &&
+                  m.t.calls.size() == 2 && m.t.calls[0] == "pause" && m.t.calls[1] == "resume");
     }
     {
         Remote m;
@@ -619,14 +624,25 @@ static void tgt01_refusal_rows() {
             Subscription s;
             s.kind = static_cast<jnext::dbg::EventKind>(k);
             if (s.kind == jnext::dbg::EventKind::Port) s.filter.port_mask = 0x00FF;
-            all = all && m.d.subscribe(m.a, s).status == Result::Unsupported;
+            if (s.kind == jnext::dbg::EventKind::Execute) {
+                s.filter.lo = s.filter.hi = 0x8000;
+                all = all && m.d.subscribe(m.a, s).status == Result::Ok;
+            } else if (s.kind == jnext::dbg::EventKind::Mem) {
+                s.filter.lo = 0x4000;
+                s.filter.hi = 0x40FF;
+                all = all && m.d.subscribe(m.a, s).status == Result::Ok;
+            } else {
+                all = all && m.d.subscribe(m.a, s).status == Result::Unsupported;
+            }
         }
         Subscription like;
         const auto g = m.d.subscribe_source_line(m.a, "x.c:1", like);
-        check("TGT-01-18", "every subscribe kind and subscribe_source_line are Unsupported; raise_host_event is Ok "
-                           "with nothing delivered",
+        check("TGT-01-18", "Execute and Mem subscriptions are accepted (one add_breakpoint, one add_watchpoint at the "
+                           "target); every other kind and subscribe_source_line are Unsupported; raise_host_event is "
+                           "Ok with nothing delivered",
               all && g.status == Result::Unsupported && m.d.raise_host_event(m.a, "x") == Result::Ok &&
-                  m.d.subscriptions(true).empty() && m.t.calls.empty());
+                  m.d.subscriptions(true).size() == 2 && m.t.count("add_breakpoint") == 1 &&
+                  m.t.count("add_watchpoint") == 1 && m.t.calls.size() == 2);
     }
 }
 
@@ -892,9 +908,11 @@ static CapabilitySet all_but(std::initializer_list<jnext::dbg::Capability> lack)
 static CapabilitySet served_set() {
     using jnext::dbg::Capability;
     CapabilitySet s;
-    for (auto c : {Capability::RegisterWrite, Capability::Memory, Capability::PhysicalMemory,
-                   Capability::MmuSlots, Capability::NextRegs, Capability::Ports,
-                   Capability::SpriteData, Capability::SpritePaletteClip})
+    for (auto c : {Capability::Run, Capability::Pause, Capability::ExecuteBreakpoints,
+                   Capability::Watchpoints, Capability::CommandsWhileRunning,
+                   Capability::RegisterWrite, Capability::Memory, Capability::MemoryWhileRunning,
+                   Capability::PhysicalMemory, Capability::MmuSlots, Capability::NextRegs,
+                   Capability::Ports, Capability::SpriteData, Capability::SpritePaletteClip})
         s.set(c);
     return s;
 }
@@ -946,7 +964,7 @@ static void tgt02_rows() {
     }
     {
         Remote m;   // the fake claims every capability
-        check("TGT-02-02", "a target claiming every capability gets exactly the eight the facade serves over a target",
+        check("TGT-02-02", "a target claiming every capability gets exactly the fourteen the facade serves over a target",
               m.d.capabilities() == served_set() && m.d.capabilities().bits() == served_set().bits());
     }
     {
@@ -1144,10 +1162,10 @@ static void tgt02_rows() {
         // A capability the target has but this facade does not serve yet, and a missing one with no reason.
         Remote m;
         m.t.caps = all_but({Capability::Pause});
-        check("TGT-02-16", "Run claimed by the target but not served: 'not served over a remote target by this jnext'; "
-                           "Pause missing with no reason from the target: 'not available on this target'",
-              !m.d.capabilities().has(Capability::Run) &&
-                  m.d.why_unavailable(Capability::Run) == "not served over a remote target by this jnext" &&
+        check("TGT-02-16", "InstructionStep claimed by the target but not served: 'not served over a remote target by this "
+                           "jnext'; Pause missing with no reason from the target: 'not available on this target'",
+              !m.d.capabilities().has(Capability::InstructionStep) &&
+                  m.d.why_unavailable(Capability::InstructionStep) == "not served over a remote target by this jnext" &&
                   m.d.why_unavailable(Capability::Pause) == "not available on this target");
     }
     {
