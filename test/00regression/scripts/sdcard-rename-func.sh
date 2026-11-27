@@ -17,6 +17,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   c  both names present: neither is touched, the new one is used, the warning names both
 #   d  the window (Qt, offscreen) with the legacy default card's path saved in Preferences mounts the new path
 #   e  --sdcard with the legacy path once it is gone is refused (non-zero) and says where the card is now
+#   f  --sdcard-go-back on a legacy-named card migrates it first (no backup: exit 2)
 # Oracle: the migration rule in src/core/sdcard_provisioner.h and rename(2), which keeps the inode.
 if want sdcard-rename-func; then
     begin_func sdcard-rename-func
@@ -89,6 +90,14 @@ if want sdcard-rename-func; then
         --headless --machine next --sdcard "$LEG" --delayed-automatic-exit-frames 10 </dev/null >"$W/e.log" 2>&1 || e_rc=$?
     [[ "$e_rc" != 0 ]] || faults+=("e: --sdcard with the vanished legacy name was accepted")
     grep -qF "jnext now keeps this card as $NEW" "$W/e.log" || faults+=("e: the refusal does not say where the card is now")
+
+    # f: --sdcard-go-back on a legacy-named card migrates it first (exit 2: there is no backup to go back to)
+    mv "$NEW" "$LEG"; [[ ! -f "$NEW.distro" ]] || mv "$NEW.distro" "$LEG.distro"
+    f_rc=0
+    env -u DISPLAY -u WAYLAND_DISPLAY LANG=C JNEXT_CONFIG_DIR="$W" timeout --foreground --kill-after=5s 60s "$JNEXT" \
+        --sdcard-go-back </dev/null >"$W/f.log" 2>&1 || f_rc=$?
+    [[ "$f_rc" == 2 ]] || faults+=("f: --sdcard-go-back exited $f_rc (want 2: no backup)")
+    [[ -f "$NEW" && ! -e "$LEG" && "$(stat -c %i "$NEW" 2>/dev/null)" == "$ino" ]] || faults+=("f: --sdcard-go-back did not migrate the legacy card")
 
     if [[ ${#faults[@]} -eq 0 ]]; then
         rm -rf "$W"
