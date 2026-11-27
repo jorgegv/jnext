@@ -60,10 +60,20 @@ are sub-issues of their own; R6 is one placeholder sub-issue, opened only if R5.
 
 #### Sub-issue 5: `DzrpTarget` for a remote jnext
 
-- [ ] **R2.1** `DzrpTarget` inspection: registers, CPU memory, banks, slots, NextREGs, sprites; stop-time snapshot cache with pipelined refresh
-- [ ] **R2.2** Run control and execute breakpoints (normal mode, CMD 40/41); conditions, handlers and hit counts evaluated by the client
-- [ ] **R2.3** Watchpoints over CMD 42/43 as `Mem` subscriptions
-- [ ] **R2.7** Loopback parity suite for the R2 capabilities (inspection, run control, execute breakpoints, watchpoints): the remote facade over an in-process `DzrpServer` against `LocalTarget`; sub-issues 6, 9, 10, 11 and 13 add their rows to the same suite
+- [x] **R2.1** `DzrpTarget` inspection: registers, CPU memory, banks, slots, NextREGs, sprites; stop-time snapshot cache with pipelined refresh
+- [x] **R2.2** Run control and execute breakpoints (normal mode, CMD 40/41); conditions, handlers and hit counts evaluated by the client
+- [x] **R2.3** Watchpoints over CMD 42/43 as `Mem` subscriptions
+- [x] **R2.7** Loopback parity suite for the R2 capabilities (inspection, run control, execute breakpoints, watchpoints): the remote facade over an in-process `DzrpServer` against `LocalTarget`; sub-issues 6, 9, 10, 11 and 13 add their rows to the same suite
+
+**Delivered (#515)** (`DzrpTarget`, `src/remote/dzrp/dzrp_target.{h,cpp}`; rows `RTG-INS/RUN/WP` in `remote_target_test`, `TGT-05` in `debug_target_test`). Deviations from the design text above, and decisions the later sub-issues build on:
+
+- A ROM slot is named `MemSpace::cpu()` plus the slot offset (`slot << 13`), not "ROM as bank 0xFF": the wire says "ROM" without the ROM's index, and a guessed `Rom{k}` would mis-key ROM source maps. `rom_select()` is `cpu()`, `Rom{i}` and `DivMmcRam{b}` reads are `Unsupported` (no command names them). A RAM slot is `Page{v}`.
+- `CMD_CONTINUE` goes out with eleven payload bytes, all zero (DeZog's and dezogif_ng's length): no temporary, no alternate command.
+- The served set over a target is fourteen capabilities (`Run`, `Pause`, `ExecuteBreakpoints`, `Watchpoints`, `CommandsWhileRunning`, `MemoryWhileRunning` added); `InstructionStep` and `RunToCursor` wait for R2.4. Five #513 rows pinned the interim set and moved with it: TGT-01-13, -14, -18, TGT-02-02, -16.
+- One reconcile in `gates_changed()` mirrors the subscription table into the target (one target object per distinct key; a disabled entry is removed, not filtered; a full-range watch is two target watches). A stop goes through `deliver_to_subscribers()`, and one nothing claims is resumed at once unless a `pause()` was made since the last resume.
+- The cache is dropped at every resume, at every `service_once()` while running, and after anything that can move memory (a NextREG or port access, a slot write); the first read after a stop sends the registers and the memory around PC and SP in one round trip. Every write is pipelined with the re-read of what it can change.
+- A lost link, a timeout or a reply of the wrong length makes every verb `Unsupported` (never `RefusedUnavailable`) and empties the capabilities with "link lost: ...". IFF1/IFF2 and sprite writes are `Unsupported` (CMD_INTERRUPT_ON_OFF sets both flags; no command writes sprites). A non-jnext profile gets an empty capability set until the dezogif_ng profile sub-issue.
+- A NextREG line of 16 is fetched with 16 pipelined frames, so with the jnext window of 15 the first reply arrives after 15 of them.
 
 #### Sub-issue 6: instruction stepping by temporary breakpoints
 
