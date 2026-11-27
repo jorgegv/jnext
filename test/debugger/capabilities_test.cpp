@@ -1063,14 +1063,13 @@ void test_placeholders() {
         FakeFix fx;
         fx.dbg()->set_capability_view_for_test(view_without(Capability::SpriteData));
         fx.fake.clear();
-        for (int i = 0; i < 5; ++i) fx.tick();
+        for (int i = 0; i < 5; ++i) fx.dbg()->refresh_panels();   // the window's own refresh: no stamp gate in front
         const int missing = fx.fake.count("sprites");
         QWidget* sp = fx.dbg()->sprite_panel();
         auto* ph = fx.dbg()->placeholder_for_test(sp);
         const bool shown = ph && ph->active();
-        fx.dbg()->set_capability_view_for_test(std::nullopt);
         fx.fake.clear();
-        for (int i = 0; i < 5; ++i) fx.tick();
+        fx.dbg()->set_capability_view_for_test(std::nullopt);   // un-greying refreshes the panel it uncovers
         check("RTQ-80", "a placeholdered panel is not refreshed: no sprite query while the view lacks SpriteData, "
                         "queries once it is back",
               shown && missing == 0 && fx.fake.count("sprites") > 0 && !ph->active(),
