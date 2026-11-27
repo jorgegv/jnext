@@ -48,7 +48,7 @@
 ///                    (soft reset, short press) based on the press
 ///                    duration timer.
 ///
-/// Output vector `local_fnkeys[10:1]` — bit i = 1 indicates F(i) is
+/// Output vector `local_fnkeys[10:1]`: bit i = 1 indicates F(i) is
 /// "strobed". F1..F5 are latched on entering S_MF_ROW_A11 and F6..F10
 /// on entering S_MF_ROW_A12; both are held through S_MF_CHECK.
 /// S_MF_DONE replaces the vector with the F9 term only, S_RESET_DONE
