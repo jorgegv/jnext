@@ -159,7 +159,7 @@ if [ -z "$tsbad" ] && [ -n "$oldlayout" ]; then ok "CIKEY-05 every sdcard cache 
 else bad "CIKEY-05 keys without -ts-:$tsbad (detector saw old-layout keys: ${oldlayout:+yes}${oldlayout:-NO})"; fi
 
 # CIKEY-06 (GH #580): the real workflows pass; fixtures pin the rule both ways.
-mkdir -p "$tmp/up-bad" "$tmp/up-ok" "$tmp/up-late" "$tmp/up-ubuntu" "$tmp/up-deps" "$tmp/up-none"
+mkdir -p "$tmp/up-comment" "$tmp/up-bad" "$tmp/up-ok" "$tmp/up-late" "$tmp/up-ubuntu" "$tmp/up-deps" "$tmp/up-none"
 job() {   # job <container> <steps...>: a one-job workflow on stdout
     printf 'jobs:\n  build:\n    runs-on: ubuntu-latest\n    container: %s\n    steps:\n' "$1"; shift
     printf '%s\n' "$@"
@@ -168,6 +168,7 @@ job fedora:45 '      - run: dnf install -y git' '      - uses: actions/cache@v5'
 job fedora:45 '      - run: |' '          dnf upgrade -y' '          dnf install -y git' '      - uses: actions/cache/restore@v5' > "$tmp/up-ok/a.yml"
 job fedora:45 '      - uses: actions/cache@v5' '      - run: dnf upgrade -y' > "$tmp/up-late/a.yml"
 job ubuntu:24.04 '      - run: apt-get install -y git' '      - uses: actions/cache@v5' > "$tmp/up-ubuntu/a.yml"
+job fedora:45 '      # dnf upgrade -y (commented out: does not count)' '      - run: dnf install -y git' '      - uses: actions/cache@v5' > "$tmp/up-comment/a.yml"
 job fedora:45 '      # dnf upgrade -y (a comment does not count)' '      - run: bash test/ci-deps.sh test' '      - uses: actions/cache@v5' > "$tmp/up-deps/a.yml"
 job fedora:45 '      - run: dnf install -y git' > "$tmp/up-none/a.yml"
 out=$(upgrade_order "$WF"); rc=$?
@@ -178,6 +179,7 @@ upgrade_order "$tmp/up-ok" >/dev/null || msg="$msg upgrade-before-cache-refused;
 upgrade_order "$tmp/up-late" >/dev/null && msg="$msg upgrade-after-cache-accepted;"
 upgrade_order "$tmp/up-ubuntu" >/dev/null 2>&1 && msg="$msg ubuntu-only-treated-as-found;"
 upgrade_order "$tmp/up-deps" >/dev/null || msg="$msg ci-deps-before-cache-refused;"
+upgrade_order "$tmp/up-comment" >/dev/null && msg="$msg commented-upgrade-accepted;"
 upgrade_order "$tmp/up-none" >/dev/null && msg="$msg no-cache-job-accepted;"
 if [ -z "$msg" ]; then ok "CIKEY-06 every fedora container job that uses actions/cache upgrades the image before its first cache step (and a job without it, or with it after the cache, is refused)"
 else bad "CIKEY-06 $msg"; fi
