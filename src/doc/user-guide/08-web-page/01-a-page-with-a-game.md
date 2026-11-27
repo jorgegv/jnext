@@ -9,7 +9,7 @@ The release's `jnext-VERSION-web.zip` holds `plain.html`, a whole page in one fi
 3. Open `plain.html?file=game.nex` in the browser.
 4. Click the player. The program starts.
 
-Under every player JNEXT shows a small "JNext" link with its icon, which takes the visitor to the project site, www.jnext.es. It is aligned to the right edge of the player.
+Every player carries a small "JNext" link with its icon, which takes the visitor to the project site, www.jnext.es. When the page has controls for the player (`plain.html` and the widget do) the link is at the right end of them; otherwise it is under the player, at its right edge. A page with controls of its own puts it there with the `creditIn` option (see [8.2](02-options-and-the-player.md)).
 
 ![plain.html running a program](../img/web-plain-page.png)
 

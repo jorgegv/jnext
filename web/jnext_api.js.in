@@ -6,7 +6,7 @@
 // This file knows no command-line flag and no --set key: the whole options
 // object goes to the emulator (jnext_web_argv, src/platform/web_api.cpp), which
 // owns the table that turns it into a command line. The only option names used
-// here are the ones this layer acts on itself: card ({source, dirs}), poster, file, keepWrites,
+// here are the ones this layer acts on itself: card ({source, dirs}), poster, file, keepWrites, creditIn,
 // debug (its `transport` and `url`; the core only sees --debug-channel), width, height, wasmUrl and
 // the three callbacks.
 //
@@ -97,7 +97,7 @@
     return o.argv;
   }
 
-  // The options object as the emulator reads it: functions become true, file becomes
+  // The options object as the emulator reads it: functions and DOM elements become true, file becomes
   // what was installed (or a placeholder for the early validation), keepWrites becomes the
   // path of the writes file (false: dropped), and the internal SD-card entry is added: the
   // page never supplies it.
@@ -105,7 +105,7 @@
     var o = {};
     Object.keys(options).forEach(function (k) {
       var v = options[k];
-      o[k] = typeof v === 'function' ? true : v;
+      o[k] = (typeof v === 'function' || v instanceof Element) ? true : v;
     });
     // A program on the card stays {card} for the early validation (serve false); at the start it
     // becomes the path of its copy, and its directory is served to it.
@@ -151,6 +151,9 @@
     }
     if (options.keepWrites !== undefined && typeof options.keepWrites !== 'boolean') {
       return Promise.reject(new TypeError("jnext.mount: option 'keepWrites' must be a boolean"));
+    }
+    if (options.creditIn !== undefined && !(options.creditIn instanceof Element)) {
+      return Promise.reject(new TypeError("jnext.mount: option 'creditIn' must be a DOM element"));
     }
     var n = ++counter;
     var cb = {};
@@ -209,7 +212,9 @@
     // the player panel's. When the parent's layout does not put a sibling below the container (a flex
     // row, a grid, an absolutely positioned player) it goes INSIDE the container instead, absolutely
     // positioned just under it at its right edge, with room reserved by the container's bottom margin:
-    // in no layout does it lie over the picture. The icon is built as SVG DOM (no data: URI, so a
+    // in no layout does it lie over the picture. With the creditIn option (GH #569) the page names an
+    // element of its own, normally its controls bar: the credit is appended there as its last child,
+    // styled for the end of a flex row, and none of the placement above runs. The icon is built as SVG DOM (no data: URI, so a
     // page's img-src policy does not touch it).
     var credit = document.createElement('div');
     credit.className = 'jnext-credit';
@@ -220,7 +225,7 @@
     creditLink.target = '_blank';
     creditLink.rel = 'noopener';
     creditLink.title = 'JNext, a ZX Spectrum Next emulator';
-    creditLink.style.cssText = 'color:inherit;text-decoration:none;cursor:pointer';
+    creditLink.style.cssText = 'color:inherit;font:inherit;text-decoration:none;cursor:pointer';
     var creditIcon = svgFromString("@JNEXT_ICON_SVG@");
     // The asset's clip id is renamed per mount, so it cannot collide with an id of the host page.
     var clipEl = creditIcon.querySelector('clipPath');
@@ -239,9 +244,12 @@
     creditLink.appendChild(creditIcon);
     creditLink.appendChild(document.createTextNode('JNext'));
     credit.appendChild(creditLink);
+    var CREDIT_IN = 'display:inline-block;flex:none;box-sizing:border-box;margin:0 0 0 auto;padding:0;width:auto;' +
+      'white-space:nowrap;font:13px/22px system-ui,sans-serif;color:inherit;background:none;opacity:0.8;';
+    var creditHosted = !!options.creditIn;
     var creditAlive = !!container.parentNode, creditReserved = false, creditAbs = false, creditKey = '', creditRaf = 0;
     var containerMargin = container.style.marginBottom;
-    if (creditAlive) container.parentNode.insertBefore(credit, container.nextSibling);
+    if (creditAlive && !creditHosted) container.parentNode.insertBefore(credit, container.nextSibling);
     function unreserve() {
       if (creditReserved) { container.style.marginBottom = containerMargin; creditReserved = false; }
     }
@@ -289,15 +297,21 @@
       // placeCredit() may have scheduled the next check itself: one chain per player.
       if (creditAbs && creditAlive && !creditRaf) creditRaf = requestAnimationFrame(creditPoll);
     }
-    var creditObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(placeCredit) : null;
-    if (creditObserver) { creditObserver.observe(container); creditObserver.observe(box); }
-    window.addEventListener('resize', placeCredit);
-    placeCredit();
+    var creditObserver = null;
+    if (creditHosted) {
+      credit.style.cssText = CREDIT_IN;
+      options.creditIn.appendChild(credit);
+    } else {
+      if (typeof ResizeObserver === 'function') creditObserver = new ResizeObserver(placeCredit);
+      if (creditObserver) { creditObserver.observe(container); creditObserver.observe(box); }
+      window.addEventListener('resize', placeCredit);
+      placeCredit();
+    }
     function dropCredit() {
       creditAlive = false;
       if (creditRaf) { cancelAnimationFrame(creditRaf); creditRaf = 0; }
       if (creditObserver) creditObserver.disconnect();
-      window.removeEventListener('resize', placeCredit);
+      if (!creditHosted) window.removeEventListener('resize', placeCredit);
       unreserve();
       if (credit.parentNode) credit.parentNode.removeChild(credit);
     }
