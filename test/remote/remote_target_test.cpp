@@ -857,10 +857,11 @@ static void ins_rows_b() {
                            s.d->why_unavailable(Capability::Watchpoints) == "the remote does not serve CMD_ADD_WATCHPOINT" &&
                            s.d->capabilities().has(Capability::NextRegs);
         const Result sub = s.d->subscribe(s.a, mem_sub(0x4000, 0x40FF, Access::Write)).status;
-        s.d->registers();   // the burst, without CMD_READ_MEM_BLOCKS
+        uint8_t mem[16];
+        s.d->peek(MemSpace::cpu(), 0x8000, 16, mem);   // a miss, without CMD_READ_MEM_BLOCKS
         const Result nrw = s.d->nextreg_write(s.a, 0x15, 1);
         check("RTG-INS-16", "a remote without CMD 42/43, 28 and 27: Watchpoints absent with the command named and never sent; "
-                            "the stop burst reads with CMD_READ_MEM; NextRegs present but writing is Unsupported",
+                            "a memory miss reads with CMD_READ_MEM; NextRegs present but writing is Unsupported",
               s.up && no_wp && sub == Result::Unsupported && s.s.count(42) == 0 && s.s.count(28) == 0 &&
                   s.s.count(CMD_READ_MEM) >= 1 && s.s.count(27) == 0 && nrw == Result::Unsupported);
     }
@@ -939,7 +940,10 @@ static void ins_rows_b() {
                   s.tgt->lost_reason().find("CMD_GET_REGISTERS") != std::string::npos);
     }
     {
-        Scripted s([](Script& sc) { sc.read_mem_extra = 3; });
+        Scripted s([](Script& sc) {
+            sc.read_mem_extra = 3;
+            sc.bitfield       = bitfield_of(jnext_ids_without({28}));
+        });
         uint8_t buf[16];
         const auto r = s.d->peek(MemSpace::cpu(), 0x8000, 16, buf);
         check("RTG-INS-21", "a read reply longer than asked is a protocol error: the target is lost and nothing is returned",
