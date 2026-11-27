@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.13</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.12</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.13</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3330,7 +3330,14 @@ some platforms need more:</p>
   run by the shared workflow before the builder action) first puts that zip in
   flatpak-builder's download cache (<code>.flatpak-builder/downloads/&lt;sha256&gt;/</code>),
   checking the manifest's sha256 and retrying a wrong body up to three times, after
-  2, 4 and 8 s; if it still fails, flatpak-builder makes its own attempt as before;</li>
+  2, 4 and 8 s; if it still fails, flatpak-builder makes its own attempt as before.
+  Each failed attempt logs one line with the curl exit, HTTP status, size, content
+  type, sha256 and the first 200 bytes of what came back (printable ASCII only), so
+  a wrong body is visible in the job log. In CI the zip is not downloaded at all
+  when a cache holds it: the shared workflow first restores it from a cache keyed
+  by its name and the manifest's sha256 (saved only from a push to <code>main</code>, and
+  never an artifact), else from the newest builder-state cache that <code>main</code> saved;
+  the prefetch then finds it already cached;</li>
 <li><strong>macOS</strong> uses clang's instrumentation (<code>-fprofile-instr-generate</code>, merged
   with <code>llvm-profdata</code> from Xcode). There a stale profile is an error but a
   translation unit with no profile at all is only a warning, and the library
