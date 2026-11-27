@@ -3101,7 +3101,8 @@ and a contributor who does not use Claude Code can ignore this page.</p>
 <li><strong><code>conv-logs</code></strong> keeps the conversation to what you asked. Messages that arrive
   unrequested (a background task's notification, another agent's hand-back) and
   the turn Claude runs in answer to them move to a Logs pane beside the chat.
-  Each log entry links back to the place in the conversation it came from.
+  A log entry for one of Claude's replies links back to the place in the
+  conversation it came from.
   <code>/logs</code> opens the pane; <code>/logs-split</code> turns the split on or off.</li>
 <li><strong><code>run-status</code></strong> shows a Run status pane for an autonomous run, refreshed every
   minute and on demand by <code>/run-status</code>. It makes no model calls. It reads the
@@ -3111,11 +3112,13 @@ and a contributor who does not use Claude Code can ignore this page.</p>
   next and the state of the remote hosts.</li>
 </ul>
 <p><code>run-status</code> has no settings to edit. It derives them when it refreshes: the home
-directory from the environment, the project name from the repository directory,
-the run directory as the newest dated directory under <code>~/tmp/autorun/&lt;project&gt;/</code>,
-the remote hosts and their work directory from that run's <code>slot.sh</code>, the milestone
-as the lowest-numbered open one, and the repository owner from GitHub. Whatever
-cannot be derived is shown as "not configured" in the pane.</p>
+directory from the environment, the repository root and the project name from
+git, the run directory as the newest dated directory under
+<code>~/tmp/autorun/&lt;project&gt;/</code>, the remote hosts and their work directory from that
+run's <code>slot.sh</code>, the milestone as the lowest version among the open ones (read
+from the title, so <code>v1.5</code> comes before <code>v1.10</code>), and the repository owner from
+GitHub. The owner and the milestone are asked of GitHub once per session.
+Whatever cannot be derived is shown as "not configured" in the pane.</p>
 <h2 id="installing">Installing<a class="headerlink" href="#installing" title="Permanent link">&para;</a></h2>
 <p>Each mod is listed in the marketplace file <code>.claude-plugin/marketplace.json</code> at
 the repository root, and is opt-in. At the prompt of a terminal Claude Code

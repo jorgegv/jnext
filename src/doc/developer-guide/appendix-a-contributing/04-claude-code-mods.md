@@ -10,7 +10,8 @@ and a contributor who does not use Claude Code can ignore this page.
 - **`conv-logs`** keeps the conversation to what you asked. Messages that arrive
   unrequested (a background task's notification, another agent's hand-back) and
   the turn Claude runs in answer to them move to a Logs pane beside the chat.
-  Each log entry links back to the place in the conversation it came from.
+  A log entry for one of Claude's replies links back to the place in the
+  conversation it came from.
   `/logs` opens the pane; `/logs-split` turns the split on or off.
 - **`run-status`** shows a Run status pane for an autonomous run, refreshed every
   minute and on demand by `/run-status`. It makes no model calls. It reads the
@@ -20,11 +21,13 @@ and a contributor who does not use Claude Code can ignore this page.
   next and the state of the remote hosts.
 
 `run-status` has no settings to edit. It derives them when it refreshes: the home
-directory from the environment, the project name from the repository directory,
-the run directory as the newest dated directory under `~/tmp/autorun/<project>/`,
-the remote hosts and their work directory from that run's `slot.sh`, the milestone
-as the lowest-numbered open one, and the repository owner from GitHub. Whatever
-cannot be derived is shown as "not configured" in the pane.
+directory from the environment, the repository root and the project name from
+git, the run directory as the newest dated directory under
+`~/tmp/autorun/<project>/`, the remote hosts and their work directory from that
+run's `slot.sh`, the milestone as the lowest version among the open ones (read
+from the title, so `v1.5` comes before `v1.10`), and the repository owner from
+GitHub. The owner and the milestone are asked of GitHub once per session.
+Whatever cannot be derived is shown as "not configured" in the pane.
 
 ## Installing
 
