@@ -3,23 +3,26 @@
 Two features for putting debugging hooks in your own code.
 
 **The magic breakpoint** is an opcode that stops the emulator. JNEXT
-recognises three conventions:
+recognises two conventions:
 
 - `ED FF` — the ZEsarUX / Spectaculator form
 - `FD 00` — the CSpect form since 2.19.9.1, and what the sjasmplus `break`
   instruction assembles to (sjasmplus 1.21.0 and later, with `--zxnext=cspect`)
-- `DD 01` — the older CSpect and sjasmplus form
 
 Enable it with `--magic-breakpoint`, or **Debug ▸ Magic Breakpoint** in the
 emulator window; the menu item is ticked whenever it is enabled, whichever way
 you did it. When one executes, the machine pauses and the debugger opens
 itself if it was closed; execution then carries on right after its two bytes.
 
-When the feature is disabled — and on real hardware — the forms differ.
-`ED FF` and `FD 00` are two-byte no-ops, so you can leave them in the source.
-`DD 01` is not:
+When the feature is disabled — and on real hardware — both are two-byte
+no-ops, so you can leave them in the source.
+
+**Why not `DD 01`.** Older CSpect and sjasmplus versions used `DD 01`, which
+JNEXT does not honour: it runs exactly as on the hardware. It is not a no-op:
 the `DD` prefix is ignored and `01 nn nn` runs as `LD BC,nn`, which takes the
-two bytes after it as its operand and overwrites `BC`.
+two bytes after it as its operand and overwrites `BC`. Had JNEXT honoured it as
+a breakpoint, a program using it would behave differently with the feature on and
+off, and differently from the hardware. Use `FD 00` instead.
 
 In C with z88dk:
 

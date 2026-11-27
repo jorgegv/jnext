@@ -2156,13 +2156,16 @@ static void interrupt_machine(Machine& m) {
             auto mp = setup(0x02);
             Machine& m = *mp;
             int hits = 0;
-            m.emu.cpu().on_magic_breakpoint = [&hits](uint16_t) { ++hits; return true; };
-            m.emu.mmu().write(0x0007, 0xDD); m.emu.mmu().write(0x0008, 0x01);   // DD 01: magic
+            m.emu.cpu().on_magic_breakpoint = [&hits](uint16_t) { ++hits; };
+            m.emu.mmu().write(0x0007, 0xDD); m.emu.mmu().write(0x0008, 0x01);   // DD 01 nn nn: LD BC,nn
             m.set_pc(0x0007);
             (void)step_pair(m);
-            check("SRCDBG-ID-42", "DD 01 with the 01 at a delayed DivMMC entry: RAM's byte, so the magic "
-                                  "breakpoint fires",
-                  hits == 1 && m.pc() == 0x0009, "hits=" + std::to_string(hits) + " " + m.where());
+            // GH #570: DD 01 is not a magic form. RAM's 01 at $0008 (the hold of a delayed entry
+            // reaches the cycles after that fetch, divmmc.vhd:127-143) makes it the 4-byte LD BC,nn
+            // (t80n_mcode.vhd:459-480): pc $000B. Had the DivMMC ROM's 00 been read, DD 00 would end at $0009.
+            check("SRCDBG-ID-42", "DD 01 with the 01 at a delayed DivMMC entry: RAM's byte, so it runs as "
+                                  "LD BC,nn (pc $000B) and the magic hook does not fire",
+                  hits == 0 && m.pc() == 0x000B, "hits=" + std::to_string(hits) + " " + m.where());
         }
         {
             // GH #456: the same for FD 00. The prefix chain's 00 at $0008 is RAM's (the hold of a

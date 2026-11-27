@@ -2,8 +2,8 @@
  * Magic Breakpoint Demo
  *
  * Demonstrates the magic breakpoint feature. When --magic-breakpoint is
- * enabled, executing ED FF (ZEsarUX style) or DD 01 (CSpect style)
- * triggers the debugger.
+ * enabled, executing ED FF (ZEsarUX style) or FD 00 (CSpect style)
+ * triggers the debugger. DD 01 is not a magic form: it is LD BC,nn.
  *
  * On real hardware (or without --magic-breakpoint), these opcodes behave
  * as NOPs and the program continues normally.
@@ -53,7 +53,7 @@ static void print_str(unsigned char col, unsigned char row, const char *s)
 
 /* Magic breakpoint macros */
 #define MAGIC_BP_ZESARUX()  __asm__("defb 0xED, 0xFF")
-#define MAGIC_BP_CSPECT()   __asm__("defb 0xDD, 0x01")
+#define MAGIC_BP_CSPECT()   __asm__("defb 0xFD, 0x00")
 
 void main(void)
 {
@@ -81,7 +81,7 @@ void main(void)
     MAGIC_BP_ZESARUX();
 
     print_str(1, 7, "...resumed from BP 1.");
-    print_str(1, 9, "BP 2: DD 01 (CSpect)...");
+    print_str(1, 9, "BP 2: FD 00 (CSpect)...");
 
     /* Magic breakpoint 2 — CSpect style */
     MAGIC_BP_CSPECT();

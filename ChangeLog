@@ -5,6 +5,9 @@
 ### User Features
 - Browser player: the JNext link sits at the end of the controls bar, not on a row of its own
 
+### Developer Features
+- Magic breakpoint no longer stops on DD 01, which runs as LD BC,nn as on the hardware; use ED FF or FD 00
+
 ### Bug Fixes
 - Release packages ship stripped executables (rpm, deb, Windows zips, macOS dmg): smaller downloads
 - File menu opens instantly; the SD card's original image is no longer checksummed on every open
