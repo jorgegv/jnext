@@ -1148,7 +1148,7 @@ sdcard-image:
 	printf "sdcard-image: the SD master is missing or not this tree's -- provisioning it (jnext's own download)\n"; \
 	$(MAKE) --no-print-directory unit-test-sdl-build || exit 1; \
 	PATH="$(UNIT_TEST_PATH)" tools/sd-master-ensure.sh $(BUILD_DIR_SDL_UNIT_TEST)/jnext || { \
-		printf "$(BADGE_FAIL) ERROR $(RESET) the SD image could not be provisioned at %s (network?).\n" "$$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"; \
+		printf "$(BADGE_FAIL) ERROR $(RESET) the SD image could not be provisioned at %s (the reason is above).\n" "$$HOME/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"; \
 		exit 1; }
 
 # Configure + build the SDL-only test tree (prerequisite for unit-test-sdl)

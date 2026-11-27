@@ -14,7 +14,7 @@ and a contributor who does not use Claude Code can ignore this page.
   conversation it came from.
   `/logs` opens the pane; `/logs-split` turns the split on or off.
 - **`run-status`** shows a Run status pane for an autonomous run, refreshed every
-  minute and on demand by `/run-status`. It makes no model calls. It reads the
+  5 minutes and on demand by `/run-status`. It makes no model calls. It reads the
   run directory's `agents.md` and `blocked.md`, `gh` for the milestone's open
   issues and the CI runs, `git` for `main` and the epic branches, and the
   remote-run lane probe, and shows who is blocked on whom, what runs, what comes

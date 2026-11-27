@@ -110,7 +110,7 @@ case "$sd_state" in
     wrongrecipe) sd_verdict=fail; sd_text=": jnext derived an image of recipe '${sd_got_recipe:-}', expected '$sd_want_recipe' — $JNEXT is not built from this tree" ;;
     nodistro)    sd_verdict=fail; sd_text=": cannot read kDistroUrl from src/core/sdcard_provisioner.cpp" ;;
     norecipe)    sd_verdict=fail; sd_text=": cannot read kFixedImageRecipe from src/core/sdcard_provisioner.cpp" ;;
-    *)           sd_verdict=fail; sd_text=": provisioning failed — $FALLBACK_SD_IMAGE was not produced" ;;
+    *)           sd_verdict=fail; sd_text=": provisioning failed - $FALLBACK_SD_IMAGE was not produced: $(printf '%s' "${sd_derive_why:-no reason recorded}" | tr '\n' ';')" ;;
 esac
 
 # The clone is what the run actually boots, so a missing one is as fatal as a

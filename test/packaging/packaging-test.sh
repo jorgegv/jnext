@@ -173,7 +173,7 @@ contract regression-package test/packaging/regression-package-test.sh regpkg "un
 contract verify-stripped test/packaging/verify-stripped-test.sh vstrip "ELF/PE/Mach-O: symbols or debug sections fail; an empty tree fails"
 
 # --- CI cache-key contract (GH #494) ----------------------------------------
-contract ci-cache-key test/packaging/ci-cache-key-test.sh cikey "every sdcard-image-distro key names the distribution and recipe jnext derives; one macOS key"
+contract ci-cache-key test/packaging/ci-cache-key-test.sh cikey "every sdcard-image-distro key names the distribution and recipe jnext derives; one macOS key; fedora cache jobs upgrade first"
 
 # --- remote-run driver + ci-deps.sh contract (GH #546) ------------------------
 contract remote-run test/packaging/remote-run-test.sh remoterun "driver exit codes, refusals, fallback, summary, work-dir confinement; ci.yml uses ci-deps.sh"
