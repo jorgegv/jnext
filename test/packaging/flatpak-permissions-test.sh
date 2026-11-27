@@ -551,7 +551,12 @@ done <<<"$errs"
 if grep -q '[^[:print:]]' <<<"$errs"; then why="$why; a non-printable byte reached the log"; fi
 if grep -q '^::' <<<"$errs"; then why="$why; a log line starts with ::"; fi
 if grep -q 'MARK250' <<<"$errs"; then why="$why; bytes beyond 200 were logged"; fi
-if [ -z "$why" ]; then ok FPKP-27 "prefetch: hostile body/type is logged as printable ASCII, cut at byte 200, never starting a line (no ::command::)"
+# a printable content type over 100 characters is cut at 100 (marker after character 100 must not appear)
+x89=$(printf 'x%.0s' $(seq 1 89)); x120=$(printf 'x%.0s' $(seq 1 120))
+pf2_run "$WORK/hostile.bin" "200 text/html; ${x120}CTMARK" 0
+grep -qF "type text/html; ${x89}, sha256 " "$WORK/pf2.err" || why="$why; long type not cut to exactly 100 characters"
+if grep -q 'CTMARK' "$WORK/pf2.err"; then why="$why; content type beyond 100 characters was logged"; fi
+if [ -z "$why" ]; then ok FPKP-27 "prefetch: hostile body/type is logged as printable ASCII, cut at byte 200 (type at 100 characters), never starting a line (no ::command::)"
 else bad FPKP-27 "$why"; fi
 
 # FPKP-28: an empty body, and a fetch that fails writing nothing, neither trips set -u

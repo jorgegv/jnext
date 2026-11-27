@@ -148,7 +148,7 @@ jobs:
         id: ver
         run: echo "ver=$(awk '/^version:/{print $2}' version.yaml)" >> "$GITHUB_OUTPUT"
 
-      # GH #583 — specnext.com serves GitHub runners a ~12 KB body instead of the
+      # GH #583: specnext.com serves GitHub runners a ~12 KB body instead of the
       # distro zip, so the zip comes from a CI CACHE, never from the network when
       # one is available. A cache is not an artifact: the zip goes only into
       # Actions cache entries, written only by a push to main (like every cache
@@ -177,7 +177,7 @@ jobs:
           key: flatpak-builder-${{ github.sha }}-x86_64
           restore-keys: flatpak-builder-
 
-      # GH #497 — flatpak-builder has no retry. This plain make target checks the
+      # GH #497: flatpak-builder has no retry. This plain make target checks the
       # zip in flatpak-builder's download cache against the manifest's sha256
       # (cached by R1/R2: nothing is fetched), else fetches it with checked
       # retries and backoff and logs what a bad fetch returned (status, size,

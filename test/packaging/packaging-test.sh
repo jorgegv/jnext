@@ -182,7 +182,7 @@ contract remote-run test/packaging/remote-run-test.sh remoterun "driver exit cod
 contract ci-gate test/packaging/ci-gate-test.sh cigate "dispatch/wait/verdict: a skipped, failed, cancelled or missing job is never CLEAN; the right run on the right sha"
 
 # --- CI cache save contract (GH #547) -----------------------------------------
-contract ci-cache-save test/packaging/ci-cache-save-test.sh cisave "ci.yml restores every cache and saves only from a push to main"
+contract ci-cache-save test/packaging/ci-cache-save-test.sh cisave "ci.yml and flatpak-build.yml restore every cache and save only from a push to main"
 
 # --- autonomous-run slot.sh contract (GH #547 stage 4) ------------------------
 contract slot test/packaging/slot-test.sh slot "slot admission, NSLOTS, load limit, PAUSED; overflow of heavy runs to the remote-run driver"
