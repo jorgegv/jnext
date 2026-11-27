@@ -3568,6 +3568,51 @@ void test_perf_slnmi_04_state_load_clearing_latch_disarms_fuse(Result& res) {
           detail);
 }
 
+// SLNMI-RETI-01 - RETI never takes the stackless-NMI return address.
+// VHDL oracle: t80n_mcode.vhd:2419-2433 (RETI emits no Z80N_command) against :2435-2451 (RETN
+// emits RETN_LSB / RETN_MSB); zxnext.vhd:2052 substitutes the bus only on those two commands and
+// :2072-2081 clears z80_stackless_retn_en only on RETN_MSB. So with the latch set, a RETI pops the
+// real stack word, SP += 2, and the latch stays set; the RETN that follows takes C3:C2 and clears it.
+void test_slnmi_reti_01_reti_pops_the_stack_and_keeps_the_latch(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    cpu.stackless_nmi_enabled = []() { return true; };
+    cpu.stackless_nmi_return_address = []() -> uint16_t { return 0x1234; };
+
+    mem.ram[0xFFFC] = 0xCD;
+    mem.ram[0xFFFD] = 0xAB;
+    mem.ram[0x0066] = 0xED;              // RETI
+    mem.ram[0x0067] = 0x4D;
+    mem.ram[0xABCD] = 0xED;              // RETN at the RETI's real return address
+    mem.ram[0xABCE] = 0x45;
+
+    cpu.request_nmi();
+    cpu.execute();                       // stackless acknowledge: PC 0x0066, SP FFFC, nothing pushed
+    const bool latch_in = cpu.stackless_retn_active();
+    cpu.execute();                       // RETI
+    const auto after_reti = cpu.get_registers();
+    const bool latch_after_reti = cpu.stackless_retn_active();
+    cpu.execute();                       // RETN: the substitution, and the latch clears
+    const auto after_retn = cpu.get_registers();
+
+    char detail[240];
+    std::snprintf(detail, sizeof(detail),
+                  "latch in handler=%d; after RETI PC=%04x (expect ABCD) SP=%04x (expect FFFE) "
+                  "latch=%d (expect 1); after RETN PC=%04x (expect 1234) SP=%04x (expect 0000) latch=%d (expect 0)",
+                  latch_in ? 1 : 0, after_reti.PC, after_reti.SP, latch_after_reti ? 1 : 0,
+                  after_retn.PC, after_retn.SP, cpu.stackless_retn_active() ? 1 : 0);
+    check(res, "SLNMI-RETI-01",
+          "RETI pops the real stack word and leaves the stackless latch set; only RETN takes C3:C2 "
+          "(t80n_mcode.vhd:2419-2451, zxnext.vhd:2052,2072-2081)",
+          latch_in && after_reti.PC == 0xABCD && after_reti.SP == 0xFFFE && latch_after_reti &&
+              after_retn.PC == 0x1234 && after_retn.SP == 0x0000 && !cpu.stackless_retn_active(),
+          detail);
+}
+
 void test_v22_im2_01_on_reti_clears_im2_int_req_latch(Result& res) {
     detach_contention();
 
@@ -3748,6 +3793,7 @@ int main() {
     test_perf_slnmi_02_enable_cb_polled_while_latch_set(res);
     test_perf_slnmi_03_enable_cleared_midhandler_abandons_latch(res);
     test_perf_slnmi_04_state_load_clearing_latch_disarms_fuse(res);
+    test_slnmi_reti_01_reti_pops_the_stack_and_keeps_the_latch(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");

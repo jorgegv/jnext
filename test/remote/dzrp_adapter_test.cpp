@@ -2341,6 +2341,25 @@ static void temp_rows() {
               none && ran && n.ok && n.reason == BREAK_MANUAL);
     }
     {
+        // A 5-byte CMD_CONTINUE (the CSpect form, accepted: DZRP-MAL-01) whose SECOND enable byte
+        // is set carries no second address: its high byte would be the sixth payload byte, one past
+        // the payload. Only the first temporary is armed, and the log names the second as incomplete.
+        Rig    rig;
+        LogTap log;
+        Dz     c(rig);
+        c.init();
+        load_loop(rig);
+        c.cmd(CMD_CONTINUE, bytes({1}) + u16s(0x8001) + bytes({1, 0x03}));
+        const auto subs = rig.dbg->subscriptions(true);
+        run_until_paused(rig, 3);
+        c.cmd(CMD_PAUSE);
+        check("DZRP-CONT-06", "a 5-byte CMD_CONTINUE with its second enable byte set arms ONLY the "
+                              "first temporary (0x8001) and logs the incomplete second one, never "
+                              "reading the byte past the payload",
+              subs.size() == 1 && subs[0].filter.lo == 0x8001 &&
+                  log.count("second temporary") == 1);
+    }
+    {
         // A stop the BACKEND did not cause (a legacy BreakpointSet PC
         // breakpoint) leaves its transients armed; the adapter removes what is
         // left of the CONTINUE's temporaries itself, or the next CONTINUE —

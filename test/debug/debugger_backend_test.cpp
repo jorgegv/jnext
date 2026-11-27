@@ -8160,6 +8160,56 @@ static void gh428_rev_rows() {
               "PC=" + hex(pc_of(emu)));
     }
     {
+        // CTL-04-05: Step Over of an esxDOS call. `RST $08 : DEFB $88` returns to the byte AFTER
+        // the DEFB (the stand-in, z80_cpu.cpp's PC = ret_addr + 1, and the real esxDOS both do),
+        // so the stop is at pc + 2, not at the DEFB. Oracle: the esxDOS calling convention
+        // (RST $08, DEFB function; execution resumes after the DEFB).
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.esxdos_stub = true;
+        Emulator emu;
+        emu.init(cfg);
+        const uint8_t prog[] = { 0xCF, 0x88, 0x00, 0x18, 0xFE };    // RST $08 ; DEFB $88 ; NOP ; JR $
+        for (size_t i = 0; i < sizeof(prog); ++i)
+            emu.mmu().write(static_cast<uint16_t>(PROG + i), prog[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = PROG; r.SP = TEST_SP; r.IFF1 = r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        Debugger dbg(emu);
+        attach_and_pause(emu);
+        const Result res = dbg.step_over(1);
+        run_until_paused(emu);
+        check("CTL-04-05", "step_over() at RST $08 : DEFB n stops at pc + 2, after the function byte",
+              res == Result::Ok && dbg.state().paused && pc_of(emu) == PROG + 2 &&
+                  dbg.state().pause_reason.kind == PauseReason::Kind::Step,
+              "paused=" + std::to_string(dbg.state().paused) + " PC=" + hex(pc_of(emu)));
+    }
+    {
+        // CTL-04-06: any other RST is unchanged: the stop is the next instruction. The handler is
+        // RAM at $0010 (NR 0x50 maps page 10 into slot 0 on a Next).
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        Emulator emu;
+        emu.init(cfg);
+        emu.mmu().set_boot_rom_enabled(false);
+        emu.mmu().set_config_mode(false);
+        emu.nextreg().write(0x50, 10);
+        emu.mmu().write(0x0010, 0xC9);                              // RET
+        const uint8_t prog[] = { 0xD7, 0x00, 0x18, 0xFE };          // RST $10 ; NOP ; JR $
+        for (size_t i = 0; i < sizeof(prog); ++i)
+            emu.mmu().write(static_cast<uint16_t>(PROG + i), prog[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = PROG; r.SP = TEST_SP; r.IFF1 = r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        Debugger dbg(emu);
+        attach_and_pause(emu);
+        const Result res = dbg.step_over(1);
+        run_until_paused(emu);
+        check("CTL-04-06", "step_over() at RST $10 (a RAM handler that RETs) stops at pc + 1",
+              res == Result::Ok && dbg.state().paused && pc_of(emu) == PROG + 1,
+              "paused=" + std::to_string(dbg.state().paused) + " PC=" + hex(pc_of(emu)));
+    }
+    {
         Emulator emu; build(emu);
         Debugger dbg(emu);
         // Execute the two NOPs and the CALL, then arm Step Out inside SUB.
