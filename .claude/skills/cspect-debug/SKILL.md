@@ -30,8 +30,8 @@ CSpect on Linux runs under mono. Several failure modes hang the Claude session: 
 Copy verbatim into any script that needs CSpect:
 
 ```bash
-# 0. Clone the suites' SD master once per investigation (never the user's card, GH #555; if it is missing, run `make worktree-bootstrap`, which reports how to provision it); never boot on the master (jnext and CSpect write to it). Delete the clone when done.
-mkdir -p ~/tmp/g46b-<topic> && { [ -f ~/tmp/g46b-<topic>/sd.img ] || cp --reflink=auto ~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<topic>/sd.img; }
+# 0. Clone the suites' SD master once per investigation (never the user's card, GH #555; its file name is `jnext-sdcard.img`, or the old `cspect-next-1gb-fixed.img` when only that exists, which `tools/sd-card-name.sh` resolves; if it is missing, run `make worktree-bootstrap`, which reports how to provision it); never boot on the master (jnext and CSpect write to it). Delete the clone when done.
+mkdir -p ~/tmp/g46b-<topic> && { [ -f ~/tmp/g46b-<topic>/sd.img ] || cp --reflink=auto ~/.jnext/sdcard/test-suite/sdcard/$(bash tools/sd-card-name.sh ~/.jnext/sdcard/test-suite/sdcard) ~/tmp/g46b-<topic>/sd.img; }
 
 # 1. Defensive pkill — clears any zombie holding port 11000
 pkill -9 mono 2>/dev/null; sleep 1

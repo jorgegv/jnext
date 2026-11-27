@@ -26,7 +26,7 @@ of this workflow.
 
 ### Step 1: Reproduce and characterise
 
-- Clone the suites' SD master once per investigation (never the user's card, GH #555; if it is missing, run `make worktree-bootstrap`, which reports how to provision it) and never boot on the master itself (jnext and CSpect write to it): `mkdir -p ~/tmp/g46b-<topic> && cp --reflink=auto ~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img ~/tmp/g46b-<topic>/sd.img`; delete the clone when done.
+- Clone the suites' SD master once per investigation (never the user's card, GH #555; its file name is `jnext-sdcard.img`, or the old `cspect-next-1gb-fixed.img` when only that exists, which `tools/sd-card-name.sh` resolves; if it is missing, run `make worktree-bootstrap`, which reports how to provision it) and never boot on the master itself (jnext and CSpect write to it): `mkdir -p ~/tmp/g46b-<topic> && cp --reflink=auto ~/.jnext/sdcard/test-suite/sdcard/$(bash tools/sd-card-name.sh ~/.jnext/sdcard/test-suite/sdcard) ~/tmp/g46b-<topic>/sd.img`; delete the clone when done.
 - Run jnext: `./build/jnext --headless --machine next --sdcard $HOME/tmp/g46b-<topic>/sd.img --delayed-screenshot /tmp/jnext.png --delayed-screenshot-time N --delayed-automatic-exit M`
 - Reproduce in CSpect with the hardened lifecycle from the `cspect-debug` skill, Part 1 (`timeout --kill-after` + bracketing `pkill -9 mono`, `-mmc=$HOME/tmp/g46b-<topic>/sd.img`).
 - Capture both screenshots side-by-side and describe the divergence in one paragraph.
