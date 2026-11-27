@@ -15204,7 +15204,16 @@ void Emulator::save_state(StateWriter& w) const
     // handler and ordinary code can also run with SP two bytes below an
     // earlier value. Append after the input block so older snapshots remain
     // readable; their absent field keeps the reset default false.
-    w.write_bool(cpu_.stackless_retn_active());
+    //
+    // GH #584: the same byte carries the DD/FD prefix pending after a cut run
+    // (Z80Cpu::prefix_pending()), in two more bits, so the stream keeps its length: bit 0 the
+    // latch above, bit 1 a pending DD, bit 2 a pending FD. A snapshot of the older bool form
+    // (0 or 1) has no prefix pending.
+    {
+        const uint8_t pp = cpu_.prefix_pending();
+        w.write_u8(static_cast<uint8_t>((cpu_.stackless_retn_active() ? 1 : 0) |
+                                        (pp == 0xDD ? 2 : pp == 0xFD ? 4 : 0)));
+    }
     put_sentinel();   // "stackless_nmi"
 
     // GH #251 — the joystick serial cable's CURSOR, so a rewind rewinds the
@@ -15279,9 +15288,6 @@ void Emulator::save_state(StateWriter& w) const
     // GH #505: the second card's FSM, appended after card 0's.
     sd_card2_.save_state(w);
     put_sentinel();   // "sdcard2"
-    // GH #584: the pending DD/FD of a cut prefix run, appended after the last block.
-    w.write_u8(cpu_.prefix_pending());
-    put_sentinel();   // "cpu_prefix_pending"
 
     // Task 60b — bounds check: a snapshot buffer smaller than the state
     // stream would previously scribble past the allocation silently; the
@@ -15692,10 +15698,21 @@ bool Emulator::load_state(StateReader& r)
     // predating this field end immediately after the input sentinel and keep
     // the CPU reset default (inactive).
     if (!r.eof()) {
-        cpu_.set_stackless_retn_active_for_load(r.read_bool());
+        const uint8_t v = r.read_u8();
+        // Bit 0 the stackless latch, bit 1 a pending DD, bit 2 a pending FD (GH #584); both
+        // prefix bits, or any other bit, is a corrupt stream.
+        if ((v & ~uint8_t{7}) != 0 || (v & 6) == 6) {
+            last_state_error_ = "bad-prefix-pending";
+            ++state_error_generation_;
+            Log::emulator()->error("load_state: stackless/prefix byte {:#04x} is not valid", v);
+            return false;
+        }
+        cpu_.set_stackless_retn_active_for_load((v & 1) != 0);
+        cpu_.set_prefix_pending_for_load((v & 2) ? 0xDD : (v & 4) ? 0xFD : 0);
         if (!check_sentinel("stackless_nmi")) return false;
     } else {
         cpu_.set_stackless_retn_active_for_load(false);
+        cpu_.set_prefix_pending_for_load(0);
     }
 
     // GH #251 — the joystick serial cable's cursor. Same append-only shape as
@@ -15773,20 +15790,6 @@ bool Emulator::load_state(StateReader& r)
         if (!r.eof()) {
             sd_card2_.load_state(r);
             if (!check_sentinel("sdcard2")) return false;
-            // GH #584: the pending prefix, appended after the second card; a stream without it
-            // (an older one) leaves none pending.
-            if (!r.eof()) {
-                const uint8_t p = r.read_u8();
-                if (p != 0 && p != 0xDD && p != 0xFD) {
-                    last_state_error_ = "bad-prefix-pending";
-                    ++state_error_generation_;
-                    Log::emulator()->error(
-                        "load_state: pending prefix {:#04x} is not none, DD or FD", p);
-                    return false;
-                }
-                cpu_.set_prefix_pending_for_load(p);
-                if (!check_sentinel("cpu_prefix_pending")) return false;
-            }
         }
     }
 

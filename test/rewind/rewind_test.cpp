@@ -7956,16 +7956,30 @@ static int test_gh402_tape_reattach()
             StateReader rd(full.data(), full.size());
             const bool l = b->load_state(rd);
             const bool carried = l && b->cpu().prefix_pending() == 0xDD && finishes_as_ix(*b);
-            // A stream that predates the block (it is the last 5 bytes: the value and its sentinel) leaves nothing pending.
-            Bytes older(full.begin(), full.end() - 5);
-            StateReader rd2(older.data(), older.size());
+            // The pending prefix is two bits of the stackless-latch byte, so the stream keeps its length:
+            // the same machine with the prefix cleared differs from it in exactly that byte.
+            a->cpu().set_prefix_pending_for_load(0);
+            const Bytes none = stream(*a);
+            size_t at = 0, diffs = 0;
+            for (size_t i = 0; i < full.size() && i < none.size(); ++i)
+                if (full[i] != none[i]) { ++diffs; at = i; }
+            const bool one_byte = full.size() == none.size() && diffs == 1 && full[at] == 2 && none[at] == 0;
+            // A stream saved with nothing pending clears a pending prefix on load...
             auto c = at_cut();
-            const bool l2 = c->load_state(rd2);   // c had a pending prefix; the older stream says none
-            const bool absent_clears = l2 && c->cpu().prefix_pending() == 0;
-            check("PFXCH-SAVE-01", cut && carried && absent_clears,
-                  "a binary stream saved at the cut of a 65 DD run restores the pending prefix (the next slot writes IX, HL untouched); "
-                  "a stream without the block loads with no prefix pending",
-                  "cut=" + std::to_string(cut) + " carried=" + std::to_string(carried) + " absent_clears=" + std::to_string(absent_clears));
+            StateReader rd2(none.data(), none.size());
+            const bool l2 = c->load_state(rd2);
+            const bool clears = l2 && c->cpu().prefix_pending() == 0;
+            // ...and an impossible value (bit 1 and bit 2 together, or a stray bit) is refused.
+            Bytes bad = full;
+            bad[at] = 6;
+            auto d = make();
+            StateReader rd3(bad.data(), bad.size());
+            const bool refused = one_byte && !d->load_state(rd3);
+            check("PFXCH-SAVE-01", cut && carried && one_byte && clears && refused,
+                  "a binary stream saved at the cut of a 65 DD run restores the pending prefix (the next slot writes IX, HL untouched) "
+                  "in one byte of the stream (same length as with nothing pending); a stream with nothing pending clears it; the value 6 is refused",
+                  "cut=" + std::to_string(cut) + " carried=" + std::to_string(carried) + " one_byte=" + std::to_string(one_byte) +
+                      " clears=" + std::to_string(clears) + " refused=" + std::to_string(refused));
         }
         Bytes j1;
         {

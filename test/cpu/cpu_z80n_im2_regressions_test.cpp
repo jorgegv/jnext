@@ -3741,14 +3741,16 @@ void test_pfxch_04_long_chains(Result& res) {
     bool ok = true;
     char detail[240] = "";
     const int lens[] = {65, 66, 129, 130, 200};
-    const int slots_exp[] = {2, 2, 3, 3, 4};
+    const int slots_exp[] = {2, 2, 2, 3, 4};
     for (int k = 0; k < 5; ++k) {
         const int L = lens[k];
         RamMemory mem;
         RecordingIo io;
         Z80Cpu cpu(mem, io);
         prep_cpu(cpu, mem);
-        pfx_fill(mem, L, false, L == 129 ? 0xFD : 0);
+        // FD as the last prefix where the first or second cut lands on it (L = 65: the 65th byte
+        // is the first cut's pending prefix; L = 130: the second cut's), so a swapped DD/FD fails.
+        pfx_fill(mem, L, false, (L == 65 || L == 130) ? 0xFD : 0);
         const uint8_t last = mem.ram[kPfxBase + L - 1];
         const uint16_t at = static_cast<uint16_t>(kPfxBase + L);
         mem.ram[at] = 0x21; mem.ram[at + 1] = 0x34; mem.ram[at + 2] = 0x12;
@@ -3832,17 +3834,19 @@ void test_pfxch_06_07_int_not_accepted_inside(Result& res) {
         auto regs = cpu.get_registers();
         regs.SP = 0xA000; regs.IFF1 = 1; regs.IFF2 = 1; regs.IM = 1;
         cpu.set_registers(regs);
-        // variant 0: window open for the whole chain. variant 1: it ends inside it.
-        cpu.request_interrupt(0xFF, 0, variant == 0 ? 1000000 : 100);
+        // The first slot starts an instruction and could take an INT: the source rises inside the
+        // chain, after it. variant 0: window open for the whole chain. variant 1: it ends inside it.
+        cpu.execute();
+        cpu.request_interrupt(0xFF, 0, variant == 0 ? 1000000 : 300);
         PfxRun run;
-        int slots = 0;
-        bool ok = true;
-        do {
+        int slots = 1;
+        bool ok = cpu.prefix_pending() != 0;
+        while (cpu.prefix_pending() != 0 && slots < 64) {
             cpu.execute();
             ++slots;
             run.kinds.push_back(cpu.last_slot_kind());
             if (cpu.last_slot_kind() != Z80Cpu::SlotKind::Opcode || cpu.get_registers().SP != 0xA000) ok = false;
-        } while (cpu.prefix_pending() != 0 && slots < 64);
+        }
         const int cuts = slots - 1;
         // The NOP ended the instruction: the boundary after it takes the INT (window open) or drops it.
         cpu.execute();
@@ -3915,7 +3919,7 @@ PfxState pfx_exec(const std::vector<uint8_t>& prog, Init init) {
     PfxState s;
     pfx_run_to_end(cpu, s.t);
     s.r = cpu.get_registers();
-    s.mem.assign(mem.ram, mem.ram + sizeof(mem.ram));
+    s.mem.assign(mem.ram + 0x9000, mem.ram + 0x9200);     // the data the programs touch, not the code
     for (auto& o : io.outs) s.outs.push_back({o.port, o.val});
     return s;
 }
