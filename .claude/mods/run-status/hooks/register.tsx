@@ -3,14 +3,14 @@ import type { BoxProps, ElementConstructor, EngineInterface, Register, RenderNod
 
 import type { StatusReport, StatusSection } from '../types'
 
-// A Status pane for the jnext autonomous run, refreshed every minute and on demand.
+// A Status pane for the jnext autonomous run, refreshed every 5 minutes and on demand.
 // Everything comes from what the run keeps on disk and from the tools, never from the model:
 // the newest run dir's agents.md (who runs, what waits) and blocked.md (what waits on the
 // owner), the milestone's open issues, the CI runs, the epic branch and the remote hosts.
 
 const PANE = 'run-status'
 const TITLE = 'Run status'
-const EVERY_MS = 60 * 1000
+const EVERY_MS = 5 * 60 * 1000
 // The section title bar: a mid grey that reads on light and dark editor themes alike.
 const BAR = '#5f6368'
 const BAR_TEXT = '#ffffff'
@@ -290,13 +290,22 @@ async function gather($: EngineInterface): Promise<StatusReport> {
   return { at, sections, errors }
 }
 
+// The in-flight guard lives in this module, not in $.state: state survives a reload, and a
+// reload during a refresh would otherwise leave "busy" set for good (every later refresh then
+// returned at once). A refresh older than STALE_MS is taken as lost and does not block.
+const STALE_MS = 3 * 60 * 1000
+let inFlightSince = 0
+
 async function refresh($: EngineInterface) {
-  if (await read($, isBusy)) return
+  const now = await $.clock.now()
+  if (inFlightSince !== 0 && now - inFlightSince < STALE_MS) return
+  inFlightSince = now
   await update($, isBusy, () => true)
   try {
     const r = await gather($)
     await update($, report, () => r)
   } finally {
+    inFlightSince = 0
     await update($, isBusy, () => false)
     $.ui.invalidate('ui.render')
   }
@@ -310,6 +319,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.command.register({ name: 'run-status', description: 'Open the Run status pane and refresh it now' })
+    // A reload starts with no refresh in flight, whatever the stored flag says.
+    await update($, isBusy, () => false)
     void openPane($, false)
     void refresh($)
     $.clock.every(EVERY_MS, () => refresh($))
@@ -330,7 +341,7 @@ export const register: Register = on => {
       <Box flexDirection="column" gap={1}>
         <Box flexDirection="row" gap={1}>
           <Text bold>{r ? stamp(r.at) : 'Run status'}</Text>
-          <Text dimColor>{busy ? 'refreshing...' : r ? 'updated every minute' : 'not gathered yet'}</Text>
+          <Text dimColor>{busy ? 'refreshing...' : r ? 'updated every 5 minutes' : 'not gathered yet'}</Text>
           <Button key="refresh" label="Refresh" plain onPress={() => refresh($)} />
         </Box>
         {r?.sections.map(sec => (

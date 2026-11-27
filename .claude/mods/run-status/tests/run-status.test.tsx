@@ -176,3 +176,33 @@ test('what cannot be derived shows as not configured, without a crash', async ($
   for (const word of ['rev-parse', 'gh repo', 'gh api']) expect(text).not.toContain(word)
   await after.unmount()
 })
+
+test('a busy flag left in state by a reload does not block Refresh', async ($, on) => {
+  // What an earlier load stored mid-refresh: isBusy true, and no refresh actually running.
+  // Every read of isBusy answers the stale true an earlier load left, until this load writes it.
+  let stale = true
+  on('state.get', (_, e, next) => {
+    if ((e as { key?: string }).key === 'isBusy' && stale) return { value: { value: true, version: 0 } }
+    return next(e)
+  })
+  on('state.set', (_, e, next) => {
+    if ((e as { key?: string }).key === 'isBusy') stale = false
+    return next(e)
+  })
+  on('clock.now', () => ({ value: 1795700000000 }))
+  on('session.cwd', () => ({ value: '/work/stale' }))
+  on('env.get', () => ({ value: '/home/u' }))
+  on('fs.list', () => ({ value: [{ name: '2026-11-26', kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false }] }))
+  on('fs.read', () => ({ value: '' }))
+  let gathered = 0
+  on('process.run', (_, e) => {
+    const argv = (e as { argv: string[] }).argv
+    if (argv[0] === 'gh' && argv[1] === 'run') gathered += 1
+    const stdout = argv[0] === 'gh' ? '[]' : ''
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  const ui = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  await ui.press({ key: 'refresh' })
+  await ui.unmount()
+  expect(gathered).toBe(1)
+})

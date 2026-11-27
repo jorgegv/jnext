@@ -1,7 +1,7 @@
 # run-status
 
 A Claude Code mod that shows a Run status pane for an autonomous run, refreshed
-every minute and on demand. It never calls the model: it reads the run's files
+every 5 minutes and on demand. It never calls the model: it reads the run's files
 (`agents.md`, `blocked.md`, `slot.sh`, the admissions log), `gh` (open issues,
 CI runs), `git` and the remote-run lane probe, and lays them out as Blocked on
 you, Running, Next, Waiting, Epic, main and CI, and Remotes.
