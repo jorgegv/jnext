@@ -1403,6 +1403,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-target-seam" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The target seam
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#behind-the-facade" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3193,7 +3204,7 @@
 
 
 <h1 id="391-the-backend-api">3.9.1 The backend API<a class="headerlink" href="#391-the-backend-api" title="Permanent link">&para;</a></h1>
-<p>Four headers in <code>src/debug/</code> are the whole interface a frontend sees:</p>
+<p>Five headers in <code>src/debug/</code> are the whole interface a frontend sees:</p>
 <table>
 <thead>
 <tr>
@@ -3218,9 +3229,14 @@
 <td><code>result.h</code></td>
 <td><code>Result</code>, the closed set of refusals, and <code>Expected&lt;T&gt;</code></td>
 </tr>
+<tr>
+<td><code>target.h</code></td>
+<td>the target seam: <code>Target</code>, <code>TargetInfo</code>, <code>TargetKind</code>, <code>Capability</code>, <code>CapabilitySet</code>, <code>RegisterValidity</code></td>
+</tr>
 </tbody>
 </table>
-<p>They are a frozen interface. A verb is added only by owner decision, and each
+<p>The first four are a frozen interface; <code>target.h</code> is published and lint-checked like
+them but not frozen, because the remote targets extend it. A verb is added only by owner decision, and each
 declaration says which capability id of <code>doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md</code>
 §4 it serves. <code>doc/design/debug-subsystem/b0-cap-traceability.md</code> maps each
 capability id to its declarations, though not completely: <code>rgb333_to_argb()</code>,
@@ -3887,10 +3903,48 @@ rules and the foreign-reader tests are in <a href="09-5-source-level-debugging/0
 <code>stop_policy</code>, <code>set_stop_policy</code>, <code>set_live_raster</code>, <code>live_raster</code>, <code>attached</code>,
 <code>log</code>, <code>set_loop_driver</code>, <code>on_cold_boot_begin</code> and <code>on_cold_boot_done</code>.
 <a href="09-3-sessions-the-pump-and-reconstruct.html">3.9.3</a> describes them.</p>
+<h2 id="the-target-seam">The target seam<a class="headerlink" href="#the-target-seam" title="Permanent link">&para;</a></h2>
+<p>A <code>Debugger</code> is built over a machine in one of two ways. <code>Debugger(Emulator&amp;)</code> is the
+local facade every loop owner uses. <code>Debugger(Target&amp;)</code> is a facade over a machine
+that is not an in-process <code>Emulator</code>, for example a remote jnext or a Next speaking
+DZRP; it is always <em>non-local</em>, and the target must outlive it.</p>
+<p><code>Target</code> (<code>target.h</code>) carries only the machine primitives such a machine can answer,
+and only those the facade calls: the registers and one register write, memory reads
+and writes by <code>MemSpace</code>, the eight MMU slots and the ROM select, NextREG reads and
+writes, port reads and writes, the sprite attribute and pattern stores, the sprite
+palette and the sprite clip window, plus <code>run_state()</code> and one stepping primitive.
+<code>LocalTarget</code> (<code>local_target.h</code>, internal) implements them over the <code>Emulator</code>; it
+holds the <code>Emulator&amp;</code> and nothing derived from it, because a hard reset rebuilds the
+machine in place.</p>
+<p>Every public verb of <code>Debugger</code> is one of three kinds:</p>
+<ul>
+<li><strong>Machine verbs</strong> keep their argument checks, the RZX and inside-delivery
+  refusals and the <code>MUTATE</code> attribution in the facade, in the same order as before,
+  and call the target for the action. The old byte of a write is read through the
+  target before it. <code>apply_register()</code> is the one register table: the facade uses it
+  on a copy for the old value and the name, <code>LocalTarget</code> for the write.</li>
+<li><strong>Host-side verbs</strong> (symbols, annotations, exports, source maps, sessions, the
+  disassembler) are unchanged and read the machine only through the facade.</li>
+<li><strong>Local-only verbs</strong> need the local stop machinery (<code>DebugState</code>, the event hooks,
+  rewind, trace, coverage, captures, the loop driver). On a non-local facade a
+  verb that can refuse returns <code>Unsupported</code>; a query returns its empty value.</li>
+</ul>
+<p>A non-local facade installs no hook anywhere: its <code>pump()</code> runs the registered
+services and compacts the event table, and the control verbs and every <code>subscribe()</code>
+kind are <code>Unsupported</code>. <code>state()</code> is the target's <code>run_state()</code> with no pause reason,
+and <code>source_page()</code> and <code>effective_page()</code> come from the target's slots, there being
+no fetch prediction.</p>
+<p>A target's answers are untrusted, since a remote target feeds them from a network.
+The facade clamps every byte count to the request, returns exactly <code>SPRITE_COUNT</code>
+sprites whatever the target sent, treats a pattern-RAM view that is not exactly
+<code>PATTERN_RAM_BYTES</code> long or has no data as empty, and carries the identity strings of
+<code>target_info()</code> as they came.</p>
 <h2 id="behind-the-facade">Behind the facade<a class="headerlink" href="#behind-the-facade" title="Permanent link">&para;</a></h2>
 <p><code>Debugger</code> holds one <code>unique_ptr&lt;Impl&gt;</code> and nothing else, so adding state never
 edits a header five frontends compile against. <code>Impl</code> is defined in the internal
-<code>src/debug/debugger_impl.h</code>, which is also where <code>core/emulator.h</code> is included.
+<code>src/debug/debugger_impl.h</code>, which is also where <code>core/emulator.h</code> is included. It
+holds the <code>Target&amp;</code> and an <code>Emulator*</code> that is null on a non-local facade; the local
+stop machinery is reached through that pointer.
 No path through <code>run_frame()</code> calls a <code>Debugger</code> method: the hook sites read the
 internals directly, through the pointers the constructor publishes into
 <code>DebugState</code>.</p>

@@ -11,7 +11,7 @@ rewind on, runs it backwards. Six programs drive it:
 - the record/replay recorder, which writes `.jds` scripts.
 
 All six are **frontends** of one backend. None of them holds an `Emulator`.
-Each holds a `jnext::dbg::Debugger`, the one facade declared in four published
+Each holds a `jnext::dbg::Debugger`, the one facade declared in five published
 headers. The backend lives in the same process and on the same thread as the
 emulation, so reading machine state is a direct call rather than a message, and
 the run loop consults the backend once per instruction, before the fetch.
@@ -48,6 +48,13 @@ breakpoint store, and the older primitives the facade is built on: the trace
 log, the call-stack tracker, the symbol table, the rewind ring, the
 disassembler and the raster derivation. No frontend includes any of these
 headers.
+
+**The target seam.** Below the facade's host-side half sits `jnext::dbg::Target`
+(`src/debug/target.h`), the machine primitives a remote machine can answer:
+registers, memory, banking, NextREG, ports and the sprite stores. A `Debugger`
+built over an `Emulator` owns a `LocalTarget` that forwards to it; a `Debugger`
+built over any other `Target` has no `Emulator` at all, and the verbs that need
+one answer `Unsupported`. [3.9.1](09-1-the-backend-api.md) describes the cut.
 
 **The hook sites.** The `Emulator` keeps the places where the backend is
 consulted, and nothing else:
@@ -104,7 +111,7 @@ Rows QTF-06..08 and QTF-12/13 test the detectors themselves on planted files.
 The Qt code that both Qt libraries share lives in the header-only `src/qt/`.
 
 **No `Emulator` below a frontend.** `Emulator` is only forward-declared in the
-four published headers. None of them may reach any of these:
+five published headers. None of them may reach any of these:
 
 - `core/emulator.h`, `src/platform/`, Qt or SDL;
 - `memory/mmu.h`, `video/renderer.h`, `video/palette.h`, `video/timing.h`;
@@ -119,7 +126,7 @@ verdict turns the row red. HS-57c proves the verdict does not depend on the temp
 or source path.
 
 `debugger_impl.h` *does* include `core/emulator.h`. That is the reason it is
-internal, and the lint checks only the four published headers.
+internal, and the lint checks only the five published headers.
 
 **The published types do not drift.** `src/debug/debug_types_check.cpp` is a
 translation unit of `static_assert`s, built in all four configurations. It pins:
@@ -132,7 +139,9 @@ translation unit of `static_assert`s, built in all four configurations. It pins:
 - each of `Listener`'s seven methods separately. `is_abstract` on the class
   would still pass if one method gained a default body;
 - `MachineInfo`'s two clock domains against `MachineTiming`, and the relation
-  of eight master cycles to one T-state.
+  of eight master cycles to one T-state;
+- `target.h`: the order and count of `Capability`, the eight fields of
+  `RegisterValidity`, and `Target` being abstract.
 
 `EventKind`, `Layer`, `RegId` and `ClipLayer` each end in a `Count` sentinel,
 and every count is derived from it. A count derived from the last real
@@ -169,8 +178,8 @@ bits behind it.
 
 ## In this section
 
-- [3.9.1 The backend API](09-1-the-backend-api.md): the four headers, their
-  conventions, and every capability family.
+- [3.9.1 The backend API](09-1-the-backend-api.md): the five headers, their
+  conventions, every capability family, and the target seam below the facade.
 - [3.9.2 Event delivery and mutation](09-2-event-delivery-and-mutation.md):
   how an event gets from a hook site to a subscriber, and what a write from a
   frontend may do.

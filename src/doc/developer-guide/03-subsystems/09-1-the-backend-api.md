@@ -1,6 +1,6 @@
 # 3.9.1 The backend API
 
-Four headers in `src/debug/` are the whole interface a frontend sees:
+Five headers in `src/debug/` are the whole interface a frontend sees:
 
 | Header | Declares |
 |---|---|
@@ -8,8 +8,10 @@ Four headers in `src/debug/` are the whole interface a frontend sees:
 | `events.h` | the event vocabulary: `EventKind` and its sub-kinds, `Event`, `EventFilter`, `Subscription`, `SubscriptionInfo`, `Condition`, `Handler`, `Action`, `Hit`, `ClientId`, `EventId` |
 | `inspect.h` | the inspection value types: `MemSpace`, `SlotInfo`, `RegId`, `RunState`, `PauseReason`, `Time`, `MachineInfo`, `RewindRange`, `InputState`, `Layer`, `ClipLayer`, `PaletteId` and the rest |
 | `result.h` | `Result`, the closed set of refusals, and `Expected<T>` |
+| `target.h` | the target seam: `Target`, `TargetInfo`, `TargetKind`, `Capability`, `CapabilitySet`, `RegisterValidity` |
 
-They are a frozen interface. A verb is added only by owner decision, and each
+The first four are a frozen interface; `target.h` is published and lint-checked like
+them but not frozen, because the remote targets extend it. A verb is added only by owner decision, and each
 declaration says which capability id of `doc/design/DEBUG-SUBSYSTEM-ARCHITECTURE.md`
 §4 it serves. `doc/design/debug-subsystem/b0-cap-traceability.md` maps each
 capability id to its declarations, though not completely: `rgb333_to_argb()`,
@@ -429,11 +431,54 @@ rules and the foreign-reader tests are in [3.9.5.4.7](09-5-source-level-debuggin
 `log`, `set_loop_driver`, `on_cold_boot_begin` and `on_cold_boot_done`.
 [3.9.3](09-3-sessions-the-pump-and-reconstruct.md) describes them.
 
+## The target seam
+
+A `Debugger` is built over a machine in one of two ways. `Debugger(Emulator&)` is the
+local facade every loop owner uses. `Debugger(Target&)` is a facade over a machine
+that is not an in-process `Emulator`, for example a remote jnext or a Next speaking
+DZRP; it is always *non-local*, and the target must outlive it.
+
+`Target` (`target.h`) carries only the machine primitives such a machine can answer,
+and only those the facade calls: the registers and one register write, memory reads
+and writes by `MemSpace`, the eight MMU slots and the ROM select, NextREG reads and
+writes, port reads and writes, the sprite attribute and pattern stores, the sprite
+palette and the sprite clip window, plus `run_state()` and one stepping primitive.
+`LocalTarget` (`local_target.h`, internal) implements them over the `Emulator`; it
+holds the `Emulator&` and nothing derived from it, because a hard reset rebuilds the
+machine in place.
+
+Every public verb of `Debugger` is one of three kinds:
+
+- **Machine verbs** keep their argument checks, the RZX and inside-delivery
+  refusals and the `MUTATE` attribution in the facade, in the same order as before,
+  and call the target for the action. The old byte of a write is read through the
+  target before it. `apply_register()` is the one register table: the facade uses it
+  on a copy for the old value and the name, `LocalTarget` for the write.
+- **Host-side verbs** (symbols, annotations, exports, source maps, sessions, the
+  disassembler) are unchanged and read the machine only through the facade.
+- **Local-only verbs** need the local stop machinery (`DebugState`, the event hooks,
+  rewind, trace, coverage, captures, the loop driver). On a non-local facade a
+  verb that can refuse returns `Unsupported`; a query returns its empty value.
+
+A non-local facade installs no hook anywhere: its `pump()` runs the registered
+services and compacts the event table, and the control verbs and every `subscribe()`
+kind are `Unsupported`. `state()` is the target's `run_state()` with no pause reason,
+and `source_page()` and `effective_page()` come from the target's slots, there being
+no fetch prediction.
+
+A target's answers are untrusted, since a remote target feeds them from a network.
+The facade clamps every byte count to the request, returns exactly `SPRITE_COUNT`
+sprites whatever the target sent, treats a pattern-RAM view that is not exactly
+`PATTERN_RAM_BYTES` long or has no data as empty, and carries the identity strings of
+`target_info()` as they came.
+
 ## Behind the facade
 
 `Debugger` holds one `unique_ptr<Impl>` and nothing else, so adding state never
 edits a header five frontends compile against. `Impl` is defined in the internal
-`src/debug/debugger_impl.h`, which is also where `core/emulator.h` is included.
+`src/debug/debugger_impl.h`, which is also where `core/emulator.h` is included. It
+holds the `Target&` and an `Emulator*` that is null on a non-local facade; the local
+stop machinery is reached through that pointer.
 No path through `run_frame()` calls a `Debugger` method: the hook sites read the
 internals directly, through the pointers the constructor publishes into
 `DebugState`.

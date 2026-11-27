@@ -3099,7 +3099,7 @@ rewind on, runs it backwards. Six programs drive it:</p>
 <li>the record/replay recorder, which writes <code>.jds</code> scripts.</li>
 </ul>
 <p>All six are <strong>frontends</strong> of one backend. None of them holds an <code>Emulator</code>.
-Each holds a <code>jnext::dbg::Debugger</code>, the one facade declared in four published
+Each holds a <code>jnext::dbg::Debugger</code>, the one facade declared in five published
 headers. The backend lives in the same process and on the same thread as the
 emulation, so reading machine state is a direct call rather than a message, and
 the run loop consults the backend once per instruction, before the fetch.</p>
@@ -3129,6 +3129,12 @@ breakpoint store, and the older primitives the facade is built on: the trace
 log, the call-stack tracker, the symbol table, the rewind ring, the
 disassembler and the raster derivation. No frontend includes any of these
 headers.</p>
+<p><strong>The target seam.</strong> Below the facade's host-side half sits <code>jnext::dbg::Target</code>
+(<code>src/debug/target.h</code>), the machine primitives a remote machine can answer:
+registers, memory, banking, NextREG, ports and the sprite stores. A <code>Debugger</code>
+built over an <code>Emulator</code> owns a <code>LocalTarget</code> that forwards to it; a <code>Debugger</code>
+built over any other <code>Target</code> has no <code>Emulator</code> at all, and the verbs that need
+one answer <code>Unsupported</code>. <a href="09-1-the-backend-api.html">3.9.1</a> describes the cut.</p>
 <p><strong>The hook sites.</strong> The <code>Emulator</code> keeps the places where the backend is
 consulted, and nothing else:</p>
 <ul>
@@ -3221,7 +3227,7 @@ down.</p>
 <p>Rows QTF-06..08 and QTF-12/13 test the detectors themselves on planted files.
 The Qt code that both Qt libraries share lives in the header-only <code>src/qt/</code>.</p>
 <p><strong>No <code>Emulator</code> below a frontend.</strong> <code>Emulator</code> is only forward-declared in the
-four published headers. None of them may reach any of these:</p>
+five published headers. None of them may reach any of these:</p>
 <ul>
 <li><code>core/emulator.h</code>, <code>src/platform/</code>, Qt or SDL;</li>
 <li><code>memory/mmu.h</code>, <code>video/renderer.h</code>, <code>video/palette.h</code>, <code>video/timing.h</code>;</li>
@@ -3235,7 +3241,7 @@ The lint is row 5 of the regression preflight (<code>lint-debug-headers</code>).
 verdict turns the row red. HS-57c proves the verdict does not depend on the temp
 or source path.</p>
 <p><code>debugger_impl.h</code> <em>does</em> include <code>core/emulator.h</code>. That is the reason it is
-internal, and the lint checks only the four published headers.</p>
+internal, and the lint checks only the five published headers.</p>
 <p><strong>The published types do not drift.</strong> <code>src/debug/debug_types_check.cpp</code> is a
 translation unit of <code>static_assert</code>s, built in all four configurations. It pins:</p>
 <ul>
@@ -3247,7 +3253,9 @@ translation unit of <code>static_assert</code>s, built in all four configuration
 <li>each of <code>Listener</code>'s seven methods separately. <code>is_abstract</code> on the class
   would still pass if one method gained a default body;</li>
 <li><code>MachineInfo</code>'s two clock domains against <code>MachineTiming</code>, and the relation
-  of eight master cycles to one T-state.</li>
+  of eight master cycles to one T-state;</li>
+<li><code>target.h</code>: the order and count of <code>Capability</code>, the eight fields of
+  <code>RegisterValidity</code>, and <code>Target</code> being abstract.</li>
 </ul>
 <p><code>EventKind</code>, <code>Layer</code>, <code>RegId</code> and <code>ClipLayer</code> each end in a <code>Count</code> sentinel,
 and every count is derived from it. A count derived from the last real
@@ -3279,8 +3287,8 @@ predictable branch. <a href="09-4-execution-control-and-rewind.html">3.9.4</a> d
 bits behind it.</p>
 <h2 id="in-this-section">In this section<a class="headerlink" href="#in-this-section" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="09-1-the-backend-api.html">3.9.1 The backend API</a>: the four headers, their
-  conventions, and every capability family.</li>
+<li><a href="09-1-the-backend-api.html">3.9.1 The backend API</a>: the five headers, their
+  conventions, every capability family, and the target seam below the facade.</li>
 <li><a href="09-2-event-delivery-and-mutation.html">3.9.2 Event delivery and mutation</a>:
   how an event gets from a hook site to a subscriber, and what a write from a
   frontend may do.</li>
