@@ -3230,7 +3230,7 @@ misses its map. Inside it, every rule of <a href="06-lifetime.html">3.9.5.6</a> 
 code of its own: the store is attached with the map, dropped with it, made stale
 with it, cached and restored with it, and the copies share one object, so the
 cache costs nothing more.</p>
-<p>The facade is <code>Debugger::variables()</code> (<code>variables</code>, <code>src/debug/debugger_source.cpp:578</code>):
+<p>The facade is <code>Debugger::variables()</code> (<code>variables</code>, <code>src/debug/debugger_source.cpp:591</code>):
 it runs <code>recheck()</code> first, like every reader, and returns the live source map's
 store, or null when there is no live map or it carries none (an SLD). A z88dk map
 with lines but no record carries an <strong>empty</strong> store, so "this program has no C

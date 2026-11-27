@@ -3596,10 +3596,10 @@ a run override like <code>debugger.attached</code>).</p>
   its <code>@NN</code>, which is a different thing (<a href="01-which-memory.html">3.9.5.1</a>).</li>
 </ul>
 <p>The instruction at the PC is read as the CPU will fetch it, not as a data read.
-<code>Debugger::memory_reader()</code> (<code>debugger_inspect.cpp:1002</code>) takes the bytes of that one instruction
+<code>Debugger::memory_reader()</code> (<code>debugger_inspect.cpp:809</code>) takes the bytes of that one instruction
 (at most four) from <code>Emulator::predict_instruction_bytes()</code> and every other address from
 <code>Mmu::peek()</code>; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
-other bytes than the ones that execute. The Disassembly, <code>step_over()</code> (<code>debugger_control.cpp:175</code>: <code>is_call_like()</code> at <code>:184</code> and <code>instruction_length()</code> at <code>:190</code>
+other bytes than the ones that execute. The Disassembly, <code>step_over()</code> (<code>debugger_control.cpp:180</code>: <code>is_call_like()</code> at <code>:190</code> and <code>instruction_length()</code> at <code>:196</code>
 read through it) and ZRCP <code>cpu-step-over</code>
 (<code>ZrcpServer::cmd_cpu_step_over</code>) all use it (rows <code>LADDR-17</code> to <code>LADDR-20</code>).</p>
 <h2 id="gdb-zrcp-dzrp-scripts">GDB, ZRCP, DZRP, scripts<a class="headerlink" href="#gdb-zrcp-dzrp-scripts" title="Permanent link">&para;</a></h2>
@@ -3634,8 +3634,8 @@ the trimmed rest as the value (a value ZRCP's <code>parse_number()</code> reads,
 a fraction, <code>'A'</code>, <code>0x10</code>, goes as typed) and calls <code>write_c_value()</code> in frame 0. Success answers <code>set-register</code>'s own register line; every failure
 is ZEsarUX's <code>Error changing register</code>, with no reason.
 <code>smartload "file"</code> (<code>ZrcpServer::cmd_smartload</code>, <code>zrcp_server.cpp:2723</code>) calls
-<code>Debugger::load()</code> (<code>debugger_reconstruct.cpp:469</code>), which calls <code>load_program_sidecars()</code> after a successful load
-(<code>load_program_sidecars()</code>, <code>debugger_reconstruct.cpp:530-534</code>), so a program loaded over ZRCP gets its symbols and
+<code>Debugger::load()</code> (<code>debugger_reconstruct.cpp:472</code>), which calls <code>load_program_sidecars()</code> after a successful load
+(<code>load_program_sidecars()</code>, <code>debugger_reconstruct.cpp:534-538</code>), so a program loaded over ZRCP gets its symbols and
 source map like <code>--load</code>, and a refused sidecar is logged to every client as a Warn line.
 <code>get-memory-pages</code> (<code>memory_pages()</code>, <code>zrcp_format.cpp</code>) names the eight slots of a Next from what each
 reads now (<code>SlotInfo::now</code>): <code>RO</code> the boot ROM, <code>O&lt;n&gt;</code> the 8 KB ROM page <code>2*image + half</code>, <code>A&lt;n&gt;</code> RAM,

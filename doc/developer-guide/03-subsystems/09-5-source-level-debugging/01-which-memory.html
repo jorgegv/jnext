@@ -3224,7 +3224,7 @@ routes, and a debugger that shows which one answered must not collapse them.
   take <code>Cpu</code>, <code>Page</code> and <code>Rom</code>. <code>DivMmcRam{b}</code> can be <em>read</em> (the dot
   commands run from DivMMC bank 2, so their bytes must be checkable): bank <code>b</code>
   is <code>DivMmc::ram_page(b)</code> (SRAM page <code>0x10 + b</code>, <code>zxnext.vhd:3092-3098</code>), a bank
-  past <code>DivMmc::kRamPages</code> is <code>InvalidPage</code> (<code>debugger_inspect.cpp:310-317</code>), and
+  past <code>DivMmc::kRamPages</code> is <code>InvalidPage</code> (<code>local_target.cpp:204-212</code>), and
   <code>poke</code> of it stays <code>Unsupported</code>. Every other kind is <em>identity-only</em>: the arbiter
   names it, and <code>peek</code> and <code>poke</code> refuse it with <code>Result::Unsupported</code>
   (<code>identity_only()</code>, <code>debugger_inspect.cpp:100</code>, one total <code>switch</code> with no
@@ -3329,7 +3329,7 @@ memory go through it (<a href="07-frontends.html">3.9.5.7</a>).</p>
   <code>memory_text.h:20</code>).</li>
 </ul>
 <p>The instruction at the PC is a special read. <code>Debugger::memory_reader()</code>
-(<code>debugger_inspect.cpp:1002</code>) returns the bytes the CPU <em>will fetch</em> for that one instruction
+(<code>debugger_inspect.cpp:809</code>) returns the bytes the CPU <em>will fetch</em> for that one instruction
 (<code>Emulator::predict_instruction_bytes()</code>, at most four) and <code>Mmu::peek()</code> for everything else,
 because at a DivMMC instant entry the M1 itself maps DivMMC. That is the prediction half of this
 page applied to the bytes instead of the identity.</p>

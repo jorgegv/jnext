@@ -76,7 +76,7 @@ The tracker (`CallStack`, [3.9.5.5](05-breakpoints-steps-history.md)) costs per 
 always on. Its state is **derived** (`Impl::sync_call_stack()`, `debugger_session.cpp:130`), the one
 writer, from two things:
 
-1. **A client's own request.** `Debugger::set_call_stack_enabled(by, on)` (`debugger_inspect.cpp:1075`) sets
+1. **A client's own request.** `Debugger::set_call_stack_enabled(by, on)` (`debugger_inspect.cpp:895`) sets
    the request on that client's row. The tracker is on while any live client asked. One client switching off
    no longer takes another's tracking away (the Qt debugger window closing used to empty a ZRCP session's
    extended stack), and a detach drops the request with the client. The Qt window's request is made

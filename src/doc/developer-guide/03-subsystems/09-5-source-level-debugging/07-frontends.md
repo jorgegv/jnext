@@ -394,10 +394,10 @@ Which space a view prints is a rule per view (design 10.3):
   its `@NN`, which is a different thing ([3.9.5.1](01-which-memory.md)).
 
 The instruction at the PC is read as the CPU will fetch it, not as a data read.
-`Debugger::memory_reader()` (`debugger_inspect.cpp:1002`) takes the bytes of that one instruction
+`Debugger::memory_reader()` (`debugger_inspect.cpp:809`) takes the bytes of that one instruction
 (at most four) from `Emulator::predict_instruction_bytes()` and every other address from
 `Mmu::peek()`; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
-other bytes than the ones that execute. The Disassembly, `step_over()` (`debugger_control.cpp:175`: `is_call_like()` at `:184` and `instruction_length()` at `:190`
+other bytes than the ones that execute. The Disassembly, `step_over()` (`debugger_control.cpp:180`: `is_call_like()` at `:190` and `instruction_length()` at `:196`
 read through it) and ZRCP `cpu-step-over`
 (`ZrcpServer::cmd_cpu_step_over`) all use it (rows `LADDR-17` to `LADDR-20`).
 
@@ -436,8 +436,8 @@ the trimmed rest as the value (a value ZRCP's `parse_number()` reads, decimal or
 a fraction, `'A'`, `0x10`, goes as typed) and calls `write_c_value()` in frame 0. Success answers `set-register`'s own register line; every failure
 is ZEsarUX's `Error changing register`, with no reason.
 `smartload "file"` (`ZrcpServer::cmd_smartload`, `zrcp_server.cpp:2723`) calls
-`Debugger::load()` (`debugger_reconstruct.cpp:469`), which calls `load_program_sidecars()` after a successful load
-(`load_program_sidecars()`, `debugger_reconstruct.cpp:530-534`), so a program loaded over ZRCP gets its symbols and
+`Debugger::load()` (`debugger_reconstruct.cpp:472`), which calls `load_program_sidecars()` after a successful load
+(`load_program_sidecars()`, `debugger_reconstruct.cpp:534-538`), so a program loaded over ZRCP gets its symbols and
 source map like `--load`, and a refused sidecar is logged to every client as a Warn line.
 `get-memory-pages` (`memory_pages()`, `zrcp_format.cpp`) names the eight slots of a Next from what each
 reads now (`SlotInfo::now`): `RO` the boot ROM, `O<n>` the 8 KB ROM page `2*image + half`, `A<n>` RAM,
