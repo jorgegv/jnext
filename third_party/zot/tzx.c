@@ -214,7 +214,9 @@ static int tzx_parse_tap_block(TZXPlayer *p) {
  * again when the pulse ends, with the level low, and stops for real.
  * Returns 1 when the tail was set up. */
 static int tzx_stop_tail(TZXPlayer *p) {
-    if (!p->level) return 0;
+    /* gap_done: the level is the toggle that ended a pause (TZX 1.20: a
+     * pause ends low), not a block's terminating edge: nothing to finish. */
+    if (!p->level || p->gap_done) return 0;
     p->tone_pulse = TSTATES_PER_MS;
     p->tone_remaining = 1;
     p->phase = TZX_PHASE_TONE;
@@ -472,6 +474,7 @@ static int tzx_parse_next_block(TZXPlayer *p) {
         case 0x2B: {
             if (remaining < 5) return 0;
             p->level = b[4] ? 1 : 0;
+            p->gap_done = 0;          /* jnext (GH #567): a set level is a real level */
             p->offset += 1 + 5;
             continue;
         }
@@ -615,8 +618,15 @@ static uint32_t tzx_next_pulse(TZXPlayer *p) {
                 p->held = 1;
                 return 0;
             }
-            p->gap_done = 0;
-            if (!tzx_parse_next_block(p)) return 0;
+            /* jnext (GH #567): gap_done stays set through the parse, so a
+             * stop right after a pause knows the high level it sees is the
+             * toggle that ended the pause (ZOT's leading edge for the next
+             * block, not an edge on the tape): no stop tail then. */
+            {
+                int parsed = tzx_parse_next_block(p);
+                p->gap_done = 0;
+                if (!parsed) return 0;
+            }
             continue;
 
         /* Pilot tone: emit identical pulses until count exhausted. */

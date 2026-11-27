@@ -143,7 +143,9 @@ last edge left (TZX 1.20: at least 1 ms of the opposite level, and only then the
 pulse goes low); a longer one holds that level for 1 ms and spends the rest low.
 Before a stop block, a 0x2A that stops, or the end of the tape, a high level is
 held for 1 ms as one pure-tone pulse (`tzx_stop_tail` in `third_party/zot/tzx.c`),
-and the stop is parsed again when it ends, so the stop never hides the edge.
+and the stop is parsed again when it ends, so the stop never hides the edge. After a pause
+there is no such tail: a pause ends low, and the high level the player's own toggle leaves
+there is not an edge on the tape.
 
 (`fastload_active()` also covers the fast-boot window of a plain Next start;
 see [A frame, end to end](../02-architecture/03-a-frame-end-to-end.md).)

@@ -45,6 +45,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <vector>
 #include "../row_id.h"
 
@@ -1337,15 +1338,15 @@ int main(int argc, char** argv) {
             bool early_hold = false, restored = false, same = true;
             std::string why;
             while (a->now + 13 < TeHI + 3499) {
-                a->step(a->now + 13);
+                const uint8_t la = a->step(a->now + 13);
                 if (a->t.is_held()) early_hold = true;
                 if (!restored && a->now >= TeHI + 1000) {          // mid-tail: restore B from A
                     restored = b->ok && b->t.restore_deck(a->t.deck_state(a->now), a->now, why);
                     b->now = a->now;
                 }
                 if (restored && a->now > b->now) {
-                    b->step(a->now);
-                    if (a->t.is_held() != b->t.is_held() || a->t.is_playing() != b->t.is_playing()) same = false;
+                    const uint8_t lb = b->step(a->now);
+                    if (a->t.is_held() != b->t.is_held() || a->t.is_playing() != b->t.is_playing() || la != lb) same = false;
                 }
             }
             a->step(TeHI + 3499); b->step(TeHI + 3499);
@@ -1449,6 +1450,52 @@ int main(int argc, char** argv) {
             check("TZXP-15", "a program that polls the port through a block's 1000 ms gap does not make the deck hold there (only a hold restarts the poll run)",
                   ok && no_hold && emu->tzx_tape().is_playing());
         }
+        // A stop (or the end of the tape) right after a PAUSE: the high level ZOT's
+        // end-of-pause toggle leaves is not an edge on the tape, so no 1 ms tail
+        // (TZX 1.20: a pause ends low; libspectrum/FUSE play no such pulse).
+        // Level 0 for the whole pause remainder, the deck stops at the pause end.
+        auto after_pause = [&](const char* name, const Bytes& blk, const Bytes& tail, uint64_t Te, size_t end_off) {
+            auto d = open(name, concat({kHeader, blk, tail}), false, false, true);
+            const uint64_t pe = Te + 1000ULL * 3500;
+            std::string bad = levels(*d, Te, {{3500, 0}, {1000 * 3500 - 1, 0}});
+            const bool before = d->t.is_playing();
+            const uint8_t lv = d->step(pe);
+            const bool stopped = !d->t.is_playing();
+            const uint8_t lv2 = d->step(pe + 5000);
+            return std::make_tuple(d->ok && bad.empty() && before && stopped && lv == 0 && lv2 == 0 &&
+                                   offset_of(*d) == static_cast<int>(end_off),
+                                   bad + " lv=" + std::to_string(lv) + " lv2=" + std::to_string(lv2) +
+                                   " stopped=" + std::to_string(stopped) + " off=" + std::to_string(offset_of(*d)));
+        };
+        {   // TZXP-16
+            auto [ok, why] = after_pause("p16.tzx", HI(1000), {}, TeHI, kHeader.size() + HI(1000).size());
+            check("TZXP-16", "end of the tape after a pause that followed a rising last edge: level stays low after the pause, the deck stops at the pause end (no phantom pulse)", ok, why);
+        }
+        {   // TZXP-17
+            auto [ok, why] = after_pause("p17.tzx", HI(1000), STOP20, TeHI, kHeader.size() + HI(1000).size() + STOP20.size());
+            check("TZXP-17", "a stop block after a pause that followed a rising last edge: level stays low after the pause, the deck stops at the pause end (no phantom pulse)", ok, why);
+        }
+        {   // TZXP-18
+            auto [ok, why] = after_pause("p18.tzx", LO(1000), {}, TeLO, kHeader.size() + LO(1000).size());
+            check("TZXP-18", "end of the tape after a pause that followed a falling last edge: level stays low, the deck stops at the pause end (no phantom pulse)", ok, why);
+        }
+        {   // TZXP-19
+            auto [ok, why] = after_pause("p19.tzx", LO(1000), STOP20, TeLO, kHeader.size() + LO(1000).size() + STOP20.size());
+            check("TZXP-19", "a stop block after a pause that followed a falling last edge: level stays low, the deck stops at the pause end (no phantom pulse)", ok, why);
+        }
+        {   // TZXP-20
+            // A set-level-high block AFTER the pause is a real level: the stop still finishes it.
+            const Bytes setlevel1 = concat({{0x2B}, le32(1), {1}});
+            auto d = open("p20.tzx", concat({kHeader, LO(1000), setlevel1, STOP20}), false, false, true);
+            const uint64_t pe = TeLO + 1000ULL * 3500;
+            d->step(pe - 1);
+            const uint8_t l1 = d->step(pe + 1), l2 = d->step(pe + 3499);
+            const uint8_t l3 = d->step(pe + 3500);
+            check("TZXP-20", "a set-level-high block after a pause is a real level: a stop after it holds it 1 ms, then stops low",
+                  d->ok && l1 == 1 && l2 == 1 && l3 == 0 && !d->t.is_playing(),
+                  std::to_string(l1) + std::to_string(l2) + std::to_string(l3));
+        }
+
         // ROM level: the 48K ROM's LD-BYTES in real time is the consumer.
         const Bytes body5 = tap_body(0xFF, {1, 2, 3, 4, 5});
         const Bytes follow = b10(tap_body(0x00, Bytes(17, 0x20)));
