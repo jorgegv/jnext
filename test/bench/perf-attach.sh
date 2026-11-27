@@ -44,7 +44,8 @@ REPS="${3:-3}"
 [[ -x "$NEW_BIN"  ]] || die "new binary not executable: $NEW_BIN (make gui-release)"
 command -v perf >/dev/null || die "perf is not installed"
 
-SD_MASTER="${JNEXT_TEST_SD_IMAGE:-$HOME/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img}"
+SD_MASTER_DIR="$HOME/.jnext/sdcard/test-suite/sdcard"
+SD_MASTER="${JNEXT_TEST_SD_IMAGE:-$SD_MASTER_DIR/$(bash "$(dirname "${BASH_SOURCE[0]}")/../../tools/sd-card-name.sh" "$SD_MASTER_DIR")}"
 [[ -f "$SD_MASTER" ]] || die "SD image missing: $SD_MASTER"
 # A private clone, as in ab-hotlatch.sh and for the same reasons.
 CLONE="$HOME/tmp/jnext-perf-attach-$$.img"

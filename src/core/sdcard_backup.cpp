@@ -153,7 +153,7 @@ bool step2(const Swap& s, std::string& err) {
         list.push_back(path);
     }
     write_lines(s.dir + "/" + upgrade::kOverlayList, list);
-    const std::string card = s.dir + "/" + kFixedImageFileName;
+    const std::string card = s.dir + "/" + card_name_in(s.dir);
     if (!s.declined.empty()) write_lines(card + kDeclinedSuffix, {s.declined});
     return true;
 }
@@ -207,7 +207,7 @@ int compare_distributions(const std::string& a, const std::string& b) {
 
 Status card_set_status(const std::string& dir, const std::string& current_distro, bool check_pristine) {
     Status s;
-    const std::string card = dir + "/" + kFixedImageFileName;
+    const std::string card = dir + "/" + card_name_in(dir);
     std::error_code ec;
     s.card_present = fs::is_regular_file(card, ec);
     if (s.card_present) {
@@ -218,10 +218,11 @@ Status card_set_status(const std::string& dir, const std::string& current_distro
         if (check_pristine) s.pristine = carry::pristine_base_ok(card, s.pristine_why);
     }
     const fs::path prev = upgrade::previous_dir(dir);
-    s.backup = fs::is_regular_file(prev / kFixedImageFileName, ec);
+    const std::string prev_card = card_name_in(prev.string());
+    s.backup = fs::is_regular_file(prev / prev_card, ec);
     if (s.backup) {
         s.backup_bytes = tree_bytes(prev);
-        const std::string d = read_line((prev / (std::string(kFixedImageFileName) + kDistroSuffix)).string());
+        const std::string d = read_line((prev / (prev_card + kDistroSuffix)).string());
         s.backup_distro = d.empty() ? std::string(kLegacyDistribution) : d;
     }
     return s;
@@ -245,10 +246,10 @@ std::string size_label(uint64_t bytes) {
 }
 
 Result go_back(const std::string& dir, std::string& err) {
-    const std::string card = dir + "/" + kFixedImageFileName;
+    const std::string card = dir + "/" + card_name_in(dir);
     const fs::path prev = upgrade::previous_dir(dir);
     std::error_code ec;
-    if (!fs::is_regular_file(prev / kFixedImageFileName, ec)) { err = "there is no previous SD card to go back to"; return Result::NoBackup; }
+    if (!fs::is_regular_file(prev / card_name_in(prev.string()), ec)) { err = "there is no previous SD card to go back to"; return Result::NoBackup; }
     if (fs::exists(work_dir(dir), ec)) { err = "an earlier go-back is unfinished: start jnext once to finish it"; return Result::Failed; }
     // Every writes file the backup holds is restored to the path it came from. That is checked BEFORE anything
     // moves: the directory is made when it is missing, and a path nothing can be written to refuses the whole
@@ -293,7 +294,7 @@ Result go_back(const std::string& dir, std::string& err) {
         return Result::Failed;
     }
     if (!run_steps(s, err)) return Result::Failed;
-    Log::emulator()->info("sdcard: went back to the previous SD card ({})", read_line(card + kDistroSuffix));
+    Log::emulator()->info("sdcard: went back to the previous SD card ({})", read_line(dir + "/" + card_name_in(dir) + kDistroSuffix));
     return Result::Ok;
 }
 

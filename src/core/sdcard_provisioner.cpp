@@ -31,6 +31,19 @@ const char* const kDistroUrl =
 const char* const kImageFileName = "cspect-next-1gb.img";
 const char* const kFixedImageFileName = "jnext-sdcard.img";
 const char* const kLegacyFixedImageFileName = "cspect-next-1gb-fixed.img";
+const char* const kImageExtensions[2] = {".img", ".mmc"};
+const char* const kDiskImageFilterPatterns = "*.img *.mmc *.bin *.raw";
+bool has_image_extension(const std::string& path) {
+    for (const char* e : kImageExtensions) {
+        const size_t n = std::strlen(e);
+        if (path.size() < n) continue;
+        bool same = true;
+        for (size_t i = 0; i < n && same; ++i)
+            same = std::tolower(static_cast<unsigned char>(path[path.size() - n + i])) == e[i];
+        if (same) return true;
+    }
+    return false;
+}
 const int kFixedImageRecipe = 3;
 const char* const kFixedImageRecipeSuffix = ".recipe";
 const char* const kDistroSuffix = ".distro";
@@ -570,127 +583,21 @@ std::string default_state_dir() { return config_dir(); }
 std::string default_sdcard_dir() {
     return config_dir() + "/sdcard";
 }
-std::string default_sdcard_image_path() {
+std::string card_name_in(const std::string& dir) {
+    std::error_code ec;
+    if (std::filesystem::is_regular_file(dir + "/" + kFixedImageFileName, ec)) return kFixedImageFileName;
+    if (std::filesystem::is_regular_file(dir + "/" + kLegacyFixedImageFileName, ec)) return kLegacyFixedImageFileName;
+    return kFixedImageFileName;
+}
+std::string default_sdcard_new_image_path() {
     return default_sdcard_dir() + "/" + kFixedImageFileName;
+}
+std::string default_sdcard_image_path() {
+    const std::string dir = default_sdcard_dir();
+    return dir + "/" + card_name_in(dir);
 }
 std::string default_sdcard_raw_image_path() {
     return default_sdcard_dir() + "/" + kImageFileName;
-}
-
-std::string legacy_card_alias(const std::string& path) {
-    namespace fs = std::filesystem;
-    const fs::path legacy = fs::path(default_sdcard_dir()) / kLegacyFixedImageFileName;
-    if (fs::path(path).lexically_normal() != legacy.lexically_normal()) return path;
-    std::error_code ec;
-    if (fs::exists(legacy, ec)) return path;
-    const std::string now = default_sdcard_image_path();
-    if (!fs::is_regular_file(now, ec)) return path;
-    return now;
-}
-
-bool g_fail_legacy_rename_for_test = false;
-
-namespace {
-
-// The suffixes of the files that belong to the card (not to the raw): what travels with it.
-std::vector<std::string> card_sidecar_suffixes() {
-    std::vector<std::string> out;
-    const std::string c = kFixedImageFileName;
-    for (const std::string& n : upgrade::set_names())
-        if (n.size() > c.size() && n.compare(0, c.size(), c) == 0) out.push_back(n.substr(c.size()));
-    out.push_back(".newer-seen");
-    return out;
-}
-
-bool present(const std::filesystem::path& p) {
-    std::error_code ec;
-    return std::filesystem::symlink_status(p, ec).type() != std::filesystem::file_type::not_found;
-}
-
-// Move the legacy-named card set of directory `d` to the new names. `live`: `d` holds the card in
-// use (the caller holds its lock); otherwise it is a backup or scratch directory, where sidecars
-// left behind by an older version's half-done move are renamed too. Returns false with `why`.
-// The order is the safety: sidecars are COPIED first, the card rename is the commit point, the
-// legacy sidecars go last. A failure before the rename leaves the complete legacy set; after it,
-// the complete new one. The card is never copied (that would change its mtime, which the writes
-// files and the warm-start recording bind to).
-bool migrate_set_dir(const std::filesystem::path& d, bool live, std::string& why) {
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    const fs::path leg = d / kLegacyFixedImageFileName, now = d / kFixedImageFileName;
-    const std::vector<std::string> sfx = card_sidecar_suffixes();
-    if (!fs::is_regular_file(leg, ec)) {
-        if (!live && fs::is_regular_file(now, ec)) {
-            for (const std::string& x : sfx) {
-                const fs::path l = leg.string() + x, n = now.string() + x;
-                if (present(l) && !present(n)) {
-                    fs::rename(l, n, ec);
-                    if (ec) { why = "cannot rename " + l.string() + ": " + ec.message(); return false; }
-                }
-            }
-        }
-        return true;
-    }
-    if (present(now)) {
-        if (fs::is_regular_file(now, ec)) {
-            Log::emulator()->warn("sdcard: {} is left as it is; {} is the card in use", leg.string(), now.string());
-            return true;
-        }
-        why = now.string() + " is in the way of renaming " + leg.string() + "; nothing was changed";
-        return false;
-    }
-    std::vector<fs::path> written;
-    auto undo = [&]() { for (const fs::path& w : written) { std::error_code e2; fs::remove(w, e2); } };
-    for (const std::string& x : sfx) {
-        const fs::path l = leg.string() + x, n = now.string() + x;
-        if (present(l)) {
-            fs::copy_file(l, n, fs::copy_options::overwrite_existing, ec);
-            if (ec) { undo(); why = "cannot copy " + l.string() + " to " + n.string() + " (" + ec.message() + ")"; return false; }
-            written.push_back(n);
-        } else if (present(n)) {
-            fs::remove(n, ec);
-        }
-    }
-    if (g_fail_legacy_rename_for_test) ec = std::make_error_code(std::errc::permission_denied);
-    else fs::rename(leg, now, ec);
-    if (ec) {
-        undo();
-        why = "the SD card " + leg.string() + " could not be renamed to " + now.string() + " (" + ec.message() +
-              "); nothing was changed. Close any program that has it open and start jnext again, or use it as it is with --sdcard " +
-              leg.string();
-        return false;
-    }
-    for (const std::string& x : sfx) {
-        const fs::path l = leg.string() + x;
-        if (present(l)) {
-            fs::remove(l, ec);
-            if (ec) Log::emulator()->warn("sdcard: cannot remove {}: {}", l.string(), ec.message());
-        }
-    }
-    Log::emulator()->info("sdcard: renamed the SD card {} to {}", leg.string(), now.string());
-    return true;
-}
-
-}  // namespace
-
-MigrateStatus migrate_legacy_names(const std::string& dir, std::string& why, LockHolder* holder) {
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    const std::string leg = dir + "/" + kLegacyFixedImageFileName;
-    if (fs::is_regular_file(leg, ec)) {
-        // Another jnext (an older one, or this one in another process) holding the legacy card
-        // excludes this move; the caller holds the new path, so two new ones cannot both migrate.
-        std::optional<ImageLock> lock = ImageLock::acquire(leg, ImageLock::Kind::Image, why, {}, holder);
-        if (!lock) return MigrateStatus::InUse;
-        if (!migrate_set_dir(dir, true, why)) return MigrateStatus::Failed;
-    }
-    const std::string prev = upgrade::previous_dir(dir);
-    for (const std::string& sub : {prev, prev + ".new", dir + "/go-back-work/cur"}) {
-        std::string w;
-        if (!migrate_set_dir(sub, false, w))
-            Log::emulator()->warn("sdcard: the old-named SD card set in {} was not renamed: {}", sub, w);
-    }
-    return MigrateStatus::Done;
 }
 
 // Byte-copy `src` to `dst` (truncating dst). Streams in 1 MiB chunks so a
@@ -1142,20 +1049,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
 
     const std::string dir   = default_sdcard_dir();
     const std::string raw   = default_sdcard_raw_image_path();   // pristine
-    const std::string fixed = default_sdcard_image_path();       // patched
-
-    // The card an earlier jnext named cspect-next-1gb-fixed.img is renamed first: everything below
-    // (recovery included) names files by the new name. A failure refuses the start, never falls back.
-    {
-        std::string why;
-        const MigrateStatus m = migrate_legacy_names(dir, why, nullptr);
-        if (m != MigrateStatus::Done) {
-            r.status  = ProvisionStatus::Failed;
-            r.error   = why;
-            r.refused = true;
-            return r;
-        }
-    }
+    std::string fixed = default_sdcard_image_path();             // patched (the name in use: see card_name_in)
 
     // GH #555: an interrupted upgrade is finished (SWITCHING present) or its scratch removed.
     {
@@ -1187,6 +1081,9 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     // Which distribution that address is (the zip's file name), and the sidecars that
     // record it beside the images.
     const std::string current_dist = distribution_of_url(distro_url);
+    // A rebuild that the user forces (--sdcard-download-force) is a new provisioning: it creates the card under the
+    // new name and leaves a card with the old name exactly as it is (nothing renames, moves or deletes one).
+    if (opts.force_download) fixed = default_sdcard_new_image_path();
     const std::string fixed_distro = fixed + kDistroSuffix;
     const std::string raw_distro   = raw + kDistroSuffix;
     const std::string declined     = fixed + kDeclinedSuffix;

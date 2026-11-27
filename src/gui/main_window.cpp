@@ -2197,7 +2197,7 @@ void MainWindow::on_insert_sd() {
     if (current.isEmpty()) current = app_config_.data().sd_card_path;
     QString path = QFileDialog::getOpenFileName(
         this, tr("Insert SD Card Image"), QFileInfo(current).absolutePath(),
-        tr("Disk Images (*.img *.bin *.raw);;All Files (*)"));
+        tr("Disk Images (%1);;All Files (*)").arg(QString::fromLatin1(sdcard::kDiskImageFilterPatterns)));
     if (!path.isEmpty()) handle_sd_card_path(path);
 }
 
@@ -2210,7 +2210,7 @@ void MainWindow::on_insert_sd2() {
     if (current.isEmpty()) current = app_config_.data().sd_card_path;
     QString path = QFileDialog::getOpenFileName(
         this, tr("Insert Second SD Card Image"), QFileInfo(current).absolutePath(),
-        tr("Disk Images (*.img *.bin *.raw);;All Files (*)"));
+        tr("Disk Images (%1);;All Files (*)").arg(QString::fromLatin1(sdcard::kDiskImageFilterPatterns)));
     if (!path.isEmpty()) handle_sd_card_path(path, 1);
 }
 

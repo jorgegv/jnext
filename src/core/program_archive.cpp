@@ -553,11 +553,11 @@ bool extract_single_sd_image(const std::string& archive, std::string& out_path,
     for (const auto& n : a.member_names()) {
         const std::string b = base_of(n);
         if (n.rfind("__MACOSX/", 0) == 0 || b.rfind("._", 0) == 0) continue;
-        if (ext_of(b) == ".img") imgs.push_back(n);
+        if (sdcard::has_image_extension(b)) imgs.push_back(n);
     }
     if (imgs.empty()) {
         const auto n = a.member_names();
-        why = "holds no SD card image (.img); it holds: " +
+        why = "holds no SD card image (.img or .mmc); it holds: " +
               (n.empty() ? std::string("nothing") : join_names(n));
         return false;
     }

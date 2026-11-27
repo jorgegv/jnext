@@ -1237,6 +1237,20 @@ int main() {
               !ok && has(why, "CRC") && path.empty() && count_files() == before, why);
     }
 
+    // GH #579: .mmc is a known SD-card image extension, like .img.
+    {
+        const Bytes card = pattern(900);
+        spit(files + "/mmc1.zip", zipfx::build({mem("README.txt", pattern(5)), mem("Card.MMC", card, 8)}));
+        spit(files + "/mmc2.zip", zipfx::build({mem("one.img", pattern(3)), mem("two.mmc", pattern(4))}));
+        std::string path, why, member, p2, w2;
+        const bool ok = pa::extract_single_sd_image(files + "/mmc1.zip", path, why, &member);
+        const bool n2 = pa::extract_single_sd_image(files + "/mmc2.zip", p2, w2);
+        check("ZIPL-40", "a zip with one .mmc member (any case) extracts it byte-identically as the SD card image",
+              ok && member == "Card.MMC" && slurp(path) == card, path + " " + why);
+        check("ZIPL-41", "an .img and an .mmc together are two SD card images: refused naming both",
+              !n2 && p2.empty() && has(w2, "holds 2 SD card images") && has(w2, "one.img") && has(w2, "two.mmc"), w2);
+    }
+
     run_data_archive_rows(root, lores);
 
     fs::remove_all(root, ec);

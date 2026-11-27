@@ -220,9 +220,9 @@ warning dialog instead, with Cancel as the default. `V1.0`-`V1.2` files
 are unaffected either way.
 
 **--sdcard** *FILE*  
-Mount SD-card image *FILE* (`.img`). Optional; see **SD CARD AND ROMS**.
-**--sdcard1** is the same option, spelt like **--sdcard2**: each of the
-first card’s options (**--sdcard**, **--sdcard-readonly**,
+Mount SD-card image *FILE* (`.img` or `.mmc`). Optional; see **SD CARD
+AND ROMS**. **--sdcard1** is the same option, spelt like **--sdcard2**:
+each of the first card’s options (**--sdcard**, **--sdcard-readonly**,
 **--sdcard-writes**, **--sdcard-writes-reset**,
 **--delayed-sdcard-insert-frames**) also takes the spelling with a `1`
 (**--sdcard1-readonly**, **--sdcard1-writes**,
@@ -230,7 +230,7 @@ first card’s options (**--sdcard**, **--sdcard-readonly**,
 option together with its other spelling is refused (exit status 1). The
 `1` spellings are not listed by **--help**. A ZIP archive is not an
 image and is refused (exit status 1): unzip it first. The WebAssembly
-build extracts the single `.img` inside one.
+build extracts the single `.img` or `.mmc` inside one.
 
 **--sdcard-sha256** *HEX*  
 The SHA-256 of the **--sdcard** image, as the caller has already checked
@@ -335,13 +335,13 @@ option, **--warm-start-regenerate**, **--delayed-sdcard-insert-frames**,
 page it is `card: { source: 'none' }`.
 
 **--sdcard2** *FILE*  
-Mount SD-card image *FILE* (`.img`) in the **second SD card slot**,
-which NextZXOS sees as the next drive after the first card’s partitions
-(D: for a first card with one). There is no default and no download: the
-slot is empty unless this is given. ROMs are read from the first card
-only. A *FILE* that is not a readable regular file, a ZIP archive, or
-the same file as **--sdcard**, is refused (exit status 1). It also names
-the card the SD card commands (**--sdcard-file-add**,
+Mount SD-card image *FILE* (`.img` or `.mmc`) in the **second SD card
+slot**, which NextZXOS sees as the next drive after the first card’s
+partitions (D: for a first card with one). There is no default and no
+download: the slot is empty unless this is given. ROMs are read from the
+first card only. A *FILE* that is not a readable regular file, a ZIP
+archive, or the same file as **--sdcard**, is refused (exit status 1).
+It also names the card the SD card commands (**--sdcard-file-add**,
 **--sdcard-file-extract**, **--sdcard-writes-flatten**,
 **--sdcard-export-changes**, **--sdcard-import-changes**) act on. See
 **A SECOND SD CARD**.
@@ -4294,16 +4294,13 @@ the recording procedure changes - see **--warm-start-regenerate**.
 Deleting it costs one cold boot, nothing else.
 
 `~/.jnext/sdcard/jnext-sdcard.img`  
-The default SD-card image, used when **--sdcard** is not given.
-
-`~/.jnext/sdcard/cspect-next-1gb-fixed.img`  
-The name earlier versions gave the default SD-card image. The first time
-JNEXT starts without **--sdcard**, an existing one is renamed to
-`jnext-sdcard.img` together with its companion files (the card keeps its
-size, date and contents). If both names exist, neither is touched and
-`jnext-sdcard.img` is used. If the rename fails (another program has the
-card open), JNEXT refuses to start and says why; **--sdcard** with the
-old name uses the card as it is.
+The default SD-card image, used when **--sdcard** is not given. A new
+download or install always creates this name. A card that earlier
+versions made as `cspect-next-1gb-fixed.img` keeps that name: JNEXT uses
+it, with its companion files (`.distro`, `.recipe`, the writes file, …),
+when `jnext-sdcard.img` does not exist, and never renames, moves or
+deletes it. If both exist, `jnext-sdcard.img` is used and the other is
+left alone.
 
 `~/.jnext/sdcard/cspect-next-1gb.img`  
 The canonical distribution image the patched one above is produced from.

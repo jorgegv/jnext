@@ -41,7 +41,8 @@ CACHE="$PROJECT_DIR/build/$BENCH_BUILD/CMakeCache.txt"
 # The SD image jnext provisions and caches itself. `roms/` holds only the
 # embedded boot ROM now — no SD image lives there (GH #75/#77), so a fixture
 # path under the repo is no longer a thing to point at.
-SD_MASTER="${JNEXT_TEST_SD_IMAGE:-$HOME/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img}"
+SD_MASTER_DIR="$HOME/.jnext/sdcard/test-suite/sdcard"
+SD_MASTER="${JNEXT_TEST_SD_IMAGE:-$SD_MASTER_DIR/$(bash "$(dirname "${BASH_SOURCE[0]}")/../../tools/sd-card-name.sh" "$SD_MASTER_DIR")}"
 REPEATS=5
 SPREAD_LIMIT_PCT=5.0
 
@@ -107,7 +108,7 @@ trap 'bench_cleanup' EXIT
 trap 'bench_cleanup; exit 130' INT
 trap 'bench_cleanup; exit 143' TERM
 
-SD_IMAGE="$BENCH_RUN_DIR/sdcard/jnext-sdcard.img"
+SD_IMAGE="$BENCH_RUN_DIR/sdcard/$(bash "$(dirname "${BASH_SOURCE[0]}")/../../tools/sd-card-name.sh" "$BENCH_RUN_DIR/sdcard")"
 mkdir -p "$BENCH_RUN_DIR/sdcard" || die "cannot create $BENCH_RUN_DIR/sdcard"
 # A PRIVATE config directory, removed with the run directory. The warm-start cache lives under it
 # (warm-start/warm-start-m<N>.jwss) and is keyed on the SD image's size and mtime; the clone above

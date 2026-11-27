@@ -1188,6 +1188,12 @@ int main() {
               cli::debugger_implied_dzrp_port(false, 0, -1, -1) == 0 &&
                   cli::debugger_implied_dzrp_port(false, 14000, -1, -1) == 14000);
     }
+    {
+        const cli::Option* a = cli::find("--sdcard");
+        const cli::Option* b = cli::find("--sdcard2");
+        check("CLI-MMC-01", "the --sdcard and --sdcard2 help name .mmc beside .img as a known SD-card image extension (GH #579)",
+              a && b && std::strstr(a->help, ".img or .mmc") && std::strstr(b->help, ".img or .mmc"));
+    }
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

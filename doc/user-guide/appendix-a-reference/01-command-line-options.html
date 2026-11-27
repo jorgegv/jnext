@@ -4755,8 +4755,8 @@ error naming the version found (exit status 1). In the GUI,
 selecting such a file shows a warning dialog instead, with Cancel as
 the default. <code>V1.0</code>-<code>V1.2</code> files are unaffected either way.</dd>
 <dt><strong>--sdcard</strong> <em>FILE</em></dt>
-<dd>Mount SD-card image <em>FILE</em> (<code>.img</code>). Optional; see <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs
-an SD-card
+<dd>Mount SD-card image <em>FILE</em> (<code>.img</code> or <code>.mmc</code>). Optional; see <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why
+JNEXT needs an SD-card
 image</a>.
 <strong>--sdcard1</strong> is the same option, spelt like <strong>--sdcard2</strong>: each of
 the first card’s options (<strong>--sdcard</strong>, <strong>--sdcard-readonly</strong>,
@@ -4767,7 +4767,8 @@ the first card’s options (<strong>--sdcard</strong>, <strong>--sdcard-readonly
 and an option together with its other spelling is refused (exit
 status 1). The <code>1</code> spellings are not listed by <strong>--help</strong>. A ZIP
 archive is not an image and is refused (exit status 1): unzip it
-first. The WebAssembly build extracts the single <code>.img</code> inside one.</dd>
+first. The WebAssembly build extracts the single <code>.img</code> or <code>.mmc</code>
+inside one.</dd>
 <dt><strong>--sdcard-sha256</strong> <em>HEX</em></dt>
 <dd>The SHA-256 of the <strong>--sdcard</strong> image, as the caller has already
 checked it. The warm-start recording is keyed on it instead of on
@@ -4871,14 +4872,14 @@ Next is refused too: give <strong>--machine next</strong>), and excludes every
 <strong>--delayed-sdcard2-insert-frames</strong> and <strong>--delayed-nmi</strong>. In a
 browser page it is <code>card: { source: 'none' }</code>.</dd>
 <dt><strong>--sdcard2</strong> <em>FILE</em></dt>
-<dd>Mount SD-card image <em>FILE</em> (<code>.img</code>) in the <strong>second SD card slot</strong>,
-which NextZXOS sees as the next drive after the first card’s
-partitions (D: for a first card with one). There is no default and
-no download: the slot is empty unless this is given. ROMs are read
-from the first card only. A <em>FILE</em> that is not a readable regular
-file, a ZIP archive, or the same file as <strong>--sdcard</strong>, is refused
-(exit status 1). It also names the card the SD card commands
-(<strong>--sdcard-file-add</strong>, <strong>--sdcard-file-extract</strong>,
+<dd>Mount SD-card image <em>FILE</em> (<code>.img</code> or <code>.mmc</code>) in the <strong>second SD
+card slot</strong>, which NextZXOS sees as the next drive after the first
+card’s partitions (D: for a first card with one). There is no
+default and no download: the slot is empty unless this is given.
+ROMs are read from the first card only. A <em>FILE</em> that is not a
+readable regular file, a ZIP archive, or the same file as
+<strong>--sdcard</strong>, is refused (exit status 1). It also names the card the
+SD card commands (<strong>--sdcard-file-add</strong>, <strong>--sdcard-file-extract</strong>,
 <strong>--sdcard-writes-flatten</strong>, <strong>--sdcard-export-changes</strong>,
 <strong>--sdcard-import-changes</strong>) act on. See <strong>A SECOND SD CARD</strong>.</dd>
 <dt><strong>--sdcard2-readonly</strong></dt>

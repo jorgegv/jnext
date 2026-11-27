@@ -145,7 +145,8 @@ Cancel as the default.
 \f[CR]V1.0\f[R]\-\f[CR]V1.2\f[R] files are unaffected either way.
 .TP
 \f[B]\-\-sdcard\f[R] \f[I]FILE\f[R]
-Mount SD\-card image \f[I]FILE\f[R] (\f[CR].img\f[R]).
+Mount SD\-card image \f[I]FILE\f[R] (\f[CR].img\f[R] or
+\f[CR].mmc\f[R]).
 Optional; see \f[B]SD CARD AND ROMS\f[R].
 \f[B]\-\-sdcard1\f[R] is the same option, spelt like
 \f[B]\-\-sdcard2\f[R]: each of the first card\(cqs options
@@ -159,7 +160,8 @@ with its other spelling is refused (exit status 1).
 The \f[CR]1\f[R] spellings are not listed by \f[B]\-\-help\f[R].
 A ZIP archive is not an image and is refused (exit status 1): unzip it
 first.
-The WebAssembly build extracts the single \f[CR].img\f[R] inside one.
+The WebAssembly build extracts the single \f[CR].img\f[R] or
+\f[CR].mmc\f[R] inside one.
 .TP
 \f[B]\-\-sdcard\-sha256\f[R] \f[I]HEX\f[R]
 The SHA\-256 of the \f[B]\-\-sdcard\f[R] image, as the caller has
@@ -295,9 +297,10 @@ every \f[B]\-\-sdcard\f[R] and \f[B]\-\-sdcard2\f[R] option,
 In a browser page it is \f[CR]card: { source: \(aqnone\(aq }\f[R].
 .TP
 \f[B]\-\-sdcard2\f[R] \f[I]FILE\f[R]
-Mount SD\-card image \f[I]FILE\f[R] (\f[CR].img\f[R]) in the \f[B]second
-SD card slot\f[R], which NextZXOS sees as the next drive after the first
-card\(cqs partitions (D: for a first card with one).
+Mount SD\-card image \f[I]FILE\f[R] (\f[CR].img\f[R] or \f[CR].mmc\f[R])
+in the \f[B]second SD card slot\f[R], which NextZXOS sees as the next
+drive after the first card\(cqs partitions (D: for a first card with
+one).
 There is no default and no download: the slot is empty unless this is
 given.
 ROMs are read from the first card only.
@@ -5358,17 +5361,14 @@ Deleting it costs one cold boot, nothing else.
 .TP
 \f[CR]\(ti/.jnext/sdcard/jnext\-sdcard.img\f[R]
 The default SD\-card image, used when \f[B]\-\-sdcard\f[R] is not given.
-.TP
-\f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img\f[R]
-The name earlier versions gave the default SD\-card image.
-The first time JNEXT starts without \f[B]\-\-sdcard\f[R], an existing
-one is renamed to \f[CR]jnext\-sdcard.img\f[R] together with its
-companion files (the card keeps its size, date and contents).
-If both names exist, neither is touched and \f[CR]jnext\-sdcard.img\f[R]
-is used.
-If the rename fails (another program has the card open), JNEXT refuses
-to start and says why; \f[B]\-\-sdcard\f[R] with the old name uses the
-card as it is.
+A new download or install always creates this name.
+A card that earlier versions made as
+\f[CR]cspect\-next\-1gb\-fixed.img\f[R] keeps that name: JNEXT uses it,
+with its companion files (\f[CR].distro\f[R], \f[CR].recipe\f[R], the
+writes file, \&...), when \f[CR]jnext\-sdcard.img\f[R] does not exist,
+and never renames, moves or deletes it.
+If both exist, \f[CR]jnext\-sdcard.img\f[R] is used and the other is
+left alone.
 .TP
 \f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb.img\f[R]
 The canonical distribution image the patched one above is produced from.

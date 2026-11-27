@@ -100,10 +100,10 @@ lookup instead, and the suite provisions that image for itself in the
   `$SD_CARD_NAME`, which `sd_card_name` takes from its one definition,
   `kFixedImageFileName` in `src/core/sdcard_provisioner.cpp` (`HS-204`); the
   few files that cannot source it carry the same literal.
-  jnext renames a legacy-named card it finds, the master included, so the gate
-  keeps the master's old names beside the new ones as hard links of the same
-  files (`sd_master_compat_links`, `HS-204c`/`d`): a tree that still looks for the
-  old name keeps a master. A master the gate replaces loses both sets of names.
+  The master is found by the product's rule too (`sd_card_name_in`: the new
+  name if that file exists, else the old one), so a host that still holds the
+  old-named master keeps working, and a master the gate replaces loses the
+  files of both names.
   The master is **never the user's own card**, the `jnext-sdcard.img`
   directly under `~/.jnext/sdcard/`: the gate deletes and re-derives its card
   whenever the distribution or the recipe moves, and a developer's saved files

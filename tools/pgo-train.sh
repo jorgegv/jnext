@@ -122,7 +122,7 @@ SD_CARD_NAME=$(JNEXT_REGRESSION_LIB_NO_INIT=1 PROJECT_DIR="$PROJECT_DIR" bash -c
     'source "$PROJECT_DIR/test/00regression/test-functions.inc" && printf "%s" "$SD_CARD_NAME"') \
     || die "cannot read the default card's file name from test/00regression/test-functions.inc"
 SD_MASTER_DIR="$SD_STATE_DIR/sdcard"
-SD_MASTER="$SD_MASTER_DIR/$SD_CARD_NAME"
+SD_MASTER="$SD_MASTER_DIR/$(bash "$PROJECT_DIR/tools/sd-card-name.sh" "$SD_MASTER_DIR")"
 NEX=test/00regression/nex
 TAP=test/00regression/tap
 RTC="2026-07-10T08:55:00"
@@ -251,9 +251,6 @@ if [[ $SD_NATIVE == 0 && ! -f "$SD_MASTER" ]]; then
         exit 1
     fi
     rm -f "$DERIVE_LOG"
-    # jnext may have renamed a legacy-named master: keep the old names for trees that still look for them.
-    [[ -n "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]] || JNEXT_REGRESSION_LIB_NO_INIT=1 PROJECT_DIR="$PROJECT_DIR" bash -c \
-        'source "$PROJECT_DIR/test/00regression/test-functions.inc" && sd_master_paths && sd_master_compat_links' || true
 fi
 
 # --- A private run directory: SD clone + clean GUI preferences ---------------

@@ -1495,7 +1495,7 @@ worktree-bootstrap:
 	@# there). Failing the target over a self-healing condition would be a false
 	@# alarm. And it REPORTS rather than initialising: this target has never mutated
 	@# a checkout, and `git submodule update --init` is a write to someone's tree.
-	@sd="$$HOME/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img"; \
+	@sd="$$HOME/.jnext/sdcard/test-suite/sdcard/$$(bash tools/sd-card-name.sh "$$HOME/.jnext/sdcard/test-suite/sdcard")"; \
 	pending=0; \
 	if [ ! -f roms/nextboot.rom ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) roms/nextboot.rom missing — this is a tracked file; the checkout is broken\n"; \
@@ -1751,7 +1751,7 @@ docs-screenshots: unit-test-build
 	@# crash. A clone can still be orphaned that way; it is a plain directory
 	@# under $$HOME/.jnext/runs and `rm -rf` is the whole recovery.
 	@set -e; \
-	 sd="$${JNEXT_TEST_SD_IMAGE:-$$HOME/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img}"; \
+	 sd="$${JNEXT_TEST_SD_IMAGE:-$$HOME/.jnext/sdcard/test-suite/sdcard/$$(bash tools/sd-card-name.sh "$$HOME/.jnext/sdcard/test-suite/sdcard")}"; \
 	 if [ ! -f "$$sd" ]; then \
 	   printf "$(BADGE_FAIL) FAIL $(RESET) no NextZXOS SD image at $$sd\n"; \
 	   printf "        provision it with 'JNEXT_CONFIG_DIR=$$HOME/.jnext/sdcard/test-suite ./build/jnext --headless --sdcard-download-confirm',\n"; \

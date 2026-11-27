@@ -1146,10 +1146,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-old-name" class="md-nav__link">
+  <a href="#the-cards-name" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The old name
+        The card's name
       
     </span>
   </a>
@@ -3278,34 +3278,27 @@ start-up error box and the browser's counterpart. The sources are <code>src/core
 </tr>
 </tbody>
 </table>
-<h2 id="the-old-name">The old name<a class="headerlink" href="#the-old-name" title="Permanent link">&para;</a></h2>
-<p>Before this name the card was <code>cspect-next-1gb-fixed.img</code> (<code>kLegacyFixedImageFileName</code>, the only
-product text that still spells it). <code>provision_sd_card</code> calls <code>migrate_legacy_names</code> first in the
-default flow, before the interrupted-upgrade and go-back recovery, because recovery names files by
-<code>upgrade::set_names()</code>, the one list of a set's file names that recovery, go back and the migration
-all read. <code>--sdcard-go-back</code> and <code>--sdcard-delete-backup</code> call it too, after taking the card's lock.</p>
-<p>The rule, per directory: when a legacy-named card is there and nothing is at the new name, the
-card's sidecars (<code>.distro</code>, <code>.recipe</code>, <code>.distro-declined</code>, <code>.newer-seen</code>) are copied to the new
-names first, then the card is renamed, which is the commit point, then the legacy sidecars are
-removed. The card is never copied: a copy changes its modification time, which the writes files
-and the warm-start recording bind to, and costs a gigabyte. A rename keeps size and mtime, so those
-bindings hold. A crash before the rename leaves the complete legacy set, one after it the complete
-new set, and the next start finishes the clean-up. Both names present: neither is touched (a log
-warning) and the new one is used. Anything but a regular file at the new name is a refusal.</p>
-<p>The live directory is migrated under the legacy card's lock (an older jnext holding the card is the
-usual lock refusal); <code>main</code> holds the new path's lock already, so two new jnexts cannot both
-migrate. <code>previous/</code>, <code>previous.new/</code> and <code>go-back-work/cur/</code> are migrated by the same rule without
-a lock, and a failure there only logs (the backup stays on disk, unseen until the next start); in
-those scratch and backup directories legacy sidecars an older version's half-done move left beside a
-new-named card are renamed as well. The raw distribution image keeps its name. A failure on the live
-directory refuses the start with the reason, the paths and the <code>--sdcard &lt;old name&gt;</code> remedy: there
-is deliberately no fallback to the old name, because the machinery that names the set's files
-(upgrade, go back, delete, recovery, the File menu, the lock) would have to run in two naming modes
-and a backup could end up orphaned under the other one. A saved Preferences card path that names
-the legacy default card is read as the new one once the old file is gone (<code>legacy_card_alias</code>);
-<code>--sdcard</code> is never aliased and its refusal for a missing old name says where the card is now.</p>
-<p>The tests are <code>SDREN-01..16</code> in <code>sdcard_provisioner_test</code> (and its POSIX sibling for inodes and
-symlinks) and the row <code>sdcard-rename-func</code>.</p>
+<h2 id="the-cards-name">The card's name<a class="headerlink" href="#the-cards-name" title="Permanent link">&para;</a></h2>
+<p>The card has two names, both constants in <code>sdcard_provisioner.cpp</code>: <code>jnext-sdcard.img</code>
+(<code>kFixedImageFileName</code>) and the one earlier versions used, <code>cspect-next-1gb-fixed.img</code>
+(<code>kLegacyFixedImageFileName</code>). Neither is a setting. <code>card_name_in(dir)</code> is the one resolver: the new
+name when that file exists in <code>dir</code>, else the old name when that exists, else the new name (where a
+card is made). <code>default_sdcard_image_path()</code> is that for the default directory, and every function
+that opens or manages a card goes through it: the provisioner, the upgrade, the backup and go-back,
+the File menu, the writes files. The sets in <code>previous/</code>, <code>previous.new/</code> and <code>go-back-work/cur/</code> are
+resolved the same way, directory by directory, so a backup keeps the name its card had.</p>
+<p>Nothing renames, moves or deletes a card because of its name. A download or a provisioning writes
+<code>default_sdcard_new_image_path()</code> only: <code>--sdcard-download-force</code> beside an old-named card creates the
+new name and leaves the old card as it is, and an accepted upgrade installs the new card under the
+new name while step 1 moves the whole old set, whichever name it carries, into the backup
+(<code>upgrade::set_names()</code> lists both names' files). With both names present the new one wins and the
+other is left alone (a test master that has both as hard links is current).</p>
+<p>The shell side has the same rule in <code>sd_card_name_in</code> (<code>test/00regression/test-functions.inc</code>),
+reachable as <code>tools/sd-card-name.sh &lt;dir&gt;</code>; the unit-test header <code>test/test_sd_image.h</code> spells the two
+names itself, and <code>HS-204</code> pins all three against the constants. <code>.mmc</code> is a known image extension
+beside <code>.img</code> (<code>has_image_extension</code>, the open-file filters, a card inside a zip).</p>
+<p>The tests are <code>SDNAME-01..09</code> in <code>sdcard_provisioner_test</code> (the row <code>sdcard-name-func</code> runs the
+real binary), <code>SDEXT-01..02</code> and <code>ZIPL-40/41</code> for the extension.</p>
 <h2 id="identifying-a-version">Identifying a version<a class="headerlink" href="#identifying-a-version" title="Permanent link">&para;</a></h2>
 <p>A distribution is the file name of its zip. <code>distribution_of_url</code> takes it from the address,
 <code>backup::compare_distributions</code> orders two (the numbers of <code>sn-emulator-&lt;N&gt;(.&lt;N&gt;)*&lt;letter&gt;?.zip</code>

@@ -4697,20 +4697,20 @@ losing what you saved.</p>
 </tr>
 </tbody>
 </table>
-<p><code>jnext-sdcard.img</code> is <strong>your card</strong>: NextZXOS runs from it and everything you
+<p><code>jnext-sdcard.img</code> (or <code>cspect-next-1gb-fixed.img</code>, if that is the one you have) is <strong>your card</strong>: NextZXOS runs from it and everything you
 save lands on it. <code>cspect-next-1gb.img</code> is the original that JNEXT downloaded and made your
 card from. Every other file and folder there belongs to JNEXT (the small sidecar files
 beside the two images, <code>previous</code>, <code>upgrade-work</code>, <code>overlays.list</code>, <code>locks</code>, and
 <code>test-suite</code> on a developer's machine): do not edit or delete them by hand.</p>
-<p>Earlier versions called the card <code>cspect-next-1gb-fixed.img</code>. The first time a newer JNEXT
-starts without <code>--sdcard</code>, it renames that file and the small files beside it to
-<code>jnext-sdcard.img</code>; your card is not copied and keeps its size, date and contents, so your files
-and saved writes files carry on working. If both names are there (for example after going back to
-an older JNEXT and then forward again), JNEXT uses <code>jnext-sdcard.img</code> and leaves the old file
-alone. If the rename cannot be done because another program has the card open, JNEXT does not
-start and says so: close that program and start again, or run once with <code>--sdcard</code> and the old
-file name. A saved <strong>Settings &gt; Preferences</strong> card path that names the old file follows the card
-once it has been renamed.</p>
+<p>Earlier versions named the card <code>cspect-next-1gb-fixed.img</code>. JNEXT does not rename it: scripts
+and habits may rely on the name, and renaming a gigabyte file is not something a program should do
+behind your back. The rule is the same everywhere JNEXT opens or manages the card (starting, the
+upgrade, <strong>Go back</strong>, <strong>Delete backup</strong>, the writes files): use <code>jnext-sdcard.img</code> if that file
+exists, otherwise <code>cspect-next-1gb-fixed.img</code> if that exists. A card JNEXT downloads or installs
+from now on is always <code>jnext-sdcard.img</code>. If both files are there (for example you copied one by
+hand), JNEXT uses <code>jnext-sdcard.img</code> and leaves the other alone. An upgrade of an old-named card
+installs the new card as <code>jnext-sdcard.img</code> and keeps the old card, under its own name, as the
+backup; <strong>Go back</strong> restores it.</p>
 <h2 id="the-offer">The offer<a class="headerlink" href="#the-offer" title="Permanent link">&para;</a></h2>
 <p>Once for each new NextZXOS release, before the machine starts, the windowed JNEXT asks
 whether to upgrade. The box names the new and the old version, the size of the download,

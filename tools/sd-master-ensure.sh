@@ -25,7 +25,6 @@ source "$PROJECT_DIR/test/00regression/test-functions.inc"
 if [[ "$1" == --probe ]]; then
     # The same gate with the derive replaced by a flag: nothing is removed or written.
     sd_rederive() { sd_would_derive=1; return 1; }
-    sd_master_compat_links() { :; }   # the probe writes nothing
     sd_would_derive=0
     sd_master_gate
     [[ "$sd_would_derive" == 0 ]] || exit 10

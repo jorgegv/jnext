@@ -11,21 +11,21 @@ losing what you saved.
 | Linux, macOS | `~/.jnext/sdcard/` |
 | Windows | `%USERPROFILE%\.jnext\sdcard\` |
 
-`jnext-sdcard.img` is **your card**: NextZXOS runs from it and everything you
+`jnext-sdcard.img` (or `cspect-next-1gb-fixed.img`, if that is the one you have) is **your card**: NextZXOS runs from it and everything you
 save lands on it. `cspect-next-1gb.img` is the original that JNEXT downloaded and made your
 card from. Every other file and folder there belongs to JNEXT (the small sidecar files
 beside the two images, `previous`, `upgrade-work`, `overlays.list`, `locks`, and
 `test-suite` on a developer's machine): do not edit or delete them by hand.
 
-Earlier versions called the card `cspect-next-1gb-fixed.img`. The first time a newer JNEXT
-starts without `--sdcard`, it renames that file and the small files beside it to
-`jnext-sdcard.img`; your card is not copied and keeps its size, date and contents, so your files
-and saved writes files carry on working. If both names are there (for example after going back to
-an older JNEXT and then forward again), JNEXT uses `jnext-sdcard.img` and leaves the old file
-alone. If the rename cannot be done because another program has the card open, JNEXT does not
-start and says so: close that program and start again, or run once with `--sdcard` and the old
-file name. A saved **Settings > Preferences** card path that names the old file follows the card
-once it has been renamed.
+Earlier versions named the card `cspect-next-1gb-fixed.img`. JNEXT does not rename it: scripts
+and habits may rely on the name, and renaming a gigabyte file is not something a program should do
+behind your back. The rule is the same everywhere JNEXT opens or manages the card (starting, the
+upgrade, **Go back**, **Delete backup**, the writes files): use `jnext-sdcard.img` if that file
+exists, otherwise `cspect-next-1gb-fixed.img` if that exists. A card JNEXT downloads or installs
+from now on is always `jnext-sdcard.img`. If both files are there (for example you copied one by
+hand), JNEXT uses `jnext-sdcard.img` and leaves the other alone. An upgrade of an old-named card
+installs the new card as `jnext-sdcard.img` and keeps the old card, under its own name, as the
+backup; **Go back** restores it.
 
 ## The offer
 

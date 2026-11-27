@@ -126,8 +126,8 @@ with status 1.
     the default. `V1.0`-`V1.2` files are unaffected either way.
 
 **--sdcard** *FILE*
-:   Mount SD-card image *FILE* (`.img`). Optional; see [Why JNEXT needs
-    an SD-card
+:   Mount SD-card image *FILE* (`.img` or `.mmc`). Optional; see [Why
+    JNEXT needs an SD-card
     image](../03-first-run/01-why-jnext-needs-an-sd-card-image.md).
     **--sdcard1** is the same option, spelt like **--sdcard2**: each of
     the first card’s options (**--sdcard**, **--sdcard-readonly**,
@@ -138,7 +138,8 @@ with status 1.
     and an option together with its other spelling is refused (exit
     status 1). The `1` spellings are not listed by **--help**. A ZIP
     archive is not an image and is refused (exit status 1): unzip it
-    first. The WebAssembly build extracts the single `.img` inside one.
+    first. The WebAssembly build extracts the single `.img` or `.mmc`
+    inside one.
 
 **--sdcard-sha256** *HEX*
 :   The SHA-256 of the **--sdcard** image, as the caller has already
@@ -251,14 +252,14 @@ with status 1.
     browser page it is `card: { source: 'none' }`.
 
 **--sdcard2** *FILE*
-:   Mount SD-card image *FILE* (`.img`) in the **second SD card slot**,
-    which NextZXOS sees as the next drive after the first card’s
-    partitions (D: for a first card with one). There is no default and
-    no download: the slot is empty unless this is given. ROMs are read
-    from the first card only. A *FILE* that is not a readable regular
-    file, a ZIP archive, or the same file as **--sdcard**, is refused
-    (exit status 1). It also names the card the SD card commands
-    (**--sdcard-file-add**, **--sdcard-file-extract**,
+:   Mount SD-card image *FILE* (`.img` or `.mmc`) in the **second SD
+    card slot**, which NextZXOS sees as the next drive after the first
+    card’s partitions (D: for a first card with one). There is no
+    default and no download: the slot is empty unless this is given.
+    ROMs are read from the first card only. A *FILE* that is not a
+    readable regular file, a ZIP archive, or the same file as
+    **--sdcard**, is refused (exit status 1). It also names the card the
+    SD card commands (**--sdcard-file-add**, **--sdcard-file-extract**,
     **--sdcard-writes-flatten**, **--sdcard-export-changes**,
     **--sdcard-import-changes**) act on. See **A SECOND SD CARD**.
 
