@@ -58,6 +58,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
+#include <cctype>
 #include <cstdio>
 #include <memory>
 #include <set>
@@ -416,7 +417,14 @@ static void table_rows() {
     std::set<std::string> rows;
     int served = 0, declined = 0, unsupported = 0;
     std::string stray;
+    std::string ext;
+    bool        ext_foreign_ok = true;
     for (const auto& t : table) {
+        if (t.extension) {   // jnext's own: pinned by ZRCP-TAB-07, outside the ZEsarUX census
+            ext += std::string(" ") + t.name;
+            if (ls.count(t.name) || t.cls != CommandClass::Served) ext_foreign_ok = false;
+            continue;
+        }
         rows.insert(t.name);
         if (!ls.count(t.name)) stray += std::string(" ") + t.name;
         served += t.cls == CommandClass::Served;
@@ -429,13 +437,23 @@ static void table_rows() {
     std::string both;
     for (const auto& n : pending)
         if (rows.count(n) || !ls.count(n)) both += " " + n;
-    check("ZRCP-TAB-01", "census against ZEsarUX 12.0's ls (125 names): every name is a table "
-                         "row, no row is foreign, none pending; 67 served, 1 declined "
+    check("ZRCP-TAB-01", "census against ZEsarUX 12.0's ls (125 names), over the table's non-extension "
+                         "rows: every name is a table row, no row is foreign, none pending; 67 served, 1 declined "
                          "(exit-emulator), 57 unsupported — §2's 67 / 1 / 57",
               ls.size() == 125 && pending.empty() && missing.empty() && stray.empty() &&
                   both.empty() && served == 67 && declined == 1 && unsupported == 57,
               "missing:" + missing + " stray:" + stray + " both:" + both + " served=" +
                   std::to_string(served) + " unsupported=" + std::to_string(unsupported));
+
+    {
+        const std::string help_all = [] { Rig r; Zc z(r); return z.cmd("help"); }();
+        const std::string ls_all = [] { Rig r; Zc z(r); return z.cmd("ls"); }();
+        check("ZRCP-TAB-07", "the extension rows (jnext-only commands, outside the ZEsarUX census) are exactly "
+                             "{sd-file-add}: not a ZEsarUX ls name, Served, listed by help and ls",
+              ext == " sd-file-add" && ext_foreign_ok && help_all.find("\nsd-file-add ") != std::string::npos &&
+                  ls_all.find("sd-file-add") != std::string::npos,
+              ext);
+    }
 
     Rig rig;
     Zc  c(rig);
@@ -496,6 +514,118 @@ static void table_rows() {
                   ls_out.find("exit-emulator") != std::string::npos &&
                   row1.size() == 4 * (std::string("get-breakpointsactions").size() + 2),
               esc(row1));
+}
+
+// ===========================================================================
+// ZRCP-SDA / ZRCP-FMT-19..20 — sd-file-add, jnext's own command (GH #568)
+// Oracle: the owner's design on the issue (syntax, one exit status per failure) and the contract in
+// zrcp_format.h (percent encoding); ZEsarUX has no such command.
+// ===========================================================================
+
+// A path the server's is_absolute() accepts on this host: a Windows path needs a drive.
+static std::string A(const std::string& posix_abs) {
+#ifdef _WIN32
+    return "C:" + posix_abs;
+#else
+    return posix_abs;
+#endif
+}
+
+static void sd_file_add_rows() {
+    {
+        std::string all;
+        for (int b = 1; b <= 255; ++b) all.push_back(static_cast<char>(b));
+        const std::string enc = encode_arg(all);
+        std::string back;
+        bool clean = true;
+        for (char ch : enc) {
+            const unsigned char u = static_cast<unsigned char>(ch);
+            if (u <= 0x20 || u == 0x7F) clean = false;
+        }
+        for (std::size_t i = 0; i < enc.size(); ++i)
+            if (enc[i] == '%' && (i + 2 >= enc.size() || !std::isxdigit(static_cast<unsigned char>(enc[i + 1])) ||
+                                  !std::isxdigit(static_cast<unsigned char>(enc[i + 2]))))
+                clean = false;
+        check("ZRCP-FMT-19", "encode_arg then decode_arg is the identity on every byte 0x01..0xFF, and the encoded "
+                             "form holds no space, no control byte and no bare %",
+              clean && decode_arg(enc, back) && back == all && encode_arg("a b%") == "a%20b%25");
+    }
+    {
+        std::string o;
+        const bool bad = !decode_arg("%", o) && !decode_arg("%4", o) && !decode_arg("%G0", o) && !decode_arg("a%", o) &&
+                         !decode_arg("%0", o);
+        std::string a, b2, c3;
+        check("ZRCP-FMT-20", "decode_arg refuses %, %4, %G0 and a trailing %; %41 is A and %4a / %4A are both J",
+              bad && decode_arg("%41", a) && a == "A" && decode_arg("%4a", b2) && b2 == "J" && decode_arg("%4A", c3) && c3 == "J");
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        SdFileAddRequest got;
+        int calls = 0;
+        rig.zrcp->set_sd_file_add([&](const SdFileAddRequest& r) { got = r; ++calls; return SdFileAddReply{0, "ok"}; });
+        c.cmd("sd-file-add " + A("/a%20b.img") + " " + A("/h/p%25.bin") + " /DOT/P --force --card 2 --writes " + A("/w%0Aj"));
+        check("ZRCP-SDA-01", "the hook gets the exact decoded request: image, file, card path, force, slot 1, writes",
+              calls == 1 && got.image == A("/a b.img") && got.host == A("/h/p%.bin") && got.card_path == "/DOT/P" && got.force &&
+                  got.slot == 1 && got.writes_given && got.writes == A("/w\nj"),
+              got.image + "|" + got.host + "|" + got.card_path + "|" + got.writes);
+        c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p.bin") + " /P");
+        check("ZRCP-SDA-02", "the plain form gives slot -1, no force and no writes",
+              calls == 2 && got.slot == -1 && !got.force && !got.writes_given && got.image == A("/a.img"));
+        const std::string I = A("/a.img"), H = A("/h"), P = " /P";
+        const std::string bad[] = {"sd-file-add " + I + " " + H, "sd-file-add " + I + " " + H + P + " /Q",
+                                   "sd-file-add " + I + " " + H + P + " --card 3", "sd-file-add " + I + " " + H + P + " --card x",
+                                   "sd-file-add " + I + " " + H + P + " --force --force", "sd-file-add " + I + " " + H + P + " --bogus",
+                                   "sd-file-add " + I + " " + H + " /P%00", "sd-file-add " + I + " " + H + " /P%",
+                                   "sd-file-add " + I + " " + H + P + " --card 1 --card 2", "sd-file-add " + I + " " + H + P + " --writes",
+                                   "sd-file-add " + I + "  " + H + P, "sd-file-add"};
+        bool all = true;
+        std::string first;
+        for (const std::string& l : bad) {
+            const std::string r = c.cmd(l);
+            if (!starts_with(r, "Error. [1] ")) { all = false; first += " " + l + " -> " + esc(r); }
+        }
+        check("ZRCP-SDA-03", "wrong arity, a bad or repeated option, a bad --card value, an empty token, a NUL and a bad "
+                             "escape are each Error [1] and never reach the hook",
+              all && calls == 2, first);
+        const std::string ri = c.cmd("sd-file-add a.img " + A("/h/p") + " /P");
+        const std::string rh = c.cmd("sd-file-add " + A("/a.img") + " h/p /P");
+        const std::string rw = c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p") + " /P --writes w.jsdw");
+        check("ZRCP-SDA-04", "a relative image, file or writes path is Error [1] naming which one, and the hook is not called",
+              starts_with(ri, "Error. [1] ") && ri.find("image") != std::string::npos &&
+                  starts_with(rh, "Error. [1] ") && rh.find("file path") != std::string::npos &&
+                  starts_with(rw, "Error. [1] ") && rw.find("writes") != std::string::npos && calls == 2,
+              esc(ri) + esc(rh) + esc(rw));
+        rig.zrcp->set_sd_file_add([](const SdFileAddRequest&) { return SdFileAddReply{0, "Copied x"}; });
+        const std::string r0 = c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p") + " /P");
+        rig.zrcp->set_sd_file_add([](const SdFileAddRequest&) { return SdFileAddReply{4, "exists\nline2 100%"}; });
+        const std::string r4 = c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p") + " /P");
+        rig.zrcp->set_sd_file_add([](const SdFileAddRequest&) { return SdFileAddReply{0, "Copied 100%\nx"}; });
+        const std::string r0e = c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p") + " /P");
+        check("ZRCP-SDA-06", "hook replies {0,\"Copied x\"}, {0,\"Copied 100%\\nx\"} and {4,\"exists\\nline2 100%\"} come out as 'OK. Copied x', "
+                             "'OK. Copied 100%25%0Ax' and 'Error. [4] exists%0Aline2 100%25', each ending at its prompt",
+              r0 == "OK. Copied x\ncommand> " && r0e == "OK. Copied 100%25%0Ax\ncommand> " &&
+                  r4 == "Error. [4] exists%0Aline2 100%25\ncommand> ", esc(r0) + esc(r0e) + esc(r4));
+        calls = 0;
+        rig.zrcp->set_sd_file_add([&](const SdFileAddRequest& r) { got = r; ++calls; return SdFileAddReply{0, "ok"}; });
+        c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p") + " --force");
+        const bool path_force = calls == 1 && got.card_path == "--force" && !got.force;
+        c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p") + " --card --force");
+        check("ZRCP-SDA-08", "a card path that starts with -- (--force, --card) is the third positional and reaches the hook as the card path; options are read only after the three positionals",
+              path_force && calls == 2 && got.card_path == "--card" && got.force && got.slot == -1, got.card_path);
+        const std::string h = c.cmd("help sd-file-add");
+        check("ZRCP-SDA-07", "help sd-file-add gives the syntax line with the options and says it is a jnext command",
+              starts_with(h, "Syntax: sd-file-add image file card-path [--force] [--card 1|2] [--writes file]\n\nDescription\n") &&
+                  h.find("A jnext command") != std::string::npos,
+              esc(h, 300));
+    }
+    {
+        Rig rig;
+        Zc  c(rig);
+        const std::string r = c.cmd("sd-file-add " + A("/a.img") + " " + A("/h/p") + " /P");
+        check("ZRCP-SDA-05", "with no hook installed the reply is Error [5] sd-file-add is not available in this jnext",
+              r == "Error. [5] sd-file-add is not available in this jnext\ncommand> ", esc(r));
+    }
 }
 
 // ===========================================================================
@@ -5159,6 +5289,7 @@ int main() {
     std::printf("zrcp_adapter_test — the ZRCP adapter over T's fake transport (GH #280)\n");
     framing_rows();
     table_rows();
+    sd_file_add_rows();
     session_rows();
     info_rows();
     format_rows();

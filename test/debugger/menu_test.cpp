@@ -2499,7 +2499,7 @@ static void test_run_guard()
 // init() only ever INSTALLED the hook, unticking it never disarmed it.
 //
 // Oracle: the menu's own promise — a checkable debugger toggle that enables
-// "magic breakpoints (ED FF / DD 01)". Toggling a debugger facility must not
+// "magic breakpoints (ED FF / FD 00)". Toggling a debugger facility must not
 // touch the machine; the tick must mean what the CPU does.
 //
 // Witnesses that a re-initialisation happened: a RAM byte (init() zero-fills

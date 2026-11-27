@@ -283,10 +283,9 @@ public:
     // compliance (1356/1356), since the FUSE suite does not install it.
     std::function<uint8_t()> on_int_ack;
 
-    // Magic breakpoint callback: fired when ED FF, FD 00 or DD 01 is executed.
-    // ED FF and FD 00 are hardware NOPs: they run first, the hook fires after them and its return
-    // is ignored. DD 01 is not an instruction: when the hook returns true its two bytes are skipped.
-    std::function<bool(uint16_t pc)> on_magic_breakpoint;
+    // Magic breakpoint callback: fired after ED FF or FD 00 executes (both are hardware two-byte
+    // NOPs: they run first, then the hook). DD 01 is not a magic form: it is LD BC,nn.
+    std::function<void(uint16_t pc)> on_magic_breakpoint;
 
     // esxdos shim hook. Fired when PC reaches $0008 (RST $08 destination).
     // Z80Cpu reads the DEFB byte at the caller's return address (the

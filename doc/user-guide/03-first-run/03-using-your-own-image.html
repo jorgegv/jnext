@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.5</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.5</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.8</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4681,8 +4681,10 @@ JNEXT reads its ROMs from it.)</p>
 the colon separates BASIC statements, so NextZXOS sees only <code>d</code>. Change into the drive
 first, or quote the path.</p>
 <p>ROMs and the firmware always come from the first card. <code>--sdcard-file-add</code> works on any
-FAT32 image, so <code>jnext --sdcard card2.img --sdcard-file-add game.nex</code> puts a file on
-a second-card image.</p>
+FAT32 image, so <code>jnext --sdcard2 card2.img --sdcard-file-add game.nex</code> puts a file on
+a second-card image (<code>--sdcard2</code> names the card an SD card command acts on, as <code>--sdcard</code>
+does for the first; give one of them, not both). The same goes for <code>--sdcard-file-extract</code>,
+<code>--sdcard-writes-flatten</code>, <code>--sdcard-export-changes</code> and <code>--sdcard-import-changes</code>.</p>
 <p><code>--sdcard-file-extract</code> is the other way round, and reads any card the Next mounts, FAT12, FAT16
 or FAT32, with or without a partition table: <code>jnext --sdcard FILE --sdcard-file-extract /DIR/NAME</code>
 copies the file into the current directory.</p>

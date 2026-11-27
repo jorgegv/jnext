@@ -1158,7 +1158,7 @@ public:
     DebugState& debug_state() { return debug_state_; }
     const DebugState& debug_state() const { return debug_state_; }
 
-    /// Arm or disarm the magic breakpoint (ED FF / FD 00 / DD 01 pause the debugger)
+    /// Arm or disarm the magic breakpoint (ED FF / FD 00 pause the debugger)
     /// on the RUNNING machine, and record it in config() so a cold boot built
     /// from that config keeps it. A debugger facility, not machine state: it
     /// touches nothing else. (The Debug menu used to re-run init() for this,
@@ -3106,6 +3106,8 @@ private:
     /// One CPU read of the ULA port: count it, and resume a deck that auto play
     /// itself held (never start one that is not playing).
     void tape_auto_on_read_();
+    /// Tick the TZX deck at `now`; a deck that goes on hold restarts the poll run.
+    uint8_t tzx_deck_update_(uint64_t now);
     /// The hold policy a deck is given before it is ticked at `now`.
     bool tape_gap_hold_(uint64_t now) const;
 

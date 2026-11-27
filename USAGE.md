@@ -28,6 +28,8 @@ the two can never disagree. For building jnext from source, see
   - [A SECOND SD CARD](#a-second-sd-card)
   - [CHANGING THE CARD WHILE RUNNING](#changing-the-card-while-running)
   - [PUTTING A FILE ON THE CARD](#putting-a-file-on-the-card)
+  - [A CARD IN USE BY A RUNNING
+    JNEXT](#a-card-in-use-by-a-running-jnext)
   - [GETTING YOUR FILES OUT](#getting-your-files-out)
 - [LOADING PROGRAMS](#loading-programs)
   - [esxDOS calls from a directly loaded
@@ -219,8 +221,16 @@ are unaffected either way.
 
 **--sdcard** *FILE*  
 Mount SD-card image *FILE* (`.img`). Optional; see **SD CARD AND ROMS**.
-A ZIP archive is not an image and is refused (exit status 1): unzip it
-first. The WebAssembly build extracts the single `.img` inside one.
+**--sdcard1** is the same option, spelt like **--sdcard2**: each of the
+first card’s options (**--sdcard**, **--sdcard-readonly**,
+**--sdcard-writes**, **--sdcard-writes-reset**,
+**--delayed-sdcard-insert-frames**) also takes the spelling with a `1`
+(**--sdcard1-readonly**, **--sdcard1-writes**,
+**--sdcard1-writes-reset**, **--delayed-sdcard1-insert-frames**), and an
+option together with its other spelling is refused (exit status 1). The
+`1` spellings are not listed by **--help**. A ZIP archive is not an
+image and is refused (exit status 1): unzip it first. The WebAssembly
+build extracts the single `.img` inside one.
 
 **--sdcard-sha256** *HEX*  
 The SHA-256 of the **--sdcard** image, as the caller has already checked
@@ -259,43 +269,45 @@ upgrade. See **SD CARD AND ROMS**.
 Open the SD image read-only, so the host file is never modified. The
 emulated machine sees a write-protected card: writes are rejected with
 the SD write-error token rather than silently discarded. Use it when a
-run must not disturb an image other runs share.
+run must not disturb an image other runs share. Also spelt
+**--sdcard1-readonly**.
 
 **--sdcard-writes** *FILE*  
-Keep the writes the emulated machine makes to the SD card in *FILE*, not
-in the image: the image is opened read-only and never changes, and
-*FILE*’s sectors are laid over it whenever the card is mounted, so the
-writes survive the next run. *FILE* belongs to one image, identified by
-its **--sdcard-sha256** digest or else by its size and modification
-time: a *FILE* made against another image is refused (exit status 1),
-and so is a file that is not a **jnext** SD-writes file. It is created
-at the first write and holds only the sectors the machine wrote (516
-bytes each) and the one file jnext’s esxDOS stand-in keeps for a
-directly loaded NEX (see **esxDOS calls from a directly loaded NEX**),
-stored when the program closes it and handed back to the stand-in at the
-next start, whatever the program: it belongs to the card, not to the NEX
-that wrote it. Excludes **--sdcard-readonly**; with
-**--sdcard-file-add** the copy goes into *FILE* and the image is not
-written. Do not change the image with another program while *FILE* has
-writes for it (hdfmonkey, mtools, a loop mount, a copy over it): *FILE*
-would no longer fit the image, and the card the machine sees would be
-damaged. Use the SD card file manager (File menu), which writes into
-*FILE*. JNEXT warns once, with a message box and in its log, when the
-image of a card with a writes file changes (or is replaced, deleted or
-resized) while it runs, and it refuses *FILE* at the next start (“was
-made for another image, or the image was changed by another program
-since”). The same applies to **--sdcard2-writes**. A recording of the
-warm start is keyed on the image and on *FILE*’s sectors, so it is taken
-again after the machine has written one; the stand-in’s file is not card
-state and does not change it. Files read from the image by the host (the
-ROMs, a snapshot’s card identity) do not see the writes. See **SD CARD
-AND ROMS**.
+Also spelt **--sdcard1-writes**. Keep the writes the emulated machine
+makes to the SD card in *FILE*, not in the image: the image is opened
+read-only and never changes, and *FILE*’s sectors are laid over it
+whenever the card is mounted, so the writes survive the next run. *FILE*
+belongs to one image, identified by its **--sdcard-sha256** digest or
+else by its size and modification time: a *FILE* made against another
+image is refused (exit status 1), and so is a file that is not a
+**jnext** SD-writes file. It is created at the first write and holds
+only the sectors the machine wrote (516 bytes each) and the one file
+jnext’s esxDOS stand-in keeps for a directly loaded NEX (see **esxDOS
+calls from a directly loaded NEX**), stored when the program closes it
+and handed back to the stand-in at the next start, whatever the program:
+it belongs to the card, not to the NEX that wrote it. Excludes
+**--sdcard-readonly**; with **--sdcard-file-add** the copy goes into
+*FILE* and the image is not written. Do not change the image with
+another program while *FILE* has writes for it (hdfmonkey, mtools, a
+loop mount, a copy over it): *FILE* would no longer fit the image, and
+the card the machine sees would be damaged. Use the SD card file manager
+(File menu), which writes into *FILE*. JNEXT warns once, with a message
+box and in its log, when the image of a card with a writes file changes
+(or is replaced, deleted or resized) while it runs, and it refuses
+*FILE* at the next start (“was made for another image, or the image was
+changed by another program since”). The same applies to
+**--sdcard2-writes**. A recording of the warm start is keyed on the
+image and on *FILE*’s sectors, so it is taken again after the machine
+has written one; the stand-in’s file is not card state and does not
+change it. Files read from the image by the host (the ROMs, a snapshot’s
+card identity) do not see the writes. See **SD CARD AND ROMS**.
 
 **--sdcard-writes-reset**  
-Discard the writes kept in the **--sdcard-writes** *FILE* before the
-card is mounted, the stand-in’s file included, so the run starts on the
-image as it is. Requires **--sdcard-writes**. A file that is not a
-**jnext** SD-writes file is refused, never removed.
+Also spelt **--sdcard1-writes-reset**. Discard the writes kept in the
+**--sdcard-writes** *FILE* before the card is mounted, the stand-in’s
+file included, so the run starts on the image as it is. Requires
+**--sdcard-writes**. A file that is not a **jnext** SD-writes file is
+refused, never removed.
 
 **--no-sdcard**  
 Run a directly loaded NEX with no SD card at all: no NextZXOS, no ROMs
@@ -328,8 +340,11 @@ which NextZXOS sees as the next drive after the first card’s partitions
 (D: for a first card with one). There is no default and no download: the
 slot is empty unless this is given. ROMs are read from the first card
 only. A *FILE* that is not a readable regular file, a ZIP archive, or
-the same file as **--sdcard**, is refused (exit status 1). See **A
-SECOND SD CARD**.
+the same file as **--sdcard**, is refused (exit status 1). It also names
+the card the SD card commands (**--sdcard-file-add**,
+**--sdcard-file-extract**, **--sdcard-writes-flatten**,
+**--sdcard-export-changes**, **--sdcard-import-changes**) act on. See
+**A SECOND SD CARD**.
 
 **--sdcard2-readonly**  
 Open the second card’s image read-only, as **--sdcard-readonly** does
@@ -351,8 +366,12 @@ the SD-card image and **exit without starting emulation**. Without
 **--sdcard-file-dest** it lands in the root of the card under its own
 name. Give it once per run. The image written is the one **--sdcard**
 names, or the default-location image when **--sdcard** is omitted (your
-own card). With **--sdcard-writes** the copy goes into that file instead
-and the image is not written. See **PUTTING A FILE ON THE CARD**.
+own card); **--sdcard2** *FILE* names the second card instead, never
+both. With **--sdcard-writes** (**--sdcard2-writes** for the second
+card) the copy goes into that file instead and the image is not written.
+When another jnext holds the card, the file is copied through that
+jnext, which must serve ZRCP (**--zrcp-port**). See **PUTTING A FILE ON
+THE CARD**.
 
 **--sdcard-file-dest** *PATH*  
 Optional. The path on the card that **--sdcard-file-add**’s *FILE*
@@ -374,15 +393,17 @@ as it is. Give it once per run. It reads the card **--sdcard** names, or
 the default-location image when **--sdcard** is omitted, as a run with
 the same options would see it (with **--sdcard-writes**, through that
 file). The image is never written; the writes file keeps its contents
-(as for any run given it, it may be compacted). See **GETTING YOUR FILES
-OUT**.
+(as for any run given it, it may be compacted). With **--sdcard2** it
+reads the second card (and **--sdcard2-writes**), never both cards. See
+**GETTING YOUR FILES OUT**.
 
 **--sdcard-writes-flatten** *OUT*  
 Write *OUT*, a plain image of the card with the **--sdcard-writes**
 *FILE* laid over it (the card as the machine sees it), and **exit
 without starting emulation**. Any FAT tool (mtools, a loop mount, 7-Zip)
-can open *OUT*. Requires **--sdcard-writes**. An *OUT* that already
-exists is refused. See **GETTING YOUR FILES OUT**.
+can open *OUT*. Requires **--sdcard-writes** (**--sdcard2-writes** for
+the second card, named with **--sdcard2**). An *OUT* that already exists
+is refused. See **GETTING YOUR FILES OUT**.
 
 **--sdcard-go-back**  
 Go back to the previous SD card that an upgrade kept in `previous/` next
@@ -409,7 +430,8 @@ compares the card against, in this order: the card as jnext made it (the
 default card, when its original image is still on disk and matches), the
 image named by **--sdcard-export-base**, the card itself when there is a
 **--sdcard-writes** file (so only that file’s changes are exported);
-with none of these it refuses. See **GETTING YOUR FILES OUT**.
+with none of these it refuses. It acts on one card: **--sdcard2** names
+the second one. See **GETTING YOUR FILES OUT**.
 
 **--sdcard-export-base** *FILE*  
 With **--sdcard-export-changes**: the image the card was made from, to
@@ -421,8 +443,8 @@ card (or, with **--sdcard-writes**, into that file) and **exit without
 starting emulation**. *DIR* must hold the `CHANGES.txt` the export
 wrote. A file already on the card is replaced, a read-only one too;
 nothing is ever deleted; the attributes (read-only, hidden, system) are
-restored. All or nothing, as **--sdcard-file-add**. See **GETTING YOUR
-FILES OUT**.
+restored. All or nothing, as **--sdcard-file-add**. It acts on one card:
+**--sdcard2** names the second one. See **GETTING YOUR FILES OUT**.
 
 **--warm-start-regenerate**  
 Discard the cached warm-start recording and take a fresh one on the next
@@ -797,11 +819,13 @@ Turn automatic tape play/stop on (the default) or off for this run,
 overriding the saved GUI preference. While on, the tape deck stops in
 the silent gap between two blocks when no program is reading the tape,
 and resumes when one does, so tapes whose BASIC loader is slow between
-blocks load in real time. It does nothing in fast load mode. A `.wav`
-has no blocks and is never paused. Off, the deck runs straight through,
-as a real one does (a TZX “stop the tape if in 48K mode” block now stops
-only on a 48K machine, as the TZX specification says, whatever this
-setting is).
+blocks load in real time. A program that reads the keyboard port in a
+tight loop (waiting for a key to be released, for example) also counts
+as reading the tape and starts the deck, so the block that then plays is
+lost to it. It does nothing in fast load mode. A `.wav` has no blocks
+and is never paused. Off, the deck runs straight through, as a real one
+does (a TZX “stop the tape if in 48K mode” block now stops only on a 48K
+machine, as the TZX specification says, whatever this setting is).
 
 **--tape-save** *FILE*  
 Save to tape, appending to *FILE*; its extension picks the format. A
@@ -1291,14 +1315,14 @@ into the same list, so giving both schedules two presses. Requires
 **--headless**.
 
 **--delayed-sdcard-insert-frames** *N* *FILE*  
-Insert SD-card image *FILE* after *N* emulated frames, exactly as **File
-\> Insert SD Card Image** does (see **SD CARD AND ROMS**). The card
-keeps **--sdcard-readonly**. The run exits non-zero if the insert is
-refused - while an RZX recording is made or played, while a directly
-loaded NEX keeps its own file open, when *FILE* is not a readable file,
-or when another insert is due in the same frame - or if the automatic
-exit comes first. An empty *FILE* is rejected. Repeatable. Requires
-**--headless**.
+Also spelt **--delayed-sdcard1-insert-frames**. Insert SD-card image
+*FILE* after *N* emulated frames, exactly as **File \> Insert SD Card
+Image** does (see **SD CARD AND ROMS**). The card keeps
+**--sdcard-readonly**. The run exits non-zero if the insert is refused -
+while an RZX recording is made or played, while a directly loaded NEX
+keeps its own file open, when *FILE* is not a readable file, or when
+another insert is due in the same frame - or if the automatic exit comes
+first. An empty *FILE* is rejected. Repeatable. Requires **--headless**.
 
 **--delayed-sdcard2-insert-frames** *N* *FILE*  
 The same for the **second SD card** slot: insert *FILE* there after *N*
@@ -1356,7 +1380,7 @@ Target frame for **--compositor-trace** (default 250). Requires
 ### Debugging
 
 **--magic-breakpoint**  
-Enable the magic-breakpoint opcodes (`ED FF`, `FD 00` and `DD 01`).
+Enable the magic-breakpoint opcodes (`ED FF` and `FD 00`).
 
 **--persistent-breakpoints**  
 Keep breakpoints and watchpoints armed while the debugger window is
@@ -1450,7 +1474,10 @@ the system chooses, and the log says which
 (`zrcp: listening on 127.0.0.1:40123`). One client at a time: a second
 connection is told so and closed. A port that cannot be bound is a
 startup error. Works in every frontend, **--headless** included, and
-alongside **--dzrp-port** and **--gdb-port**.
+alongside **--dzrp-port** and **--gdb-port**. A second jnext’s
+**--sdcard-file-add** on a card this jnext has open is copied through
+this server (see **PUTTING A FILE ON THE CARD**), so the machine that
+has the card is the one that writes to it.
 
 **--debug-channel** *PROTOCOL*  
 Browser page only: serve the debugger protocol *PROTOCOL* (`dzrp`,
@@ -2157,6 +2184,39 @@ The exit status says which of the things that can go wrong did; see
 or `.P3D` found at `/NEXTZXOS/DRV-`*X*`.DSK` (and `CPM-`*X*`.`*ext*) as
 drive *X*, so copying one there is all it takes to have a +3 disk
 available at the next boot.
+
+### A CARD IN USE BY A RUNNING JNEXT
+
+One jnext holds a card image at a time; a second one is refused it
+(**--sdcard-file-add** exits 5, the card untouched). When the jnext that
+holds the card serves ZRCP (**--zrcp-port**) and runs on the same
+machine, **--sdcard-file-add** is not refused: it asks that jnext to
+copy the file onto the card it has open (the ZRCP command
+`sd-file-add`), and exits with the status of that copy, as if it had
+written the image itself. A running guest sees the file, with no pause
+and no reset.
+
+    jnext --headless --sdcard mycard.img --zrcp-port 10000 &
+    jnext --sdcard mycard.img --sdcard-file-add game.nex
+
+The card is named as for any run (a relative path is taken from the
+current directory), and the first card or the second one is found by the
+image’s name: a card that is the other one in the running jnext, a card
+the running jnext opened read-only, a writes file other than the running
+jnext’s, a file that the running jnext itself holds open, and a card
+change in progress (an upgrade or a go back) are each refused with exit
+5 and a sentence saying why. A running jnext that does not serve ZRCP,
+one that another ZRCP client (a debugger) is using, one that listens on
+an address other than this machine’s loopback, one that is too old to
+have the command and one that does not answer are exit 5 too.
+**--sdcard-writes-reset**, **--sdcard2-writes-reset**,
+**--sdcard-download-force**, **--sdcard-upgrade** and
+**--sdcard-sha256** act on the card itself and are refused for such a
+copy. The holder is found through the lock file the running jnext keeps
+under `~/.jnext/locks/` (see **FILES**), so the two must share the same
+`JNEXT_CONFIG_DIR` and user; a jnext of another user or another
+configuration directory does not see the lock and would write to the
+image behind the running one.
 
 ### GETTING YOUR FILES OUT
 
@@ -3690,10 +3750,10 @@ examples.
 
 With **--zrcp-port** *PORT*, jnext serves the text protocol ZEsarUX
 offers on its `--remoteprotocol-port` (ZRCP), speaking as ZEsarUX 12.0
-does: a welcome, then one command per line, each answered by its reply
-and a prompt - `command>`, or `command@cpu-step>` while the machine is
-held in cpu-step mode. Try it by hand with `telnet localhost PORT` and
-`help`.
+does (with one command of its own, `sd-file-add`, below): a welcome,
+then one command per line, each answered by its reply and a prompt -
+`command>`, or `command@cpu-step>` while the machine is held in cpu-step
+mode. Try it by hand with `telnet localhost PORT` and `help`.
 
 - **Served**: the session and information commands (`about`,
   `get-version`, `get-current-machine`, `help`, `ls`, `set-cr`, `quit`
@@ -3739,6 +3799,16 @@ held in cpu-step mode. Try it by hand with `telnet localhost PORT` and
   while running, not at a breakpoint. **`smartload`, `load-binary` and
   `save-binary` read and write files on the host running jnext**, as
   ZEsarUX’s do.
+- **`sd-file-add` is jnext’s one own command** (ZEsarUX has no such
+  name): `sd-file-add` *image file card-path*
+  `[--force] [--card 1|2] [--writes`*file*`]` copies the host *file*
+  onto the SD card *image* this jnext has mounted, as
+  `--sdcard-file-add` does, and answers `OK.`*text* or
+  `Error. [`*N*`]`*text* (*N* the exit status of `--sdcard-file-add`).
+  Every argument is percent-encoded (`%20` for a space, `%25` for `%`;
+  control bytes too) and the three paths are absolute. It is what a
+  second jnext’s `--sdcard-file-add` sends; `help sd-file-add` describes
+  it.
 - **Declined**: `exit-emulator`, and the `run` options `verbose`,
   `no-stop-on-data` and `update-immediately`. ZEsarUX commands jnext
   does not serve answer `Error. Unsupported command in jnext:` and the
@@ -3765,12 +3835,14 @@ is refused, and DeZog shows that once as a warning).
 
 The magic breakpoint uses the `ED FF` (ZEsarUX), `FD 00` (CSpect
 2.19.9.1 and later; the sjasmplus `break` instruction since 1.21.0,
-which needs `--zxnext=cspect` or `OPT --zxnext=cspect`) and `DD 01`
-(older CSpect and sjasmplus) opcodes to pause the debugger when enabled;
-execution then resumes right after the two bytes. When disabled, and on
-real hardware, `ED FF` and `FD 00` are two-byte NOPs, but `DD 01` is
-not: the `DD` prefix is ignored and `01 nn nn` executes as `LD BC,nn`,
-consuming the two bytes that follow and overwriting `BC`. Enable it with
+which needs `--zxnext=cspect` or `OPT --zxnext=cspect`) opcodes to pause
+the debugger when enabled; execution then resumes right after the two
+bytes. When disabled, and on real hardware, both are two-byte NOPs.
+`DD 01`, used by older CSpect and sjasmplus versions, is not supported:
+on real hardware the `DD` prefix is ignored and `01 nn nn` executes as
+`LD BC,nn`, consuming the two bytes that follow and overwriting `BC`, so
+a program using it would behave differently with the option on and off;
+use `FD 00` (the sjasmplus `break` instruction) instead. Enable it with
 **--magic-breakpoint** or **Debug \> Magic Breakpoint**.
 
 The magic debug port logs writes to a configurable port to stderr as
@@ -4188,6 +4260,16 @@ controller names `joy1_device_name` and `joy2_device_name`,
 `layout` are refused), with **--set** *section.key=value* (see
 **Settings for --set**).
 
+`~/.jnext/locks/`  
+One small lock file per SD card image and per SD-writes file a running
+jnext holds, named by a hash of the file’s canonical path. The body is
+labelled lines: `pid:` (the holder’s process), `image:` (or `writes:`,
+the canonical path) and, while the holder serves ZRCP on a socket,
+`zrcp_listening_address:` and `zrcp_listening_port:` (the bound port),
+which is how a second jnext’s **--sdcard-file-add** finds the server to
+copy through. The lock itself is held by the operating system and goes
+with the process; a file left behind is inert.
+
 `~/.jnext/screenshots/`  
 Where **File \> Quick Screenshot** writes, unless
 `[screenshot] quick_dir` says otherwise. Created on the first capture.
@@ -4296,13 +4378,16 @@ The file or directory was copied onto the card (for
 Command-line usage error — **--sdcard-file-dest** or
 **--sdcard-file-force** without **--sdcard-file-add**, either of the
 first two given twice or with an empty value, or combined with
-**--sdcard-readonly** or **--load**; for the three commands above, a
-missing companion (**--sdcard-writes-flatten** without
-**--sdcard-writes**, **--sdcard-export-base** without
-**--sdcard-export-changes**), an empty value, a repeat, or two of the
-commands in one run. For **--sdcard-file-extract**: given twice, with an
-empty value, with another SD card command, with **--load** or
-**--inject**, or with **--no-sdcard**.
+**--sdcard-readonly** or **--load**; an SD card command given both
+**--sdcard** (or **--sdcard1**) and **--sdcard2**, or a first-card
+option (**--sdcard-readonly**, **--sdcard-writes**…) with **--sdcard2**;
+for the three commands above, a missing companion
+(**--sdcard-writes-flatten** without **--sdcard-writes**,
+**--sdcard-export-base** without **--sdcard-export-changes**), an empty
+value, a repeat, or two of the commands in one run. For
+**--sdcard-file-extract**: given twice, with an empty value, with
+another SD card command, with **--load** or **--inject**, or with
+**--no-sdcard**.
 
 2  
 For **--sdcard-file-extract**: the card path is malformed (empty, or
@@ -4345,9 +4430,10 @@ filesystem this build will not mount (an under-clustered one), or could
 not be written, or, with **--sdcard-writes**, the writes file could not
 be written or holds a rewritten partition table or boot sector; or
 another jnext is using the image or the writes file (one card, one
-jnext). For **--sdcard-export-changes** also: the card, seen through its
-writes file, could not be opened for reading. For
-**--sdcard-file-extract**, any FAT12, FAT16 or FAT32 card the Next’s
+jnext) and could not take the copy for **--sdcard-file-add** (see **A
+CARD IN USE BY A RUNNING JNEXT**). For **--sdcard-export-changes** also:
+the card, seen through its writes file, could not be opened for reading.
+For **--sdcard-file-extract**, any FAT12, FAT16 or FAT32 card the Next’s
 firmware mounts is accepted; the card is refused when it is not one of
 those, uses sectors other than 512 bytes, is truncated, or has a damaged
 directory structure (a directory that is reached twice, two names the

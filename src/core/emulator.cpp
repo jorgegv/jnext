@@ -1287,7 +1287,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // gate), so closing the debugger window no longer disarms.
     debug_state_.set_persistent_breakpoints(cfg.persistent_breakpoints);
 
-    // Magic breakpoint: ED FF (ZEsarUX) / FD 00 (CSpect, sjasmplus break) / DD 01 (older CSpect) trigger debugger pause.
+    // Magic breakpoint: ED FF (ZEsarUX) / FD 00 (CSpect, sjasmplus break) trigger debugger pause.
     set_magic_breakpoint(cfg.magic_breakpoint);
 
     // Host-side compatibility for directly loaded NEX programs.
@@ -5225,7 +5225,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 tzx_tape_.set_auto_policy(
                     tape_gap_hold_(tape_sample_tstates()),
                     tape_auto_play_, config_.type == MachineType::ZX48K);
-                tape_level = tzx_tape_.update(tape_sample_tstates());
+                tape_level = tzx_deck_update_(tape_sample_tstates());
             } else if (wav_tape_.is_playing()) {
                 tape_level = wav_tape_.get_ear_bit(tape_sample_tstates());
             } else {
@@ -9297,7 +9297,7 @@ void Emulator::set_magic_breakpoint(bool enabled)
         cpu_.on_magic_breakpoint = nullptr;
         return;
     }
-    cpu_.on_magic_breakpoint = [this](uint16_t pc) -> bool {
+    cpu_.on_magic_breakpoint = [this](uint16_t pc) {
         Log::emulator()->info("Magic breakpoint hit at PC={:#06x}", pc);
         // GH #278 WP4c — HOLD the stop, on a machine nothing else may arm (no
         // client, no window, no flag): the hot loop honours a pause only inside
@@ -9316,7 +9316,6 @@ void Emulator::set_magic_breakpoint(bool enabled)
         // because pause() above has already destroyed the step mode and
         // nothing else distinguishes it from a user pause.
         debug_latch_magic_(pc);
-        return true;
     };
 }
 
@@ -9859,8 +9858,7 @@ void Emulator::derive_tape_edge_()
     // The ear_relax hold of a playing tape counts from its last edge, which
     // a restore does not carry: rebuild it from where the deck is (TAP exact for every
     // phase but the first pilot pulse of a tape started from idle, which has no edge; TZX
-    // exact in the pauses and 0 elsewhere, and a pause of 1 ms or less after a block
-    // ending high counts from the pause; WAV by looking back along the recording), so a
+    // exact in the pauses and 0 elsewhere; WAV by looking back along the recording), so a
     // restored run relaxes when the continuous one does. A `.jns` load calls this again
     // after the deck is reattached (load_state runs before it).
     uint64_t age_t;
@@ -12199,7 +12197,7 @@ uint64_t Emulator::step_one_instruction()
             tzx_tape_.set_auto_policy(
                 tape_gap_hold_(monotonic_tstates()),
                 tape_auto_play_, config_.type == MachineType::ZX48K);
-            tape_level_(tzx_tape_.update(monotonic_tstates()) != 0);
+            tape_level_(tzx_deck_update_(monotonic_tstates()) != 0);
             if (tape_capture_live_)
                 tape_recorder_.sample(tape_out_level(), clock_.get() + master_cycles);
         } else if (wav_tape_.is_playing()) {
@@ -14151,6 +14149,16 @@ uint64_t Emulator::tape_sample_tstates() const
     if (!cpu_.executing()) return monotonic_tstates();
     return monotonic_tstates() - cpu_.tstates_into_instruction()
          + tape_sample_offset();
+}
+
+uint8_t Emulator::tzx_deck_update_(uint64_t now)
+{
+    const bool was_held = tzx_tape_.is_held();
+    const uint8_t level = tzx_tape_.update(now);
+    // GH #567: a deck that just went on hold (a stop block) restarts the poll
+    // run, so the reads of the load that reached the stop cannot resume it.
+    if (!was_held && tzx_tape_.is_held()) tape_poll_.reset();
+    return level;
 }
 
 bool Emulator::tape_gap_hold_(uint64_t now) const
@@ -16497,7 +16505,7 @@ void Emulator::debug_latch_magic_(uint16_t pc)
     e.kind = jnext::dbg::EventKind::Magic;
     // `pc` is NOT written into `e.pc`: the stamper owns that field. The two are
     // the same value — Z80Cpu passes the instruction's own PC to
-    // on_magic_breakpoint (z80_cpu.cpp, the `ED FF` / `FD 00` / `DD 01` forms read the
+    // on_magic_breakpoint (z80_cpu.cpp, the `ED FF` / `FD 00` forms read the
     // opcode AT `pc`), which is exactly what `debug_slot_pc_` holds. Asserting
     // the equality is debug_latch_magic_'s row in the suite, not a duplicate
     // write here.

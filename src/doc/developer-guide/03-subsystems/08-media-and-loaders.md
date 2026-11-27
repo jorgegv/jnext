@@ -32,7 +32,7 @@ the guest's own driver talks to. Both are called out below.
 | `.pok` | yes | — | `platform/pok_trainers.*`, `gui/pok_dialog.*` | Not a loader: a list of trainers applied to the machine that is already running, through the debugger backend; Qt window only (see POK trainers) |
 
 Format selection is by **file extension**: for `--load` in `src/main.cpp`
-(the `ext` chain, `src/main.cpp:3484-3542`), and again in the GUI's file dialogs and in the headless
+(the `ext` chain, `src/main.cpp:3613-3671`), and again in the GUI's file dialogs and in the headless
 snapshot writer. There is no content sniffing of programs, and an extension jnext does not
 recognise is a hard error naming the supported set rather than a guess at what
 the file might be. The one exception is an archive (below), which is recognised
@@ -137,6 +137,16 @@ The real-time players cover the pure-EAR turbo loaders too: a TZX Direct
 Recording block (0x15) plays as a TZX block, and WAV playback interpolates the
 edge position inside a sample, which is what DeciLoad's 12k8 loader needs.
 
+TZX playback keeps the last edge of every block visible to the loader (a ROM
+loader times its last bit against it). A pause of 1 ms is all at the level the
+last edge left (TZX 1.20: at least 1 ms of the opposite level, and only then the
+pulse goes low); a longer one holds that level for 1 ms and spends the rest low.
+Before a stop block, a 0x2A that stops, or the end of the tape, a high level is
+held for 1 ms as one pure-tone pulse (`tzx_stop_tail` in `third_party/zot/tzx.c`),
+and the stop is parsed again when it ends, so the stop never hides the edge. After a pause
+there is no such tail: a pause ends low, and the high level the player's own toggle leaves
+there is not an edge on the tape.
+
 (`fastload_active()` also covers the fast-boot window of a plain Next start;
 see [A frame, end to end](../02-architecture/03-a-frame-end-to-end.md).)
 
@@ -178,7 +188,10 @@ detect-loader fails the `xevious-deciload` tape.
   boundary, the instant a block and its non-zero pause have finished, and only
   when nobody polls. It never stops mid-block and never at a zero-pause join. It
   resumes at the first counted read once polling: the next block from its first
-  pulse. TAP: `TapLoader::set_gap_hold` / `resume`. TZX: ZOT's `hold_request`,
+  pulse. A hold at a stop block restarts the poll run (`Emulator::tzx_deck_update_`),
+  so only reads made after the stop resume it, never those of the load that reached
+  it (FUSE zeroes its loader detection on every stop the same way); a key-release
+  wait that follows does poll, and resumes the deck. TAP: `TapLoader::set_gap_hold` / `resume`. TZX: ZOT's `hold_request`,
   `held`, `tzx_resume()`; a stop block (0x20 pause 0, 0x2A) holds instead of
   ending the tape, and 0x2A stops only on a 48K machine. WAV has no gaps.
 - **Fast mode.** Nothing happens: a polling program never starts a tape that
@@ -2128,6 +2141,38 @@ the manager adds what only the configuration knows: each slot's configured image
 a read overlay serves, the loaded TAP, TZX and WAV and the esxDOS root. Each of them, and any folder holding one, is refused as
 a copy or move source, as a Replace target and as a delete target, by file identity, whichever slot the pane shows. The host side of a delete or a Replace goes to the trash through a
 hook; there is no permanent fallback. Rows: `SDMT-01..37`, `SDMR-01..05`, `SDCOH-01..04` (`sdcard_manager_test`).
+
+**A copy asked for by another process.** `sdmanager::remote_add()` is the ZRCP `sd-file-add` of a running jnext: what
+`--sdcard-file-add` means, done on a card this process has mounted. It makes the manager's own checks, in order, and the
+first failure answers (status 5 unless stated): a card operation in flight (the Qt hook passes it: an upgrade or a go back
+runs FatFs on a worker thread under `processEvents` and FatFs is not reentrant, so a copy to EITHER slot waits), the image is
+not mounted in any slot (`same_image_file()`, never a string compare), the request's card number disagrees with the slot,
+the slot is read-only (`card_slots()`: `--sdcard-readonly`, an RZX recording or playback, a NEX read overlay, a card that is not the
+first FAT32 partition), the writes file the request names is not the slot's journal file (or the slot has none), and the host
+source is a file the emulator holds (status 2). Then `add_to_image()` in string mode, not `run_transfer()`: a forwarded copy
+must mean what the offline one means (the destination is the path the source becomes, the root by default, directories
+created), where `run_transfer()` copies into an existing folder under the host leaf name and asks questions. Its failures keep
+their statuses (2, 3, 4, 6), and success is `file_add_success_text()`, the one sentence the command line prints too. A running
+guest sees the file at once: `SdCardDevice` keeps no cache and the server runs on the emulation thread (`SDCOH-R01`). Rows `SDRA-01..15`
+(`sdcard_manager_test`).
+
+The client is `platform/sdcard_forward.*`. `--sdcard-file-add` calls it only at a lock refusal that is "held by another
+process" (the `LockHolder` says so), at the three places that take a card's lock, every one before `bind_card_writes()`, so the
+client never binds, compacts or resets the holder's writes file; options that act on the card itself
+(`--sdcard-writes-reset`, `--sdcard2-writes-reset`, `--sdcard-download-force`, `--sdcard-upgrade`, `--sdcard-sha256`) are refused
+for such a copy. It reads nothing it trusts: the address from the lock is mapped to the loopback of its family
+(`connect_address()`: `0.0.0.0` and `127/8` to `127.0.0.1`, `::` and `::1` to `::1`, anything else refused), the connection is
+the esp01 transport with its loopback deny off, the welcome must be ZRCP's byte for byte (10 s), the reply is capped at 64 KiB and
+bounded at 300 s, only `OK. ` and `Error. [1..6] ` are believed and everything else is exit status 5 with a sentence. Paths are
+sent through `fs::absolute`, never `canonical`, so a symbolic link keeps its own name. Rows `SDFWD-01..13`, `SDLOCK-16..27`.
+
+The SD card commands (file-add, file-extract, writes-flatten, export-changes, import-changes) act on one card: card 1 is named by
+`--sdcard` (or `--sdcard1`, or `--set paths.sd_card_path`), card 2 by `--sdcard2` (or `--set paths.sd_card2_path`), on the command
+line only (saved Preferences never redirect a command), naming both is refused, and naming neither is card 1. `main()` runs a
+card-2 command as the one-card command it is: the second card's image, writes file, reset and read-only flag stand in for the
+first card's, so card 1 is never resolved, provisioned or locked, and a card-1 command never mounts or locks card 2. The
+first card's options have two spellings (`--sdcard`/`--sdcard1`, `-readonly`, `-writes`, `-writes-reset`, `--delayed-sdcard-insert-frames`
+and its `1` form: one `OptId` each, so one parser case), and two spellings of one option on a line are refused.
 
 `resolve_remembered()` is what the window opens on, and the emulator wins over the remembered state: the remembered
 card's slot if it is mounted, otherwise the first mounted slot; the remembered card directory only on the remembered card,

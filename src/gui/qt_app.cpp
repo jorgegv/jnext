@@ -8,6 +8,7 @@
 #include "gui/emulator_widget.h"
 #include "gui/frame_timer.h"
 #include "platform/emulator_boot.h"
+#include "platform/sdcard_manager.h"
 #include "platform/cli_capture.h"
 #include "platform/cli_delay.h"
 #include "platform/auto_exit.h"
@@ -347,7 +348,13 @@ bool QtApp::init(int argc, char* argv[]) {
     // ── GH #12 (package D, WP-5) — the socket debugger servers ──────────────
     // Service registration only; the pump's place and order are unchanged
     // (post_frames() below). platform/debug_servers.h.
-    if (!debug_servers_.start(*debugger_, config_)) return false;
+    // GH #568 — the ZRCP sd-file-add hook: the window answers while it exists (it knows when an
+    // upgrade or a go back owns the card), else the same logic runs with no card operation in flight.
+    if (!debug_servers_.start(*debugger_, config_,
+            [this](const jnext::remote::zrcp::SdFileAddRequest& r) {
+                return route_sd_file_add(main_window_, emulator_, r);
+            }))
+        return false;
     // ── end GH #12 ──────────────────────────────────────────────────────────
     // GH #351 - --source-map without --load (or with an RZX replay): the map of a z88dk dot command, attached
     // now (before the scripts, so a `file:line` rule resolves) and pending until the
@@ -1199,4 +1206,10 @@ void QtApp::on_status_tick() {
 bool QtApp::tape_realtime() const
 {
     return main_window_ ? !main_window_->tape_fast_load() : false;
+}
+
+jnext::remote::zrcp::SdFileAddReply QtApp::route_sd_file_add(MainWindow* window, Emulator& emu,
+                                                             const jnext::remote::zrcp::SdFileAddRequest& r)
+{
+    return window ? window->remote_sd_file_add(r) : sdmanager::remote_add(emu, r, {});
 }

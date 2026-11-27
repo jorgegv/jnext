@@ -34,6 +34,11 @@
 
 class Emulator;
 
+namespace jnext { namespace remote { namespace zrcp {
+struct SdFileAddRequest;
+struct SdFileAddReply;
+}}}
+
 namespace sdmanager {
 
 // ---- slots ----------------------------------------------------------------
@@ -179,6 +184,21 @@ TransferReport rename_card_item(const std::string& image, const std::string& pat
 TransferReport make_folder(Side side, const std::string& image, const std::string& dir,
                            const std::string& name, TransferHooks& h,
                            const std::string& card_read_only_reason = {});
+
+// ---- a copy asked for by another process (GH #568) -------------------------
+
+/// The ZRCP `sd-file-add` of a running jnext: what `jnext --sdcard-file-add` means, done on a card
+/// this process has mounted. The request is already decoded and its paths are absolute. The checks
+/// are the manager's own, in this order, and the first failure answers (status 5 unless stated):
+/// `busy_reason` (a card operation owns the card: the Qt loop owner passes it), the image is mounted
+/// in a slot, the request's card number agrees with that slot, the slot is writable (card_slots()),
+/// the writes file agrees with the one the slot uses (none given and none used, or the same file),
+/// the host source is not a file the emulator holds (status 2). Then the command line's engine,
+/// add_to_image() in string mode, so the destination means what it means offline; its own failure
+/// keeps its status (2, 3, 4, 6). Success is status 0 and the offline sentence.
+jnext::remote::zrcp::SdFileAddReply remote_add(Emulator& emu,
+                                               const jnext::remote::zrcp::SdFileAddRequest& r,
+                                               const std::string& busy_reason);
 
 // ---- what the window opens on ---------------------------------------------
 

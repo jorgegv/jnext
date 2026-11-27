@@ -44,6 +44,7 @@
 #include "core/cli_options.h"
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
+#include "remote/zrcp/zrcp_server.h"
 
 namespace jnext {
 namespace remote {
@@ -72,7 +73,12 @@ public:
     /// already logged — when one cannot listen (a port in use, an address that
     /// is not this machine's): a server the user asked for and cannot reach is
     /// a startup failure, not a warning scrolled past.
-    bool start(jnext::dbg::Debugger& dbg, const EmulatorConfig& cfg);
+    /// `sd_file_add` is the loop owner's hook for the ZRCP `sd-file-add` command (GH #568; both the
+    /// socket and the channel ZRCP server get it). While the socket ZRCP server serves, its address and
+    /// BOUND port are published in the SD card locks (sdcard::sd_locks::set_zrcp_endpoint), so a second
+    /// jnext refused a card can find the server that holds it; the destructor withdraws them.
+    bool start(jnext::dbg::Debugger& dbg, const EmulatorConfig& cfg,
+               jnext::remote::zrcp::SdFileAdd sd_file_add = {});
 
     /// Qt and SDL: this tick's budget.
     static jnext::dbg::PumpBudget frame_loop_budget(bool paused,
@@ -92,6 +98,7 @@ public:
     jnext::remote::PipeChannel* channel(cli::DebugProtocol p);
 
 private:
+    bool endpoint_published_ = false;
 #ifndef __EMSCRIPTEN__
     std::unique_ptr<jnext::remote::dzrp::DzrpServer> dzrp_;
     std::unique_ptr<jnext::remote::gdb::GdbServer>   gdb_;

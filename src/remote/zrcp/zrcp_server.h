@@ -106,7 +106,28 @@ struct CommandInfo {
     const char*  name;
     const char*  aliases;  ///< ZEsarUX's spelling, `|gr` / `|exit|logout`; nullptr = none
     CommandClass cls;
+    /// A jnext-only command: its name is not in ZEsarUX's `ls`. The census (ZRCP-TAB-01) reads the
+    /// other rows against ZEsarUX; ZRCP-TAB-07 pins this set.
+    bool         extension = false;
 };
+
+/// `sd-file-add` (jnext's one own command, GH #568): the request after decoding, and the answer.
+/// The server cannot reach the machine's SD cards (the Debugger is the frozen interface and the
+/// cards are host media), so the loop owner installs a hook that does the copy.
+struct SdFileAddRequest {
+    std::string image;          ///< absolute host path of the card image
+    std::string host;           ///< absolute host path of the source file
+    std::string card_path;      ///< path the file becomes on the card
+    std::string writes;         ///< absolute writes file, when writes_given
+    bool        writes_given = false;
+    bool        force = false;
+    int         slot = -1;      ///< -1 any, 0 = card 1, 1 = card 2
+};
+struct SdFileAddReply {
+    int         status = 0;     ///< 0 ok; else the exit status the client returns
+    std::string text;
+};
+using SdFileAdd = std::function<SdFileAddReply(const SdFileAddRequest&)>;
 
 class ZrcpServer final : public Protocol, public jnext::dbg::Listener {
 public:
@@ -123,6 +144,10 @@ public:
 
     ZrcpServer(const ZrcpServer&)            = delete;
     ZrcpServer& operator=(const ZrcpServer&) = delete;
+
+    /// Install the hook `sd-file-add` runs (the loop owner's). Without one the command says it is
+    /// not available.
+    void set_sd_file_add(SdFileAdd hook) { sd_file_add_ = std::move(hook); }
 
     /// The transport this adapter serves on: `open()` it, `add_service()` it.
     Server& server() { return server_; }
@@ -162,6 +187,7 @@ private:
         const char*  help;
         CommandClass cls;
         void (ZrcpServer::*run)(const Cmd&);
+        bool         extension = false;  ///< jnext-only (not a ZEsarUX name)
     };
     static const CommandDef COMMANDS[];
     static const CommandDef* find_command(const std::string& name);
@@ -264,6 +290,7 @@ private:
     void cmd_smartload(const Cmd& c);
     void cmd_snapshot_load(const Cmd& c);
     void cmd_snapshot_save(const Cmd& c);
+    void cmd_sd_file_add(const Cmd& c);
 
     /// `cpu-history`'s view of the trace: oldest first, with the session's
     /// `ignrephalt` / `ignrepldxr` filters applied. Rebuilt only when the
@@ -331,6 +358,7 @@ private:
     jnext::dbg::Debugger& dbg_;
     Clock                 clock_;
     Server                server_;
+    SdFileAdd             sd_file_add_;
 
     // Per-connection state.
     Connection*          conn_ = nullptr;  // valid inside a Protocol callback only

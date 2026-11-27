@@ -9,8 +9,8 @@ fills a third store, `UserAnnotations`, which sits beside the toolchain's
 ## 1. The producer
 
 JNEXT. The Qt Map menu opens and saves it (section 10); `--annotations FILE`
-loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:1129` and copies
-it to the configuration at `src/main.cpp:2998`, and `ScriptHost::start()` loads it (`annotations_file`,
+loads one at start-up (`main.cpp` stores `annotations_file` at `src/main.cpp:1156` and copies
+it to the configuration at `src/main.cpp:3127`, and `ScriptHost::start()` loads it (`annotations_file`,
 `src/script/script_host.cpp:201-215`), after `--map` and before the scripts, so a
 script's `@name` of the file resolves). `replace_annotations()` is the
 primitive an import builds on.
@@ -200,11 +200,11 @@ The same two views edit the store and draw it; nothing here changes what the sto
   `annotations_revision()` at the last Open, Save or `--annotations`; `annotations_unsaved()` compares them.
   `confirm_discard_annotations()` (`debugger_manager.cpp:919`) asks Save / Discard / Cancel when they differ, and is
   asked by `on_open_annotations()` before it opens and by `MainWindow::closeEvent()`
-  (`confirm_discard_annotations`, `src/gui/main_window.cpp:4280`) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
+  (`confirm_discard_annotations`, `src/gui/main_window.cpp:4287`) before anything else, which ignores the event on Cancel or a failed Save (File ▸ Quit goes
   through `close()`, which then returns false). An unattended close (`unattended_`, the delayed automatic exit and
-  SIGINT/SIGTERM, tested at `src/gui/main_window.cpp:4277`) asks nothing: it logs that the unsaved changes were
+  SIGINT/SIGTERM, tested at `src/gui/main_window.cpp:4284`) asks nothing: it logs that the unsaved changes were
   discarded and quits (`QG-ANN-05`). With nothing changed there is no dialog. `set_annotations_file()`
-  (`debugger_manager.cpp:820`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:397`), makes that file
+  (`debugger_manager.cpp:820`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:404`), makes that file
   the Save target and the starting point of "unsaved".
 - **Settings.** None: the store has no Preferences field, so `config_keys.cpp` has no row; the CLI is
   `--annotations FILE`.

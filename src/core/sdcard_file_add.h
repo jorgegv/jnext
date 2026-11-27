@@ -226,6 +226,13 @@ FileAddStatus add_to_image(const std::string& image_path,
                            std::string& err,
                            AddSummary* summary = nullptr, bool dest_is_bytes = false);
 
+/// The sentence a successful add prints, without its newline: "Copied 'HOST' to 'DEST' in IMAGE" (a
+/// directory: "Copied directory 'HOST' to 'DEST' in IMAGE (N file(s), M new director[y|ies])"), plus
+/// ", kept in WRITES (the image is not written)" when `writes_file` is not empty. ONE source for the
+/// command line and for the copy a running jnext does on its behalf (GH #568).
+std::string file_add_success_text(const std::string& host, const std::string& image,
+                                  const std::string& writes_file, const AddSummary& summary);
+
 /// The partition geometry FatFs needs to present `image_path`'s volume: the first FAT32-LBA
 /// partition's start sector and its sector count. False, with a one-sentence `err`, for a
 /// missing or truncated image, no partition, or sectors that are not 512 bytes.
