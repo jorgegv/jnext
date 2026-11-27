@@ -65,8 +65,9 @@ if want sdcard-rename-func; then
     rc=$(run_boot "$W/c.log")
     [[ "$rc" == 0 ]] || faults+=("c: the boot with both names exited $rc")
     grep -qF "sdcard: using default image $NEW" "$W/c.log" || faults+=("c: the new card was not the one used")
-    grep -F "is left as it is" "$W/c.log" | grep -qF "$LEG" || faults+=("c: the warning does not name the legacy card")
-    grep -F "is left as it is" "$W/c.log" | grep -qF "$NEW" || faults+=("c: the warning does not name the new card")
+    c_warn=$(grep -F "is left as it is" "$W/c.log" || true)
+    grep -qF "$LEG" <<<"$c_warn" || faults+=("c: the warning does not name the legacy card")
+    grep -qF "$NEW" <<<"$c_warn" || faults+=("c: the warning does not name the new card")
     [[ -f "$LEG" && "$(stat -c %i "$LEG")" == "$ino" && "$(stat -c %i "$NEW")" == "$ino" ]] || faults+=("c: a card was touched")
     [[ "$(cat "$LEG.distro")" == "sn-emulator-24.11.zip" ]] || faults+=("c: the legacy sidecar was touched")
     rm -f "$LEG" "$LEG.distro"
