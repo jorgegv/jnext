@@ -9,7 +9,7 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-72. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-73. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -17,7 +17,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=72
+EXPECTED_ROWS=73
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -1235,6 +1235,13 @@ reset_state
 FAKE_INNER=1 pdrive --id p72 --patch "$TMP/pA.patch" pbase "$PSHA" 'sh:echo "  FAIL HS-99: a row"; echo "        |  TEST HARNESS REFUSES TO RUN "; exit 1'
 row RRUN-72 "$([[ $RC -eq 1 && "$OUT" != *"PATCH REFUSED"* && "$(cat "$TMP/logs/p72.log")" == *"patch applied"* ]] && echo 1 || echo 0)" \
     "a patch run quoting the refusal banner inside a FAIL listing and exiting 1 is exit 1, a kill, not 'no verdict' (rc=$RC)"
+
+# RRUN-73: the refusal is found however long the log after it is (a pipe into grep -q dies of SIGPIPE under pipefail once the
+# producer has more than a pipe's worth left, and the refusal then reads as a kill): banner, then 200 KB of output, exit 2
+reset_state
+FAKE_INNER=1 pdrive --id p73 --patch "$TMP/pA.patch" pbase "$PSHA" 'sh:echo " TEST HARNESS REFUSES TO RUN "; head -c 200000 /dev/zero | tr "\0" x; echo; exit 2'
+row RRUN-73 "$([[ $RC -eq 2 && "$OUT" == *"PATCH REFUSED"*"no verdict (REFUSES TO RUN)"* ]] && echo 1 || echo 0)" \
+    "a harness refusal followed by 200 KB of output is still exit 2 'no verdict' (rc=$RC)"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
 # the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green

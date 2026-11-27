@@ -486,7 +486,7 @@ main() {
         pre=$(sed '/^=== remote-run started$/q' "$LOG")
         if [[ -n "$PATCH_NAME" ]] && grep -q '^=== remote-run patch refused: ' <<<"$pre"; then
             state=patchrefused
-            PATCH_REFUSED_WHY=$(grep -a '^=== remote-run patch refused: ' <<<"$pre" | head -n 1 | sed 's/^=== remote-run patch refused: //')
+            PATCH_REFUSED_WHY=$(grep -am1 '^=== remote-run patch refused: ' <<<"$pre" | sed 's/^=== remote-run patch refused: //')
         elif grep -q '^=== remote-run fallback:' <<<"$pre"; then
             state=fallback
         elif grep -q '^=== remote-run refused:' <<<"$pre"; then
@@ -508,7 +508,7 @@ main() {
         # (harness refusal: its own banner LINE only; a FAIL listing quotes the words indented behind '| ')
         if [[ -n "$PATCH_NAME" && -z "$patch_no_verdict" ]]; then
             if [[ $rc -eq 124 ]]; then patch_no_verdict="the run hit the run-level timeout: no verdict (time limit)"
-            elif [[ $rc -ne 0 ]] && sed -e 's/\x1b\[[0-9;]*m//g' "$LOG" | grep -Eq '^[[:space:]]*TEST HARNESS REFUSES TO RUN[[:space:]]*$'; then patch_no_verdict="the test harness refused to run: no verdict (REFUSES TO RUN)"
+            elif [[ $rc -ne 0 ]] && grep -aEq '^[[:space:]]*TEST HARNESS REFUSES TO RUN[[:space:]]*$' <<<"$(sed -e 's/\x1b\[[0-9;]*m//g' "$LOG")"; then patch_no_verdict="the test harness refused to run: no verdict (REFUSES TO RUN)"
             fi
         fi
         if [[ $state == remote && -n "$patch_no_verdict" ]]; then
