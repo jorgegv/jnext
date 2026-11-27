@@ -1009,17 +1009,19 @@ static void run_rows_a() {
         const bool silent = p.both_run_quiet(6);
         jnext::dbg::Subscription right = exec_sub(0x8003);
         right.filter.page = pg;
-        p.remote->subscribe(p.ra, right);
-        p.ref.dbg->subscribe(p.rc, right);
+        const auto rid = p.remote->subscribe(p.ra, right);
+        const auto fid = p.ref.dbg->subscribe(p.rc, right);
         bool stopped = false;
         for (int i = 0; i < 400 && !stopped; ++i) {
             p.tick();
             p.ref_tick();
             stopped = p.remote->state().paused && p.ref.dbg->state().paused;
         }
-        check("RTG-RUN-04", "a page-qualified breakpoint: the wrong page stops neither facade, the right page stops both",
+        check("RTG-RUN-04", "a page-qualified breakpoint: the wrong page stops neither facade, the right page stops both "
+                            "and it is the right subscription that the stop names",
               silent && stopped && p.remote->state().pause_reason.kind == PauseReason::Kind::Breakpoint &&
                   p.ref.dbg->state().pause_reason.kind == PauseReason::Kind::Breakpoint &&
+                  p.remote->state().pause_reason.id == rid.value && p.ref.dbg->state().pause_reason.id == fid.value &&
                   p.remote->registers().PC == 0x8003);
     }
     {
@@ -1319,6 +1321,58 @@ static void run_rows_b() {
     }
 }
 
+static void run_rows_c() {
+    // The target's own stop mapping, below the facade: what each NTF_PAUSE becomes, and which page it names.
+    Scripted s;
+    jnext::dbg::TargetStop t;
+    bool all = true;
+    std::string why;
+    auto stop = [&](std::uint8_t reason, std::uint16_t addr, std::uint8_t bank1, const char* text) {
+        s.tgt->client().poll(0);   // nothing owed yet: a CONTINUE makes the stop expected
+        s.tgt->resume();
+        s.s.ntf_pause(reason, addr, bank1, text);
+        s.s.service();
+        s.tgt->service_once(0);
+        return s.tgt->take_stop(t);
+    };
+    struct Case {
+        std::uint8_t reason;
+        std::uint16_t addr;
+        std::uint8_t bank1;
+        const char* text;
+        jnext::dbg::TargetStop::Why want;
+        std::uint16_t page;
+        const char* want_text;
+    };
+    using W = jnext::dbg::TargetStop::Why;
+    const Case cases[] = {
+        {1, 0x8000, 0, "", W::Manual, jnext::dbg::PAGE_ANY, ""},
+        {2, 0x8001, 5, "", W::Breakpoint, 4, ""},            // bank+1 5 is page 4
+        {2, 0x8002, 0xFF, "", W::Breakpoint, jnext::dbg::PAGE_ANY, ""},   // ROM in slot 0: no page
+        {2, 0x8003, 0, "", W::Breakpoint, jnext::dbg::PAGE_ANY, ""},      // ROM in the other slots
+        {2, 0x8004, 225, "", W::Breakpoint, jnext::dbg::PAGE_ANY, ""},    // no such page: not page 224
+        {3, 0x9000, 225 - 1, "", W::WatchRead, 223, ""},
+        {4, 0x9001, 1, "", W::WatchWrite, 0, ""},
+        {255, 0x8005, 0, "other", W::Other, jnext::dbg::PAGE_ANY, "other"},
+        {9, 0x8006, 0, "odd", W::Other, jnext::dbg::PAGE_ANY, "stop reason 9: odd"},
+        {0, 0x8007, 0, "", W::Other, jnext::dbg::PAGE_ANY, "stop reason 0"},
+    };
+    int n = 0;
+    for (const Case& c : cases) {
+        ++n;
+        const bool got = stop(c.reason, c.addr, c.bank1, c.text);
+        if (!got || t.why != c.want || t.addr != c.addr || t.page != c.page || t.text != c.want_text) {
+            all = false;
+            why = "case " + std::to_string(n);
+            break;
+        }
+    }
+    check("RTG-RUN-21", "an NTF_PAUSE becomes a TargetStop: reasons 1 to 4 and 255 by name, any other reason (0 included) "
+                        "an Other stop saying so, and bank+1 names a RAM page only in 1..224 (0 and 0xFF are ROM, "
+                        "225 and up no page)",
+          all, why);
+}
+
 // ==============================================================================================
 // RTG-WP - watchpoints (R2.3)
 // ==============================================================================================
@@ -1388,17 +1442,19 @@ static void wp_rows() {
         const bool silent = p.both_run_quiet(6);
         jnext::dbg::Subscription right = mem_sub(0x9000, 0x9000, Access::Write);
         right.filter.page = pg;
-        p.remote->subscribe(p.ra, right);
-        p.ref.dbg->subscribe(p.rc, right);
+        const auto rid = p.remote->subscribe(p.ra, right);
+        const auto fid = p.ref.dbg->subscribe(p.rc, right);
         bool stopped = false;
         for (int i = 0; i < 400 && !stopped; ++i) {
             p.tick();
             p.ref_tick();
             stopped = p.remote->state().paused && p.ref.dbg->state().paused;
         }
-        check("RTG-WP-05", "a page-qualified watch: the wrong page is silent on both, the right page stops both",
+        check("RTG-WP-05", "a page-qualified watch: the wrong page is silent on both, the right page stops both and it is "
+                           "the right subscription that the stop names",
               silent && stopped && p.remote->state().pause_reason.kind == PauseReason::Kind::Watch &&
-                  p.ref.dbg->state().pause_reason.kind == PauseReason::Kind::Watch);
+                  p.ref.dbg->state().pause_reason.kind == PauseReason::Kind::Watch &&
+                  p.remote->state().pause_reason.id == rid.value && p.ref.dbg->state().pause_reason.id == fid.value);
     }
     {
         Pair p;
@@ -1457,6 +1513,7 @@ int main() {
     ins_rows_b();
     run_rows_a();
     run_rows_b();
+    run_rows_c();
     wp_rows();
 
     std::printf("\n======================================================\n");
