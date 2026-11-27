@@ -1183,27 +1183,29 @@ static void identity_rows() {
         s.ver[1] = 1;
         auto c = make_client(s, LinkKind::Serial);
         bring_up(*c, s);
-        std::vector<int> want = range_ids({{1, 6}, {8, 17}, {20, 23}});
-        check("DZC-ID-04", "the same remote over a serial link: DezogifSerial, no CMD 24, set {1..6, 8..17, 20..23}",
-              c->profile() == Profile::DezogifSerial && s.ids == std::vector<int>({CMD_INIT}) &&
-                  ids_of(c->command_set()) == want);
+        check("DZC-ID-10", "\"dezogif v...\" 2.1.0 over a serial-kind link is refused, naming the WiFi dezogif_ng stub, no CMD 24",
+              c->state() == SessionState::Failed && c->failure() == Status::Refused &&
+                  s.ids == std::vector<int>({CMD_INIT}) && c->error().find("WiFi dezogif_ng") != std::string::npos,
+              c->error());
     }
     {
         Script s;
         s.name = "dezogif v2.3.0-rc2";
-        s.bitfield = bitfield_of({1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20, 21, 22, 23, 24});
+        s.bitfield = bitfield_of({1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20, 21, 22, 23, 24, 40, 41});
         auto c = make_client(s);
         bring_up(*c, s);
-        const bool simple = c->profile() == Profile::Dezogif22 && c->breakpoint_mode() == BreakpointMode::Simple &&
-                            s.ids == std::vector<int>({CMD_INIT, CMD_GET_SUPPORTED_COMMANDS}) &&
-                            c->in_set(24) && c->in_set(17) && !c->in_set(18) && !c->in_set(40);
-        Script s2;
-        s2.name = "dezogif v2.3.0-rc2";
-        s2.bitfield = bitfield_of({1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20, 21, 22, 23, 24, 40, 41});
-        auto c2 = make_client(s2);
-        bring_up(*c2, s2);
-        check("DZC-ID-05", "\"dezogif v2.3.0-rc2\" 2.2.0: Dezogif22, CMD 24 sent, the set is the bitfield; Simple breakpoints, Normal once 40 and 41 are in it",
-              simple && c2->breakpoint_mode() == BreakpointMode::Normal && c2->window() == 1);
+        check("DZC-ID-11", "\"dezogif v2.3.0-rc2\" 2.2.0 over TCP is refused, naming the WiFi dezogif_ng stub, no CMD 24 sent",
+              c->state() == SessionState::Failed && c->failure() == Status::Refused &&
+                  s.ids == std::vector<int>({CMD_INIT}) && c->error().find("WiFi dezogif_ng") != std::string::npos,
+              c->error());
+    }
+    {
+        Script s;
+        s.name = "dezogif v2.3.0-rc2";
+        auto c = make_client(s, LinkKind::Serial);
+        bring_up(*c, s);
+        check("DZC-ID-12", "\"dezogif v...\" 2.2.0 over a serial-kind link is refused too",
+              c->state() == SessionState::Failed && c->failure() == Status::Refused);
     }
     {
         Script s;
@@ -1239,26 +1241,6 @@ static void identity_rows() {
                   line.find("mem:mem") != std::string::npos && line.find("profile jnext") != std::string::npos &&
                   line.find("window 15") != std::string::npos,
               line);
-    }
-    {
-        auto mode = [](std::initializer_list<int> extra) {
-            Script s;
-            s.name = "dezogif v2.3.0-rc2";
-            std::vector<int> ids = {1, 2, 3, 24};
-            ids.insert(ids.end(), extra.begin(), extra.end());
-            Bytes b;
-            for (int id : ids) {
-                if (b.size() <= static_cast<std::size_t>(id / 8)) b.resize(static_cast<std::size_t>(id / 8) + 1, 0);
-                b[id / 8] = static_cast<std::uint8_t>(b[id / 8] | (1u << (id % 8)));
-            }
-            s.bitfield = b;
-            auto c = make_client(s);
-            bring_up(*c, s);
-            return c->breakpoint_mode();
-        };
-        check("DZC-ID-09", "Dezogif22 breakpoints: 40 without 41 is Simple, 41 without 40 is Simple, both is Normal",
-              mode({40}) == BreakpointMode::Simple && mode({41}) == BreakpointMode::Simple &&
-                  mode({40, 41}) == BreakpointMode::Normal);
     }
 }
 
@@ -1297,14 +1279,6 @@ static void gate_rows() {
     {
         Script s;
         as_dezogif_ng(s);
-        auto c = make_client(s, LinkKind::Serial);
-        bring_up(*c, s);
-        check("DZC-GATE-02", "DezogifSerial: CMD 7, 18, 19, 40 and 41 are Refused, nothing sent",
-              refused_all(*c, s, {7, 18, 19, 40, 41}));
-    }
-    {
-        Script s;
-        as_dezogif_ng(s);
         auto c = make_client(s);
         bring_up(*c, s);
         const Reply cont = c->request(CMD_CONTINUE, {0, 0, 0, 0, 0});
@@ -1313,15 +1287,6 @@ static void gate_rows() {
         const Status pause = c->submit(CMD_PAUSE, {}, t);
         check("DZC-GATE-03", "DezogifNg after CMD_CONTINUE (running): CMD 3, 8 and 11 are Refused; CMD_PAUSE is sent",
               cont.status == Status::Ok && c->running() && refused && pause == Status::Ok);
-    }
-    {
-        Script s;
-        as_dezogif_ng(s);
-        auto c = make_client(s, LinkKind::Serial);
-        bring_up(*c, s);
-        const Reply cont = c->request(CMD_CONTINUE, {0, 0, 0, 0, 0});
-        check("DZC-GATE-04", "DezogifSerial running: CMD_PAUSE is Refused too (it is not in the set) and nothing at all reaches the peer",
-              cont.status == Status::Ok && refused_all(*c, s, {7, 3, 8}));
     }
     {
         Script s;
