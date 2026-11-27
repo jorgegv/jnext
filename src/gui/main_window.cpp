@@ -3828,7 +3828,8 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         // Host-driven F-key taps use the self-contained `simulate_mf_fkey_press()` helper that drives
         // the FSM through IDLE → MF_ROW_A11 → MF_ROW_A12 → MF_CHECK →
         // MF_DONE in one host-event boundary. The side-effect callback
-        // fires on entry to MF_ROW_A11 (F1..F5) or MF_ROW_A12 (F6..F10).
+        // fires on entry to MF_ROW_A11 (F1..F5) or
+        // MF_ROW_A12 (F6..F10).
         //
         // F2 is intentionally NOT routed here — it remains the GUI scale
         // cycler (case Qt::Key_F2 above). F1/F4/F9/F10 are owned by G152
