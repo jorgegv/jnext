@@ -2246,7 +2246,7 @@ bool same_file(const std::string& a, const std::string& b) {
 void MainWindow::refresh_card_set_actions() {
     if (!upgrade_sd_action_) return;
     const std::string dir = sdcard::default_sdcard_dir();
-    const sdcard::backup::Status st = sdcard::backup::card_set_status(dir, current_distribution());
+    const sdcard::backup::Status st = sdcard::backup::card_set_status(dir, current_distribution(), false);
     const bool slot0_default = emulator_ && !emulator_->config().no_sdcard &&
                                same_file(emulator_->sd_card().image_path(), sdcard::default_sdcard_image_path());
     const sdcard::backup::MenuState m = sdcard::backup::menu_state(st, slot0_default);
@@ -2382,7 +2382,7 @@ void MainWindow::on_go_back_sd() {
 }
 
 void MainWindow::on_delete_backup() {
-    const sdcard::backup::Status st = sdcard::backup::card_set_status(sdcard::default_sdcard_dir(), current_distribution());
+    const sdcard::backup::Status st = sdcard::backup::card_set_status(sdcard::default_sdcard_dir(), current_distribution(), false);
     if (!st.backup) return;
     if (QMessageBox::question(this, tr("Delete the Previous SD Card Backup"),
                               tr("Delete the previous SD card (%1)? This cannot be undone.")

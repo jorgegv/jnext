@@ -225,6 +225,7 @@ jnext.mount(el, { args: ['--crt', 'tv'] });
 | `set` | `{"section.key": value}` | One `--set` each, sorted by key. |
 | `args` | array of strings | More command-line arguments, last, so they win. |
 | `wasmUrl` | string | Where the `.wasm` is served from. Default: beside the script. |
+| `creditIn` | element | An element of your page, normally its controls bar, that holds the "JNext" link at its end (at the right end of a flex row) instead of a row under the player. Without it the link goes under the player, at its right edge. |
 | `debug` | `{protocol, transport, url}` or an array | Serve DZRP, ZRCP or GDB to a debugger: one `--debug-channel` for each entry. See [8.6](06-debugging-from-the-page.md). |
 
 `player.argv` is the equivalent command line, without the program name. It exists once

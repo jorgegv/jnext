@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.1</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.5</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.1</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.5</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3252,6 +3252,18 @@ and runs the recipe (<code>patch_image_for_recipe</code>) to rebuild the card as
 metadata included. Cards are read through ChaN FatFs on two volumes at once (<code>FF_VOLUMES</code> 2: drive 0
 and drive 1; a read-only attach never writes), or, for an under-clustered distribution image FatFs
 refuses, through the hand-rolled reader (<code>open_tree_lenient</code>, always on drive 1).</p>
+<p>Hashing the 1 GB original takes about half a second, so <code>pristine_base_ok</code> skips the hash while
+<code>&lt;original&gt;.verified</code> vouches for it. That record is one line, <code>&lt;digest&gt; &lt;size&gt; &lt;mtime&gt;</code> and a newline:
+the digest 64 lowercase hex digits, the size a decimal <code>uint64</code>, the mtime the <code>last_write_time</code> ticks of
+the original as a decimal <code>int64</code> (it may be negative). The record counts only when it is exactly that
+(a missing final newline, other case, a wrong length, an overflow or trailing text make it void) and its
+digest is the <code>.sha256</code> sidecar's digest and its size and mtime are the original's now. A void record
+means a hash; a match writes the record from the size and mtime read before the hash, so an original
+changed during the hash voids it. A write that fails is ignored (the next check hashes again). The limit,
+accepted on purpose: an in-place rewrite of the original that keeps its size and its mtime (a restored
+mtime, or a change inside the filesystem's timestamp resolution) is not noticed. <code>pristine_hash_count</code>
+counts the hashes, for tests. Only the Upgrade path asks for the check: the File menu and Delete call
+<code>card_set_status</code> with <code>check_pristine</code> false.</p>
 <p>"Changed" means a different type, size, content or R/H/S attribute; not the archive bit, a date, the 8.3
 name, a case-only rename or the volume label. There are two layers: the direct one (the card against the
 rebuilt original) and, for each writes file, the overlay one (the card seen through the file against the

@@ -26,8 +26,11 @@ struct Status {
     std::string backup_distro;     ///< the distribution of the backup card
 };
 
-/// The state of the set in `dir` against `current_distro` (what jnext downloads now).
-Status card_set_status(const std::string& dir, const std::string& current_distro);
+/// The state of the set in `dir` against `current_distro` (what jnext downloads now). `check_pristine`
+/// false skips the comparison base check (it may hash the 1 GB original): `pristine` stays false and
+/// `pristine_why` empty, every other field is as with true. The menus need no pristine (menu_state
+/// does not read it); the Upgrade path asks for it.
+Status card_set_status(const std::string& dir, const std::string& current_distro, bool check_pristine = true);
 
 /// What the three File-menu entries do, from a status and whether slot 0 holds the default card.
 struct MenuState {
