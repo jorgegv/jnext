@@ -4545,10 +4545,11 @@ itself if it was closed; execution then carries on right after its two bytes.</p
 <p>When the feature is disabled — and on real hardware — both are two-byte
 no-ops, so you can leave them in the source.</p>
 <p><strong>Why not <code>DD 01</code>.</strong> Older CSpect and sjasmplus versions used <code>DD 01</code>, which
-JNEXT does not honour. It is not a no-op: the <code>DD</code> prefix is ignored and
-<code>01 nn nn</code> runs as <code>LD BC,nn</code>, which takes the two bytes after it as its operand
-and overwrites <code>BC</code>. A program using it would behave differently with the
-feature on and off, and differently from the hardware. Use <code>FD 00</code> instead.</p>
+JNEXT does not honour: it runs exactly as on the hardware. It is not a no-op:
+the <code>DD</code> prefix is ignored and <code>01 nn nn</code> runs as <code>LD BC,nn</code>, which takes the
+two bytes after it as its operand and overwrites <code>BC</code>. Had JNEXT honoured it as
+a breakpoint, a program using it would behave differently with the feature on and
+off, and differently from the hardware. Use <code>FD 00</code> instead.</p>
 <p>In C with z88dk:</p>
 <pre><code class="language-c">#define MAGIC_BP()  __asm__(&quot;defb 0xED, 0xFF&quot;)
 </code></pre>

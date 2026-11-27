@@ -18,10 +18,11 @@ When the feature is disabled — and on real hardware — both are two-byte
 no-ops, so you can leave them in the source.
 
 **Why not `DD 01`.** Older CSpect and sjasmplus versions used `DD 01`, which
-JNEXT does not honour. It is not a no-op: the `DD` prefix is ignored and
-`01 nn nn` runs as `LD BC,nn`, which takes the two bytes after it as its operand
-and overwrites `BC`. A program using it would behave differently with the
-feature on and off, and differently from the hardware. Use `FD 00` instead.
+JNEXT does not honour: it runs exactly as on the hardware. It is not a no-op:
+the `DD` prefix is ignored and `01 nn nn` runs as `LD BC,nn`, which takes the
+two bytes after it as its operand and overwrites `BC`. Had JNEXT honoured it as
+a breakpoint, a program using it would behave differently with the feature on and
+off, and differently from the hardware. Use `FD 00` instead.
 
 In C with z88dk:
 

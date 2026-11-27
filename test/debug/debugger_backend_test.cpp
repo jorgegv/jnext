@@ -3672,6 +3672,7 @@ static void b5_wire_verb_rows() {
         // reads is not this row's subject), loads BC and ends on the JR at 0x8004.
         uint64_t dt[2] = { 0, 0 }, dc[2] = { 0, 0 };
         uint16_t bc[2] = { 0, 0 }, pc[2] = { 0, 0 };
+        Z80Registers rr[2] = {}, rr0[2] = {};
         int calls = 0;
         for (int variant = 0; variant < 2; ++variant) {
             Emulator emu;
@@ -3687,21 +3688,38 @@ static void b5_wire_verb_rows() {
             Z80Registers r = emu.cpu().get_registers();
             r.PC = 0x8000; r.halted = false;
             emu.cpu().set_registers(r);
+            rr0[variant] = emu.cpu().get_registers();
             const uint64_t t0 = emu.monotonic_tstates(), c0 = emu.clock().get();
             emu.execute_single_instruction();
             dt[variant] = emu.monotonic_tstates() - t0;
             dc[variant] = emu.clock().get() - c0;
+            rr[variant] = emu.cpu().get_registers();
             bc[variant] = emu.cpu().get_registers().BC;
             pc[variant] = emu.cpu().pc();
         }
+        // The WHOLE register file must match between the runs, and R advanced by the two M1s
+        // (t80n.vhd:493; FUSE opcodes_base.c:958-978 R++ per prefix/opcode fetch).
+        auto same = [](const Z80Registers& x, const Z80Registers& y) {
+            return x.AF == y.AF && x.BC == y.BC && x.DE == y.DE && x.HL == y.HL &&
+                   x.AF2 == y.AF2 && x.BC2 == y.BC2 && x.DE2 == y.DE2 && x.HL2 == y.HL2 &&
+                   x.IX == y.IX && x.IY == y.IY && x.SP == y.SP && x.PC == y.PC &&
+                   x.MEMPTR == y.MEMPTR && x.I == y.I && x.R == y.R && x.IFF1 == y.IFF1 &&
+                   x.IFF2 == y.IFF2 && x.IM == y.IM && x.Q == y.Q && x.halted == y.halted &&
+                   x.IncDecZ == y.IncDecZ;
+        };
+        const bool regs_equal = same(rr[0], rr[1]);
+        const bool r_plus_2 = ((rr[0].R & 0x7F) == ((rr0[0].R + 2) & 0x7F)) &&
+                              ((rr[1].R & 0x7F) == ((rr0[1].R + 2) & 0x7F));
         check("WV-MAGIC-13", "28 MHz, code in SRAM: DD 01 34 12 costs the same T-states and clock "
                              "with the hook installed as with none, loads BC == 0x1234, ends at "
-                             "0x8004, hook not called",
+                             "0x8004, R += 2, the whole register file equal in both, hook not called",
               dt[0] == dt[1] && dc[0] == dc[1] && dt[0] > 0 && bc[0] == 0x1234 && bc[1] == 0x1234 &&
-                  pc[0] == 0x8004 && pc[1] == 0x8004 && calls == 0,
+                  pc[0] == 0x8004 && pc[1] == 0x8004 && calls == 0 && regs_equal && r_plus_2,
               "dt=" + std::to_string(dt[0]) + "/" + std::to_string(dt[1]) +
                   " clock=" + std::to_string(dc[0]) + "/" + std::to_string(dc[1]) +
-                  " BC=" + hex(bc[0]) + "/" + hex(bc[1]) + " calls=" + std::to_string(calls));
+                  " BC=" + hex(bc[0]) + "/" + hex(bc[1]) + " calls=" + std::to_string(calls) +
+                  " regs_equal=" + std::to_string(regs_equal) + " R=" + std::to_string(rr[0].R) +
+                  "/" + std::to_string(rr[1].R) + " from " + std::to_string(rr0[0].R));
     }
     {
         // The FOREIGN producer: sjasmplus 1.23.1 `break` (z80.cpp:594-601), committed output.
