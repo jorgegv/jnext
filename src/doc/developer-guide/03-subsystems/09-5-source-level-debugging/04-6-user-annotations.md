@@ -204,7 +204,7 @@ The same two views edit the store and draw it; nothing here changes what the sto
   through `close()`, which then returns false). An unattended close (`unattended_`, the delayed automatic exit and
   SIGINT/SIGTERM, tested at `src/gui/main_window.cpp:4284`) asks nothing: it logs that the unsaved changes were
   discarded and quits (`QG-ANN-05`). With nothing changed there is no dialog. `set_annotations_file()`
-  (`debugger_manager.cpp:820`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:405`), makes that file
+  (`debugger_manager.cpp:820`), called by `QtApp` for `--annotations` (`set_annotations_file`, `src/gui/qt_app.cpp:404`), makes that file
   the Save target and the starting point of "unsaved".
 - **Settings.** None: the store has no Preferences field, so `config_keys.cpp` has no row; the CLI is
   `--annotations FILE`.
