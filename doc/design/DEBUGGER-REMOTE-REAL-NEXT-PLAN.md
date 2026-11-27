@@ -48,7 +48,7 @@ are sub-issues of their own; R6 is one placeholder sub-issue, opened only if R5.
 #### Sub-issue 3: the target seam and the capability model
 
 - [x] **R0.1** Target-seam inventory: classify every `Debugger` verb (machine / host-side / local-only); write the owner-approved `debug/target.h` and facade additions (Q1)
-- [ ] **R1.1** `Target` interface and `LocalTarget`: the machine half of `Debugger::Impl` behind it, behaviour-neutral, bench A/B
+- [x] **R1.1** `Target` interface and `LocalTarget`: the machine half of `Debugger::Impl` behind it, behaviour-neutral, bench A/B
 - [x] **R1.2** Capability model: `Debugger::capabilities()`, a reason per missing capability, register and run-state validity
 
 #### Sub-issue 4: Qt greying and window retargeting
@@ -564,8 +564,18 @@ knows how to grey out what a target cannot do.
   `deliver_to_subscribers()` compile at `-O2` to the same instruction stream as before (base and
   branch objects of `debugger_events.cpp` compared with `objdump`: the one difference is the
   displacement of the `emu` load, which is no longer the first member of `Impl`, plus padding).
-  The wall-time `make bench` A/B and `ab-hotlatch` runs need a quiet host (load below 1.5) and are
-  still to be taken; the R1.1 box is ticked when they are.
+  Wall-time, `build/gui-release-non-pgo` of the epic tip `81bb24f6b` against the branch, taken on a
+  quiet host (1-minute load 0.7-2.2 from start to end of every run; it was 1.4-1.7 at the first
+  pair): three sequential `make bench` pairs (the order of the pair swapped in the third) and one
+  interleaved `ab-hotlatch` run. Branch-minus-base medians, per workload, run 1 / 2 / 3 (percent
+  of T-states/s): boot-48k +1.5 / +1.3 / -1.2; boot-nextzxos +3.0 / +0.9 / +2.1; copper-demo -2.9 /
+  -4.5 / +2.8; beast -2.9 / -0.8 / +3.1; bifrost -1.7 / -1.3 / +13 (a 32% spread); halt-idle-35 -2.3 /
+  +0.2 / +5.8; halt-idle-28 -5.5 / -0.8 / +0.9; ctc-dac-28 -3.4 / -1.2 / +1.1. The sign changes from
+  run to run and with the order of the pair, and the interleaved run (`test/bench/hotlatch-55809a6f7.txt`)
+  gives U vs B +0.2% (boot-nextzxos), -1.7% (copper-demo), -3.4% (beast, spreads 6 to 12%),
+  +0.3% (boot-48k): no consistent cost beyond the noise. Not a clean pass of the letter of the rule: no
+  run of this host was free of VOID workloads (spread above 5%) in both trees. R1.1 is ticked on the
+  codegen evidence above plus this.
 
 ### R1.2 Capability model
 

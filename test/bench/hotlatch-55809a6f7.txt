@@ -1,0 +1,26 @@
+# GH #276 §11 item 3 — hot-latch interleaved A/B
+# sha=55809a6f7 core=9 pairs=5 load1_start=1.37
+# baseline=/home/jorgegv/tmp/worktrees/jnext/gh513-bench-base/build/gui-release-non-pgo/jnext
+# new=/home/jorgegv/tmp/worktrees/jnext/gh513/build/gui-release-non-pgo/jnext
+
+## boot-nextzxos (machine=next frames=400)
+  B   median=   148795871 T/s  spread=  4.3%  hits=-          (baseline)
+  U   median=   149062163 T/s  spread=  5.0%  hits=-          +0.2% vs B
+  P   median=   145937148 T/s  spread=  1.7%  hits=0          -1.9% vs B
+  A1  median=   145768292 T/s  spread=  2.8%  hits=135756     -2.0% vs B
+  A2  median=   132568285 T/s  spread=  4.1%  hits=4076788    -10.9% vs B
+
+## copper-demo (machine=next frames=400 load=copper_demo.nex)
+  B   median=   514164135 T/s  spread= 86.0%  hits=-          (baseline)
+  U   median=   505262857 T/s  spread=  4.8%  hits=-          -1.7% vs B
+
+## beast (machine=next frames=400 load=beast.nex)
+  B   median=   307574027 T/s  spread=  6.1%  hits=-          (baseline)
+  U   median=   297134676 T/s  spread= 12.1%  hits=-          -3.4% vs B
+
+## boot-48k (machine=48k frames=600)
+  B   median=    61205450 T/s  spread=  3.0%  hits=-          (baseline)
+  U   median=    61418623 T/s  spread=  9.8%  hits=-          +0.3% vs B
+
+# load1_end=1.64
+# result file: /home/jorgegv/tmp/worktrees/jnext/gh513/test/bench/hotlatch-55809a6f7.txt
