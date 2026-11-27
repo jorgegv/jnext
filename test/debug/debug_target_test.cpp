@@ -25,14 +25,17 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <string>
 #include <vector>
 
 #include "../row_id.h"
 #include "../test_portable.h"
+#include "fake_target.h"
 
 using jnext::dbg::ClientId;
 using jnext::dbg::Debugger;
+using jnext::dbg::FakeTarget;
 using jnext::dbg::MemSpace;
 using jnext::dbg::RegId;
 using jnext::dbg::ResetKind;
@@ -358,11 +361,381 @@ static void loc_state_rows() {
     }
 }
 
+// ── TGT-01: `Debugger(Target&)` over a FakeTarget ───────────────────────────
+
+struct Remote {
+    FakeTarget  t;
+    Debugger    d;
+    RecListener rec;
+    ClientId    a = 0;
+    Remote() : d(t) {
+        a = d.attach(client("A")).value;
+        d.set_listener(a, &rec);
+        rec.clear();
+        t.clear();
+    }
+};
+
+static MemSpace alt_rom() {
+    MemSpace s;
+    s.kind = MemSpace::Kind::AltRom;
+    return s;
+}
+
+static std::string reg_arg(RegId r, unsigned v) {
+    return "(" + std::to_string(static_cast<int>(r)) + "," + std::to_string(v) + ")";
+}
+
+static void tgt01_dispatch_rows() {
+    {
+        FakeTarget t;
+        { Debugger d(t); }
+        check("TGT-01-01", "constructing and destroying a Debugger over a target makes no machine call",
+              t.calls.empty(), std::to_string(t.calls.size()) + " calls");
+    }
+    {
+        Remote m;
+        const Z80Registers r = m.d.registers();
+        check("TGT-01-02", "registers() is the target's registers, through one registers() call",
+              r.PC == 0x4321 && r.AF == 0x1122 && m.t.count("registers") == 1);
+    }
+    {
+        Remote m;
+        m.t.regs.AF = 0x00FF;   // so the old A the line logs is the fake's 0x00
+        const Result r = m.d.set_register(m.a, RegId::A, 0x12);
+        const auto lines = m.rec.mutates();
+        check("TGT-01-03", "set_register(A, 0x12) reaches the target as (A, 0x12) and logs one MUTATE "
+                           "line naming the client",
+              r == Result::Ok && m.t.count(("set_register" + reg_arg(RegId::A, 0x12)).c_str()) == 1 &&
+                  lines.size() == 1 && lines[0].find("MUTATE reg A 0x0 -> 0x12 by " + std::to_string(m.a)) == 0,
+              lines.empty() ? std::string("no line") : lines[0]);
+    }
+    {
+        Remote m;
+        m.t.ram[0x9000] = 0xAA; m.t.ram[0x9001] = 0xBB; m.t.ram[0x9002] = 0xCC;
+        uint8_t b[3] = {};
+        const auto r = m.d.peek(MemSpace::cpu(), 0x9000, 3, b);
+        check("TGT-01-04", "peek(Cpu) is forwarded with (Cpu, addr, n); the bytes and the count are the target's",
+              r.status == Result::Ok && r.value == 3 && b[0] == 0xAA && b[2] == 0xCC &&
+                  m.t.count("read") == 1 && m.t.calls[0].find(",36864,3)") != std::string::npos,
+              m.t.calls.empty() ? std::string("no call") : m.t.calls[0]);
+    }
+    {
+        Remote m;
+        const uint8_t v = 0x5A;
+        const auto r = m.d.poke(m.a, MemSpace::cpu(), 0x9000, 1, &v);
+        const auto lines = m.rec.mutates();
+        check("TGT-01-05", "poke(Cpu) is forwarded, logs 'mem cpu:0x9000 old -> new' and needs no rewind ring",
+              r.status == Result::Ok && r.value == 1 && m.t.count("write") == 1 && m.t.ram[0x9000] == 0x5A &&
+                  lines.size() == 1 && lines[0].find("MUTATE mem cpu:0x9000 0x0 -> 0x5A") == 0,
+              lines.empty() ? std::string("no line") : lines[0]);
+    }
+    {
+        Remote m;
+        const uint8_t v = 1;
+        const auto a = m.d.poke(m.a, MemSpace::rom(0), 0, 1, &v);
+        const auto b = m.d.poke(m.a, MemSpace::page(jnext::dbg::PAGE_SENTINEL_ROM_LO), 0, 1, &v);
+        const auto c = m.d.poke(m.a, MemSpace::page(jnext::dbg::PAGE_SENTINEL_ROM_HI), 0, 1, &v);
+        check("TGT-01-06", "poke(Rom) and poke(Page 0xFE / 0xFF) are RefusedReadOnly and the target is not called",
+              a.status == Result::RefusedReadOnly && b.status == Result::RefusedReadOnly &&
+                  c.status == Result::RefusedReadOnly && m.t.calls.empty(), std::to_string(m.t.calls.size()));
+    }
+    {
+        Remote m;
+        const uint8_t v = 1;
+        uint8_t b = 0;
+        const auto w = m.d.poke(m.a, alt_rom(), 0, 1, &v);
+        const auto r = m.d.peek(alt_rom(), 0, 1, &b);
+        check("TGT-01-07", "an identity-only kind (AltRom) is Unsupported for poke and peek and the target is not called",
+              w.status == Result::Unsupported && r.status == Result::Unsupported && m.t.calls.empty());
+    }
+    {
+        Remote m;
+        const auto slots = m.d.mmu_slots();
+        const Result s = m.d.set_mmu_slot(m.a, 6, 0x30);
+        const auto lines = m.rec.mutates();
+        const int before = m.t.count("set_mmu_slot");
+        const Result bad = m.d.set_mmu_slot(m.a, 8, 0x30);
+        check("TGT-01-08", "mmu_slots() and set_mmu_slot() are forwarded, the line is 'mmu slot 6 old -> new'; "
+                           "slot 8 is refused before the target",
+              slots[3].nr_page == 0x23 && s == Result::Ok && before == 1 && lines.size() == 1 &&
+                  lines[0].find("MUTATE mmu slot 6 0x26 -> 0x30") == 0 &&
+                  bad == Result::RefusedUnavailable && m.t.count("set_mmu_slot") == 1,
+              lines.empty() ? std::string("no line") : lines[0]);
+    }
+    {
+        Remote m;
+        m.t.nr[0x15] = 0x07;
+        const uint8_t v = m.d.nextreg_peek(0x15);
+        const Result w = m.d.nextreg_write(m.a, 0x15, 0x01);
+        check("TGT-01-09", "nextreg_peek() and nextreg_write() are forwarded",
+              v == 0x07 && w == Result::Ok && m.t.nr[0x15] == 0x01 && m.t.count("nextreg_write") == 1);
+    }
+    {
+        Remote m;
+        const auto in = m.d.port_in(m.a, 0x00FE);
+        const Result o = m.d.port_out(m.a, 0x00FE, 0x05);
+        const Result soft = m.d.port_out(m.a, 0x253B, 0x01);   // the local soft-reset delivery guard is not reached
+        check("TGT-01-10", "port_in(), port_out() and port_out(0x253B, 1) are forwarded (the delivery guard is local-only)",
+              in.status == Result::Ok && in.value == 0xA5 && o == Result::Ok && soft == Result::Ok &&
+                  m.t.count("port_in") == 1 && m.t.count("port_out") == 2);
+    }
+    {
+        Remote m;
+        const uint8_t attr[5] = {1, 2, 3, 4, 5};
+        const uint8_t pat[2] = {9, 8};
+        const auto sp = m.d.sprites();
+        const auto ar = m.d.sprite_attr_raw(3);
+        const Result sa = m.d.set_sprite_attr_raw(m.a, 3, attr, 5);
+        const auto pr = m.d.pattern_ram();
+        const Result wp = m.d.write_pattern_ram(m.a, 0x10, pat, 2);
+        const auto pal = m.d.sprite_palette_rgb333(1, 5);
+        const auto clip = m.d.sprite_clip();
+        (void)clip;
+        check("TGT-01-11", "the seven sprite verbs are forwarded",
+              sp.size() == jnext::dbg::SPRITE_COUNT && ar.status == Result::Ok && sa == Result::Ok &&
+                  pr.size == jnext::dbg::PATTERN_RAM_BYTES && wp == Result::Ok && pal.value == 0x1FF &&
+                  m.t.count("sprites") == 1 && m.t.count("sprite_attr_raw") == 1 &&
+                  m.t.count("set_sprite_attr_raw") == 1 && m.t.count("pattern_ram") == 1 &&
+                  m.t.count("write_pattern_ram") == 1 && m.t.count("sprite_palette_rgb333") == 1 &&
+                  m.t.count("sprite_clip") == 1);
+    }
+    {
+        Remote m;
+        m.t.rom = MemSpace::rom(2);
+        check("TGT-01-12", "rom_select() is the target's", m.d.rom_select() == MemSpace::rom(2) &&
+                                                                 m.t.count("rom_select") == 1);
+    }
+    {
+        Remote m;
+        const auto st = m.d.state();
+        check("TGT-01-13", "state() is the target's run_state() with pause_reason None",
+              st.paused && st.cycle == 1234 && st.frame == 7 && st.pc == 0x4321 &&
+                  st.pause_reason.kind == jnext::dbg::PauseReason::Kind::None);
+    }
+}
+
+static void tgt01_refusal_rows() {
+    using jnext::dbg::Subscription;
+    {
+        Remote m;
+        const Result r[] = {
+            m.d.pause(m.a), m.d.run(m.a), m.d.step_into(m.a), m.d.step_over(m.a), m.d.step_out(m.a),
+            m.d.run_to(m.a, 0x8000), m.d.run_to_source_line(m.a, "x.c:1"),
+            m.d.source_step(m.a, Debugger::SourceStep::Into), m.d.source_step(m.a, Debugger::SourceStep::Over),
+            m.d.source_step(m.a, Debugger::SourceStep::Out)};
+        bool all = true;
+        for (Result x : r) all = all && x == Result::Unsupported;
+        check("TGT-01-14", "pause, run, the steps, run_to, run_to_source_line and source_step Into/Over/Out are "
+                           "Unsupported; step_instruction is never called",
+              all && !m.t.called("step_instruction") && m.t.calls.empty());
+    }
+    {
+        Remote m;
+        const Result r[] = {
+            m.d.run_to_cycle(m.a, 1), m.d.run_to_frame(m.a, 9), m.d.run_to_end_of_frame(m.a),
+            m.d.run_to_end_of_scanline(m.a), m.d.step_back(m.a, 1), m.d.rewind_to_frame(m.a, 0),
+            m.d.reset(m.a, ResetKind::Soft), m.d.reset(m.a, ResetKind::Hard), m.d.load(m.a, "x.nex"),
+            m.d.set_magic_breakpoint(true), m.d.acknowledge_corruption(0), m.d.set_persistent_breakpoints(true),
+            m.d.source_step(m.a, Debugger::SourceStep::Back),
+            m.d.source_step(m.a, Debugger::SourceStep::ReverseContinue)};
+        bool all = true;
+        for (Result x : r) all = all && x == Result::Unsupported;
+        check("TGT-01-15", "the local-only control verbs are Unsupported and the target is not called",
+              all && m.t.calls.empty());
+    }
+    {
+        Remote m;
+        const jnext::dbg::Time tm = m.d.time();
+        bool ok = true;
+        ok = ok && m.d.time_epoch() == 0 && tm.master_cycle == 0 && m.d.raster().phc == 0;
+        ok = ok && m.d.machine().tstates_per_frame == 0 && m.d.copper().pc == 0;
+        ok = ok && !m.d.turbosound_enabled() && m.d.audio_mute_mask() == 0 && m.d.audio_channel_mute_mask() == 0;
+        ok = ok && m.d.framebuffer().size == 0 && m.d.palette(jnext::dbg::PaletteId::UlaActive).empty() &&
+             m.d.palette_priority(jnext::dbg::PaletteId::UlaActive).empty() && m.d.active_ula_palette_bank() == 0;
+        ok = ok && m.d.ula_screen_dump().empty() && m.d.input_state().port_1f == 0 && m.d.bookmarks(m.a).empty();
+        ok = ok && m.d.call_stack().empty() && !m.d.call_stack_enabled() && !m.d.trace_enabled() &&
+             !m.d.coverage_enabled() && !m.d.mem_coverage_enabled() && m.d.paging_ports().port_7ffd == 0 &&
+             m.d.nextreg_selected() == 0;
+        ok = ok && !m.d.at_frame_boundary() && !m.d.rewind_enabled() && m.d.rewind_range().capacity == 0 &&
+             !m.d.armed() && !m.d.persistent_breakpoints() && !m.d.magic_breakpoint() &&
+             !m.d.resume_blocked_by_corruption().has_value();
+        const auto rb = m.d.rewind_blocked();
+        ok = ok && rb.has_value() && *rb == Result::Unsupported;
+        ok = ok && m.d.clip_window(jnext::dbg::ClipLayer::Ula).x2 == jnext::dbg::ClipWindow{}.x2 &&
+             m.d.ctc_state()[0].time_constant == jnext::dbg::CtcChannelState{}.time_constant &&
+             !m.d.dma_state().active && m.d.audio_state().psg_clock_hz == 0 &&
+             m.d.mem_coverage_spaces().empty() && m.d.mem_coverage_fetch(0) == 0;
+        check("TGT-01-16", "the local-only queries return their empty values and the target is not called",
+              ok && m.t.calls.empty(), std::to_string(m.t.calls.size()));
+    }
+    {
+        Remote m;
+        bool all = true;
+        auto no = [&](Result r) { all = all && r == Result::Unsupported; };
+        uint8_t buf[4] = {};
+        no(m.d.set_trace_enabled(true)); no(m.d.trace_clear()); no(m.d.trace_resize(8));
+        no(m.d.trace_export("/nonexistent/x")); no(m.d.trace_entries().status);
+        no(m.d.coverage_enable(true)); no(m.d.coverage_clear()); no(m.d.mem_coverage_enable(true));
+        no(m.d.mem_coverage_clear()); no(m.d.mem_coverage(MemSpace::cpu(), 0, 1, buf).status);
+        no(m.d.set_audio_mute_mask(m.a, 1)); no(m.d.set_audio_channel_mute_mask(m.a, 1));
+        no(m.d.clear_audio_drops(m.a)); no(m.d.ay_registers(0).status);
+        no(m.d.set_audio_scope_enabled(m.a, true)); no(m.d.stems_record_start(m.a, "/nonexistent"));
+        no(m.d.stems_record_stop(m.a)); no(m.d.audio_scope_samples(4).status);
+        no(m.d.set_audio_log_enabled(m.a, true)); no(m.d.audio_log_clear(m.a)); no(m.d.audio_log_resize(8));
+        no(m.d.audio_log_entries(0).status); no(m.d.audio_log_export("/nonexistent/x"));
+        no(m.d.psg_record_start(m.a, "/nonexistent/x")); no(m.d.psg_record_stop(m.a));
+        no(m.d.screenshot(m.a, "/nonexistent/x.png", 0xFF, jnext::dbg::ScreenshotFormat::Png));
+        no(m.d.flush_captures(m.a)); no(m.d.save_snapshot(m.a, "/nonexistent/x.sna"));
+        no(m.d.press_key(m.a, std::string("a"), 1).status); no(m.d.press_key(m.a, jnext::dbg::MatrixKey{}, 1).status);
+        no(m.d.set_key(m.a, 0, 0, true)); no(m.d.set_extended_key(m.a, 0, true));
+        no(m.d.set_joystick(m.a, jnext::dbg::JoystickSide::Left, 1)); no(m.d.press_nmi(m.a, jnext::dbg::NmiButton::Mf));
+        no(m.d.bookmark_save(m.a, "b", jnext::dbg::SaveStateMode::AdvanceToBoundary));
+        no(m.d.bookmark_restore(m.a, "b")); no(m.d.save_state_bytes(m.a, jnext::dbg::SaveStateMode::AdvanceToBoundary).status);
+        no(m.d.load_state_bytes(m.a, buf, 4)); no(m.d.set_rewind_enabled(true)); no(m.d.resize_rewind_buffer(4));
+        no(m.d.set_call_stack_enabled(m.a, true));
+        no(m.d.set_palette(m.a, jnext::dbg::PaletteId::UlaActive, 0, 1)); no(m.d.set_border(m.a, 1));
+        uint32_t px[8] = {};
+        no(m.d.render_layer(jnext::dbg::Layer::UlaPrimary, 0, px, 8));
+        no(m.d.set_loop_driver(jnext::dbg::LoopDriver{})); no(m.d.on_cold_boot_begin()); no(m.d.on_cold_boot_done());
+        check("TGT-01-17", "every local-only refusing verb is Unsupported and the target is not called",
+              all && m.t.calls.empty(), std::to_string(m.t.calls.size()));
+    }
+    {
+        Remote m;
+        bool all = true;
+        for (size_t k = 0; k < jnext::dbg::EVENT_KIND_COUNT; ++k) {
+            Subscription s;
+            s.kind = static_cast<jnext::dbg::EventKind>(k);
+            if (s.kind == jnext::dbg::EventKind::Port) s.filter.port_mask = 0x00FF;
+            all = all && m.d.subscribe(m.a, s).status == Result::Unsupported;
+        }
+        Subscription like;
+        const auto g = m.d.subscribe_source_line(m.a, "x.c:1", like);
+        check("TGT-01-18", "every subscribe kind and subscribe_source_line are Unsupported; raise_host_event is Ok "
+                           "with nothing delivered",
+              all && g.status == Result::Unsupported && m.d.raise_host_event(m.a, "x") == Result::Ok &&
+                  m.d.subscriptions(true).empty() && m.t.calls.empty());
+    }
+}
+
+struct CountService final : jnext::dbg::Service {
+    int serviced = 0, flushed = 0;
+    jnext::dbg::ServiceStep service_once(int) override {
+        ++serviced;
+        return jnext::dbg::ServiceStep::Idle;
+    }
+    void flush_notifications() override { ++flushed; }
+    bool peer_connected() const override { return true; }
+};
+
+static void tgt01_host_rows() {
+    {
+        Remote m;
+        CountService svc;
+        const Result as = m.d.add_service(svc);
+        const jnext::dbg::PumpBudget pb;
+        const auto hint = m.d.pump(pb);
+        m.d.log(m.a, jnext::dbg::LogLevel::Info, "hello");
+        bool heard = false;
+        for (const auto& l : m.rec.logs) heard = heard || l == "hello [client " + std::to_string(m.a) + "]";
+        const bool live = m.d.set_live_raster(m.a, true) == Result::Ok && m.d.live_raster() && m.d.attached();
+        const Result det = m.d.detach(m.a);
+        check("TGT-01-19", "session verbs work without a machine: attach, set_listener, add_service, pump "
+                           "(the service runs, the target is not touched), log, live_raster, attached, detach",
+              as == Result::Ok && svc.serviced == 1 && svc.flushed == 1 && hint.remote_attached && hint.paused &&
+                  heard && live && det == Result::Ok && !m.d.attached() && m.t.calls.empty(),
+              std::to_string(svc.serviced) + "/" + std::to_string(m.t.calls.size()));
+    }
+    {
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("tgtmap");
+        const std::string map = dir + "/t.map";
+        {
+            FILE* f = std::fopen(map.c_str(), "w");
+            std::fputs("START = $8000\nNEXT = $8003\n", f);
+            std::fclose(f);
+        }
+        const auto n = m.d.load_map(map, jnext::dbg::MapFormat::Simple, nullptr);
+        std::filesystem::remove_all(dir);
+        const auto name = m.d.lookup(0x8000);
+        const auto addr = m.d.lookup_name("NEXT");
+        m.d.set_user_label(MemSpace::page(0x24), 0x1000, "USER");
+        // LD A,$12 at 0x8000 (3E 12), NOP at 0x8002 (00), read through the target's Cpu reads.
+        m.t.ram[0x8000] = 0x3E; m.t.ram[0x8001] = 0x12; m.t.ram[0x8002] = 0x00;
+        const auto dis = m.d.disassemble(0x8000, 2, nullptr);
+        const int len = m.d.instruction_length(0x8000);
+        const bool no_regs = !m.t.called("registers");   // disassembly alone needs no PC
+        // More host-side verbs that read the machine only through the facade.
+        const bool no_frames = m.d.c_frames().empty() && m.d.source_location() == nullptr &&
+                               !m.d.is_call_like(0x8000);
+        (void)m.d.load_program_sidecars("/nonexistent/prog.nex");
+        check("TGT-01-20", "host-side verbs work: load_map, lookup, lookup_name, set_user_label, and "
+                           "disassemble / instruction_length read the target's memory through Cpu reads",
+              n.status == Result::Ok && n.value == 2 && name.has_value() && *name == "START" &&
+                  addr.has_value() && *addr == 0x8003 && no_frames && !dis.empty() && dis[0].byte_count == 2 && len == 2 &&
+                  m.t.count("read") > 0 && no_regs,
+              std::to_string(dis.size()) + " lines, " + std::to_string(m.t.count("read")) + " reads");
+    }
+    {
+        Remote m;
+        m.t.slots[2].is_rom = true;
+        m.t.slots[2].effective_page = 3;
+        m.t.slots[2].space = MemSpace::rom(1);
+        m.t.slots[3].effective_page = 0x41;
+        m.t.slots[3].space = MemSpace::page(0x41);
+        check("TGT-01-21", "source_page() and effective_page() come from the target's slots: a RAM slot gives "
+                           "Page{nr}, a ROM slot gives Rom{i}",
+              m.d.source_page(0x4010) == MemSpace::rom(1) && m.d.effective_page(0x4010) == 3 &&
+                  m.d.source_page(0x6010) == MemSpace::page(0x41) && m.d.effective_page(0x6010) == 0x41);
+    }
+    {
+        Remote m;
+        m.t.count_extra = 7;
+        uint8_t b[4] = {};
+        const uint8_t v[4] = {1, 2, 3, 4};
+        const auto r = m.d.peek(MemSpace::cpu(), 0x9000, 4, b);
+        m.rec.clear();
+        const auto w = m.d.poke(m.a, MemSpace::cpu(), 0x9000, 4, v);
+        const auto lines = m.rec.mutates();
+        check("TGT-01-22", "a target reporting n + 7 bytes is clamped: peek and poke report n, and the MUTATE "
+                           "line says '4 bytes'",
+              r.value == 4 && w.value == 4 && w.status == Result::Ok && lines.size() == 1 &&
+                  lines[0].find(" 4 bytes by ") != std::string::npos && lines[0].find("11") == std::string::npos,
+              lines.empty() ? std::string("no line") : lines[0]);
+    }
+    {
+        Remote m;
+        m.t.sprite_list.resize(3);
+        const size_t few = m.d.sprites().size();
+        m.t.sprite_list.resize(200);
+        const size_t many = m.d.sprites().size();
+        check("TGT-01-23", "sprites() is exactly SPRITE_COUNT whether the target returns 3 or 200",
+              few == jnext::dbg::SPRITE_COUNT && many == jnext::dbg::SPRITE_COUNT,
+              std::to_string(few) + "/" + std::to_string(many));
+    }
+    {
+        Remote m;
+        m.t.pattern.resize(10);
+        const bool short_empty = m.d.pattern_ram().empty() && m.d.pattern_ram().data == nullptr;
+        m.t.pattern.assign(jnext::dbg::PATTERN_RAM_BYTES, 0);
+        m.t.pattern_null = true;
+        const bool null_empty = m.d.pattern_ram().empty();
+        m.t.pattern_null = false;
+        check("TGT-01-24", "pattern_ram() is an empty view for a 10-byte target view and for a null one, "
+                           "the whole view otherwise",
+              short_empty && null_empty && m.d.pattern_ram().size == jnext::dbg::PATTERN_RAM_BYTES);
+    }
+}
+
 int main() {
     loc_poke_rows();
     loc_refusal_rows();
     loc_mutate_text_rows();
     loc_state_rows();
+    tgt01_dispatch_rows();
+    tgt01_refusal_rows();
+    tgt01_host_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);
