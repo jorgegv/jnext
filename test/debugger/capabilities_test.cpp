@@ -1135,10 +1135,15 @@ void test_review_a1() {
 
     // RTQ-69 / RTQ-79: the operand menu's entries are greyed by their own capability, in both views
     {
-        press_text_line(d, 0);
+        // a line at or after the program: the lines before it are NOPs and have no operand
+        int line = 0;
+        for (; line < 16; ++line) {
+            press_text_line(d, line);
+            if (d->selected_address() >= PROG) break;
+        }
         std::string detail;
         const bool ok = operand_menu_ok(set_view,
-                                        [&]() { return right_click(d, QPoint(d->breakpoint_x() + 120, y_of(0))); },
+                                        [&]() { return right_click(d, QPoint(d->breakpoint_x() + 120, y_of(line))); },
                                         detail);
         check("RTQ-69", "Disassembly operand menu: Break on Read / Write grey without Watchpoints, Watch without "
                         "Memory, each with the reason; all enabled with the full view",
