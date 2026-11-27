@@ -201,10 +201,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger BP Enable/Disable |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger resume step-off |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raster State (beam + ULA fetch) |       86 |       86 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger socket transport (GH #287) |       84 |       84 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger socket transport (GH #287) |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Browser page debug channel (GH #545) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DZRP remote debugger adapter (GH #12) |      168 |      168 |      0 |       0 |    100% | 🟢 All tests pass. |
-| DZRP remote debugger client (GH #511) |       66 |       66 |      0 |       0 |    100% | 🟢 All tests pass. |
+| DZRP remote debugger client (GH #511) |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GDB RSP remote debugger adapter (GH #281) |      126 |      126 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger DSL front end (GH #26) |      292 |      292 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger DSL evaluator (GH #26) |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -265,6 +265,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      203 |      203 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **18539**| **18539**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **18549**| **18549**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
