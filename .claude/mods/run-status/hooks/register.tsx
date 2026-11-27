@@ -299,14 +299,19 @@ let inFlightSince = 0
 async function refresh($: EngineInterface) {
   const now = await $.clock.now()
   if (inFlightSince !== 0 && now - inFlightSince < STALE_MS) return
-  inFlightSince = now
+  // This refresh's claim: a lost (stale) refresh that ends later must not release a newer one's
+  // guard, clear its busy label, or write a report older than the one shown.
+  const mine = now
+  inFlightSince = mine
   await update($, isBusy, () => true)
   try {
     const r = await gather($)
-    await update($, report, () => r)
+    if (inFlightSince === mine) await update($, report, () => r)
   } finally {
-    inFlightSince = 0
-    await update($, isBusy, () => false)
+    if (inFlightSince === mine) {
+      inFlightSince = 0
+      await update($, isBusy, () => false)
+    }
     $.ui.invalidate('ui.render')
   }
 }
