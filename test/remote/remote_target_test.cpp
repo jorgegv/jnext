@@ -965,14 +965,18 @@ static void ins_rows_b() {
         Scripted u([](Script& sc) { sc.regs_len_delta = 1; }, true);
         uint8_t  mem[8];
         const auto pk = u.d->peek(MemSpace::cpu(), 0x8000, 8, mem);
+        // and a single-request getter (the sprite clip window) that meets it in the same verb
+        Scripted v([](Script& sc) { sc.regs_len_delta = 1; }, true);
+        v.d->sprite_clip();
         check("RTG-INS-20", "a CMD_GET_REGISTERS reply of the wrong length is a protocol error: the target is lost, registers "
                             "are zero, every verb Unsupported and exactly one CMD_GET_REGISTERS was sent; a Cpu read that "
-                            "meets the same reply sends no memory read after it",
+                            "meets the same reply sends no memory read after it, and neither does a sprite getter",
               z.PC == 0 && !s.tgt->connected() && s.d->capabilities().bits() == 0 &&
                   s.tgt->lost_reason().find("CMD_GET_REGISTERS") != std::string::npos &&
                   s.s.count(CMD_GET_REGISTERS) == 1 && pk.status == Result::Unsupported && !u.tgt->connected() &&
                   u.s.count(CMD_GET_REGISTERS) == 1 && u.s.count(CMD_READ_MEM) == 0 &&
-                  u.s.count(CMD_READ_MEM_BLOCKS) == 0);
+                  u.s.count(CMD_READ_MEM_BLOCKS) == 0 && v.s.count(CMD_GET_REGISTERS) == 1 &&
+                  v.s.count(CMD_GET_SPRITES_CLIP_WINDOW_AND_CONTROL) == 0);
     }
     {
         Scripted s([](Script& sc) {
