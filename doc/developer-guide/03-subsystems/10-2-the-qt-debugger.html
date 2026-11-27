@@ -2283,6 +2283,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#capabilities-and-the-target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capabilities and the target
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#tests" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3870,13 +3881,53 @@ partial ROM drop is <code>RefusedReadOnly</code> with the count), which the mess
 the Disassembly. The dialogs are stack <code>QDialog</code>s parented to the panel and gone when they return:
 nothing may stay a child of the panel, because callers and rows find the Addr box and the view selector
 with <code>findChild&lt;&gt;()</code>.</p>
+<h2 id="capabilities-and-the-target">Capabilities and the target<a class="headerlink" href="#capabilities-and-the-target" title="Permanent link">&para;</a></h2>
+<p>The window can be built over a facade whose target is not the local machine (<a href="09-1-the-backend-api.html">3.9.1</a>,
+<em>The target seam</em>): such a facade serves only some of the 36 capabilities, and the window must show
+that instead of offering a control that cannot work. Greying is driven by what the facade says,
+<code>Debugger::capabilities()</code>, <code>why_unavailable()</code>, <code>target_info()</code> and <code>register_validity()</code>, read by
+<code>DebuggerWindow::refresh_capabilities()</code> into one <code>CapabilityView</code>. It is applied only when it differs from
+the last one applied (the 4 Hz running refresh and every paused tick call it, so an unchanged view costs one
+comparison), from <code>set_debugger_manager()</code>, <code>update_actions()</code> and <code>refresh_panels()</code>.</p>
+<p><strong>One table decides.</strong> <code>src/debugger/capability_gate.h</code> has <code>kGates</code>, one row per <code>Surface</code> (a menu item, a
+button, a panel or a panel-internal control) naming the one or two capabilities it needs, and <code>kNoSurface</code>,
+each capability that has no surface in this window and why; together they name every capability
+(<code>RTQ-01</code>). Nothing else decides which capability a surface needs: the window and the panels ask
+<code>first_missing(Surface, CapabilitySet)</code>. Adding a control is a <code>Surface</code> row and a registration.</p>
+<p><strong>One helper writes enabled state.</strong> A gated widget is registered with <code>gate_(Surface, widget)</code>; every
+writer of its enabled state calls <code>set_state_(widget, predicate)</code>, which records the predicate the caller
+means (paused, a source map, the host action) and applies <code>enabled = predicate &amp;&amp; capability</code>. The tooltip is
+the target's reason while greyed and the widget's own otherwise (<code>set_normal_tip_()</code>, which <code>apply_keymap()</code>
+uses, so a rebind made while greyed shows after the un-grey). That composition is what keeps a pause edge,
+a <code>steps_available</code> re-emission, the Script menu's <code>aboutToShow</code> or the host's Reload Last File action
+from re-enabling a greyed control: none of them writes <code>setEnabled</code> itself.</p>
+<p><strong>A greyed tooltip is <code>Not available on &lt;target&gt;: &lt;reason&gt;</code></strong>, built by <code>unavailable_tooltip()</code> as forced
+rich text with the content HTML-escaped. A panel whose capability is missing is covered by a
+<code>PanelPlaceholder</code>, a plain-text label laid over it (the panel stays the dock's widget, which the window and
+the suites rely on); the panel is not refreshed meanwhile, <code>panel_on_show()</code> answers false for it, so it asks
+the target for no data, and it refreshes at once when the capability returns. The panels with their own
+fields take the view through <code>set_capabilities()</code>: the CPU panel shows <code>?</code> for every register field the
+validity mask does not cover (the core pairs, I, R and the flags by <code>Core</code>; each half of IFF, IM and the
+halted state by their own bits), a reason line (the target's reason for <code>Run</code>, else "registers not known"),
+refuses a register edit without <code>RegisterWrite</code> and shows <code>?</code> for T-states and the ULA screen; the MMU panel
+shows <code>?</code> for the slots and the paging fields; the Memory selector disables its Slot and Page views; the
+Disassembly and Source tab refuse a click or key that would add an execute breakpoint, or run to the cursor,
+with the reason while removing a breakpoint stays allowed; the Breakpoints Add dialog disables the types the
+target cannot hold; the Call Stack says why its list is reconstructed.</p>
+<p>Everything a target answers is untrusted text, a network peer's from the remote epic on: <code>display_text()</code>
+drops control and format characters, folds whitespace, shows invalid UTF-8 as U+FFFD and cuts a name at 64
+and a reason at 200 characters, and no markup it sends is interpreted.</p>
+<p>A facade over a target serves few capabilities, so a suite cannot build "a target lacking exactly X" for most
+of them; <code>debugger_capabilities_test</code> takes capabilities away through
+<code>DebuggerWindow::set_capability_view_for_test()</code> on the local facade, and proves the production path with
+<code>Debugger(FakeTarget&amp;)</code>.</p>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
 <p>The Qt suites are gated on a Qt + debugger build and run in <code>make unit-test</code>:
 <code>debugger_verbs_test</code> (the verbs, the pause edge and the rewind, trace and MAP
 controls), <code>debugger_panels_test</code> (each panel's displayed text), <code>debugger_video_panel_test</code>, <code>debugger_audio_panel_test</code>,
 <code>debugger_inspect_watchpoint_test</code>, <code>debugger_persistent_bp_test</code>,
 <code>debugger_keymap_test</code>, <code>debugger_menu_test</code>, <code>debugger_disasm_copy_test</code>,
-<code>debugger_quit_gate_test</code>, <code>debugger_variables_panel_test</code> (the Variables tab, <code>QVAR-*</code>, editing <code>QVARW-*</code>), and the window-geometry suites. The regression rows
+<code>debugger_capabilities_test</code> (the greying, <code>RTQ-*</code>), <code>debugger_quit_gate_test</code>, <code>debugger_variables_panel_test</code> (the Variables tab, <code>QVAR-*</code>, editing <code>QVARW-*</code>), and the window-geometry suites. The regression rows
 <code>qt-host-probe-func</code> and <code>qt-host-order-func</code> exercise <code>QtApp</code>'s hosting. The hint's decoder suite, <code>disasm_hint_test</code> (<code>DHINT-*</code>), is not Qt-gated; the panel's rows are <code>QDHINT-*</code> in <code>debugger_panels_test</code>, and <code>operand_reader()</code>'s are <code>OPRD-*</code> in <code>source_debug_test</code>. The Memory panel tools' helper suite, <code>mem_tools_test</code> (<code>MEMT-*</code>), is not Qt-gated either; the panel's rows are <code>QMPT-*</code> in <code>debugger_panels_test</code> and the window's <code>QMPW-*</code> in <code>debugger_verbs_test</code>. The Graphics decoders' suite, <code>gfx_decode_test</code> (<code>GFXD-*</code>, VHDL as oracle), is not Qt-gated; the tab's rows are <code>QGFX-*</code> in <code>debugger_panels_test</code>.</p>
 
 

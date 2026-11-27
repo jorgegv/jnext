@@ -505,6 +505,8 @@ mask without `Core`; it adds no capability bit, and its memory, NextREG, port an
 served. `RunState::cycle` and `frame` are meaningful exactly when `MachineTime` is: `state()` returns 0
 for both without it, as `registers()` returns zeros under an invalid `Core`.
 
+The Qt debugger turns these answers into greyed controls, placeholders and `?` fields: [3.10.2](10-2-the-qt-debugger.md).
+
 ## Behind the facade
 
 `Debugger` holds one `unique_ptr<Impl>` and nothing else, so adding state never

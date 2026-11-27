@@ -4,6 +4,7 @@
 #include <QLabel>
 
 #include "debug/long_address.h"
+#include "debugger/capability_gate.h"
 
 namespace jnext { namespace dbg { class Debugger; } }
 
@@ -18,6 +19,13 @@ public:
 
     void refresh();
 
+    /// Epic #486 R1.3 - a target that does not report the MMU slots or the paging latches gets `?` in
+    /// those fields (never zeros shown as readings). Redraws.
+    void set_capabilities(const jnext::dbggate::CapabilityView& view) {
+        caps_ = view;
+        refresh();
+    }
+
     /// GH #360 - Friendly (`P0E`, `DIVROM`) or Physical (`$060000`) in the Memory column.
     void set_address_style(jnext::dbg::AddressStyle st) { style_ = st; }
 
@@ -25,6 +33,7 @@ private:
     void create_ui();
 
     const jnext::dbg::Debugger* dbg_;
+    jnext::dbggate::CapabilityView caps_;
 
     QLabel* slot_page_[8] = {};
     QLabel* slot_type_[8] = {};

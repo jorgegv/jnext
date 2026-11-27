@@ -4520,6 +4520,12 @@
 
 
 <h1 id="panels">Panels<a class="headerlink" href="#panels" title="Permanent link">&para;</a></h1>
+<h2 id="greyed-actions-and-panels">Greyed actions and panels<a class="headerlink" href="#greyed-actions-and-panels" title="Permanent link">&para;</a></h2>
+<p>When the debugger is attached to a machine that cannot do something, the matching menu items and buttons
+are greyed, and their tooltip says why (<code>Not available on &lt;machine&gt;: &lt;reason&gt;</code>). A panel whose data the
+machine cannot give shows that reason instead of its content. In the <a href="01-cpu-registers.html">CPU registers</a> a
+<code>?</code> means the machine does not report that value. A greyed control comes back by itself when the machine
+can do it again.</p>
 
 
 

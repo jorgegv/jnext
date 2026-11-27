@@ -49,6 +49,12 @@ void CallStackPanel::create_ui() {
     note_->setObjectName("callStackNote");
     note_->setWordWrap(true);
     note_->setVisible(false);
+    header_ = new QLabel(this);
+    header_->setObjectName("callStackCapability");
+    header_->setTextFormat(Qt::PlainText);
+    header_->setWordWrap(true);
+    header_->setVisible(false);
+    layout->addWidget(header_);
     layout->addWidget(note_);
     layout->addWidget(table_);
 
@@ -56,6 +62,13 @@ void CallStackPanel::create_ui() {
     connect(table_, &QTableWidget::currentCellChanged, this, [this](int row, int, int, int) {
         if (!programmatic_ && row >= 0) emit call_selected(row);
     });
+}
+
+void CallStackPanel::set_capabilities(const jnext::dbggate::CapabilityView& view) {
+    const auto miss = jnext::dbggate::first_missing(jnext::dbggate::Surface::CallStackView, view.caps);
+    if (miss) header_->setText(jnext::dbggate::unavailable_text(view, *miss));
+    else      header_->clear();
+    header_->setVisible(miss.has_value());
 }
 
 void CallStackPanel::select_row(int row) {

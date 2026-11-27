@@ -8,6 +8,7 @@
 #include <optional>
 #include "debug/debug_keymap.h"
 #include "debug/mem_space.h"
+#include "debugger/capability_gate.h"   // epic #486 R1.3
 #include "debugger/dock_layout.h"   // GH #377
 #include "debugger/window_attach.h"
 #include <QHash>
@@ -134,6 +135,10 @@ public:
     /// GH #435 - the Variables tab.
     VariablesPanel* variables_panel() { return variables_panel_; }
     NextRegPanel* nextreg_panel() { return nextreg_panel_; }
+    MmuPanel* mmu_panel() { return mmu_panel_; }
+    SpritePanel* sprite_panel() { return sprite_panel_; }
+    GraphicsPanel* graphics_panel() { return graphics_panel_; }
+    CopperPanel* copper_panel() { return copper_panel_; }
     AudioPanel* audio_panel() { return audio_panel_; }
     MemoryPanel* memory_panel() { return memory_panel_; }
     /// GH #26 WP5 — the Script tab.
@@ -146,6 +151,15 @@ public:
     QAction* script_key_action(int index) const {
         return index >= 0 && index < 8 ? script_key_actions_[index] : nullptr;
     }
+
+    /// Epic #486 R1.3 - test hooks: replace what the facade says (the facade serves only a few
+    /// capabilities over a non-local target, so most bits can only be taken away this way), and read
+    /// what the window registered and applied.
+    void set_capability_view_for_test(std::optional<jnext::dbggate::CapabilityView> v);
+    std::vector<std::pair<jnext::dbggate::Surface, QObject*>> gated_for_test() const;
+    int capability_applies_for_test() const { return view_applies_; }
+    jnext::dbggate::PanelPlaceholder* placeholder_for_test(const QWidget* panel) const;
+    const jnext::dbggate::CapabilityView& capability_view() const { return view_; }
 
     /// GH #498 - is `panel` on show (its dock open and the shown tab of its group, or floating; the
     /// window open)? NOT QWidget::isVisible(): a tabbed-away dock is still isVisible() (GH #377).
@@ -166,6 +180,32 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    // ---- Epic #486 R1.3: greying by capability ----
+    // Every enabled-state writer of a gated widget goes through set_state_(): it records the
+    // predicate the caller means (paused, a source map, a host action) and applies
+    // `enabled = predicate && capability`, with the target's reason as the tooltip while greyed and
+    // the widget's own tooltip otherwise. A panel is gated by a placeholder label laid over it.
+    struct Gated {
+        QObject* w;
+        jnext::dbggate::Surface s;
+        bool ok;          ///< the last predicate
+        QString tip;      ///< the tooltip the widget has when not greyed
+        jnext::dbggate::PanelPlaceholder* ph;   ///< non-null when `w` is a panel: gated by this placeholder
+    };
+    QObject* gate_(jnext::dbggate::Surface s, QObject* w, bool ok = true);
+    void gate_panel_(jnext::dbggate::Surface s, QWidget* panel);
+    void set_state_(QObject* w, bool ok);
+    void set_normal_tip_(QObject* w, const QString& tip);
+    void apply_gate_(Gated& g);
+    void refresh_capabilities();
+    bool placeholdered_(const QWidget* panel) const;
+    void refresh_panels_content_();
+    std::vector<Gated> gated_;
+    jnext::dbggate::CapabilityView view_;
+    bool view_applied_ = false;
+    int  view_applies_ = 0;
+    std::optional<jnext::dbggate::CapabilityView> view_override_;
+
     void create_panels();
     void create_menus();
     void save_geometry();

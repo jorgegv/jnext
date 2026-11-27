@@ -115,7 +115,19 @@ void MmuPanel::create_ui() {
 void MmuPanel::refresh() {
     if (!dbg_) return;
 
-    // INS-03 — the eight slots and the legacy paging ports.
+    using jnext::dbggate::Surface;
+    const QString unknown = QStringLiteral("?");
+
+    // Epic #486 R1.3: a target that does not report the slots shows `?`, and is not asked.
+    if (caps_.missing(Surface::MmuSlots)) {
+        for (int s = 0; s < 8; ++s) {
+            slot_page_[s]->setText(unknown);
+            slot_type_[s]->setText(unknown);
+            slot_type_[s]->setStyleSheet("");
+            slot_mem_[s]->setText(unknown);
+        }
+    } else {
+    // INS-03: the eight slots and the legacy paging ports.
     const auto slot_info = dbg_->mmu_slots();
 
     for (int s = 0; s < 8; ++s) {
@@ -141,7 +153,15 @@ void MmuPanel::refresh() {
             slot_type_[s]->setStyleSheet("");
         }
     }
+    }
 
+    if (caps_.missing(Surface::PagingFields)) {
+        bank_128k_->setText(unknown);
+        rom_select_->setText(unknown);
+        paging_locked_->setText(unknown);
+        paging_locked_->setStyleSheet(QString());
+        return;
+    }
     uint8_t p7ffd = dbg_->paging_ports().port_7ffd;
     bank_128k_->setText(QString::number(p7ffd & 0x07));
     rom_select_->setText(QString::number((p7ffd >> 4) & 1));

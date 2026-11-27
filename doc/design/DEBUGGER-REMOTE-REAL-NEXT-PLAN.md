@@ -53,7 +53,7 @@ are sub-issues of their own; R6 is one placeholder sub-issue, opened only if R5.
 
 #### Sub-issue 4: Qt greying and window retargeting
 
-- [ ] **R1.3** Qt greying: actions, panel placeholders and unknown registers driven by capabilities; fake-capability Qt suite
+- [x] **R1.3** Qt greying: actions, panel placeholders and unknown registers driven by capabilities; fake-capability Qt suite
 - [ ] **R1.4** Debugger window retargeting: one window, Local or Remote target (Q8), title and status bar, caches reset on a switch
 
 ### Phase R2: remote jnext over DZRP
@@ -1072,7 +1072,7 @@ tooltip, or the panel shows a placeholder with the reason (R1.3).
 | Any command while the program runs | yes | yes | only `CMD_PAUSE`: any other byte would break the program or go unanswered (§2.4, D18) | edits absorbed or queued; reads show the last stop, marked stale |
 | Conditions, log actions, `once`, hit counts | evaluated in the emulator | evaluated by the client at each hit, auto-continue (a round trip per hit) | same | enabled; tooltip states the cost |
 | Read / write watchpoints | yes | yes (CMD 42/43) | no | Watch-breakpoint actions greyed |
-| Port, NextREG-write, interrupt, frame, Copper, DMA events | yes | no | no | not offered (script-only today) |
+| Port, NextREG-write, interrupt, frame, Copper, DMA events | yes | no | no | the Breakpoints Add dialog's IO, Interrupt, NMI and Audio Write types and Debug > Run to Next Interrupt greyed (MachineEvents) |
 | Registers PC SP AF BC DE HL IX IY and shadows, I, R | yes | yes | yes once the client has set SP, PC and slots; invalid before ("no debuggee", D24) | CPU panel shows the reason of Run: "no program loaded: upload one" |
 | IM | yes | yes | unknown | CPU panel shows `?` |
 | IFF1, IFF2, HALT, MEMPTR | yes | unknown (not in DZRP) | unknown | CPU panel shows `?` |
@@ -1080,13 +1080,13 @@ tooltip, or the panel shows a placeholder with the reason (R1.3).
 | Memory read / write, CPU view | yes | yes | yes, while stopped | n/a |
 | Memory read while running | yes (4 Hz refresh) | yes, at the target's next tick | no (the stub is not executing) | panels show the last stop, marked stale |
 | Physical page and ROM image views | yes | yes (CMD 25/26, ROM bank 0xFF) | no in the PoC (owner, Q7) | the Memory panel's page view greyed |
-| Overlays in the fetch identity (DivMMC, Multiface, Alt ROM, Layer 2 read map) | yes | no (DZRP sends the slot's bank only) | no; ROM slots show the stub's patched Alt ROM | source lookup uses the slot's page; Disassembly labels the identity "MMU only" |
+| Overlays in the fetch identity (DivMMC, Multiface, Alt ROM, Layer 2 read map) | yes | no (DZRP sends the slot's bank only) | no; ROM slots show the stub's patched Alt ROM | source lookup uses the slot's page; no surface in R1 (the Disassembly has no fetch-identity label to mark) |
 | MMU slots | yes | yes | yes (slot 7 from the stub's backup); right after `CMD_INIT` they are its ZX128 defaults, labelled so (§2.4) | n/a |
 | NextREG panel | yes | yes, one command per register, pipelined | yes, one round trip per register, refreshed on stop only | n/a |
-| Sprite attributes, patterns | yes | yes (CMD 18/19) | no (answered with zeros) | Sprites panel shows palette and clip only |
+| Sprite attributes, patterns | yes | yes (CMD 18/19) | no (answered with zeros) | Sprites panel shows the reason (it has no palette or clip view) |
 | Sprite palette and clip | yes | yes | yes | n/a |
 | Copper panel | yes | no command | no (write-only on hardware; the stub owns the list) | placeholder |
-| Video panel (layers, raster) | yes | no | no | placeholder |
+| Video panel (layers, raster), Graphics panel | yes | no | no | placeholder |
 | Audio panel (AY, mute) | yes | no | no | placeholder |
 | Trace log | yes | no | no | Trace menu greyed |
 | Memory and source coverage | yes | no | no | Coverage menu greyed; no tint |

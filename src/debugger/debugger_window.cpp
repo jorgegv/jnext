@@ -64,6 +64,8 @@
 #include <QSignalBlocker>
 #include <QDir>
 
+using jnext::dbggate::Surface;
+
 namespace {
 
 // GH #417: the [debugger] key names live in platform/config_keys.h.
@@ -276,6 +278,7 @@ DebuggerWindow::DebuggerWindow(jnext::dbg::Debugger& dbg, QWidget* parent,
 // show with the window.
 bool DebuggerWindow::panel_on_show(const QWidget* panel) const {
     if (!panel || !isVisible()) return false;
+    if (placeholdered_(panel)) return false;   // epic #486 R1.3: a panel showing its reason asks for no data
     for (QDockWidget* d : docks_) {
         if (d->widget() != panel) continue;
         if (d->isHidden()) return false;
@@ -353,6 +356,7 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
         update_actions(dbg->state().paused);
     });
     toolbar->addWidget(trace_toggle_btn_);
+    gate_(Surface::TraceCmd, trace_toggle_btn_);
 
     // F3: Export Trace. Caption set by apply_keymap() at the end of this
     // function — it quotes a key, so it must follow the binding (GH #1).
@@ -361,6 +365,7 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
         export_trace();
     });
     toolbar->addWidget(export_trace_btn_);
+    gate_(Surface::TraceCmd, export_trace_btn_);
 
     // Spacer to push execution controls to the right
     auto* spacer = new QWidget(this);
@@ -371,38 +376,47 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     continue_btn_ = new QPushButton(this);
     connect(continue_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_run);
     toolbar->addWidget(continue_btn_);
+    gate_(Surface::Run, continue_btn_);
 
     frame_back_btn_ = new QPushButton(tr("|\u25C4 Frame Back"), this);
     connect(frame_back_btn_, &QPushButton::clicked, this, &DebuggerWindow::frame_back);
     toolbar->addWidget(frame_back_btn_);
+    gate_(Surface::RewindCmd, frame_back_btn_);
 
     step_back_btn_ = new QPushButton(tr("\u25C4 Step Back"), this);
     connect(step_back_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_step_back);
     toolbar->addWidget(step_back_btn_);
+    gate_(Surface::RewindCmd, step_back_btn_);
 
     step_into_btn_ = new QPushButton(this);
     connect(step_into_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_step_into);
     toolbar->addWidget(step_into_btn_);
+    gate_(Surface::Step, step_into_btn_);
 
     step_over_btn_ = new QPushButton(this);
     connect(step_over_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_step_over);
     toolbar->addWidget(step_over_btn_);
+    gate_(Surface::Step, step_over_btn_);
 
     step_out_btn_ = new QPushButton(this);
     connect(step_out_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_step_out);
     toolbar->addWidget(step_out_btn_);
+    gate_(Surface::Step, step_out_btn_);
 
     run_to_eosl_btn_ = new QPushButton(tr("Run to EOSL"), this);
     connect(run_to_eosl_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_run_to_eosl);
     toolbar->addWidget(run_to_eosl_btn_);
+    gate_(Surface::CycleExact, run_to_eosl_btn_);
 
     run_to_eof_btn_ = new QPushButton(tr("Run to EOF"), this);
     connect(run_to_eof_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_run_to_eof);
     toolbar->addWidget(run_to_eof_btn_);
+    gate_(Surface::CycleExact, run_to_eof_btn_);
 
     break_btn_ = new QPushButton(this);
     connect(break_btn_, &QPushButton::clicked, mgr, &DebuggerManager::on_pause);
     toolbar->addWidget(break_btn_);
+    gate_(Surface::Pause, break_btn_);
 
     addToolBar(Qt::BottomToolBarArea, toolbar);
 
@@ -431,6 +445,7 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
                 static_cast<uint32_t>(rewind_slider_->value()));
     });
     rewind_toolbar_->addWidget(rewind_slider_);
+    gate_(Surface::RewindCmd, rewind_slider_);
 
     rewind_frame_label_ = new QLabel(tr("---"), this);
     rewind_frame_label_->setMinimumWidth(120);
@@ -443,6 +458,7 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
         debugger_mgr_->on_rewind_to_frame(frame);
     });
     rewind_toolbar_->addWidget(rewind_jump_btn_);
+    gate_(Surface::RewindCmd, rewind_jump_btn_);
 
     rewind_toolbar_->setVisible(false);
     addToolBar(Qt::BottomToolBarArea, rewind_toolbar_);
@@ -450,6 +466,7 @@ void DebuggerWindow::set_debugger_manager(DebuggerManager* mgr) {
     // GH #1 — last, because it writes both the actions' shortcuts (created in
     // create_menus() above) and the toolbar captions (created just above).
     apply_keymap();
+    refresh_capabilities();
 }
 
 void DebuggerWindow::set_reload_source(QAction* host) {
@@ -457,13 +474,13 @@ void DebuggerWindow::set_reload_source(QAction* host) {
     QObject::disconnect(reload_trigger_conn_);
     QObject::disconnect(reload_enable_conn_);
     if (!host) {
-        reload_action_->setEnabled(false);
+        set_state_(reload_action_, false);
         return;
     }
     reload_trigger_conn_ = connect(reload_action_, &QAction::triggered, host, &QAction::trigger);
     reload_enable_conn_  = connect(host, &QAction::changed, reload_action_,
-                                   [this, host]() { reload_action_->setEnabled(host->isEnabled()); });
-    reload_action_->setEnabled(host->isEnabled());
+                                   [this, host]() { set_state_(reload_action_, host->isEnabled()); });
+    set_state_(reload_action_, host->isEnabled());
 }
 
 void DebuggerWindow::set_keymap(const jnext::dbgkeys::Keymap& km) {
@@ -526,10 +543,10 @@ void DebuggerWindow::apply_keymap() {
     auto tip = [this](QPushButton* b, Action id, const QString& text) {
         if (!b) return;
         const Combo& c = keymap_.combo(id);
-        b->setToolTip(c.bound()
-                          ? QStringLiteral("%1 (%2)")
-                                .arg(text, QString::fromStdString(render_combo(c)))
-                          : text);
+        set_normal_tip_(b, c.bound()
+                               ? QStringLiteral("%1 (%2)")
+                                     .arg(text, QString::fromStdString(render_combo(c)))
+                               : text);
     };
     tip(frame_back_btn_,  Action::FrameBack, tr("Rewind to previous frame"));
     tip(step_back_btn_,   Action::StepBack,  tr("Step back one instruction"));
@@ -782,55 +799,67 @@ void DebuggerWindow::create_menus() {
     // shortcut like the script keys (not a keymap action: the keymap refuses Alt+letter); its handler
     // and enabled state are the emulator window's (set_reload_source()). F: free in this menu bar.
     QMenu* file_menu = bar->addMenu(tr("&File"));
+    file_menu->setToolTipsVisible(true);   // epic #486 R1.3: a greyed item says why
     reload_action_ = file_menu->addAction(tr("Reload Last File"));
     reload_action_->setShortcut(host_shortcuts::sequence(host_shortcuts::Action::ReloadLast));
-    reload_action_->setEnabled(false);   // until a host action says otherwise
+    gate_(Surface::LoadCmd, reload_action_, false);   // disabled until a host action says otherwise
 
     // --- Debug menu ---
     QMenu* debug_menu = bar->addMenu(tr("&Debug"));
+    debug_menu->setToolTipsVisible(true);
 
     // GH #1: every shortcut in this window is installed by apply_keymap(),
     // from the user's keymap. Nothing here calls setShortcut() — a second
     // place that did would win or lose by construction order.
     run_action_ = debug_menu->addAction(tr("Run / &Continue"));
     connect(run_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run);
+    gate_(Surface::Run, run_action_);
 
     // Mnemonic on "Pause", not on "Break": Alt+B belongs to "Step &Back"
     // below. Two items in one menu cannot share a mnemonic (issue #124).
     pause_action_ = debug_menu->addAction(tr("&Pause / Break"));
     connect(pause_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_pause);
+    gate_(Surface::Pause, pause_action_);
 
     debug_menu->addSeparator();
 
     step_into_action_ = debug_menu->addAction(tr("&Single Step"));
     connect(step_into_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_into);
+    gate_(Surface::Step, step_into_action_);
 
     step_over_action_ = debug_menu->addAction(tr("Step &Over"));
     connect(step_over_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_over);
+    gate_(Surface::Step, step_over_action_);
 
     // Alt+U, not Alt+T: "&Trace" below owns T (issue #124).
     step_out_action_ = debug_menu->addAction(tr("Step O&ut"));
     connect(step_out_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_out);
+    gate_(Surface::Step, step_out_action_);
 
     // Alt+K: F is reserved for "Run to End of &Frame", which pairs with
     // "Run to End of Scan &Line" (issue #124).
     frame_back_action_ = debug_menu->addAction(tr("|< Frame Bac&k"));
     connect(frame_back_action_, &QAction::triggered, this, &DebuggerWindow::frame_back);
+    gate_(Surface::RewindCmd, frame_back_action_);
 
     step_back_action_ = debug_menu->addAction(tr("Step &Back"));
     connect(step_back_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_step_back);
+    gate_(Surface::RewindCmd, step_back_action_);
 
     debug_menu->addSeparator();
 
     run_to_eof_action_ = debug_menu->addAction(tr("Run to End of &Frame"));
     connect(run_to_eof_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run_to_eof);
+    gate_(Surface::CycleExact, run_to_eof_action_);
 
     run_to_eosl_action_ = debug_menu->addAction(tr("Run to End of Scan &Line"));
     connect(run_to_eosl_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run_to_eosl);
+    gate_(Surface::CycleExact, run_to_eosl_action_);
 
     // GH #372 - stop at the next maskable interrupt's entry (a transient IntAck + run).
     run_to_int_action_ = debug_menu->addAction(tr("Run to Next &Interrupt"));
     connect(run_to_int_action_, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_run_to_interrupt);
+    gate_(Surface::RunToInterrupt, run_to_int_action_);
 
     // GH #1 — "Run to Cursor", bindable but unbound by default and NOT a menu
     // item (see the header). addAction() on the window is what gives it a
@@ -842,6 +871,7 @@ void DebuggerWindow::create_menus() {
         else if (disasm_panel_) disasm_panel_->run_to_selected();
     });
     addAction(run_to_cursor_action_);
+    gate_(Surface::RunToCursor, run_to_cursor_action_);
 
     // GH #366 - Follow / Back / Forward: bindable window commands, listed in the Go menu below.
     follow_action_ = new QAction(tr("Follow"), this);
@@ -873,6 +903,7 @@ void DebuggerWindow::create_menus() {
     // DebuggerManager slot as its Source-tab button; the enabled state comes
     // from SourcePanel::update_buttons() through steps_available().
     QMenu* source_menu = debug_menu->addMenu(tr("Sourc&e"));
+    source_menu->setToolTipsVisible(true);
     auto source_item = [this, source_menu](const QString& text, auto slot) {
         QAction* a = source_menu->addAction(text);
         connect(a, &QAction::triggered, debugger_mgr_, slot);
@@ -884,6 +915,11 @@ void DebuggerWindow::create_menus() {
     source_back_action_ = source_item(tr("Step &Back"), &DebuggerManager::on_source_step_back);
     source_reverse_action_ = source_item(tr("&Reverse Continue"),
                                          &DebuggerManager::on_source_reverse_continue);
+    gate_(Surface::Step, source_into_action_);
+    gate_(Surface::Step, source_over_action_);
+    gate_(Surface::Step, source_out_action_);
+    gate_(Surface::RewindCmd, source_back_action_);
+    gate_(Surface::RewindCmd, source_reverse_action_);
     source_menu->addSeparator();
     // GH #480 - the Source tab's File list: raise the tab and open it. Enabled with the forward steps.
     source_open_action_ = source_menu->addAction(tr("Open Source &File..."));
@@ -898,11 +934,11 @@ void DebuggerWindow::create_menus() {
     if (source_panel_) {
         connect(source_panel_, &SourcePanel::steps_available, this,
                 [this](bool forward, bool backward) {
-            source_into_action_->setEnabled(forward);
-            source_over_action_->setEnabled(forward);
-            source_out_action_->setEnabled(forward);
-            source_back_action_->setEnabled(backward);
-            source_reverse_action_->setEnabled(backward);
+            set_state_(source_into_action_, forward);
+            set_state_(source_over_action_, forward);
+            set_state_(source_out_action_, forward);
+            set_state_(source_back_action_, backward);
+            set_state_(source_reverse_action_, backward);
             source_open_action_->setEnabled(forward);
         });
         source_panel_->update_buttons(dbg_.state().paused);
@@ -912,9 +948,11 @@ void DebuggerWindow::create_menus() {
 
     // Trace submenu
     QMenu* trace_menu = debug_menu->addMenu(tr("&Trace"));
+    trace_menu->setToolTipsVisible(true);
 
     trace_enable_action_ = trace_menu->addAction(tr("&Enable Trace"));
     trace_enable_action_->setCheckable(true);
+    gate_(Surface::TraceCmd, trace_enable_action_);
     connect(trace_enable_action_, &QAction::triggered, this, [this](bool checked) {
         if (jnext::dbg::Debugger* dbg = backend()) {
             dbg->set_trace_enabled(checked);   // INS-13
@@ -925,12 +963,14 @@ void DebuggerWindow::create_menus() {
     });
 
     QAction* clear_trace = trace_menu->addAction(tr("&Clear Trace"));
+    gate_(Surface::TraceCmd, clear_trace);
     connect(clear_trace, &QAction::triggered, this, [this]() {
         if (jnext::dbg::Debugger* dbg = backend())
             dbg->trace_clear();   // INS-13
     });
 
     trace_export_action_ = trace_menu->addAction(tr("E&xport Trace..."));
+    gate_(Surface::TraceCmd, trace_export_action_);
     connect(trace_export_action_, &QAction::triggered, this, [this]() {
         export_trace();
     });
@@ -938,15 +978,18 @@ void DebuggerWindow::create_menus() {
     // Coverage submenu (GH #388): memory coverage by execute, read and write.
     // "V": C, E, O and the rest of the Debug menu's mnemonics are taken (#124).
     QMenu* coverage_menu = debug_menu->addMenu(tr("Co&verage"));
+    coverage_menu->setToolTipsVisible(true);
 
     coverage_enable_action_ = coverage_menu->addAction(tr("&Enable Coverage"));
     coverage_enable_action_->setCheckable(true);
+    gate_(Surface::CoverageCmd, coverage_enable_action_);
     connect(coverage_enable_action_, &QAction::triggered, this, [this](bool checked) {
         dbg_.mem_coverage_enable(checked);   // INS-21: off clears
         refresh_panels();
     });
 
     QAction* clear_coverage = coverage_menu->addAction(tr("&Clear Coverage"));
+    gate_(Surface::CoverageCmd, clear_coverage);
     connect(clear_coverage, &QAction::triggered, this, [this]() {
         dbg_.mem_coverage_clear();           // INS-21
         refresh_panels();
@@ -969,9 +1012,11 @@ void DebuggerWindow::create_menus() {
     // Rewind submenu
     debug_menu->addSeparator();
     QMenu* rewind_menu = debug_menu->addMenu(tr("&Rewind"));
+    rewind_menu->setToolTipsVisible(true);
 
     rewind_enable_action_ = rewind_menu->addAction(tr("&Enable Rewind"));
     rewind_enable_action_->setCheckable(true);
+    gate_(Surface::RewindCmd, rewind_enable_action_);
     // Its checked state is update_rewind_ui()'s, which set_debugger_manager()
     // reaches through apply_keymap() before it returns — so no caller ever sees
     // this action before that sync. (A construction-time setChecked() here was
@@ -1011,6 +1056,7 @@ void DebuggerWindow::create_menus() {
     });
 
     QAction* rewind_size_action = rewind_menu->addAction(tr("Rewind &Buffer Size..."));
+    gate_(Surface::RewindCmd, rewind_size_action);
     connect(rewind_size_action, &QAction::triggered, this, &DebuggerWindow::show_rewind_buffer_size_dialog);
 
     // --- Go menu (GH #366): the navigation commands and the Symbols tab. G is free among this bar's
@@ -1031,38 +1077,45 @@ void DebuggerWindow::create_menus() {
     // --- Script menu (GH #26 WP5, dsl-frontend.md §6.4) ---
     // Alt+S: free among this bar's mnemonics (D, S, M, B, W, N).
     QMenu* script_menu = bar->addMenu(tr("&Script"));
+    script_menu->setToolTipsVisible(true);
     QAction* load_script = script_menu->addAction(tr("&Load Script..."));
+    gate_(Surface::ScriptsCmd, load_script);
     connect(load_script, &QAction::triggered, this, [this]() {
         if (script_panel_) script_panel_->on_load_clicked();
     });
     QAction* reload_scripts = script_menu->addAction(tr("&Reload Scripts"));
+    gate_(Surface::ScriptsCmd, reload_scripts);
     connect(reload_scripts, &QAction::triggered, this, [this]() {
         if (script_panel_) script_panel_->on_reload_clicked();
     });
     QAction* unload_scripts = script_menu->addAction(tr("&Unload Scripts"));
+    gate_(Surface::ScriptsCmd, unload_scripts);
     connect(unload_scripts, &QAction::triggered, this, [this]() {
         if (script_panel_) script_panel_->on_unload_clicked();
     });
     // GH #26 WP6 (#20) — the recorder, as the Script tab offers it.
     script_menu->addSeparator();
     QAction* record_script = script_menu->addAction(tr("Re&cord Script..."));
+    gate_(Surface::ScriptsCmd, record_script);
     connect(record_script, &QAction::triggered, this, [this]() {
         if (script_panel_) script_panel_->on_record_clicked();
     });
     QAction* capture_screen = script_menu->addAction(tr("Capture &Screen"));
+    gate_(Surface::ScriptsCmd, capture_screen);
     connect(capture_screen, &QAction::triggered, this, [this]() {
         if (script_panel_) script_panel_->on_capture_clicked();
     });
     QAction* stop_record = script_menu->addAction(tr("S&top Recording"));
+    gate_(Surface::ScriptsCmd, stop_record);
     connect(stop_record, &QAction::triggered, this, [this]() {
         if (script_panel_) script_panel_->on_stop_record_clicked();
     });
     connect(script_menu, &QMenu::aboutToShow, this, [this, record_script, capture_screen, stop_record]() {
         const bool have = script_panel_ && script_panel_->host();
         const bool rec  = script_panel_ && script_panel_->recording();
-        record_script->setEnabled(have && !rec);
-        capture_screen->setEnabled(rec);
-        stop_record->setEnabled(rec);
+        set_state_(record_script, have && !rec);
+        set_state_(capture_screen, rec);
+        set_state_(stop_record, rec);
     });
 
     // GH #26 WP5 — Alt+1..Alt+8, the script host keys, in THIS window too
@@ -1078,6 +1131,7 @@ void DebuggerWindow::create_menus() {
             dbg_.raise_host_event(jnext::dbg::CLIENT_NONE, "script" + std::to_string(n));
         });
         addAction(a);
+        gate_(Surface::ScriptsCmd, a);
         script_key_actions_[n - 1] = a;
     }
 
@@ -1118,28 +1172,33 @@ void DebuggerWindow::create_menus() {
 
     // --- Breakpoints menu ---
     QMenu* bp_menu = bar->addMenu(tr("&Breakpoints"));
+    bp_menu->setToolTipsVisible(true);
 
     // GH #215 — Execute (the ordinary PC breakpoint) was reachable only from
     // the Breakpoints PANEL's Add dialog, so the menu offered every type
     // EXCEPT the one users reach for first. Listed first, and lettered E:
     // R/W/B/C are already taken by the four entries below (issue #124).
     QAction* add_exec_bp = bp_menu->addAction(tr("Add &Execute Breakpoint..."));
+    gate_(Surface::ExecBp, add_exec_bp);
     connect(add_exec_bp, &QAction::triggered, this, [this]() {
         show_add_exec_bp_dialog();
     });
 
     QAction* add_read_bp = bp_menu->addAction(tr("Add &Read Breakpoint..."));
+    gate_(Surface::WatchBp, add_read_bp);
     connect(add_read_bp, &QAction::triggered, this, [this]() {
         show_add_data_bp_dialog(BreakpointModel::Read);
     });
 
     QAction* add_write_bp = bp_menu->addAction(tr("Add &Write Breakpoint..."));
+    gate_(Surface::WatchBp, add_write_bp);
     connect(add_write_bp, &QAction::triggered, this, [this]() {
         show_add_data_bp_dialog(BreakpointModel::Write);
     });
 
     // Alt+B: W already belongs to "Add &Write Breakpoint..." (issue #124).
     QAction* add_rw_bp = bp_menu->addAction(tr("Add Read/Write &Breakpoint..."));
+    gate_(Surface::WatchBp, add_rw_bp);
     connect(add_rw_bp, &QAction::triggered, this, [this]() {
         show_add_data_bp_dialog(BreakpointModel::ReadWrite);
     });
@@ -1157,12 +1216,15 @@ void DebuggerWindow::create_menus() {
     QAction* save_bp_script = bp_menu->addAction(tr("&Save as Script..."));
     connect(save_bp_script, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_save_breakpoints_script);
     QAction* load_bp_script = bp_menu->addAction(tr("&Load from Script..."));
+    gate_(Surface::ExecBp, load_bp_script);
     connect(load_bp_script, &QAction::triggered, debugger_mgr_, &DebuggerManager::on_load_breakpoints_script);
 
     // --- Watches menu ---
     QMenu* watches_menu = bar->addMenu(tr("&Watches"));
+    watches_menu->setToolTipsVisible(true);
 
     QAction* add_watch = watches_menu->addAction(tr("&Add Watch..."));
+    gate_(Surface::MemoryView, add_watch);
     connect(add_watch, &QAction::triggered, this, [this]() {
         if (watch_panel_)
             watch_panel_->on_add_watch();
@@ -1204,11 +1266,13 @@ void DebuggerWindow::create_menus() {
 }
 
 void DebuggerWindow::update_actions(bool is_paused) {
-    if (run_action_)       run_action_->setEnabled(is_paused);
-    if (pause_action_)     pause_action_->setEnabled(!is_paused);
-    if (step_into_action_) step_into_action_->setEnabled(is_paused);
-    if (step_over_action_) step_over_action_->setEnabled(is_paused);
-    if (step_out_action_)  step_out_action_->setEnabled(is_paused);
+    // What the target can do may change at every stop: read it before the predicates apply.
+    refresh_capabilities();
+    set_state_(run_action_,       is_paused);
+    set_state_(pause_action_,     !is_paused);
+    set_state_(step_into_action_, is_paused);
+    set_state_(step_over_action_, is_paused);
+    set_state_(step_out_action_,  is_paused);
 
     // Rewinding (frame jump) is only available when paused, the rewind
     // buffer has snapshots, and no RZX recording is playing or being made:
@@ -1221,8 +1285,8 @@ void DebuggerWindow::update_actions(bool is_paused) {
     // target instruction's cycle — Emulator::step_back() fails without it
     // (Task 27 A2), so grey the action out instead.
     const bool can_step_back = can_rewind && dbg->trace_enabled();
-    if (step_back_action_) step_back_action_->setEnabled(can_step_back);
-    if (rewind_jump_btn_)  rewind_jump_btn_->setEnabled(can_rewind);
+    set_state_(step_back_action_, can_step_back);
+    set_state_(rewind_jump_btn_,  can_rewind);
     // The Source tab's buttons and the Debug > Source actions: its text is refreshed once per pause, by
     // refresh_panels(), which also runs this.
     if (source_panel_)     source_panel_->update_buttons(is_paused);
@@ -1300,7 +1364,9 @@ void DebuggerWindow::restore_geometry() {
 }
 
 jnext::dbg::Debugger* DebuggerWindow::backend() const {
-    return debugger_mgr_ ? &debugger_mgr_->backend() : nullptr;
+    // The window's own facade (it was built over one): a window that is not the manager's active one
+    // must not answer with the manager's.
+    return debugger_mgr_ ? &dbg_ : nullptr;
 }
 
 BreakpointModel* DebuggerWindow::breakpoint_model() const {
@@ -1857,6 +1923,20 @@ void DebuggerWindow::create_panels() {
         }
     }
 
+    // Epic #486 R1.3: the panels a missing capability replaces with its reason (the others, such as the CPU
+    // and MMU panels, grey their own fields).
+    gate_panel_(Surface::MemoryView, memory_panel_);
+    gate_panel_(Surface::MemoryView, stack_panel_);
+    gate_panel_(Surface::MemoryView, watch_panel_);
+    gate_panel_(Surface::MemoryView, variables_panel_);
+    gate_panel_(Surface::NextRegView, nextreg_panel_);
+    gate_panel_(Surface::SpritesView, sprite_panel_);
+    gate_panel_(Surface::ScriptsCmd, script_panel_);
+    gate_panel_(Surface::VideoView, video_panel_);
+    gate_panel_(Surface::VideoView, graphics_panel_);
+    gate_panel_(Surface::CopperView, copper_panel_);
+    gate_panel_(Surface::AudioView, audio_panel_);
+
     auto* scroll = new QScrollArea();
     scroll->setWidget(dock_host_);
     scroll->setWidgetResizable(true);   // the host still fills a roomy window
@@ -2365,31 +2445,148 @@ void DebuggerWindow::apply_address_style() {
 }
 
 void DebuggerWindow::refresh_panels() {
+    refresh_capabilities();   // epic #486 R1.3: only on change; it refreshes the panels it just un-greyed
+    refresh_panels_content_();
+}
+
+void DebuggerWindow::refresh_panels_content_() {
     // GH #342: settle a pending landing first, so the panels that hold the
     // symbol table by pointer read the processed state.
     (void)dbg_.source_map_status();
     sync_coverage_action();
+    // A panel whose capability is missing shows its reason and asks the target for nothing.
+    auto live = [this](QWidget* p) { return p && !placeholdered_(p); };
     if (cpu_panel_) cpu_panel_->refresh();
     if (symbols_panel_) symbols_panel_->refresh();   // GH #366
     if (disasm_panel_) disasm_panel_->refresh();
-    if (memory_panel_) memory_panel_->refresh();
-    if (video_panel_) video_panel_->refresh();
-    if (sprite_panel_) sprite_panel_->refresh();
-    if (graphics_panel_) graphics_panel_->refresh();   // GH #371
-    if (copper_panel_) copper_panel_->refresh();
-    if (nextreg_panel_) nextreg_panel_->refresh();
-    if (audio_panel_) audio_panel_->refresh();
-    if (watch_panel_) watch_panel_->refresh();
+    if (live(memory_panel_)) memory_panel_->refresh();
+    if (live(video_panel_)) video_panel_->refresh();
+    if (live(sprite_panel_)) sprite_panel_->refresh();
+    if (live(graphics_panel_)) graphics_panel_->refresh();   // GH #371
+    if (live(copper_panel_)) copper_panel_->refresh();
+    if (live(nextreg_panel_)) nextreg_panel_->refresh();
+    if (live(audio_panel_)) audio_panel_->refresh();
+    if (live(watch_panel_)) watch_panel_->refresh();
     if (mmu_panel_) mmu_panel_->refresh();
-    if (stack_panel_) stack_panel_->refresh();
+    if (live(stack_panel_)) stack_panel_->refresh();
     if (callstack_panel_) callstack_panel_->refresh();
     // GH #435 - after the Call Stack, which a refresh may have rebuilt: its selection then follows the chosen frame
-    if (variables_panel_) {
+    if (live(variables_panel_)) {
         variables_panel_->refresh();
         if (callstack_panel_) callstack_panel_->select_row(variables_panel_->call_stack_row());
     }
     if (breakpoint_panel_) breakpoint_panel_->refresh();
-    if (script_panel_) script_panel_->refresh();
+    if (live(script_panel_)) script_panel_->refresh();
     if (source_panel_) source_panel_->refresh();
     update_rewind_ui();
+}
+
+// ---- Epic #486 R1.3: greying by capability --------------------------------
+
+QObject* DebuggerWindow::gate_(Surface surface, QObject* w, bool ok) {
+    if (!w) return w;
+    Gated g{w, surface, ok, QString(), nullptr};
+    // A widget's own tooltip is kept to restore; an action's default tooltip (its text) is restored by
+    // an empty one.
+    if (auto* widget = qobject_cast<QWidget*>(w)) g.tip = widget->toolTip();
+    gated_.push_back(g);
+    apply_gate_(gated_.back());
+    return w;
+}
+
+void DebuggerWindow::gate_panel_(Surface surface, QWidget* panel) {
+    if (!panel) return;
+    Gated g{panel, surface, true, QString(), new jnext::dbggate::PanelPlaceholder(panel)};
+    gated_.push_back(g);
+}
+
+void DebuggerWindow::set_state_(QObject* w, bool ok) {
+    if (!w) return;
+    for (Gated& g : gated_) {
+        if (g.w != w || g.ph) continue;
+        g.ok = ok;
+        apply_gate_(g);
+        return;
+    }
+}
+
+void DebuggerWindow::set_normal_tip_(QObject* w, const QString& tip) {
+    for (Gated& g : gated_) {
+        if (g.w != w || g.ph) continue;
+        g.tip = tip;
+        apply_gate_(g);
+        return;
+    }
+    if (auto* widget = qobject_cast<QWidget*>(w)) widget->setToolTip(tip);
+}
+
+void DebuggerWindow::apply_gate_(Gated& g) {
+    const std::optional<jnext::dbg::Capability> miss = jnext::dbggate::first_missing(g.s, view_.caps);
+    if (g.ph) {
+        if (miss) g.ph->show_reason(jnext::dbggate::unavailable_text(view_, *miss));
+        else      g.ph->hide_reason();
+        return;
+    }
+    const bool enable = g.ok && !miss;
+    const QString tip = miss ? jnext::dbggate::unavailable_tooltip(view_, *miss) : g.tip;
+    if (auto* a = qobject_cast<QAction*>(g.w)) {
+        a->setEnabled(enable);
+        a->setToolTip(tip);
+    } else if (auto* widget = qobject_cast<QWidget*>(g.w)) {
+        widget->setEnabled(enable);
+        widget->setToolTip(tip);
+    }
+}
+
+bool DebuggerWindow::placeholdered_(const QWidget* panel) const {
+    for (const Gated& g : gated_)
+        if (g.ph && g.w == panel) return g.ph->active();
+    return false;
+}
+
+void DebuggerWindow::set_capability_view_for_test(std::optional<jnext::dbggate::CapabilityView> v) {
+    view_override_ = std::move(v);
+    refresh_capabilities();
+}
+
+std::vector<std::pair<jnext::dbggate::Surface, QObject*>> DebuggerWindow::gated_for_test() const {
+    std::vector<std::pair<jnext::dbggate::Surface, QObject*>> out;
+    for (const Gated& g : gated_) out.emplace_back(g.s, g.w);
+    return out;
+}
+
+jnext::dbggate::PanelPlaceholder* DebuggerWindow::placeholder_for_test(const QWidget* panel) const {
+    for (const Gated& g : gated_)
+        if (g.ph && g.w == panel) return g.ph;
+    return nullptr;
+}
+
+// The one reader of what the facade says. Applies only when it differs from what was applied last, so
+// the per-tick calls (a pause edge, the 4 Hz running refresh) cost one comparison.
+void DebuggerWindow::refresh_capabilities() {
+    jnext::dbggate::CapabilityView v;
+    if (view_override_) v = *view_override_;
+    else if (backend()) v = jnext::dbggate::CapabilityView::of(*backend());
+    else return;
+    if (view_applied_ && v == view_) return;
+
+    std::vector<bool> was_shown;
+    for (const Gated& g : gated_) was_shown.push_back(g.ph && g.ph->active());
+    view_ = std::move(v);
+    view_applied_ = true;
+    ++view_applies_;
+    for (Gated& g : gated_) apply_gate_(g);
+    // a placeholder that went away: its panel was not refreshed while it was up
+    bool revealed = false;
+    for (size_t i = 0; i < gated_.size(); ++i)
+        if (was_shown[i] && !gated_[i].ph->active()) revealed = true;
+
+    if (cpu_panel_) cpu_panel_->set_capabilities(view_);
+    if (mmu_panel_) mmu_panel_->set_capabilities(view_);
+    if (disasm_panel_) disasm_panel_->set_capabilities(view_);
+    if (source_panel_) source_panel_->set_capabilities(view_);
+    if (memory_panel_) memory_panel_->set_capabilities(view_);
+    if (breakpoint_panel_) breakpoint_panel_->set_capabilities(view_);
+    if (callstack_panel_) callstack_panel_->set_capabilities(view_);
+    if (revealed) refresh_panels_content_();
 }

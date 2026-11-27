@@ -4008,6 +4008,7 @@ before its client has set SP, PC and the program's slots) shows this as a capabi
 mask without <code>Core</code>; it adds no capability bit, and its memory, NextREG, port and slot verbs stay
 served. <code>RunState::cycle</code> and <code>frame</code> are meaningful exactly when <code>MachineTime</code> is: <code>state()</code> returns 0
 for both without it, as <code>registers()</code> returns zeros under an invalid <code>Core</code>.</p>
+<p>The Qt debugger turns these answers into greyed controls, placeholders and <code>?</code> fields: <a href="10-2-the-qt-debugger.html">3.10.2</a>.</p>
 <h2 id="behind-the-facade">Behind the facade<a class="headerlink" href="#behind-the-facade" title="Permanent link">&para;</a></h2>
 <p><code>Debugger</code> holds one <code>unique_ptr&lt;Impl&gt;</code> and nothing else, so adding state never
 edits a header five frontends compile against. <code>Impl</code> is defined in the internal

@@ -341,6 +341,10 @@ SourcePanel::SourcePanel(const jnext::dbg::Debugger* dbg, QWidget* parent)
                           &SourcePanel::reverse_continue_requested);
     steps->addStretch();
     layout->addLayout(steps);
+    {
+        QPushButton* const b[5] = {into_btn_, over_btn_, out_btn_, back_btn_, reverse_btn_};
+        for (int i = 0; i < 5; ++i) step_tips_[i] = b[i]->toolTip();
+    }
 
     auto* loads = new QHBoxLayout();
     loads->setSpacing(4);
@@ -522,13 +526,44 @@ void SourcePanel::update_buttons(bool paused)
     // not refuse, and the trace to find the target in.
     const bool backward = forward && !dbg_->rewind_blocked().has_value() &&
                           dbg_->trace_enabled();
+    buttons_paused_ = paused;
+    // The signal carries the predicate alone: the window composes the capability itself, per action.
     emit steps_available(forward, backward);
-    into_btn_->setEnabled(forward);
-    over_btn_->setEnabled(forward);
-    out_btn_->setEnabled(forward);
-    back_btn_->setEnabled(backward);
-    reverse_btn_->setEnabled(backward);
+    using jnext::dbggate::Surface;
+    const auto no_step = jnext::dbggate::first_missing(Surface::Step, caps_.caps);
+    const auto no_back = jnext::dbggate::first_missing(Surface::RewindCmd, caps_.caps);
+    QPushButton* const fwd_btn[3] = {into_btn_, over_btn_, out_btn_};
+    for (int i = 0; i < 3; ++i) {
+        fwd_btn[i]->setEnabled(forward && !no_step);
+        fwd_btn[i]->setToolTip(no_step ? jnext::dbggate::unavailable_tooltip(caps_, *no_step) : step_tips_[i]);
+    }
+    QPushButton* const back_btns[2] = {back_btn_, reverse_btn_};
+    for (int i = 0; i < 2; ++i) {
+        back_btns[i]->setEnabled(backward && !no_back);
+        back_btns[i]->setToolTip(no_back ? jnext::dbggate::unavailable_tooltip(caps_, *no_back)
+                                         : step_tips_[3 + i]);
+    }
     file_combo_->setEnabled(forward);   // GH #480: the same predicate as the forward steps
+}
+
+void SourcePanel::set_capabilities(const jnext::dbggate::CapabilityView& view)
+{
+    caps_ = view;
+    update_buttons(buttons_paused_);
+}
+
+bool SourcePanel::refuse_(jnext::dbggate::Surface s)
+{
+    const auto missing = jnext::dbggate::first_missing(s, caps_.caps);
+    if (!missing) return false;
+    const QString tip = jnext::dbggate::unavailable_tooltip(caps_, *missing);
+    if (QWidget* g = editor_->findChild<QWidget*>(QStringLiteral("source_gutter"))) {
+        g->setToolTip(tip);
+        QToolTip::showText(QCursor::pos(), tip, g);
+    } else {
+        QToolTip::showText(QCursor::pos(), tip, this);
+    }
+    return true;
 }
 
 SourceLanguage SourcePanel::source_language() const { return highlighter_->language(); }
@@ -1261,6 +1296,8 @@ void SourcePanel::toggle_breakpoint_at_line(int line)
         return;
     }
     const QString where = QString::fromStdString(shown_file_) + QLatin1Char(':') + QString::number(line);
+    // epic #486 R1.3: adding needs the target to hold execute breakpoints; removing (above) never did
+    if (refuse_(jnext::dbggate::Surface::ExecBp)) return;
     if (st.starts.empty() || bps->add_source_line(where) == jnext::dbg::GROUP_NONE) {
         const QString why = st.error.empty() ? tr("no code at %1").arg(where) : QString::fromStdString(st.error);
         if (QWidget* g = editor_->findChild<QWidget*>(QStringLiteral("source_gutter"))) {
@@ -1292,6 +1329,7 @@ void SourcePanel::run_to_cursor()
     const int line = editor_->textCursor().blockNumber() + 1;
     if (line < 1 || line > file_line_count(editor_->document())) return;
     if (line_state(line).starts.empty()) return;
+    if (refuse_(jnext::dbggate::Surface::RunToCursor)) return;
     emit run_to_line_requested(QString::fromStdString(shown_file_) + QLatin1Char(':') + QString::number(line));
 }
 
@@ -1401,14 +1439,20 @@ void SourcePanel::fill_context_menu(QMenu& menu, int line, int column)
 
     menu.addSeparator();
     auto* toggle = menu.addAction(tr("Toggle Breakpoint"));
-    const bool can_toggle = bp_model_ && (!st.starts.empty() || !st.drawn.empty() || !st.hidden.empty());
+    // epic #486 R1.3: a target that cannot hold execute breakpoints leaves only removal
+    const auto no_bp = jnext::dbggate::first_missing(jnext::dbggate::Surface::ExecBp, caps_.caps);
+    const bool removable = !st.drawn.empty() || !st.hidden.empty();
+    const bool can_toggle = bp_model_ && ((!st.starts.empty() && !no_bp) || removable);
     toggle->setEnabled(can_toggle);
-    if (!can_toggle) toggle->setToolTip(nocode);
+    if (!can_toggle) toggle->setToolTip(bp_model_ && no_bp && !st.starts.empty()
+                                            ? jnext::dbggate::unavailable_tooltip(caps_, *no_bp) : nocode);
     connect(toggle, &QAction::triggered, this, [this, line]() { toggle_breakpoint_at_line(line); });
 
     auto* run_to = menu.addAction(tr("Run to Here"));
-    run_to->setEnabled(!st.starts.empty());
-    if (st.starts.empty()) run_to->setToolTip(nocode);
+    const auto no_run_to = jnext::dbggate::first_missing(jnext::dbggate::Surface::RunToCursor, caps_.caps);
+    run_to->setEnabled(!st.starts.empty() && !no_run_to);
+    if (no_run_to) run_to->setToolTip(jnext::dbggate::unavailable_tooltip(caps_, *no_run_to));
+    else if (st.starts.empty()) run_to->setToolTip(nocode);
     connect(run_to, &QAction::triggered, this, [this, where]() { emit run_to_line_requested(where); });
 
     // GH #366 - Follow on this line.

@@ -16,6 +16,7 @@
 #include "debug/events.h"
 #include "debug/long_address.h"
 #include "debugger/breakpoint_glyph.h"
+#include "debugger/capability_gate.h"
 #include "debugger/nav_history.h"
 
 class QAction;
@@ -61,6 +62,11 @@ public:
     /// With no caret, selected_address() is the PC, so this runs a full lap —
     /// the same thing "Run to Here" on the current line has always done.
     void run_to_selected();
+
+    /// Epic #486 R1.3 - what the target can do: without ExecuteBreakpoints a click that would ADD a
+    /// breakpoint is refused with the reason (removing one stays allowed); without RunToCursor Enter,
+    /// Run to Here and run_to_selected() are refused the same way.
+    void set_capabilities(const jnext::dbggate::CapabilityView& view) { caps_ = view; }
 
     /// GH #423 - centre the view on `addr` and select that line (the caret, so
     /// Run to Cursor and a copy act on it): the Source tab's "Show in Disassembly".
@@ -342,6 +348,12 @@ private:
     WatchPanel* watch_panel_ = nullptr;
 
     QPointer<BreakpointModel> bp_model_;
+
+    jnext::dbggate::CapabilityView caps_;
+    /// True (after saying why, in a tooltip at the cursor) when `s` is missing on the target.
+    bool refuse_(jnext::dbggate::Surface s);
+    /// Would a toggle at `addr` / `line` remove a breakpoint (as against add one)?
+    bool would_remove_(uint16_t addr, int line) const;
 
     jnext::NavHistory<Loc> history_;   // GH #366
 };

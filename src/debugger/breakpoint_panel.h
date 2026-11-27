@@ -9,8 +9,10 @@
 #include <vector>
 
 #include "debugger/breakpoint_model.h"
+#include "debugger/capability_gate.h"
 
 class QCheckBox;
+class QPushButton;
 class SymbolTable;
 namespace jnext { namespace dbg { class Debugger; } }
 
@@ -52,6 +54,12 @@ public:
     /// and `file:line` in the dialog's address field. Null = neither.
     void set_backend(const jnext::dbg::Debugger* dbg) { dbg_ = dbg; }
 
+    /// Epic #486 R1.3 - what the target can do: the Add dialog's types the target cannot hold are
+    /// disabled with the reason as tooltip (Execute by ExecuteBreakpoints, Read / Write / Read/Write
+    /// by Watchpoints, IO Read, IO Write, Interrupt, NMI and Audio Write by MachineEvents), and the
+    /// Add button is greyed when none is left.
+    void set_capabilities(const jnext::dbggate::CapabilityView& view);
+
 public slots:
     void on_add();
     void on_edit();
@@ -90,6 +98,10 @@ private:
     const jnext::dbg::Debugger* dbg_ = nullptr;
     QTableWidget* table_ = nullptr;
     QCheckBox* master_check_ = nullptr;
+    QPushButton* add_btn_ = nullptr;
+    jnext::dbggate::CapabilityView caps_;
+    /// The surface that gates Add-dialog type `index` (0..8).
+    static jnext::dbggate::Surface surface_of_type(int index);
 
     /// True while refresh() is writing the widgets FROM the model, so the
     /// itemChanged / toggled handlers do not write the same values back into

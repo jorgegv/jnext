@@ -6,6 +6,7 @@
 #include "debugger/memory_text.h"
 
 #include <QHBoxLayout>
+#include <QStandardItemModel>
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QPainter>
@@ -265,8 +266,24 @@ void MemoryPanel::navigate_to_address(uint16_t addr) {
     update();
 }
 
+void MemoryPanel::set_capabilities(const jnext::dbggate::CapabilityView& view) {
+    caps_ = view;
+    if (!page_selector_) return;
+    const auto miss = jnext::dbggate::first_missing(jnext::dbggate::Surface::PhysMem, caps_.caps);
+    const QString tip = miss ? jnext::dbggate::unavailable_tooltip(caps_, *miss) : QString();
+    auto* model = qobject_cast<QStandardItemModel*>(page_selector_->model());
+    for (int i = 1; i < page_selector_->count(); ++i) {   // item 0 is the CPU view
+        if (model) model->item(i)->setEnabled(!miss);
+        page_selector_->setItemData(i, tip, Qt::ToolTipRole);
+    }
+    if (miss && page_selector_->currentIndex() != 0) page_selector_->setCurrentIndex(0);
+    update_page_selector();
+}
+
 void MemoryPanel::update_page_selector() {
     if (!dbg_ || !page_selector_) return;
+    // a target that does not report the slots is not asked
+    if (caps_.missing(jnext::dbggate::Surface::MmuSlots)) return;
 
     const auto slot_info = dbg_->mmu_slots();   // INS-03
     for (int i = 0; i < 8; ++i) {

@@ -9,6 +9,8 @@
 #include <cstring>
 #include <cstdlib>
 #include <QPainter>
+#include <QToolTip>
+#include <QCursor>
 #include <QPaintEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
@@ -184,8 +186,11 @@ void DisasmPanel::toggle_breakpoint(uint16_t addr, int line)
         bps->remove(BreakpointModel::Execute, addr);
     else if (bps->exists(BreakpointModel::Execute, addr, space))
         bps->remove(BreakpointModel::Execute, addr, space);
-    else
+    else {
+        // epic #486 R1.3: adding needs the target to hold execute breakpoints; removing never did
+        if (refuse_(jnext::dbggate::Surface::ExecBp)) return;
         bps->add(BreakpointModel::Execute, addr);
+    }
     // The model's notification has already run. While PAUSED it
     // re-disassembled, so entries_ was rebuilt underneath us; hence the
     // bounds check. While RUNNING refresh() is a no-op by design, and this
@@ -196,6 +201,28 @@ void DisasmPanel::toggle_breakpoint(uint16_t addr, int line)
         entries_[line].breakpoint_live = bps->pc_marked_live(addr, space);
     }
     update();
+}
+
+bool DisasmPanel::refuse_(jnext::dbggate::Surface s)
+{
+    const auto missing = jnext::dbggate::first_missing(s, caps_.caps);
+    if (!missing) return false;
+    const QString tip = jnext::dbggate::unavailable_tooltip(caps_, *missing);
+    setToolTip(tip);
+    QToolTip::showText(QCursor::pos(), tip, this);
+    return true;
+}
+
+bool DisasmPanel::would_remove_(uint16_t addr, int line) const
+{
+    const BreakpointModel* bps = bp_model_.data();
+    if (!bps) return false;
+    const bool shown = line >= 0 && line < static_cast<int>(entries_.size()) &&
+                       entries_[line].line.addr == addr;
+    const jnext::dbg::MemSpace space = shown ? entries_[line].space
+                                     : dbg_  ? dbg_->source_page(addr)
+                                             : jnext::dbg::MemSpace::cpu();
+    return bps->pc_exists(addr) || bps->exists(BreakpointModel::Execute, addr, space);
 }
 
 void DisasmPanel::navigate_to_address(const QString& text)
@@ -486,6 +513,7 @@ void DisasmPanel::run_to_selected()
     // DebugState::run_to() here: DebuggerManager's handler carries the Task 60e
     // corruption gate and the four set_paused(false) calls, and a second
     // implementation of that would drift.
+    if (refuse_(jnext::dbggate::Surface::RunToCursor)) return;
     emit run_to_requested(selected_address());
 }
 
@@ -972,6 +1000,7 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
     case Qt::Key_Return:
     case Qt::Key_Enter:
         if (selected_line_ >= 0 && selected_line_ < static_cast<int>(entries_.size())) {
+            if (refuse_(jnext::dbggate::Surface::RunToCursor)) { event->accept(); break; }
             emit run_to_requested(entries_[selected_line_].line.addr);
         }
         event->accept();
@@ -1082,11 +1111,22 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
     connect(toggle_bp, &QAction::triggered, this, [this, addr, line]() {
         toggle_breakpoint(addr, line);   // same as the gutter click
     });
+    menu.setToolTipsVisible(true);
+    // epic #486 R1.3: greyed when it would add a breakpoint the target cannot hold (removing is allowed)
+    if (const auto m = jnext::dbggate::first_missing(jnext::dbggate::Surface::ExecBp, caps_.caps);
+        m && !would_remove_(addr, line)) {
+        toggle_bp->setEnabled(false);
+        toggle_bp->setToolTip(jnext::dbggate::unavailable_tooltip(caps_, *m));
+    }
 
     auto* run_to = menu.addAction("Run to Here");
     connect(run_to, &QAction::triggered, this, [this, addr]() {
         emit run_to_requested(addr);
     });
+    if (const auto m = jnext::dbggate::first_missing(jnext::dbggate::Surface::RunToCursor, caps_.caps)) {
+        run_to->setEnabled(false);
+        run_to->setToolTip(jnext::dbggate::unavailable_tooltip(caps_, *m));
+    }
 
     // GH #366 - Follow: the line's branch target, or its memory operand in the Memory panel.
     {

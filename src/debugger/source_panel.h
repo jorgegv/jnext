@@ -13,6 +13,7 @@
 
 #include "debug/disasm_hint.h"
 #include "debug/long_address.h"
+#include "debugger/capability_gate.h"
 #include "debugger/nav_history.h"
 
 class BreakpointModel;
@@ -54,6 +55,13 @@ public:
     void follow_pc();
     /// Enable the step buttons for this state, without re-reading anything.
     void update_buttons(bool paused);
+
+    /// Epic #486 R1.3 - what the target can do. Without InstructionStep the Into / Over / Out buttons
+    /// are greyed, without Rewind Back / Reverse, each with the reason as its tooltip (the File list
+    /// stays: browsing is host-side); without ExecuteBreakpoints the BP column and Toggle Breakpoint
+    /// refuse an ADD with the reason (removing stays allowed); without RunToCursor Enter and Run to
+    /// Here are refused.
+    void set_capabilities(const jnext::dbggate::CapabilityView& view);
 
     /// GH #420 - the directories searched for the files the map names, after the
     /// map's own directory and its parents (source_search::resolve). Takes effect
@@ -261,6 +269,11 @@ private:
     std::vector<std::string> combo_files_;      // what the combo's items are now
     QPlainTextEdit* editor_ = nullptr;
     SourceHighlighter* highlighter_ = nullptr;
+    jnext::dbggate::CapabilityView caps_;
+    bool buttons_paused_ = false;       ///< the last update_buttons() argument
+    QString step_tips_[5];              ///< the five step buttons' own tooltips, restored when un-greyed
+    /// True (after saying why, in a tooltip on the gutter) when `s` is missing on the target.
+    bool refuse_(jnext::dbggate::Surface s);
     QPushButton* into_btn_ = nullptr;
     QPushButton* over_btn_ = nullptr;
     QPushButton* out_btn_ = nullptr;

@@ -14,6 +14,7 @@
 #include "debug/long_address.h"
 #include "debug/mem_tools.h"
 #include "debug/result.h"
+#include "debugger/capability_gate.h"
 
 namespace jnext { namespace dbg { class Debugger; } }
 
@@ -42,6 +43,10 @@ public:
 
     /// Update display with current memory and MMU state.
     void refresh();
+
+    /// Epic #486 R1.3 - without PhysicalMemory the Slot n and Page views are disabled in the selector
+    /// with the reason as tooltip, and a Slot or Page view in force falls back to the CPU view.
+    void set_capabilities(const jnext::dbggate::CapabilityView& view);
 
     /// GH #366 - show CPU address `addr`: switches the view to CPU View when it is in a slot or
     /// page view (a CPU address means nothing there), then centres and selects the byte.
@@ -162,6 +167,7 @@ private:
 
     // Top bar widgets
     QLineEdit* addr_input_ = nullptr;
+    jnext::dbggate::CapabilityView caps_;
     QComboBox* page_selector_ = nullptr;
     QLabel* coverage_legend_ = nullptr;   // GH #388
 

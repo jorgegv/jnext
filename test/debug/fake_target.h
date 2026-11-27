@@ -50,6 +50,10 @@ public:
 
     // ---- the record ----------------------------------------------------------
     std::vector<std::string> calls;                  ///< "name(args)" per machine call
+    /// How many identity and run-state queries were made (info, capabilities, why_unavailable,
+    /// register_validity, run_state): not machine calls, so not in `calls`; a window that must not
+    /// touch a target any more counts both.
+    mutable int queries = 0;
     int count(const char* name) const {
         int n = 0;
         const size_t len = std::strlen(name);
@@ -82,15 +86,16 @@ public:
     }
 
     // ---- identity ------------------------------------------------------------
-    TargetInfo       info() const override { return info_v; }
-    CapabilitySet    capabilities() const override { return caps; }
+    TargetInfo       info() const override { ++queries; return info_v; }
+    CapabilitySet    capabilities() const override { ++queries; return caps; }
     std::string      why_unavailable(Capability c) const override {
+        ++queries;
         return caps.has(c) ? std::string() : why_text;
     }
-    RegisterValidity register_validity() const override { return validity; }
+    RegisterValidity register_validity() const override { ++queries; return validity; }
 
     // ---- run state -----------------------------------------------------------
-    RunState run_state() const override { return run; }
+    RunState run_state() const override { ++queries; return run; }
     Result   step_instruction() override { rec("step_instruction"); return Result::Ok; }
 
     // ---- registers -----------------------------------------------------------

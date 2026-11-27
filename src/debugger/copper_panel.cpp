@@ -105,6 +105,14 @@ void CopperPanel::refresh() {
     uint16_t pc = copper.pc;
     pc_label_->setText(QString::asprintf("PC: %03X  Mode: %d", pc, copper.mode));
 
+    // A target that cannot read the Copper (a remote one) answers an empty program view: no program to
+    // list, and indexing it would read through a null pointer.
+    if (!copper.program.data || copper.program.size < 1024) {
+        for (int r = 0; r < DISPLAY_ROWS; ++r)
+            for (int c = 0; c < 4; ++c) table_->item(r, c)->setText(QString());
+        return;
+    }
+
     // Show DISPLAY_ROWS instructions centered around PC
     int start = static_cast<int>(pc) - DISPLAY_ROWS / 2;
     if (start < 0) start = 0;

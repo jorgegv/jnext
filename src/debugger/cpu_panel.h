@@ -8,6 +8,7 @@
 #include <array>
 
 #include "debug/events.h"   // jnext::dbg::ClientId
+#include "debugger/capability_gate.h"
 #include "debugger/tstate_counter.h"
 
 namespace jnext { namespace dbg { class Debugger; } }
@@ -39,6 +40,11 @@ public:
     /// window opening. Records a start point and draws one label; no paused gate.
     void restart_tstate_count();
 
+    /// Epic #486 R1.3 - what the target can do and which register fields it reports: a field it does not
+    /// report shows `?` (never its zero), a missing RegisterWrite refuses an edit with the reason, and
+    /// a reason line says why the registers are not known. Redraws when paused.
+    void set_capabilities(const jnext::dbggate::CapabilityView& view);
+
 signals:
     /// A refused or malformed edit, for the debugger window's status bar.
     void message(const QString& text);
@@ -66,6 +72,8 @@ private:
     jnext::dbg::Debugger* dbg_;
     jnext::dbg::ClientId client_ = jnext::dbg::CLIENT_NONE;
     bool paused_ = false;
+    jnext::dbggate::CapabilityView caps_;
+    QLabel* reason_label_ = nullptr;   ///< why the core registers are not known; hidden when they are
 
     // The 16 value labels, in regedit::fields() order.
     std::array<QLabel*, 16> values_{};

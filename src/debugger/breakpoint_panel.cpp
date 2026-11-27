@@ -13,6 +13,7 @@
 #include <QFormLayout>
 #include <QLineEdit>
 #include <QComboBox>
+#include <QStandardItemModel>
 #include <QLabel>
 
 // The table's columns, named once (GH #225 inserted one at the front).
@@ -34,9 +35,9 @@ BreakpointPanel::BreakpointPanel(QWidget* parent)
     auto* btn_row = new QHBoxLayout();
     btn_row->setSpacing(4);
 
-    auto* add_btn = new QPushButton(tr("Add"), this);
-    connect(add_btn, &QPushButton::clicked, this, &BreakpointPanel::on_add);
-    btn_row->addWidget(add_btn);
+    add_btn_ = new QPushButton(tr("Add"), this);
+    connect(add_btn_, &QPushButton::clicked, this, &BreakpointPanel::on_add);
+    btn_row->addWidget(add_btn_);
 
     auto* edit_btn = new QPushButton(tr("Edit"), this);
     connect(edit_btn, &QPushButton::clicked, this, &BreakpointPanel::on_edit);
@@ -262,6 +263,26 @@ void BreakpointPanel::apply_enabled_cell(int row, bool enabled)
     entries_[row].enabled = enabled;
 }
 
+jnext::dbggate::Surface BreakpointPanel::surface_of_type(int index)
+{
+    using jnext::dbggate::Surface;
+    if (index == 0) return Surface::ExecBp;
+    if (index <= 3) return Surface::WatchBp;
+    return Surface::EventBp;
+}
+
+void BreakpointPanel::set_capabilities(const jnext::dbggate::CapabilityView& view)
+{
+    caps_ = view;
+    bool any = false;
+    for (int i = 0; i <= BreakpointModel::AudioWrite; ++i)
+        any = any || !jnext::dbggate::first_missing(surface_of_type(i), caps_.caps);
+    add_btn_->setEnabled(any);
+    add_btn_->setToolTip(any ? QString()
+                             : jnext::dbggate::unavailable_tooltip(
+                                   caps_, *jnext::dbggate::first_missing(surface_of_type(0), caps_.caps)));
+}
+
 bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
                                      jnext::dbg::MemSpace space, int& type_index,
                                      BpTarget& target)
@@ -282,6 +303,23 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t addr,
     type_combo->addItem(tr("Interrupt"));
     type_combo->addItem(tr("NMI"));
     type_combo->addItem(tr("Audio Write"));
+    // epic #486 R1.3: a type the target cannot hold is disabled with the reason; a new breakpoint
+    // starts on the first one it can (an edit keeps the row's own type).
+    {
+        auto* tm = qobject_cast<QStandardItemModel*>(type_combo->model());
+        int first_ok = -1;
+        for (int i = 0; i < type_combo->count(); ++i) {
+            const auto miss = jnext::dbggate::first_missing(surface_of_type(i), caps_.caps);
+            if (miss) {
+                if (tm) tm->item(i)->setEnabled(false);
+                type_combo->setItemData(i, jnext::dbggate::unavailable_tooltip(caps_, *miss), Qt::ToolTipRole);
+            } else if (first_ok < 0) {
+                first_ok = i;
+            }
+        }
+        if (title == tr("Add Breakpoint") && first_ok > 0 && tm && !tm->item(type_index)->isEnabled())
+            type_index = first_ok;
+    }
     type_combo->setCurrentIndex(type_index);
     form->addRow(tr("Type:"), type_combo);
 

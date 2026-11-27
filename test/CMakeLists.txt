@@ -2875,6 +2875,20 @@ if(ENABLE_DEBUGGER)
             Qt${JNEXT_QT_MAJOR}::Test)
         target_include_directories(debugger_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
         add_test(NAME debugger_menu_tests COMMAND debugger_menu_test)
+
+        # Epic #486 R1.3/R1.4: the debugger window greyed by the target's capabilities and retargeted. A real
+        # Emulator and a fake target behind the real manager and window; the retargeting rows (stage B) also
+        # drive a MainWindow, hence jnext_gui. Offscreen QPA in main().
+        add_executable(debugger_capabilities_test debugger/capabilities_test.cpp)
+        set_target_properties(debugger_capabilities_test PROPERTIES AUTOMOC ON)
+        target_link_libraries(debugger_capabilities_test PRIVATE
+            jnext_gui jnext_debugger
+            jnext_core jnext_cpu jnext_memory jnext_video
+            jnext_audio jnext_port jnext_peripheral jnext_input
+            jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB
+            Qt${JNEXT_QT_MAJOR}::Test)
+        target_include_directories(debugger_capabilities_test PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
+        add_test(NAME debugger_capabilities_tests COMMAND debugger_capabilities_test)
     endif()
 endif()
 

@@ -97,6 +97,14 @@ void CpuPanel::create_ui() {
         ++r;
     };
 
+    // Epic #486 R1.3: why the registers below read `?` (hidden while the target reports them).
+    reason_label_ = new QLabel(this);
+    reason_label_->setObjectName(QStringLiteral("cpu_reason"));
+    reason_label_->setTextFormat(Qt::PlainText);
+    reason_label_->setWordWrap(true);
+    reason_label_->setVisible(false);
+    top_layout->addWidget(reason_label_);
+
     // === Row 1: AF/BC/DE/HL | AF'/BC'/DE'/HL' ===
     auto* row1 = new QHBoxLayout();
     row1->setSpacing(0);
@@ -224,7 +232,8 @@ void CpuPanel::create_ui() {
     // Straight to the counter: no refresh() and no manager, so no redraw count moves.
     connect(tstates_accumulate_, &QCheckBox::toggled, this, [this](bool on) {
         tstates_.set_accumulate(on);
-        tstates_value_->setText(QString::number(tstates_.value()));
+        tstates_value_->setText(caps_.has(jnext::dbg::Capability::MachineTime)
+                                    ? QString::number(tstates_.value()) : QStringLiteral("?"));
     });
 
     top_layout->addLayout(accumulate_row);
@@ -287,7 +296,8 @@ bool CpuPanel::eventFilter(QObject* watched, QEvent* event) {
         // click of a double-click (the edit gesture) does it too; Back undoes it.
         if (event->type() == QEvent::MouseButtonPress &&
             static_cast<QMouseEvent*>(event)->button() == Qt::LeftButton) {
-            if (dbg_ && paused_ && jnext::regedit::fields()[i].navigable)
+            if (dbg_ && paused_ && jnext::regedit::fields()[i].navigable &&
+                caps_.valid(jnext::dbg::RegisterValidity::Field::Core))
                 emit show_in_disassembly_requested(reg_value(dbg_->registers(), jnext::regedit::fields()[i].reg));
             return false;
         }
@@ -311,12 +321,17 @@ bool CpuPanel::eventFilter(QObject* watched, QEvent* event) {
 
 void CpuPanel::begin_edit(int field) {
     if (!dbg_ || !paused_ || field < 0 || field >= static_cast<int>(values_.size())) return;
+    if (!caps_.has(jnext::dbg::Capability::RegisterWrite)) {
+        emit message(jnext::dbggate::unavailable_text(caps_, jnext::dbg::Capability::RegisterWrite));
+        return;
+    }
     QLabel* lbl = values_[static_cast<size_t>(field)];
     edit_field_ = field;
     // Over the label, wide enough for a symbol name: out to the panel's right edge.
     const QRect g = lbl->geometry();
     editor_->setGeometry(g.x(), g.y(), std::max(g.width(), width() - g.x() - 2), g.height());
-    editor_->setText(lbl->text());
+    // a value the target does not report ("?") opens an empty editor
+    editor_->setText(lbl->text() == QLatin1String("?") ? QString() : lbl->text());
     editor_->show();
     editor_->raise();
     editor_->setFocus(Qt::OtherFocusReason);
@@ -379,6 +394,10 @@ void CpuPanel::commit_edit() {
 
 void CpuPanel::click_flag(int bit) {
     if (!dbg_ || !paused_) return;
+    if (!caps_.has(jnext::dbg::Capability::RegisterWrite)) {
+        emit message(jnext::dbggate::unavailable_text(caps_, jnext::dbg::Capability::RegisterWrite));
+        return;
+    }
     const uint8_t f = static_cast<uint8_t>(dbg_->registers().AF & 0xFF);
     const jnext::dbg::Result res =
         dbg_->set_register(client_, jnext::dbg::RegId::F, jnext::regedit::toggle_flag(f, bit));
@@ -388,7 +407,7 @@ void CpuPanel::click_flag(int bit) {
 
 void CpuPanel::show_value_menu(int field, const QPoint& global_pos) {
     const jnext::regedit::Field& f = jnext::regedit::fields()[static_cast<size_t>(field)];
-    const bool live = dbg_ && paused_;
+    const bool live = dbg_ && paused_ && caps_.valid(jnext::dbg::RegisterValidity::Field::Core);
     QMenu menu(this);
     menu.setToolTipsVisible(true);
     QAction* dis = nullptr;
@@ -408,7 +427,10 @@ void CpuPanel::show_value_menu(int field, const QPoint& global_pos) {
         menu.addSeparator();
     }
     QAction* edit = menu.addAction(tr("Edit Value..."));
-    edit->setEnabled(live);
+    const bool can_write = caps_.has(jnext::dbg::Capability::RegisterWrite);
+    edit->setEnabled(dbg_ && paused_ && can_write);
+    if (!can_write)
+        edit->setToolTip(jnext::dbggate::unavailable_tooltip(caps_, jnext::dbg::Capability::RegisterWrite));
     QAction* chosen = nullptr;
     for (QAction* a : {dis, mem, src, edit})
         if (a) connect(a, &QAction::triggered, &menu, [&chosen, a]() { chosen = a; });
@@ -431,47 +453,96 @@ void CpuPanel::paintEvent(QPaintEvent* event) {
 
 void CpuPanel::restart_tstate_count() {
     if (!dbg_) return;
+    if (!caps_.has(jnext::dbg::Capability::MachineTime)) {
+        tstates_value_->setText(QStringLiteral("?"));
+        return;
+    }
     tstates_.restart(dbg_->time().tstates_total, dbg_->time_epoch());
     tstates_value_->setText(QString::number(tstates_.value()));
+}
+
+void CpuPanel::set_capabilities(const jnext::dbggate::CapabilityView& view) {
+    using jnext::dbg::Capability;
+    caps_ = view;
+    const bool can_write = caps_.has(Capability::RegisterWrite);
+    const QString edit_tip = can_write ? tr("Double-click to edit (while paused)")
+                                       : jnext::dbggate::unavailable_tooltip(caps_, Capability::RegisterWrite);
+    const QString flag_tip = can_write ? tr("Click to toggle (while paused)")
+                                       : jnext::dbggate::unavailable_tooltip(caps_, Capability::RegisterWrite);
+    for (QLabel* l : values_) l->setToolTip(edit_tip);
+    for (QLabel* l : flag_labels_) l->setToolTip(flag_tip);
+    if (!paused_) {
+        // refresh() does not run while the machine does: the T-states field still follows the capability
+        if (!caps_.has(Capability::MachineTime)) tstates_value_->setText(QStringLiteral("?"));
+        return;
+    }
+    refresh();
 }
 
 void CpuPanel::refresh() {
     if (!dbg_) return;
     if (!paused_) return;
+    using jnext::dbg::Capability;
+    using Field = jnext::dbg::RegisterValidity::Field;
 
     // GH #369: a paused observation is a stop.
-    tstates_.observe(dbg_->time().tstates_total, dbg_->time_epoch());   // INS-07
-    tstates_value_->setText(QString::number(tstates_.value()));
+    if (caps_.has(Capability::MachineTime)) {
+        tstates_.observe(dbg_->time().tstates_total, dbg_->time_epoch());   // INS-07
+        tstates_value_->setText(QString::number(tstates_.value()));
+    } else {
+        tstates_value_->setText(QStringLiteral("?"));
+    }
 
     const Z80Registers regs = dbg_->registers();   // INS-01
+    const QString unknown = QStringLiteral("?");
+    const bool core = caps_.valid(Field::Core);
+
+    // Why the registers are not known (D24): the target's reason for not running, else a generic line.
+    if (core) {
+        reason_label_->setVisible(false);
+        reason_label_->clear();
+    } else {
+        QString why = jnext::dbggate::display_text(caps_.why[static_cast<size_t>(Capability::Run)],
+                                                   jnext::dbggate::kReasonChars);
+        if (why.isEmpty()) why = tr("registers not known");
+        reason_label_->setText(why);
+        reason_label_->setVisible(true);
+    }
+    auto word = [&](QLabel* l, uint16_t v) { l->setText(core ? QString::asprintf("%04X", v) : unknown); };
+    auto byte = [&](QLabel* l, uint8_t v) { l->setText(core ? QString::asprintf("%02X", v) : unknown); };
 
     // 16-bit registers
-    reg_af_->setText(QString::asprintf("%04X", regs.AF));
-    reg_bc_->setText(QString::asprintf("%04X", regs.BC));
-    reg_de_->setText(QString::asprintf("%04X", regs.DE));
-    reg_hl_->setText(QString::asprintf("%04X", regs.HL));
-    reg_af2_->setText(QString::asprintf("%04X", regs.AF2));
-    reg_bc2_->setText(QString::asprintf("%04X", regs.BC2));
-    reg_de2_->setText(QString::asprintf("%04X", regs.DE2));
-    reg_hl2_->setText(QString::asprintf("%04X", regs.HL2));
-    reg_ix_->setText(QString::asprintf("%04X", regs.IX));
-    reg_iy_->setText(QString::asprintf("%04X", regs.IY));
-    reg_sp_->setText(QString::asprintf("%04X", regs.SP));
-    reg_pc_->setText(QString::asprintf("%04X", regs.PC));
+    word(reg_af_, regs.AF);
+    word(reg_bc_, regs.BC);
+    word(reg_de_, regs.DE);
+    word(reg_hl_, regs.HL);
+    word(reg_af2_, regs.AF2);
+    word(reg_bc2_, regs.BC2);
+    word(reg_de2_, regs.DE2);
+    word(reg_hl2_, regs.HL2);
+    word(reg_ix_, regs.IX);
+    word(reg_iy_, regs.IY);
+    word(reg_sp_, regs.SP);
+    word(reg_pc_, regs.PC);
 
     // 8-bit registers
-    reg_i_->setText(QString::asprintf("%02X", regs.I));
-    reg_r_->setText(QString::asprintf("%02X", regs.R));
-    reg_iff_->setText(QString::asprintf("%d/%d", regs.IFF1, regs.IFF2));
-    reg_im_->setText(QString::asprintf("%d", regs.IM));
+    byte(reg_i_, regs.I);
+    byte(reg_r_, regs.R);
+    // each half of "n/n" has its own validity bit
+    reg_iff_->setText(QStringLiteral("%1/%2")
+                          .arg(caps_.valid(Field::IFF1) ? QString::number(regs.IFF1) : unknown,
+                               caps_.valid(Field::IFF2) ? QString::number(regs.IFF2) : unknown));
+    reg_im_->setText(caps_.valid(Field::IM) ? QString::number(regs.IM) : unknown);
 
     // Flags
     uint8_t f = regs.AF & 0xFF;
     // The application palette, not the panel's: inside a style-sheeted box the
     // panel's own palette lags a light/dark switch (qt/palette_tint_qt.h).
     const QPalette pal = QApplication::palette();
-    auto set_flag = [&pal](QLabel* lbl, bool active) {
-        if (active) {
+    static const char* const kFlagNames[6] = {"S", "Z", "H", "PV", "N", "C"};
+    auto set_flag = [&pal, core](QLabel* lbl, const char* name, bool active) {
+        lbl->setText(core ? QString::fromLatin1(name) : QStringLiteral("?"));
+        if (active && core) {
             lbl->setStyleSheet("QLabel { font-weight: bold; color: " +
                                palette_tint::css(palette_tint::ink(pal, QColor(0x00, 0xAA, 0x00))) + "; }");
         } else {
@@ -480,15 +551,18 @@ void CpuPanel::refresh() {
         }
     };
 
-    set_flag(flag_s_,  f & 0x80);
-    set_flag(flag_z_,  f & 0x40);
-    set_flag(flag_h_,  f & 0x10);
-    set_flag(flag_pv_, f & 0x04);
-    set_flag(flag_n_,  f & 0x02);
-    set_flag(flag_c_,  f & 0x01);
+    set_flag(flag_s_,  kFlagNames[0], f & 0x80);
+    set_flag(flag_z_,  kFlagNames[1], f & 0x40);
+    set_flag(flag_h_,  kFlagNames[2], f & 0x10);
+    set_flag(flag_pv_, kFlagNames[3], f & 0x04);
+    set_flag(flag_n_,  kFlagNames[4], f & 0x02);
+    set_flag(flag_c_,  kFlagNames[5], f & 0x01);
 
     // Halted state
-    if (regs.halted) {
+    if (!caps_.valid(Field::Halted)) {
+        reg_halted_->setText(unknown);
+        reg_halted_->setStyleSheet("");
+    } else if (regs.halted) {
         reg_halted_->setText("HALTED");
         reg_halted_->setStyleSheet("QLabel { color: " +
                                    palette_tint::css(palette_tint::ink(pal, QColor(0xCC, 0x00, 0x00))) +
@@ -499,10 +573,14 @@ void CpuPanel::refresh() {
     }
 
     // ULA active screen. The bank is port 0x7FFD bit 3 as last written
-    // (INS-03 `paging_ports()` — the byte this label has always read; the ULA
+    // (INS-03 `paging_ports()` - the byte this label has always read; the ULA
     // holds a copy of the bit, `ula_screen_regs().active_bank`). The mode bits
     // live in port_ff(2:0) per VHDL zxula.vhd:191 (`screen_mode_s <=
-    // i_port_ff_reg(2 downto 0)`), INS-15.
+    // i_port_ff_reg(2 downto 0)`), INS-15. It needs the video registers and the paging latch.
+    if (caps_.missing(jnext::dbggate::Surface::UlaScreenField)) {
+        ula_screen_->setText(unknown);
+        return;
+    }
     const bool shadow = (dbg_->paging_ports().port_7ffd >> 3) & 1;
     const uint8_t mode_bits = static_cast<uint8_t>(dbg_->ula_screen_regs().port_ff & 0x07);
 

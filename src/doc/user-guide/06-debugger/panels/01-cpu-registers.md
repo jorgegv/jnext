@@ -21,6 +21,9 @@ The full Z80 state at the paused instruction:
   the debugger window opens. A soft reset does not restart it. At 7, 14 or 28 MHz each instruction counts its own T-states at the
   speed in force (a NOP is 4 at any speed).
 
+A value shown as `?` is one the machine does not report; a line under the title says why when the
+registers as a whole are not known.
+
 ## Showing a value elsewhere
 
 While paused, a **single click** on an address-like value (`BC` `DE` `HL`, their alternates, `IX`
