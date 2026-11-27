@@ -113,6 +113,7 @@ static inline void event_add(libspectrum_dword ts, int type) { (void)ts; (void)t
 void fuse_z80_init_tables(void);
 void fuse_z80_reset(int hard_reset);
 int  fuse_z80_execute_one(void);   /* execute one instruction, return T-states */
+void fuse_z80_resume_prefix(libspectrum_byte prefix); /* next execute_one resumes after this DD/FD's M1 */
 int  fuse_z80_interrupt(libspectrum_byte vector);
 void fuse_z80_nmi(void);
 void fuse_z80_nmi_stackless(void);

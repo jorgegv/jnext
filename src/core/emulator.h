@@ -2146,6 +2146,7 @@ private:
     int64_t  jns_int_first_ts_      = 0;   ///< /INT window, relative to FUSE
     int64_t  jns_int_last_ts_       = 0;   ///< INT64_MAX stays INT64_MAX
     bool     jns_stackless_retn_    = false;
+    uint8_t  jns_prefix_pending_    = 0;   ///< 0 none, 1 DD, 2 FD
     bool     jns_joy_uart_present_  = false;
     bool     jns_multiface_present_ = true;
 

@@ -3642,6 +3642,446 @@ void test_v22_im2_01_on_reti_clears_im2_int_req_latch(Result& res) {
           detail);
 }
 
+
+// ─── GH #584 — runs of DD/FD prefixes ──────────────────────────────────────
+//
+// A DD/FD is a one M-cycle, 4 T instruction that only sets the prefix state
+// (t80n_mcode.vhd:231-235, :1384-1387; R + 1 and PC + 1 per M1, t80n.vhd:490-498).
+// The next M1 overwrites (DD/FD) or clears (ED) the IX/IY choice (t80n.vhd:513-526),
+// so the LAST of a run decides IX or IY and `DD ED xx` is `ED xx` plus one M1. INT and
+// NMI are never accepted at the end of a prefix M1 (t80n.vhd:1765, :1768). execute()
+// walks at most 64 hops per slot and cuts a longer run right after a prefix M1,
+// leaving the prefix pending (Z80Cpu::prefix_pending()).
+
+constexpr uint16_t kPfxBase = 0x8000;
+
+// Slots to run until the instruction ends (nothing pending), at most `max_slots`.
+int pfx_run_to_end(Z80Cpu& cpu, int& total_t, int max_slots = 64) {
+    int slots = 0;
+    total_t = 0;
+    do {
+        total_t += cpu.execute();
+        ++slots;
+    } while (cpu.prefix_pending() != 0 && slots < max_slots);
+    return slots;
+}
+
+// `n` prefix bytes at kPfxBase, alternating DD, FD, DD... when `alt`, else DD; the last is `last`
+// when non-zero.
+void pfx_fill(RamMemory& mem, int n, bool alt, uint8_t last = 0) {
+    for (int i = 0; i < n; ++i)
+        mem.ram[(kPfxBase + i) & 0xFFFF] = (alt && (i & 1)) ? 0xFD : 0xDD;
+    if (last) mem.ram[(kPfxBase + n - 1) & 0xFFFF] = last;
+}
+
+void test_pfxch_01_02_endless_chain(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+    std::memset(mem.ram, 0xDD, sizeof(mem.ram));
+    auto regs = cpu.get_registers();
+    regs.PC = 0;
+    regs.R = 0;
+    cpu.set_registers(regs);
+    const int t = cpu.execute();
+    auto r = cpu.get_registers();
+    char detail[200];
+    std::snprintf(detail, sizeof(detail), "T=%d PC=%u R=%u pending=0x%02x", t, r.PC, r.R,
+                  cpu.prefix_pending());
+    check(res, "PFXCH-01", "64 KB of DD: one execute returns after 65 prefix M1s (260 T, PC+65, R+65)",
+          t == 260 && r.PC == 65 && (r.R & 0x7F) == 65 && cpu.prefix_pending() == 0xDD, detail);
+
+    bool each_65 = true;
+    uint16_t expect_pc = 65;
+    for (int i = 0; i < 2000; ++i) {
+        const int ti = cpu.execute();
+        expect_pc = static_cast<uint16_t>(expect_pc + 65);
+        if (ti != 260 || cpu.pc() != expect_pc || cpu.prefix_pending() != 0xDD) { each_65 = false; break; }
+    }
+    check(res, "PFXCH-02", "2000 more slots of an endless DD chain: each 260 T, PC wraps, prefix stays pending",
+          each_65);
+}
+
+void test_pfxch_03_short_chains_one_slot(Result& res) {
+    detach_contention();
+    bool ok = true;
+    char detail[200] = "";
+    const int lens[] = {1, 2, 63, 64};
+    for (int L : lens) {
+        RamMemory mem;
+        RecordingIo io;
+        Z80Cpu cpu(mem, io);
+        prep_cpu(cpu, mem);
+        pfx_fill(mem, L, true);
+        const uint8_t last = mem.ram[kPfxBase + L - 1];
+        const uint16_t at = static_cast<uint16_t>(kPfxBase + L);
+        mem.ram[at] = 0x21; mem.ram[at + 1] = 0x34; mem.ram[at + 2] = 0x12;
+        auto regs = cpu.get_registers();
+        regs.HL = 0x5555; regs.IX = 0; regs.IY = 0; regs.R = 0;
+        cpu.set_registers(regs);
+        const int t = cpu.execute();
+        auto r = cpu.get_registers();
+        const bool reg_ok = (last == 0xDD) ? (r.IX == 0x1234 && r.IY == 0)
+                                           : (r.IY == 0x1234 && r.IX == 0);
+        if (t != 4 * L + 10 || (r.R & 0x7F) != L + 1 || r.HL != 0x5555 || !reg_ok ||
+            r.PC != at + 3 || cpu.prefix_pending() != 0) {
+            ok = false;
+            std::snprintf(detail, sizeof(detail), "L=%d T=%d (exp %d) R=%u PC=%04x IX=%04x IY=%04x",
+                          L, t, 4 * L + 10, r.R, r.PC, r.IX, r.IY);
+        }
+    }
+    check(res, "PFXCH-03", "L DD/FD bytes then LD IX/IY,nn (L=1,2,63,64): one execute, 4L+10 T, last prefix picks the register",
+          ok, detail);
+}
+
+void test_pfxch_04_long_chains(Result& res) {
+    detach_contention();
+    bool ok = true;
+    char detail[240] = "";
+    const int lens[] = {65, 66, 129, 130, 200};
+    const int slots_exp[] = {2, 2, 3, 3, 4};
+    for (int k = 0; k < 5; ++k) {
+        const int L = lens[k];
+        RamMemory mem;
+        RecordingIo io;
+        Z80Cpu cpu(mem, io);
+        prep_cpu(cpu, mem);
+        pfx_fill(mem, L, false, L == 129 ? 0xFD : 0);
+        const uint8_t last = mem.ram[kPfxBase + L - 1];
+        const uint16_t at = static_cast<uint16_t>(kPfxBase + L);
+        mem.ram[at] = 0x21; mem.ram[at + 1] = 0x34; mem.ram[at + 2] = 0x12;
+        auto regs = cpu.get_registers();
+        regs.HL = 0x5555; regs.IX = 0; regs.IY = 0; regs.R = 0;
+        cpu.set_registers(regs);
+        int t = 0;
+        const int slots = pfx_run_to_end(cpu, t);
+        auto r = cpu.get_registers();
+        const bool reg_ok = (last == 0xDD) ? (r.IX == 0x1234 && r.IY == 0)
+                                           : (r.IY == 0x1234 && r.IX == 0);
+        if (t != 4 * L + 10 || (r.R & 0x7F) != ((L + 1) & 0x7F) || r.HL != 0x5555 || !reg_ok ||
+            r.PC != at + 3 || slots != slots_exp[k]) {
+            ok = false;
+            std::snprintf(detail, sizeof(detail),
+                          "L=%d T=%d (exp %d) R=%u PC=%04x IX=%04x IY=%04x slots=%d (exp %d)",
+                          L, t, 4 * L + 10, r.R, r.PC, r.IX, r.IY, slots, slots_exp[k]);
+        }
+    }
+    check(res, "PFXCH-04", "L=65..200 DD/FD bytes then LD IX/IY,nn: same T, R, PC and register as a short run, over 2-4 slots",
+          ok, detail);
+}
+
+void test_pfxch_05_inner_opcode_after_long_chain(Result& res) {
+    detach_contention();
+    struct Case { uint8_t op[2]; int n; uint16_t bc; uint8_t b; };
+    const Case cases[] = {
+        {{0x76, 0}, 1, 0x0000, 0},        // HALT
+        {{0x10, 0xFE}, 2, 0x0100, 1},     // DJNZ, B = 1: not taken, IncDecZ = 1
+        {{0x03, 0}, 1, 0xFFFF, 0},        // INC BC -> 0
+        {{0x0B, 0}, 1, 0x0001, 0},        // DEC BC -> 0
+        {{0x03, 0}, 1, 0x0004, 0},        // INC BC -> nonzero
+    };
+    bool ok = true;
+    char detail[200] = "";
+    for (const Case& c : cases) {
+        auto run = [&](int prefixes) {
+            RamMemory mem;
+            RecordingIo io;
+            Z80Cpu cpu(mem, io);
+            prep_cpu(cpu, mem);
+            for (int i = 0; i < prefixes; ++i) mem.ram[kPfxBase + i] = 0xDD;
+            for (int i = 0; i < c.n; ++i) mem.ram[kPfxBase + prefixes + i] = c.op[i];
+            auto regs = cpu.get_registers();
+            regs.BC = c.bc; regs.IncDecZ = 0xFF & 0;
+            cpu.set_registers(regs);
+            int t = 0;
+            pfx_run_to_end(cpu, t);
+            auto r = cpu.get_registers();
+            return std::make_tuple(static_cast<int>(r.PC) - (kPfxBase + prefixes), r.BC, r.IncDecZ,
+                                   r.halted, r.AF);
+        };
+        if (run(1) != run(70)) {
+            ok = false;
+            std::snprintf(detail, sizeof(detail), "opcode %02x behind 70 DD differs from behind 1 DD", c.op[0]);
+        }
+    }
+    check(res, "PFXCH-05", "HALT, DJNZ, INC BC, DEC BC behind 70 DD: halt, PC, BC, IncDecZ as behind one DD",
+          ok, detail);
+}
+
+// A chain of `n` DD ending in NOP, run slot by slot with an interrupt source armed after the first
+// slot; fills `kinds`, `sps`, `pcs` per slot.
+struct PfxRun {
+    std::vector<Z80Cpu::SlotKind> kinds;
+    std::vector<uint16_t> sps, pcs;
+    std::vector<bool> int_pend, nmi_pend;
+};
+
+void test_pfxch_06_07_int_not_accepted_inside(Result& res) {
+    detach_contention();
+    for (int variant = 0; variant < 2; ++variant) {
+        RamMemory mem;
+        RecordingIo io;
+        Z80Cpu cpu(mem, io);
+        prep_cpu(cpu, mem);
+        const int n = 400;
+        pfx_fill(mem, n, false);
+        mem.ram[kPfxBase + n] = 0x00;       // NOP ends the chain
+        mem.ram[kPfxBase + n + 1] = 0x00;
+        auto regs = cpu.get_registers();
+        regs.SP = 0xA000; regs.IFF1 = 1; regs.IFF2 = 1; regs.IM = 1;
+        cpu.set_registers(regs);
+        // variant 0: window open for the whole chain. variant 1: it ends inside it.
+        cpu.request_interrupt(0xFF, 0, variant == 0 ? 1000000 : 100);
+        PfxRun run;
+        int slots = 0;
+        bool ok = true;
+        do {
+            cpu.execute();
+            ++slots;
+            run.kinds.push_back(cpu.last_slot_kind());
+            if (cpu.last_slot_kind() != Z80Cpu::SlotKind::Opcode || cpu.get_registers().SP != 0xA000) ok = false;
+        } while (cpu.prefix_pending() != 0 && slots < 64);
+        const int cuts = slots - 1;
+        // The NOP ended the instruction: the boundary after it takes the INT (window open) or drops it.
+        cpu.execute();
+        const bool took = cpu.last_slot_kind() == Z80Cpu::SlotKind::Int;
+        char detail[200];
+        std::snprintf(detail, sizeof(detail), "variant=%d slots=%d cuts=%d inside_ok=%d took_after=%d pending_after=%d",
+                      variant, slots, cuts, ok, took, cpu.int_pending());
+        if (variant == 0) {
+            check(res, "PFXCH-06", "INT window open across 6 cut boundaries of a 400 DD chain: taken only after the chain's NOP",
+                  ok && cuts >= 5 && took && cpu.get_registers().SP == 0x9FFE, detail);
+        } else {
+            check(res, "PFXCH-07", "INT window that ends inside a DD chain: dropped, never accepted",
+                  ok && cuts >= 5 && !took && !cpu.int_pending() && cpu.get_registers().SP == 0xA000, detail);
+        }
+    }
+}
+
+void test_pfxch_08_nmi_waits(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+    const int n = 300;
+    pfx_fill(mem, n, false);
+    mem.ram[kPfxBase + n] = 0x00;
+    auto regs = cpu.get_registers();
+    regs.SP = 0xA000;
+    cpu.set_registers(regs);
+    cpu.execute();                       // slot 1: cut after 65 prefixes
+    cpu.request_nmi();                   // the NMI edge arrives inside the chain
+    bool ok = cpu.prefix_pending() != 0;
+    int slots = 1;
+    while (cpu.prefix_pending() != 0 && slots < 64) {
+        ok = ok && cpu.nmi_pending();
+        cpu.execute();
+        ++slots;
+        if (cpu.last_slot_kind() != Z80Cpu::SlotKind::Opcode || cpu.get_registers().SP != 0xA000) ok = false;
+    }
+    const bool still = cpu.nmi_pending();
+    cpu.execute();
+    const bool took = cpu.last_slot_kind() == Z80Cpu::SlotKind::Nmi;
+    char detail[200];
+    std::snprintf(detail, sizeof(detail), "slots=%d ok_inside=%d pending_after_chain=%d took=%d PC=%04x",
+                  slots, ok, still, took, cpu.pc());
+    check(res, "PFXCH-08", "NMI raised inside a 300 DD chain: waits (still pending), taken at the boundary after the NOP",
+          ok && slots >= 4 && still && took && cpu.pc() == 0x0066, detail);
+}
+
+// One program, run to the end of its instruction: registers, T, memory, port writes.
+struct PfxState {
+    Z80Registers r;
+    int t = 0;
+    std::vector<uint8_t> mem;
+    std::vector<std::pair<uint16_t, uint8_t>> outs;
+};
+
+template <typename Init>
+PfxState pfx_exec(const std::vector<uint8_t>& prog, Init init) {
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    detach_contention();
+    prep_cpu(cpu, mem);
+    for (size_t i = 0; i < prog.size(); ++i) mem.ram[kPfxBase + i] = prog[i];
+    auto regs = cpu.get_registers();
+    regs.R = 0;
+    init(regs, mem);
+    cpu.set_registers(regs);
+    PfxState s;
+    pfx_run_to_end(cpu, s.t);
+    s.r = cpu.get_registers();
+    s.mem.assign(mem.ram, mem.ram + sizeof(mem.ram));
+    for (auto& o : io.outs) s.outs.push_back({o.port, o.val});
+    return s;
+}
+
+// The prefixed run of the same instruction must equal the plain run, plus 4 T and R + 1 per prefix,
+// with PC shifted by the prefixes.
+bool pfx_same_plus(const PfxState& plain, const PfxState& pre, int k, char* why, size_t why_n) {
+    Z80Registers a = plain.r, b = pre.r;
+    const bool pc_ok = static_cast<int>(b.PC) - k == static_cast<int>(a.PC);
+    const bool r_ok = (b.R & 0x7F) == ((a.R + k) & 0x7F);
+    b.PC = a.PC; b.R = a.R;
+    const bool regs_ok = std::memcmp(&a, &b, sizeof(a)) == 0;
+    const bool ok = pc_ok && r_ok && regs_ok && pre.t == plain.t + 4 * k && pre.mem == plain.mem &&
+                    pre.outs == plain.outs;
+    if (!ok)
+        std::snprintf(why, why_n, "pc_ok=%d r_ok=%d regs_ok=%d T %d vs %d+%d mem_eq=%d outs_eq=%d", pc_ok,
+                      r_ok, regs_ok, pre.t, plain.t, 4 * k, pre.mem == plain.mem, pre.outs == plain.outs);
+    return ok;
+}
+
+void test_pfxch_09_dd_before_test_n(Result& res) {
+    auto init = [](Z80Registers& r, RamMemory&) { r.AF = 0x0F00; };
+    const auto plain = pfx_exec({0xED, 0x27, 0x3C}, init);
+    const auto pre = pfx_exec({0xDD, 0xED, 0x27, 0x3C}, init);
+    char why[160] = "";
+    const bool same = pfx_same_plus(plain, pre, 1, why, sizeof(why));
+    check(res, "PFXCH-09", "DD ED 27 3C runs TEST $3C (A stays 0x0F), as plain ED 27 3C plus one M1",
+          same && (pre.r.AF >> 8) == 0x0F && pre.r.PC == kPfxBase + 4 && pre.t == plain.t + 4 &&
+              (pre.r.R & 0x7F) == 3, why);
+}
+
+void test_pfxch_10_z80n_behind_prefixes(Result& res) {
+    char why[160] = "";
+    bool ok = true;
+    auto chk = [&](const char* name, const std::vector<uint8_t>& plain_prog, int k, uint8_t p0, uint8_t p1,
+                   auto init) {
+        std::vector<uint8_t> pre_prog;
+        if (k >= 1) pre_prog.push_back(p0);
+        if (k >= 2) pre_prog.push_back(p1);
+        pre_prog.insert(pre_prog.end(), plain_prog.begin(), plain_prog.end());
+        const auto a = pfx_exec(plain_prog, init);
+        const auto b = pfx_exec(pre_prog, init);
+        char w[160] = "";
+        if (!pfx_same_plus(a, b, k, w, sizeof(w))) {
+            ok = false;
+            std::snprintf(why, sizeof(why), "%s: %s", name, w);
+        }
+    };
+    chk("SWAPNIB", {0xED, 0x23}, 1, 0xFD, 0, [](Z80Registers& r, RamMemory&) { r.AF = 0x1200; });
+    chk("ADD HL,nn", {0xED, 0x34, 0x01, 0x10}, 2, 0xDD, 0xFD,
+        [](Z80Registers& r, RamMemory&) { r.HL = 0x0234; });
+    chk("NEXTREG", {0xED, 0x91, 0x07, 0x03}, 1, 0xDD, 0, [](Z80Registers&, RamMemory&) {});
+    chk("LDIRX", {0xED, 0xB4}, 1, 0xFD, 0, [](Z80Registers& r, RamMemory& m) {
+        r.BC = 2; r.HL = 0x9000; r.DE = 0x9100; r.AF = 0x0000;
+        m.ram[0x9000] = 0x11; m.ram[0x9001] = 0x22;
+    });
+    check(res, "PFXCH-10", "Z80N opcodes behind DD/FD (SWAPNIB, ADD HL,nn, NEXTREG, LDIRX) run: plain result plus 4 T, R+1 per prefix",
+          ok, why);
+}
+
+void test_pfxch_11_ed_block_and_reti(Result& res) {
+    char why[160] = "";
+    bool ok = true;
+    {
+        auto init = [](Z80Registers& r, RamMemory& m) {
+            r.BC = 3; r.HL = 0x9000; r.DE = 0x9100; m.ram[0x9000] = 0x5A;
+        };
+        const auto a = pfx_exec({0xED, 0xA0}, init);
+        const auto b = pfx_exec({0xDD, 0xED, 0xA0}, init);
+        ok = pfx_same_plus(a, b, 1, why, sizeof(why)) && b.r.BC == 2 && b.r.IncDecZ == 1;
+    }
+    if (ok) {
+        auto init = [](Z80Registers& r, RamMemory& m) {
+            r.SP = 0x9000; m.ram[0x9000] = 0x03; m.ram[0x9001] = 0x80;
+        };
+        const auto a = pfx_exec({0xED, 0x4D}, init);
+        const auto b = pfx_exec({0xDD, 0xDD, 0xED, 0x4D}, init);
+        // RETI jumps: PC is the stacked address in both, so only T, R and the rest are compared.
+        Z80Registers x = a.r, y = b.r;
+        const bool same = y.PC == x.PC && y.SP == x.SP && b.t == a.t + 8 &&
+                          (y.R & 0x7F) == ((x.R + 2) & 0x7F);
+        ok = same && y.SP == 0x9002 && y.PC == 0x8003;
+        if (!same) std::snprintf(why, sizeof(why), "RETI: PC %04x vs %04x SP %04x T %d vs %d", y.PC, x.PC, y.SP, b.t, a.t);
+    }
+    check(res, "PFXCH-11", "DD ED A0 (LDI) and DD DD ED 4D (RETI): as the plain instructions plus the prefix M1s",
+          ok, why);
+}
+
+void test_pfxch_12_m1_hooks_across_a_cut(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+    pfx_fill(mem, 70, false);
+    mem.ram[kPfxBase + 70] = 0x00;
+    std::vector<uint16_t> pre;
+    std::vector<std::pair<uint16_t, uint8_t>> cyc;
+    cpu.on_m1_prefetch = [&](uint16_t a) { pre.push_back(a); };
+    cpu.on_m1_cycle = [&](uint16_t a, uint8_t b) { cyc.push_back({a, b}); };
+    int t = 0;
+    pfx_run_to_end(cpu, t);
+    bool ok = pre.size() == 71 && cyc.size() == 71 && t == 71 * 4;
+    for (size_t i = 0; ok && i < 71; ++i) {
+        ok = pre[i] == kPfxBase + i && cyc[i].first == kPfxBase + i &&
+             cyc[i].second == (i < 70 ? 0xDD : 0x00);
+    }
+    char detail[160];
+    std::snprintf(detail, sizeof(detail), "prefetch=%zu cycle=%zu T=%d (exp 71, 71, 284)", pre.size(),
+                  cyc.size(), t);
+    check(res, "PFXCH-12", "70 DD then NOP: on_m1_prefetch and on_m1_cycle fire once per M1 byte, in order, 71 times",
+          ok, detail);
+}
+
+void test_pfxch_14_magic_forms_keyed_on_first_byte(Result& res) {
+    detach_contention();
+    auto fires = [&](std::vector<uint8_t> prog) {
+        RamMemory mem;
+        RecordingIo io;
+        Z80Cpu cpu(mem, io);
+        prep_cpu(cpu, mem);
+        for (size_t i = 0; i < prog.size(); ++i) mem.ram[kPfxBase + i] = prog[i];
+        int n = 0;
+        cpu.on_magic_breakpoint = [&n](uint16_t) { ++n; };
+        int t = 0;
+        pfx_run_to_end(cpu, t);
+        return n;
+    };
+    const int fd00 = fires({0xFD, 0x00});
+    const int ddfd00 = fires({0xDD, 0xFD, 0x00});
+    const int fdfd00 = fires({0xFD, 0xFD, 0x00});
+    const int edff = fires({0xED, 0xFF});
+    const int dd_edff = fires({0xDD, 0xED, 0xFF});
+    char detail[160];
+    std::snprintf(detail, sizeof(detail), "FD 00:%d DD FD 00:%d FD FD 00:%d ED FF:%d DD ED FF:%d", fd00, ddfd00,
+                  fdfd00, edff, dd_edff);
+    check(res, "PFXCH-14", "magic FD 00 and ED FF fire; DD FD 00, FD FD 00 and DD ED FF stay non-magic (keyed on the first byte)",
+          fd00 == 1 && edff == 1 && ddfd00 == 0 && fdfd00 == 0 && dd_edff == 0, detail);
+}
+
+void test_pfxch_15_pc_change_clears_pending(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+    std::memset(mem.ram, 0xDD, sizeof(mem.ram));
+    cpu.execute();
+    const bool pending = cpu.prefix_pending() == 0xDD;
+    auto regs = cpu.get_registers();
+    regs.HL = 0x1234;
+    cpu.set_registers(regs);              // same PC: keeps it
+    const bool kept = cpu.prefix_pending() == 0xDD;
+    regs.PC = static_cast<uint16_t>(regs.PC + 1);
+    cpu.set_registers(regs);              // a new PC starts a fresh instruction
+    const bool cleared = cpu.prefix_pending() == 0;
+    cpu.execute();
+    cpu.reset();
+    const bool reset_clears = cpu.prefix_pending() == 0;
+    char detail[120];
+    std::snprintf(detail, sizeof(detail), "pending=%d kept=%d cleared=%d reset=%d", pending, kept, cleared,
+                  reset_clears);
+    check(res, "PFXCH-15", "set_registers with a new PC clears the pending prefix, the same PC keeps it, reset clears it",
+          pending && kept && cleared && reset_clears, detail);
+}
+
 }  // namespace
 
 int main() {
@@ -3748,6 +4188,19 @@ int main() {
     test_perf_slnmi_02_enable_cb_polled_while_latch_set(res);
     test_perf_slnmi_03_enable_cleared_midhandler_abandons_latch(res);
     test_perf_slnmi_04_state_load_clearing_latch_disarms_fuse(res);
+    // GH #584 — runs of DD/FD prefixes: a bounded slot, the pending prefix, DD/FD before Z80N.
+    test_pfxch_01_02_endless_chain(res);
+    test_pfxch_03_short_chains_one_slot(res);
+    test_pfxch_04_long_chains(res);
+    test_pfxch_05_inner_opcode_after_long_chain(res);
+    test_pfxch_06_07_int_not_accepted_inside(res);
+    test_pfxch_08_nmi_waits(res);
+    test_pfxch_09_dd_before_test_n(res);
+    test_pfxch_10_z80n_behind_prefixes(res);
+    test_pfxch_11_ed_block_and_reti(res);
+    test_pfxch_12_m1_hooks_across_a_cut(res);
+    test_pfxch_14_magic_forms_keyed_on_first_byte(res);
+    test_pfxch_15_pc_change_clears_pending(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");

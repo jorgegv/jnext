@@ -11146,7 +11146,12 @@ void Emulator::run_frame()
             // round a loop. A redundant resume on an already-running machine
             // raises no arm at all, so it cannot swallow a later hit.
             const bool step_off = debug_state_.consume_step_off();
-            if (!step_off && debug_state_.should_break(pc)) {
+            // GH #584: a slot that starts inside an instruction (a long DD/FD run cut after a
+            // prefix M1, Z80Cpu::prefix_pending()) is no instruction start: PC-keyed stops skip it,
+            // as they skip every address inside a short chain. Pause, Step Into and RUN_TO_CYCLE
+            // stay per slot, so an endless chain still stops.
+            const bool inside_instr = cpu_.prefix_pending() != 0;
+            if (!step_off && !inside_instr && debug_state_.should_break(pc)) {
                 debug_state_.pause();
                 // Early return: leave frame_cycle_ as-is so resume continues
                 // from this point.  The display shows the previous frame.
@@ -11164,7 +11169,7 @@ void Emulator::run_frame()
             // legacy test and leave this gate to re-match the address the user
             // is standing on, re-pausing with no progress made. That is #221
             // exactly, reintroduced for subscriptions.
-            if (!step_off && debug_state_.execute_events_armed() &&
+            if (!step_off && !inside_instr && debug_state_.execute_events_armed() &&
                 debug_state_.run_execute_gate(pc)) {
                 debug_state_.pause();
                 return;
@@ -11204,7 +11209,8 @@ void Emulator::run_frame()
             const bool tap_fast = tape_.is_loaded() && tape_.fast_load() && !tape_.at_end();
             const bool tzx_fast = tzx_tape_.is_loaded() && tzx_tape_.fast_load() &&
                                   !tzx_tape_.at_end();
-            const bool ld_break = pc == tape_trap::LD_BREAK_ADDR &&
+            // (A trap substitutes an instruction start: never with a DD/FD prefix pending, GH #584.)
+            const bool ld_break = pc == tape_trap::LD_BREAK_ADDR && !cpu_.prefix_pending() &&
                                   (tap_fast || tzx_fast) &&
                                   (cpu_.get_registers().AF & 0x40) &&
                                   tape_trap::ld_bytes_rom_present(mmu_);
@@ -11234,7 +11240,7 @@ void Emulator::run_frame()
             // tap_saver_.active() is the armed flag for EVERY format (GH #89:
             // a TZX / WAV save arms it too, start_tape_save()), so this test
             // costs exactly what it did before TZX / WAV existed.
-            if (tap_saver_.active() && pc == TapSaver::SA_BYTES_ADDR &&
+            if (tap_saver_.active() && pc == TapSaver::SA_BYTES_ADDR && !cpu_.prefix_pending() &&
                 TapSaver::sa_bytes_rom_present(mmu_)) {
                 tap_saver_.handle_sa_bytes_trap(*this);
                 skip_trap_cycles_(100ULL * clock_.cpu_divisor());
@@ -11940,7 +11946,9 @@ uint64_t Emulator::step_one_instruction()
             const Z80Registers& regs2 = cpu_.registers();
             cs_pc = regs2.PC;
             cs_sp = regs2.SP;
-            if (cpu_.nmi_pending() || (cpu_.int_pending() && regs2.IFF1)) {
+            // Not with a DD/FD prefix pending: execute() accepts neither there (GH #584).
+            if (!cpu_.prefix_pending() &&
+                (cpu_.nmi_pending() || (cpu_.int_pending() && regs2.IFF1))) {
                 ++call_stack_predictions_;
                 DebugState::InspectionScope inspect(debug_state_);
                 cs_space = predict_fetch(cs_pc);
@@ -12018,7 +12026,9 @@ uint64_t Emulator::step_one_instruction()
         //
         // Off, this is one pointer load and one branch (DebugState).
         if (std::bitset<65536>* cov = debug_state_.coverage_sink()) {
-            if (cpu_.fetched_opcode_last_execute()) (*cov)[pc_pre_exec] = true;
+            // Coverage is instruction starts: not a slot that resumed inside one (GH #584).
+            if (cpu_.fetched_opcode_last_execute() && !cpu_.resumed_last_execute())
+                (*cov)[pc_pre_exec] = true;
         }
 
         // GH #203 — Step Out decision. It sits HERE, between execute() and the
@@ -15269,6 +15279,9 @@ void Emulator::save_state(StateWriter& w) const
     // GH #505: the second card's FSM, appended after card 0's.
     sd_card2_.save_state(w);
     put_sentinel();   // "sdcard2"
+    // GH #584: the pending DD/FD of a cut prefix run, appended after the last block.
+    w.write_u8(cpu_.prefix_pending());
+    put_sentinel();   // "cpu_prefix_pending"
 
     // Task 60b — bounds check: a snapshot buffer smaller than the state
     // stream would previously scribble past the allocation silently; the
@@ -15760,6 +15773,20 @@ bool Emulator::load_state(StateReader& r)
         if (!r.eof()) {
             sd_card2_.load_state(r);
             if (!check_sentinel("sdcard2")) return false;
+            // GH #584: the pending prefix, appended after the second card; a stream without it
+            // (an older one) leaves none pending.
+            if (!r.eof()) {
+                const uint8_t p = r.read_u8();
+                if (p != 0 && p != 0xDD && p != 0xFD) {
+                    last_state_error_ = "bad-prefix-pending";
+                    ++state_error_generation_;
+                    Log::emulator()->error(
+                        "load_state: pending prefix {:#04x} is not none, DD or FD", p);
+                    return false;
+                }
+                cpu_.set_prefix_pending_for_load(p);
+                if (!check_sentinel("cpu_prefix_pending")) return false;
+            }
         }
     }
 

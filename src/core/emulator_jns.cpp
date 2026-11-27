@@ -438,6 +438,14 @@ void Emulator::describe_jns_exceptions(jnext::save::StateDesc& d)
     // and ordinary code can run with SP two bytes below an earlier value.
     d.boolean("stackless_retn_active", jns_stackless_retn_, false);
 
+    // A DD/FD M1 has run and its instruction has not ended (Z80Cpu::prefix_pending()): the
+    // T80N's prefix state at the boundary a long DD/FD run is cut at. An ordinal, so that a
+    // value that is neither none, DD nor FD is refused when the file is read.
+    static const char* const kPrefixPendingNameArr[] = {"none", "dd", "fd"};
+    static const jnext::save::EnumNames kPrefixPendingNames{
+        kPrefixPendingNameArr, 3};
+    d.enum8("cpu_prefix_pending", jns_prefix_pending_, kPrefixPendingNames, 0);
+
     // §9.5(5). Presence, not content: the binary stream needs these because a
     // positional reader has to know whether the next bytes are there at all.
     // A `.jns` reader could infer both from whether the member exists — and
@@ -527,6 +535,8 @@ void Emulator::stage_jns_exceptions_()
         jns_int_last_ts_  = (last == INT64_MAX) ? last : last - now_ts;
     }
     jns_stackless_retn_    = cpu_.stackless_retn_active();
+    jns_prefix_pending_    = cpu_.prefix_pending() == 0xDD ? 1
+                           : cpu_.prefix_pending() == 0xFD ? 2 : 0;
     jns_joy_uart_present_  = (joy_uart_source_ != nullptr);
     jns_multiface_present_ = true;
 }
@@ -1140,6 +1150,8 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
         cpu_.set_int_window_for_load(first, last);
     }
     cpu_.set_stackless_retn_active_for_load(jns_stackless_retn_);
+    cpu_.set_prefix_pending_for_load(jns_prefix_pending_ == 1 ? 0xDD
+                                     : jns_prefix_pending_ == 2 ? 0xFD : 0);
 
     // ── meta/preview.png (§10.2 P5) ─────────────────────────────────────
     if (m.preview.present && zip.has("meta/preview.png")) {
