@@ -814,6 +814,13 @@ static void ins_rows_b() {
         const auto subs = p.remote->subscriptions(true);
         if (!subs.empty()) p.remote->unsubscribe(p.ra, subs[0].id);
         p.remote->run(p.ra);
+        // A frame runs on the served machine and the remote is not pumped: the line cached at the stop describes a
+        // machine that has since moved, so the read must fetch (the cache goes at the resume, not at the next pump).
+        p.srv.emu.run_frame();
+        p.srv.dbg->pump(PumpBudget{});
+        uint8_t fresh[1];
+        p.remote->peek(MemSpace::cpu(), 0x9000, 1, fresh);
+        const bool dropped_at_resume = fresh[0] != b[0];
         p.tick();
         uint8_t v1[1], v2[1], v3[1];
         p.link->mark();
@@ -827,7 +834,8 @@ static void ins_rows_b() {
         check("RTG-INS-13", "cache lifetime: a re-read while paused costs nothing; after run() and a stop it is fetched again; "
                             "while running two reads in one tick cost one fetch and the next tick fetches again and sees "
                             "what the running loop wrote",
-              cached && cached2 && one_tick == 1 && v1[0] == v2[0] && next_tick == 1 && v3[0] != v1[0]);
+              cached && cached2 && dropped_at_resume && one_tick == 1 && v1[0] == v2[0] && next_tick == 1 &&
+                  v3[0] != v1[0]);
     }
     {
         Pair p;
@@ -872,7 +880,7 @@ static void ins_rows_b() {
         s.d->registers();
         s.s.close();
         LogTap log;
-        s.d->pump(PumpBudget{});
+        // The target has not yet noticed the loss (no pump): the write finds it out itself, in the middle of the verb.
         uint8_t data[4] = {1, 2, 3, 4};
         const auto pk = s.d->poke(s.a, MemSpace::page(3), 0, 4, data);
         uint8_t buf[4];
