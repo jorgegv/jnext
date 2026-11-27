@@ -40,6 +40,7 @@
 #include "core/sdcard_provisioner.h"
 #include "gui/sdcard_download_dialog.h"
 #include "../sdcard_provisioner/range_server.h"
+#include "../sdcard_provisioner/host_stalls.h"
 
 #include <QApplication>
 #include <QByteArray>
@@ -200,7 +201,7 @@ void test_through_the_backend() {
     o.body = body;
     o.etag = "\"v1\"";
     o.stall_after = 100000;   // 100000 of 300000 bytes, then silence
-    o.stall_ms = 20000;       // the click below ends it long before
+    o.stall_ms = 60000;       // the click below ends it long before; a hold that runs out would show the backend waited for it
     srv.set(o);
 
     const std::string dir = jtp::make_temp_dir("jnext_sdd_");
@@ -209,7 +210,9 @@ void test_through_the_backend() {
     SdcardGuiProvisioner gui;   // the real clock, as main.cpp builds it
     // main.cpp: opts.progress = [&](uint64_t d, uint64_t t) { return gui.progress(d, t); };
     const Clk::time_point t0 = Clk::now();
-    double first_at = -1, click_at = -1;
+    hs::HostStalls stalls(t0);   // the process's own stalls: the timer's gaps are counted net of them
+    double first_at = -1, click_at = -1, false_at = -1;
+    int ncalls = 0, calls_at_false = 0;
     bool visible = false;
     std::string label_at_click;
     std::vector<double> fires;
@@ -227,6 +230,8 @@ void test_through_the_backend() {
     });
     sdcard::ProgressFn pf = [&](uint64_t d, uint64_t t) {
         const bool go = gui.progress(d, t);
+        ++ncalls;
+        if (!go && false_at < 0) { false_at = since(t0); calls_at_false = ncalls; }
         if (d == 100000 && first_at < 0) {   // the last byte has arrived: the stall begins
             first_at = since(t0);
             QProgressDialog* dlg = the_dialog();
@@ -237,7 +242,7 @@ void test_through_the_backend() {
     };
     std::string err;
     const bool ok = sdcard::http_download(srv.url(), dest, pf, err, {200, 10000});
-    const double returned_at = since(t0);
+    const int run_out = srv.holds_run_out();
     ticker.stop();
 
     int n = 0;
@@ -245,7 +250,7 @@ void test_through_the_backend() {
     for (double f : fires) {
         if (first_at < 0 || f < first_at || (click_at >= 0 && f > click_at)) continue;
         ++n;
-        if (prev >= 0) gap = std::max(gap, f - prev);
+        if (prev >= 0) gap = std::max(gap, stalls.net_gap(prev, f));
         prev = f;
     }
     sdcard::ResumeInfo ri;
@@ -258,16 +263,21 @@ void test_through_the_backend() {
           "wired as main.cpp wires it (the real clock): the dialog is visible, an application timer keeps firing "
           "(at least 5 times, never 800 ms apart) between the first call at 100000 bytes and the click on Cancel "
           "6.5 s later, the label the user was reading at the click says 'Stalled: no data received for N s' "
-          "with N from 5 to 9 and 'gives up after 30 s', and the call returns within 1 s of the click saying "
-          "'cancelled by user' with the 100000 bytes kept",
+          "with N from 5 to 9 and 'gives up after 30 s', and the backend stops within 1 s of the click (the "
+          "ProgressFn call that returned false is the last it got) saying 'cancelled by user' with the 100000 "
+          "bytes kept, the server's 60 s hold not run out at the return (the backend did not wait for it); the "
+          "timer's gaps are net of the process's own stalls (sentinel thread)",
           !ok && visible && first_at >= 0 && click_at > first_at && n >= 5 && gap <= 0.8 &&
               shown_s >= 5 && shown_s <= 9 && has(label_at_click, "gives up after 30 s") &&
-              returned_at - click_at <= 1.0 && err == "cancelled by user" &&
+              false_at >= click_at && false_at - click_at <= 1.0 && calls_at_false == ncalls && run_out == 0 &&
+              err == "cancelled by user" &&
               slurp(sdcard::partial_path(dest)) == body.substr(0, 100000) && sdcard::read_resume_info(dest, ri),
           "ok=" + std::to_string(ok) + " visible=" + std::to_string(visible) + " first_at=" + std::to_string(first_at) +
               " click_at=" + std::to_string(click_at) + " fires=" + std::to_string(n) + " max_gap=" + std::to_string(gap) +
               " label_at_click='" + label_at_click + "' shown_s=" + std::to_string(shown_s) +
-              " returned_after_click=" + std::to_string(returned_at - click_at) + " err='" + err + "' part=" +
+              " false_after_click=" + std::to_string(false_at - click_at) + " calls_at_false=" +
+              std::to_string(calls_at_false) + " calls=" + std::to_string(ncalls) + " holds_run_out=" +
+              std::to_string(run_out) + " err='" + err + "' part=" +
               std::to_string(slurp(sdcard::partial_path(dest)).size()));
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
@@ -436,16 +446,18 @@ void test_short_fetch_through_the_backend() {
     }
     rs::Opts o;
     o.silent = true;     // read the request, send nothing, hold the connection open
-    o.stall_ms = 20000;  // the backend gives up at 2 s and closes: the hold ends early
+    o.stall_ms = 60000;  // the backend gives up at 2 s and closes: the hold ends early (a run-out would show it waited)
     srv.set(o);
 
     const std::string dir = jtp::make_temp_dir("jnext_sdd9_");
     SdcardGuiProvisioner gui;   // the production clock
     const Clk::time_point t0 = Clk::now();
+    hs::HostStalls stalls(t0);   // the process's own stalls: the timer's gaps are counted net of them
     std::vector<double> fires;
     QTimer ticker;
     QObject::connect(&ticker, &QTimer::timeout, [&] { fires.push_back(since(t0)); });
     ticker.start(50);
+    double decided_at = -1;
     int calls = 0;
     double first_visible = -1, last_before_1s_visible = -1;
     sdcard::ProgressFn spy;   // the backend gets this one: the gui's ProgressFn, then what the dialog looks like
@@ -455,6 +467,7 @@ void test_short_fetch_through_the_backend() {
             const bool go = pf ? pf(d, t) : true;   // an empty ProgressFn fails the row (no dialog), it does not abort
             ++calls;
             const double at = since(t0);
+            decided_at = at;   // the backend's last call is its decision
             QProgressDialog* dlg = the_dialog();
             const bool visible = dlg && dlg->isVisible();
             if (visible && first_visible < 0) first_visible = at;
@@ -463,25 +476,27 @@ void test_short_fetch_through_the_backend() {
         };
         return sdcard::http_download(srv.url(), dir + "/dest.bin", spy, err, {200, 2000});
     });
-    const double returned_at = since(t0);
+    const int run_out = srv.holds_run_out();
     ticker.stop();
     int n = 0;
     double prev = 0, gap = 0;   // from the start: the wait for the FIRST fire counts too
     for (double f : fires) {
-        if (f > returned_at) continue;
+        if (f > decided_at) continue;
         ++n;
-        gap = std::max(gap, f - prev);
+        gap = std::max(gap, stalls.net_gap(prev, f));
         prev = f;
     }
     check("SDD-09",
           "through the real backend and a server that never answers, with the production clock and a 2 s stall "
-          "timeout: the fetch returns false after 1.9 to 5.0 s with 'stalled: no data received for 2 s', the "
+          "timeout: the fetch returns false, decided (its last ProgressFn call) at 1.9 to 5.0 s, with 'stalled: no "
+          "data received for 2 s' and the server's 60 s hold not run out at the return, the "
           "dialog is visible at a ProgressFn call 1.0 s or more after the start and at none before it, an "
-          "application timer keeps firing (at least 5 times, never 800 ms apart, the first wait counted from the "
-          "start) during the fetch, and no dialog is left",
-          !ok && returned_at >= 1.9 && returned_at <= 5.0 && err.rfind("stalled: no data received for 2 s", 0) == 0 &&
+          "application timer keeps firing (at least 5 times, never 800 ms apart net of the process's own "
+          "stalls, the first wait counted from the start) until the decision, and no dialog is left",
+          !ok && decided_at >= 1.9 && decided_at <= 5.0 && run_out == 0 && err.rfind("stalled: no data received for 2 s", 0) == 0 &&
               first_visible >= 1.0 && last_before_1s_visible < 0 && n >= 5 && gap <= 0.8 && !the_dialog(),
-          "ok=" + std::to_string(ok) + " returned_at=" + std::to_string(returned_at) + " err='" + err +
+          "ok=" + std::to_string(ok) + " decided_at=" + std::to_string(decided_at) + " holds_run_out=" +
+              std::to_string(run_out) + " err='" + err +
               "' first_visible=" + std::to_string(first_visible) + " visible_before_1s=" +
               std::to_string(last_before_1s_visible) + " calls=" + std::to_string(calls) + " fires=" +
               std::to_string(n) + " max_gap=" + std::to_string(gap) + " left=" + std::to_string(the_dialog() != nullptr));

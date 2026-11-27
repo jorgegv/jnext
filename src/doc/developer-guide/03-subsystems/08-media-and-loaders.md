@@ -1833,6 +1833,24 @@ close without answering and a port refuse the connection, one per stage of the
 asynchronous sequence, and requires the transport's own reason at once, never a
 stall.
 
+The stall-family rows time the backend's decision, not its return. The decision is the
+last `ProgressFn` call it makes: a stall is decided in the step that reports and then
+tests the clock, a cancel in the step whose call returned false. What follows (settling the
+partial on disk, closing handles, tearing the transport down) is host work that no contract
+bounds, and on a host whose file close can block for seconds under I/O load it took up to
+a minute. That nothing waited on the network afterwards is checked at the loopback server:
+its hold of the silent connection is far longer than any row (60 s, 120 s for the
+production-numbers row), and `rs::Server::holds_run_out()` must still be zero when the call
+returns, because a hold that ran out means the backend waited for the server. A cancel row
+also requires that the false-returning call is the last one the backend made, which a
+backend that merely noticed a later tick would fail. The tick-gap bound (800 ms between
+consecutive calls) is net of the process's own stalls: a sentinel thread (`host_stalls.h`)
+wakes every 10 ms and records each wake more than 20 ms late, and the rows subtract those
+spans from each gap. A process frozen by the host delays every thread alike and is excused;
+a long wait the backend makes by itself does not delay the sentinel and is still caught.
+`PROV-STALL-12` pins the sentinel's arithmetic and `PROV-STALL-13` the server's hold
+counter and `release()`.
+
 What a failed fetch says is the callers' business, once. Every failure of
 a fetch is built by `sdcard::fetch_failure(what, url, reason, next)`: `<what>:
 <reason>`, then `  URL: <url>` (exactly the string handed to the `DownloadFn`, one
