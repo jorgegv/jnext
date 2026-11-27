@@ -357,6 +357,12 @@ bool carry_over(const Plan& plan, carry::Report& report, std::string& err) {
 
 // ---- the switch ---------------------------------------------------------------------------------
 
+// The files that make up the set, by name, with the sidecars.
+std::vector<std::string> set_names() {
+    const std::string c = kFixedImageFileName, r = kImageFileName;
+    return {c, c + kDistroSuffix, c + kFixedImageRecipeSuffix, c + kDeclinedSuffix, r, r + ".sha256", r + kDistroSuffix};
+}
+
 namespace {
 
 struct Switch {
@@ -382,12 +388,6 @@ bool parse_switch(const std::string& dir, Switch& s) {
         else if (k == "overlay") s.overlays.push_back(v);
     }
     return true;
-}
-
-// The files that make up the set, by name, with the sidecars.
-std::vector<std::string> set_names() {
-    const std::string c = kFixedImageFileName, r = kImageFileName;
-    return {c, c + kDistroSuffix, c + kFixedImageRecipeSuffix, c + kDeclinedSuffix, r, r + ".sha256", r + kDistroSuffix};
 }
 
 bool done(const std::string& dir, int step) { return fs::exists(work_dir(dir) + "/s" + std::to_string(step) + ".done"); }

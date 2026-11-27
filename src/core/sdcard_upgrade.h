@@ -26,7 +26,7 @@ extern const char* const kReportName;     ///< "upgrade-report.txt"
 /// Everything one upgrade needs to know about the default location and the set being built.
 struct Plan {
     std::string dir;                       ///< <sdcard dir>
-    std::string card, raw;                 ///< the current default pair (cspect-next-1gb-fixed.img / cspect-next-1gb.img)
+    std::string card, raw;                 ///< the current default pair (kFixedImageFileName / kImageFileName)
     std::string new_card, new_raw;         ///< the new pair, inside <dir>/upgrade-work/
     std::string new_distro;                ///< distribution (zip name) of the new pair
     std::string new_raw_sha;               ///< SHA-256 (hex) of the new raw
@@ -34,6 +34,10 @@ struct Plan {
     bool        carry = true;              ///< false: a fresh start (nothing carried, overlays set aside)
     std::vector<std::string> overlays;     ///< the --sdcard-writes FILEs bound over the current card
 };
+
+/// The files that make up a set, by name: the card and its sidecars, the raw and its sidecars.
+/// The one list: recovery, go back and the legacy-name migration all read it.
+std::vector<std::string> set_names();
 
 /// <dir>/upgrade-work and <dir>/previous.
 std::string work_dir(const std::string& dir);

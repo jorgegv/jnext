@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "core/image_lock.h"   // LockHolder
 #include "core/sha256.h"   // sha256_hex, sha256_file
 
 /// SD-card image provisioning (Task 27).
@@ -18,14 +19,16 @@
 ///   1. `--sdcard FILE` given  → use it verbatim (explicit ALWAYS wins,
 ///      unconditionally — even alongside --sdcard-download-force, which is
 ///      ignored in that case, since the named file may be any image).
-///   2. else look in <config-dir>/sdcard/cspect-next-1gb-fixed.img → use if
+///   2. else look in <config-dir>/sdcard/jnext-sdcard.img → use if
 ///      present, where <config-dir> is $JNEXT_CONFIG_DIR when set, else
 ///      $HOME/.jnext. This is the PATCHED (FAT32-reclustered) image jnext
 ///      actually boots from — distinct from the raw download.
+///      A card an earlier jnext named `cspect-next-1gb-fixed.img` is renamed to it first
+///      (migrate_legacy_names).
 ///   3. else offer to download the canonical distro zip, extract the raw
 ///      official `cspect-next-1gb.img` (kept pristine), record its SHA256 in a
 ///      `cspect-next-1gb.img.sha256` sidecar, copy it to
-///      `cspect-next-1gb-fixed.img`, and FAT32-recluster THAT copy so our
+///      `jnext-sdcard.img`, and FAT32-recluster THAT copy so our
 ///      strict reader accepts it. The fixed image is what is returned/used.
 ///
 /// If the raw `cspect-next-1gb.img` is already present but the fixed one is
@@ -48,7 +51,9 @@ namespace sdcard {
 // Canonical constants.
 extern const char* const kDistroUrl;           // specnext distro zip URL
 extern const char* const kImageFileName;       // "cspect-next-1gb.img" (raw)
-extern const char* const kFixedImageFileName;  // "cspect-next-1gb-fixed.img"
+extern const char* const kFixedImageFileName;  // "jnext-sdcard.img"
+// The card's name in earlier versions: only the migration and the Preferences alias read it.
+extern const char* const kLegacyFixedImageFileName;  // "cspect-next-1gb-fixed.img"
 
 // The version of the recipe that turns the raw image into the fixed one
 // (patch_image_fat32). Bump it whenever that recipe changes what it writes.
@@ -97,12 +102,31 @@ std::string default_state_dir();
 // debugger window, which resolve the SAME directory the same way; the
 // regression suite uses it to give each run a private image (GH #65).
 std::string default_sdcard_dir();
-// <config-dir>/sdcard/cspect-next-1gb-fixed.img — the PATCHED image jnext
+// <config-dir>/sdcard/jnext-sdcard.img — the PATCHED image jnext
 // looks for and boots from at the default location.
 std::string default_sdcard_image_path();
 // <config-dir>/sdcard/cspect-next-1gb.img — the raw, pristine download the
 // fixed image is produced from (kept for skip-redownload).
 std::string default_sdcard_raw_image_path();
+
+// Result of migrate_legacy_names: Done covers "nothing to do" and "renamed"; InUse is a refusal
+// by the legacy card's lock (an older jnext has it open); Failed is any other refusal.
+enum class MigrateStatus { Done, InUse, Failed };
+
+// One-time rename of the card set an earlier jnext named kLegacyFixedImageFileName, in `dir`
+// (the sdcard directory) and in previous/, previous.new/ and go-back-work/cur/. Under the legacy
+// card's lock; the sidecars are copied first, the card rename is the commit point, the legacy
+// sidecars go last. Never copies the card. When both names exist neither is touched (a warning).
+// The caller holds the new path's lock. `why` is the user-facing reason on InUse and Failed.
+MigrateStatus migrate_legacy_names(const std::string& dir, std::string& why, LockHolder* holder);
+
+// `path` as the card it now is: the legacy default card's path maps to the new one once that
+// file is gone and the new one exists; any other path comes back unchanged. For saved
+// Preferences paths, never for --sdcard.
+std::string legacy_card_alias(const std::string& path);
+
+// Test seam: true makes the card rename of the migration fail, as a held file would.
+extern bool g_fail_legacy_rename_for_test;
 
 // The default config.ini injected into /MACHINES/NEXT (matches
 // tools/fix-sdcard-image.sh). Returned as raw bytes.

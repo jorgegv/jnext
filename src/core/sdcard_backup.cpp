@@ -47,12 +47,6 @@ bool read_lines(const std::string& path, std::vector<std::string>& out) {
     return true;
 }
 
-// The files of a set, by name.
-std::vector<std::string> set_names() {
-    const std::string c = kFixedImageFileName, r = kImageFileName;
-    return {c, c + kDistroSuffix, c + kFixedImageRecipeSuffix, c + kDeclinedSuffix, r, r + ".sha256", r + kDistroSuffix};
-}
-
 // "sn-emulator-26.11a.zip" -> {26, 11, 'a'}; false when it has no version.
 bool parse_version(const std::string& name, int& major, int& minor, int& letter) {
     size_t i = name.find_first_of("0123456789");
@@ -113,7 +107,7 @@ bool step1(const Swap& s, std::string& err) {
     const fs::path cur = fs::path(work_dir(s.dir)) / "cur";
     std::error_code ec;
     fs::create_directories(cur / "overlays", ec);
-    for (const std::string& n : set_names()) {
+    for (const std::string& n : upgrade::set_names()) {
         const fs::path src = fs::path(s.dir) / n;
         if (fs::exists(src, ec) && !fs::exists(cur / n, ec) && !move_to(src, cur / n, err)) return false;
     }
@@ -130,7 +124,7 @@ bool step1(const Swap& s, std::string& err) {
 bool step2(const Swap& s, std::string& err) {
     const fs::path prev = upgrade::previous_dir(s.dir);
     std::error_code ec;
-    for (const std::string& n : set_names()) {
+    for (const std::string& n : upgrade::set_names()) {
         if (fs::exists(prev / n, ec) && !move_to(prev / n, fs::path(s.dir) / n, err)) return false;
     }
     std::vector<std::string> incoming, list;

@@ -2296,13 +2296,15 @@ static int run_main(int argc, char* argv[]) {
         }
 #endif
         if (!no_sdcard && sd_card_image.empty() && !gui_app_config.data().sd_card_path.isEmpty()) {
-            sd_card_image = gui_app_config.data().sd_card_path.toStdString();
+            sd_card_image = sdcard::legacy_card_alias(gui_app_config.data().sd_card_path.toStdString());
+            if (sd_card_image != gui_app_config.data().sd_card_path.toStdString())
+                Log::emulator()->info("Preferences: the SD card is now {} (the saved path names the card's old name)", sd_card_image);
         }
         // GH #505: the saved second-card path, when no --sdcard2 / --set gave one. A saved
         // path that no longer works is logged and leaves the slot empty (only an explicit
         // flag refuses to start); a card that equals the first one is not mounted twice.
         if (!no_sdcard && !sd_verb && sd_card2_image.empty() && !gui_app_config.data().sd_card2_path.isEmpty()) {
-            const std::string saved = gui_app_config.data().sd_card2_path.toStdString();
+            const std::string saved = sdcard::legacy_card_alias(gui_app_config.data().sd_card2_path.toStdString());
             const std::string why = Emulator::sd_image_refusal(saved);
             if (!why.empty()) {
                 Log::emulator()->error("Preferences: the second SD card image is not used: {}", why);
@@ -2323,9 +2325,9 @@ static int run_main(int argc, char* argv[]) {
     // check lives only here in main.cpp, not in Emulator::init).
     // Resolve the SD-card image (Task 27). Precedence:
     //   1. explicit --sdcard FILE (unless --sdcard-download-force is set)
-    //   2. the default location $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img
+    //   2. the default location $HOME/.jnext/sdcard/jnext-sdcard.img
     //   3. offer to download the canonical distribution image (kept pristine as
-    //      cspect-next-1gb.img) and produce the patched cspect-next-1gb-fixed.img
+    //      cspect-next-1gb.img) and produce the patched jnext-sdcard.img
     // Unit-test fixtures construct Emulator directly and never reach this
     // path. When resolution ultimately fails, fall back to the historical
     // "--sdcard is required" error so behaviour is unchanged for scripts.
@@ -2360,6 +2362,14 @@ static int run_main(int argc, char* argv[]) {
             return 4;
         }
         std::string berr;
+        {
+            std::string mwhy;
+            const sdcard::MigrateStatus ms = sdcard::migrate_legacy_names(sd_dir, mwhy, nullptr);
+            if (ms != sdcard::MigrateStatus::Done) {
+                std::fprintf(stderr, "error: %s\n", mwhy.c_str());
+                return ms == sdcard::MigrateStatus::InUse ? 4 : 3;
+            }
+        }
         {
             std::string unote;
             if (!sdcard::upgrade::recover(sd_dir, unote, berr)) {
@@ -2447,6 +2457,13 @@ static int run_main(int argc, char* argv[]) {
         }
     }
     if (!no_sdcard) {
+        // An explicit card that is the old name of the default one, now renamed: refuse with the new name.
+        if (!sd_card_image.empty() && !std::filesystem::exists(sd_card_image) &&
+            sdcard::legacy_card_alias(sd_card_image) != sd_card_image) {
+            startup_report::report("--sdcard %s: no such file; jnext now keeps this card as %s\n",
+                    sd_card_image.c_str(), sdcard::legacy_card_alias(sd_card_image).c_str());
+            return 1;
+        }
         sdcard::ProvisionOptions opts;
         opts.explicit_path   = sd_card_image;
         if (sdcard_upgrade_arg == "ask")        opts.upgrade_mode = sdcard::UpgradeMode::Ask;
@@ -2568,7 +2585,7 @@ static int run_main(int argc, char* argv[]) {
                 "jnext is a ZX Spectrum Next emulator and the SD card image is the canonical\n"
                 "source for all peripheral ROMs (DivMMC, Multiface, NextZXOS) and machine\n"
                 "ROMs (48K, 128K, +3) - same as real hardware. Provide one with --sdcard FILE,\n"
-                "or accept the download prompt to install it at ~/.jnext/sdcard/cspect-next-1gb-fixed.img.\n"
+                "or accept the download prompt to install it at ~/.jnext/sdcard/jnext-sdcard.img.\n"
                 "Use --sdcard-download-confirm to confirm download without asking.\n");
             return 1;
         }
@@ -2669,7 +2686,7 @@ static int run_main(int argc, char* argv[]) {
     //
     // Placed here, after resolution, so it operates on exactly the image a
     // normal run would boot: --sdcard FILE when given, else the default
-    // ~/.jnext/sdcard/cspect-next-1gb-fixed.img (provisioning it first if it
+    // ~/.jnext/sdcard/jnext-sdcard.img (provisioning it first if it
     // is not there yet — a card is needed either way).
     // ---------------------------------------------------------------------
     if (sdcard_file_add_count > 0) {
