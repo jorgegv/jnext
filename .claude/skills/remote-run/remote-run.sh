@@ -300,7 +300,7 @@ remote_cleanup() {
 main() {
     local warm=0 gate=0 probe=0 stream=0 warm_ref="" fallback_dir="" targets="" logdir="$HOME/tmp/remote-run"
     TIMEOUT="" DEPS_REF="" KEEP_GOING=0 LOCAL_SHELL=0 ID="" BRANCH="" SHA="" BASE=""
-    local base_repo="" make_patch_dir="" patch_file=""
+    local base_repo="" make_patch_dir="" patch_file="" patch_set=0
     PATCH_NAME="" PATCH_B64="" PATCH_SHA="" PATCH_TREE="" PATCH_REFUSED_WHY=""
     local -a pos=()
     while [[ $# -gt 0 ]]; do
@@ -321,13 +321,15 @@ main() {
             --fallback-local) [[ $# -ge 2 ]] || { usage >&2; exit 2; }; fallback_dir=$2; shift ;;
             --conf)     [[ $# -ge 2 ]] || { usage >&2; exit 2; }; CONF=$2; shift ;;
             --make-patch) [[ $# -ge 2 ]] || { usage >&2; exit 2; }; make_patch_dir=$2; shift ;;
-            --patch)    [[ $# -ge 2 ]] || { usage >&2; exit 2; }; patch_file=$2; shift ;;
+            --patch)    [[ $# -ge 2 ]] || { usage >&2; exit 2; }; patch_file=$2; patch_set=1; shift ;;
             --) shift; pos+=("$@"); break ;;
             -*) echo "remote-run: unknown option '$1'" >&2; usage >&2; exit 2 ;;
             *)  pos+=("$1") ;;
         esac
         shift
     done
+    # an empty value (an unset shell variable) must never fall through to a run of the unmutated tree
+    [[ $patch_set -eq 0 || -n "$patch_file" ]] || refuse_patch_local "--patch needs a file name, got an empty value"
     if [[ -n "$make_patch_dir" ]]; then
         # generic: needs no project.conf, contacts nothing
         [[ $warm -eq 0 && $gate -eq 0 && $probe -eq 0 && -z "$patch_file" && ${#pos[@]} -eq 0 ]] \
@@ -450,7 +452,7 @@ main() {
     build_payload stamps "" "$PAYDIR/stamps"
     build_payload cleanup "" "$PAYDIR/cleanup"
 
-    local was_remote=0
+    local was_remote=0 patch_no_verdict=""
     if [[ $state == remote ]]; then
         was_remote=1
         local tmp pidf rcf
@@ -498,6 +500,20 @@ main() {
         else
             echo "=== remote-run connection lost (transport status $tr_rc); the remote watchdog stops the run" >> "$LOG"
             rc=1
+            [[ -z "$PATCH_NAME" ]] || patch_no_verdict="the connection was lost after the start: no verdict (connection lost)"
+        fi
+        # For a mutant a red exit is the "good" answer (KILLED), so a status that says nothing about the mutant must never be one:
+        # a run-level timeout is the lane, not the mutant (a mutant that hangs hits the suite's own bound first and shows as a FAIL
+        # row), and a harness refusal (exit 2 from make, no Total line) is a refused run, not a failed row.
+        if [[ -n "$PATCH_NAME" && -z "$patch_no_verdict" ]]; then
+            if [[ $rc -eq 124 ]]; then patch_no_verdict="the run hit the run-level timeout: no verdict (timeout)"
+            elif [[ $rc -ne 0 ]] && grep -aq 'TEST HARNESS REFUSES TO RUN' "$LOG"; then patch_no_verdict="the test harness refused to run: no verdict (REFUSES TO RUN)"
+            fi
+        fi
+        if [[ $state == remote && -n "$patch_no_verdict" ]]; then
+            PATCH_REFUSED_WHY=$patch_no_verdict
+            echo "=== remote-run patch refused: $PATCH_REFUSED_WHY" >> "$LOG"
+            state=patchrefused
         fi
         # A patch run counts only when the log proves the patch was applied, whatever the container said.
         if [[ $state == remote && -n "$PATCH_NAME" ]] && ! patch_confirmed "$LOG" "$PATCH_NAME" "$PATCH_SHA" "$PATCH_TREE"; then

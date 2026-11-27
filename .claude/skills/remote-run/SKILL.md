@@ -79,7 +79,7 @@ so the caller's git configuration cannot change it). It refuses (exit 2, reason 
 submodule (a moved one, one with changes inside, an embedded repository): a patch cannot carry them. Ignored files
 (build output) are not carried, by design.
 
-`--patch` is for plain runs (not `--warm`, `--gate`, `--probe`), and `<sha>` must be the patch's base. The remote applies the
+`--patch` is for plain runs (not `--warm`, `--gate`, `--probe`; an empty value is refused), and `<sha>` must be the patch's base. The remote applies the
 patch to a fresh checkout of `<sha>` as UNCOMMITTED changes, but only after proving it: applied to a fresh index of
 `<sha>` the patch must write exactly the tree id the header names, so another base, an edited patch or an offset
 application is refused; and it may not change `test/ci-deps.sh` or the pinned-core file (the remote reads those from
@@ -95,7 +95,7 @@ only after the tree check.
 
 `slot.sh --patch` does all of this for an agent (`autonomous-run` skill): `<run>/slot.sh --patch make -C <worktree>
 <heavy target> JNEXT_SUITE_VMEM_KB=3145728`. Read its result as exit 0 = the mutant SURVIVED the target; non-zero with a
-FAIL row, `Failed` > 0, a crash or no `Total:` line = KILLED; any `PATCH REFUSED` = no verdict, fix and re-run.
+FAIL row, `Failed` > 0, a crash or no `Total:` line = KILLED; any `PATCH REFUSED` = no verdict, fix and re-run. A patch run whose session is lost after the start, whose harness refuses to run (`REFUSES TO RUN`, exit 2 of make) or that hits the run-level timeout is also exit 2 `PATCH REFUSED ... no verdict`, never exit 1: for a mutant a red exit is the "good" answer, so a status that says nothing about the mutant must not look like one.
 
 ### The batch gate
 

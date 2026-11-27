@@ -11,14 +11,14 @@
 # remote lane, long or short, and runs here only when every lane is busy) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-77. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-78. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=77
+EXPECTED_ROWS=78
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -97,6 +97,8 @@ cat > "$TMP/rr-stub" <<'EOF'
 # --probe: record the host asked, say busy (75) for a host listed in STUB_BUSY_HOSTS, else free (0). Not an rr-calls entry.
 if [[ "${1:-}" == --probe ]]; then
     echo "${JNEXT_REMOTE_RUN_HOST:-unset}" >> "$STATE/probe-calls"
+    # STUB_MOVE_REF="<worktree> <ref> <sha>": a concurrent push or fetch moves a shared tracking ref while the probe's ssh round trip runs
+    [[ -z "${STUB_MOVE_REF:-}" ]] || { read -r mw mr ms <<<"$STUB_MOVE_REF"; git -C "$mw" update-ref "$mr" "$ms"; }
     # STUB_BUSY_FIRST=N: busy for the first N probes of the whole run, free after (a lane that frees up later)
     [[ -z "${STUB_BUSY_FIRST:-}" || $(wc -l < "$STATE/probe-calls") -gt "$STUB_BUSY_FIRST" ]] || exit 75
     [[ " ${STUB_BUSY_HOSTS:-} " != *" ${JNEXT_REMOTE_RUN_HOST:-} "* ]] || exit 75
@@ -883,14 +885,21 @@ row SLOT-73 "$([[ $ra -eq 2 && $rb -eq 2 && $rc_c -eq 2 && ! -e "$TMP/ran73" && 
 fresh; mkmut mut74a; git -C "$MUT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m local; MA=$MUT
 git -C "$WT" push -q origin gh900-demo:refs/heads/gh901-other; git -C "$WT" fetch -q origin
 mkmut mut74b; MB=$MUT
+# (a tip that only a NON-issue branch of origin points at, epic9-x, is no base either: case c below)
+mkmut mut74c; git -C "$MUT" -c user.name=t -c user.email=t@t commit -q --allow-empty -m epicwork; MC=$MUT
+git -C "$MC" push -q origin HEAD:refs/heads/epic9-x; git -C "$WT" fetch -q origin
 : > "$STATE/git-calls"
 out_a=$(slot --patch env LANG=C make -C "$MA" unit-test 2>&1); rc_a=$?; mk_a=$(cat "$STATE/make-calls" 2>/dev/null); rm -f "$STATE/make-calls"
 out_b=$(slot --patch env LANG=C make -C "$MB" unit-test 2>&1); rc_b=$?; mk_b=$(cat "$STATE/make-calls" 2>/dev/null)
 git -C "$TMP/origin.git" branch -q -D gh901-other; git -C "$WT" update-ref -d refs/remotes/origin/gh901-other
+rm -f "$STATE/make-calls"
+out_c=$(slot --patch env LANG=C make -C "$MC" unit-test 2>&1); rc_c=$?; mk_c=$(cat "$STATE/make-calls" 2>/dev/null)
+git -C "$TMP/origin.git" branch -q -D epic9-x; git -C "$WT" update-ref -d refs/remotes/origin/epic9-x
 row SLOT-74 "$([[ $rc_a -eq 0 && "$mk_a" == "make -C $MA unit-test" && "$out_a" == *"not sent to the remote: no issue branch on origin is at HEAD (push it first)"* \
     && $rc_b -eq 0 && "$mk_b" == "make -C $MB unit-test" && "$out_b" == *"several issue branches on origin are at HEAD (gh900-demo gh901-other)"* \
+    && $rc_c -eq 0 && "$mk_c" == "make -C $MC unit-test" && "$out_c" == *"no issue branch on origin is at HEAD"* \
     && -z "$(rr_calls)" ]] && ! grep -qE '(^| )push( |$)' "$STATE/git-calls" && echo 1 || echo 0)" \
-    "no origin issue branch at HEAD, or two of them: the mutant runs here with the reason, no push, no driver call (rc $rc_a/$rc_b)"
+    "no origin issue branch at HEAD, only a non-issue one (epic9-x), or two issue branches: the mutant runs here with the reason, no push, no driver call (rc $rc_a/$rc_b/$rc_c)"
 
 # SLOT-75: state a patch cannot carry (an untracked embedded repository): --make-patch refuses, the mutant runs here
 fresh; mkmut mut75
@@ -915,6 +924,15 @@ out=$(slot env LANG=C make -C "$MUT" unit-test 2>&1); rc=$?
 row SLOT-77 "$([[ $rc -eq 0 && -z "$(rr_calls)" && ! -e "$STATE/probe-calls" && "$out" == *"not sent to the remote: detached HEAD"* \
     && "$(cat "$STATE/make-calls")" == "make -C $MUT unit-test" ]] && echo 1 || echo 0)" \
     "without --patch a dirty detached mutant stays local with the detached-HEAD reason and the driver is not called (rc=$rc)"
+
+# SLOT-78: patch mode NEVER pushes, even when the shared tracking ref moves between the eligibility check and the send (a concurrent
+# push or fetch during the probe's ssh round trip): the check `origin/<b> != HEAD` would then push the AUTHOR's local branch from a reviewer's worktree
+fresh; mkmut mut78
+: > "$STATE/git-calls"
+out=$(STUB_MOVE_REF="$WT refs/remotes/origin/gh900-demo $(git -C "$WT" rev-parse gh900-demo~1)" slot --patch env LANG=C make -C "$MUT" unit-test 2>&1); rc=$?
+git -C "$WT" update-ref refs/remotes/origin/gh900-demo "$MSHA"
+row SLOT-78 "$([[ $rc -eq 0 && "$(rr_calls)" == *"--patch "* && ! -e "$STATE/make-calls" ]] && ! grep -qE '(^| )push( |$)' "$STATE/git-calls" && echo 1 || echo 0)" \
+    "--patch with the tracking ref moved during the probe: the run still goes to the driver and nothing is pushed (rc=$rc)"
 
 # SLOT-32: the contract does not depend on the caller's environment: this whole test, run again with the
 # driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green and

@@ -9,7 +9,7 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-69. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-71. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -17,7 +17,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=69
+EXPECTED_ROWS=71
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -977,11 +977,12 @@ esc=0; grep -q "$(printf '\033')" "$TMP/pH.patch" && esc=1
 same54=0; cmp -s "$TMP/pA.patch" "$TMP/pH.patch" && same54=1
 mk_mut "$TMP/clean54"; mkpatch "$TMP/clean54" "$TMP/pC54.patch"; rc_clean=$?
 mkdir -p "$TMP/notrepo"; mkpatch "$TMP/notrepo" "$TMP/pN54.patch"; rc_nonrepo=$?
+mkpatch "$TMP/mutA/pdir" "$TMP/pS54.patch"; rc_subdir=$?   # a subdirectory would carry a PARTIAL mutant under a partial tree id
 row RRUN-54 "$([[ $rcA -eq 0 && $rcH -eq 0 && "$(head -n 1 "$TMP/pH.patch")" =~ ^"# remote-run patch: base $PSHA tree "[0-9a-f]{40}$ \
     && $fa -eq 1 && $esc -eq 0 && "$(grep -c '^diff --git a/pdir/text.txt b/pdir/text.txt$' "$TMP/pH.patch")" -eq 1 && $same54 -eq 1 \
     && "$idx_before" == "$idx_after" && "$(cat "$TMP/st-before")" == "$(cat "$TMP/st-after")" \
-    && $rc_clean -eq 2 && ! -s "$TMP/pC54.patch" && -s "$TMP/pC54.patch.err" && $rc_nonrepo -eq 2 && ! -s "$TMP/pN54.patch" ]] && echo 1 || echo 0)" \
-    "--make-patch: header base/tree, a/ b/ prefixes, no escapes, applies in a fresh clone and equals the plain clone's patch under diff.noprefix/color.ui/diff.external/diff.relative/a textconv; the real index and status are untouched; a clean tree or a non-repository is exit 2 with empty stdout (rc=$rcH)"
+    && $rc_clean -eq 2 && ! -s "$TMP/pC54.patch" && -s "$TMP/pC54.patch.err" && $rc_nonrepo -eq 2 && ! -s "$TMP/pN54.patch" && $rc_subdir -eq 2 && ! -s "$TMP/pS54.patch" && "$(cat "$TMP/pS54.patch.err")" == *"not the top of a git work tree"* ]] && echo 1 || echo 0)" \
+    "--make-patch: header base/tree, a/ b/ prefixes, no escapes, applies in a fresh clone and equals the plain clone's patch under diff.noprefix/color.ui/diff.external/diff.relative/a textconv; the real index and status are untouched; a clean tree, a non-repository or a subdirectory of a work tree is exit 2 with empty stdout (rc=$rcH)"
 
 # RRUN-55: a patch run applies the whole mutant to the run tree as uncommitted changes, whatever the remote's own git
 # configuration (apply.whitespace=error; an excludesFile that lists the new file), logging the applied line before the start
@@ -1039,6 +1040,7 @@ refused58() {   # refused58 <label> <driver args...>
     [[ $RC -eq 2 && "$OUT" == *"PATCH REFUSED"* && -z "$(calls)" && ! -e "$TMP/logs58/r58-$n58.log" ]] || bad58+=" $lab(rc=$RC)"
 }
 for pf in bb nh ho em; do refused58 "$pf" --patch "$TMP/$pf.patch" pbase "$PSHA" unit-test; done
+refused58 empty --patch "" pbase "$PSHA" unit-test
 refused58 missing --patch "$TMP/nonexistent.patch" pbase "$PSHA" unit-test
 refused58 badname --patch "$TMP/bad name.patch" pbase "$PSHA" unit-test
 refused58 newline --patch "$TMP/bad"$'\n'"nl.patch" pbase "$PSHA" unit-test
@@ -1048,7 +1050,7 @@ refused58 probe --probe --patch "$TMP/pA.patch"
 bash "$DRIVER" --make-patch "$TMP/mutA" --patch "$TMP/pA.patch" >/dev/null 2>&1; rc_mp=$?
 [[ -z "$(find "$WORK"/runs* -mindepth 1 2>/dev/null)" ]] || bad58+=" run-dirs"
 row RRUN-58 "$([[ -z "$bad58" && $rc_mp -eq 2 ]] && echo 1 || echo 0)" \
-    "a patch with another base, no header, no diff, empty, missing, a bad name (space, newline), or beside --gate/--warm/--probe is exit 2 PATCH REFUSED with nothing contacted; --make-patch beside --patch is exit 2 (bad:$bad58 mp=$rc_mp)"
+    "a patch with another base, no header, no diff, empty, missing, an empty value, a bad name (space, newline), or beside --gate/--warm/--probe is exit 2 PATCH REFUSED with nothing contacted; --make-patch beside --patch is exit 2 (bad:$bad58 mp=$rc_mp)"
 
 # RRUN-59: the tree proof: a header whose tree id is not what the patch makes is refused, both ids named, nothing run
 last=${PA_TREE: -1}; flip=$([[ $last == 0 ]] && echo 1 || echo 0); PA_BAD=${PA_TREE%?}$flip
@@ -1148,8 +1150,15 @@ for f in test/ci-deps.sh .github/workflows/ci.yml; do
     [[ $RC -eq 2 && "$OUT" == *"PATCH REFUSED"* && "$(cat "$TMP/logs/p65.log")" == *"the patch changes $f, which the remote reads from the commit"* ]] && no_run || bad65+=" $f(rc=$RC)"
     rm -rf "$TMP/mut65"
 done
+for f in test/ci-deps.sh .github/workflows/ci.yml; do   # a RENAME of either is a change of it too (the remote host's diff.renames must not hide the old name)
+    mk_mut "$TMP/mut65"; mv "$TMP/mut65/$f" "$TMP/mut65/$f.renamed"; mkpatch "$TMP/mut65" "$TMP/p65.patch"
+    reset_state
+    pdrive --id p65 --patch "$TMP/p65.patch" pbase "$PSHA" unit-test
+    [[ $RC -eq 2 && "$OUT" == *"PATCH REFUSED"* && "$(cat "$TMP/logs/p65.log")" == *"the patch changes $f, which the remote reads from the commit"* ]] && no_run || bad65+=" rename:$f(rc=$RC)"
+    rm -rf "$TMP/mut65"
+done
 row RRUN-65 "$([[ -z "$bad65" ]] && echo 1 || echo 0)" \
-    "a patch that changes test/ci-deps.sh or .github/workflows/ci.yml is exit 2 naming the file, nothing run (bad:$bad65)"
+    "a patch that changes or renames test/ci-deps.sh or .github/workflows/ci.yml is exit 2 naming the file, nothing run (bad:$bad65)"
 
 # RRUN-66: paths that escape the run tree are refused by git apply: nothing is written outside it
 craft() {   # craft <path> <out>: a new-file patch with a correct header base
@@ -1198,6 +1207,27 @@ kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 row RRUN-69 "$([[ $rc69 -eq 0 && "$a1" == "MF=[JOBS=11] args=foo" && "$a2" == "MF=[JOBS=6] args=regression-rows ROWS=a b" && "$a3" == "MF=[] args=JOBS=11 foo JOBS=3" \
     && "$b1" == "MF=[JOBS=6] args=foo" && "$b2" == "MF=[JOBS=3] args=regression-rows ROWS=a b" ]] && echo 1 || echo 0)" \
     "sh: steps get JOBS in MAKEFLAGS: 11, heavy 6, halved 6 and 3 beside a busy lane; a make-form step keeps its JOBS word and no MAKEFLAGS (a1='$a1' a2='$a2' a3='$a3' b1='$b1' b2='$b2')"
+
+# RRUN-70: for a mutant a red exit is the "good" answer, so a status that says nothing about the mutant is never one: a session lost
+# after the start is exit 2 "no verdict (connection lost)" for a patch run (its non-patch twin, RRUN-24, keeps exit 1)
+reset_state; rm -rf "$TMP/stamps"
+FAKE_KILL_PARENT=1 pdrive --id p70 --patch "$TMP/pA.patch" pbase "$PSHA" unit-test
+rc70=$RC; o70=$OUT
+reset_state
+FAKE_KILL_PARENT=1 pdrive --id p70b pbase "$PSHA" unit-test
+row RRUN-70 "$([[ $rc70 -eq 2 && "$o70" == *"PATCH REFUSED"*"no verdict (connection lost)"* && "$o70" != *"verdict: CLEAN"* && "$(cat "$TMP/logs/p70.log")" == *"connection lost"* \
+    && $RC -eq 1 && "$(cat "$TMP/logs/p70b.log")" == *"connection lost"* ]] && echo 1 || echo 0)" \
+    "a patch run whose session is lost after the start is exit 2 'no verdict (connection lost)'; the same loss on a plain run stays exit 1 (patch rc=$rc70, plain rc=$RC)"
+
+# RRUN-71: a harness refusal (exit 2 from make, banner, no Total line) and a run-level timeout are no verdict for a patch run too
+reset_state
+FAKE_INNER=1 pdrive --id p71 --patch "$TMP/pA.patch" pbase "$PSHA" 'sh:echo " TEST HARNESS REFUSES TO RUN "; exit 2'
+rc71=$RC; o71=$OUT
+reset_state
+FAKE_SLEEP=1 pdrive --id p71b --timeout 3 --patch "$TMP/pA.patch" pbase "$PSHA" unit-test
+rc71b=$RC; o71b=$OUT
+row RRUN-71 "$([[ $rc71 -eq 2 && "$o71" == *"PATCH REFUSED"*"no verdict (REFUSES TO RUN)"* && $rc71b -eq 2 && "$o71b" == *"PATCH REFUSED"*"no verdict (timeout)"* ]] && echo 1 || echo 0)" \
+    "a harness refusal and a run-level timeout of a patch run are exit 2 'no verdict', not a kill (rc=$rc71 / $rc71b)"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
 # the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green

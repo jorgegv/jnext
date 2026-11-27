@@ -374,7 +374,7 @@ if [[ -n "${RR_PATCH_B64:-}" ]]; then
         if [[ "$pf" == "$RR_DEPS_SCRIPT" || ( -n "${RR_EXTRA_REF_FILE:-}" && "$pf" == "$RR_EXTRA_REF_FILE" ) ]]; then
             refuse_patch "the patch changes $pf, which the remote reads from the commit: commit and push it instead"
         fi
-    done < <(GIT_INDEX_FILE=$pidx git -C "$run/src" diff --cached --name-only -z HEAD 2>/dev/null </dev/null)
+    done < <(GIT_INDEX_FILE=$pidx git -C "$run/src" diff --cached --no-renames --name-only -z HEAD 2>/dev/null </dev/null)
     perr=$(git -C "$run/src" apply --whitespace=nowarn "$pfile" 2>&1 </dev/null); prc=$?
     if [[ $prc -ne 0 ]]; then indent "$perr"; refuse_patch "the patch does not apply to the work tree"; fi
     rm -f "$pidx"
