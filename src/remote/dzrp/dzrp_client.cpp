@@ -329,11 +329,20 @@ Reply DzrpClient::take(std::uint32_t ticket) {
 
 Reply DzrpClient::wait_for(std::uint32_t ticket) {
     while (!done(ticket)) {
+        // A dead session resolves every ticket it had; an unknown one can never complete.
+        if (state_ == SessionState::Failed || state_ == SessionState::Closed) {
+            Reply r;
+            r.status = Status::Aborted;
+            return r;
+        }
         poll(1);
         if (hook_) {
-            in_hook_ = true;
+            struct HookScope {   // cleared even if the hook throws
+                bool& f;
+                explicit HookScope(bool& flag) : f(flag) { f = true; }
+                ~HookScope() { f = false; }
+            } scope(in_hook_);
             hook_();
-            in_hook_ = false;
         }
     }
     return take(ticket);

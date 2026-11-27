@@ -50,6 +50,8 @@ public:
     LinkKind    kind() const override { return LinkKind::Tcp; }
     std::string describe() const override;
     const std::string& last_error() const override { return error_; }
+    /// Bytes received and not yet read (never above the 1 MiB input cap plus one 16 KiB chunk).
+    std::size_t buffered() const { return in_.size() - in_off_; }
 
 private:
     bool pass();   // one pass; true when something moved

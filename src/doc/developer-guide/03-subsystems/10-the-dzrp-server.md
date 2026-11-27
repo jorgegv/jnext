@@ -216,10 +216,11 @@ has no way round the gate; the test probe borrows the link with `detach_link()`.
 
 **The wait hook.** `submit()`, `poll()` and `step()` never block. `request()` and
 `request_all()` wait in a loop that polls the link and calls the *wait hook* each
-turn. A client whose remote is served by the same thread (a JNEXT dialling a
-JNEXT of its own process) installs a hook that pumps that server, as
-`Debugger::pump()` does. A `request` made from inside the hook is refused
-(`Reentrant`).
+turn. The hook is the local debugger's `Debugger::pump()`: it keeps this JNEXT's
+own servers (a DeZog attached to it, say) served while the client waits, and it lets
+the in-process loopback tests, which give the client a distinct session token, talk
+to a server hosted by the same process. A `request` made from inside the hook is
+refused (`Reentrant`).
 
 **A session with oneself.** The server refuses a `CMD_INIT` whose program name
 ends with this process's session token (`process_session_token()`): the client

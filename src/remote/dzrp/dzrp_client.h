@@ -22,9 +22,10 @@
 // ── NEVER A BLOCKING WAIT ON THE EMULATION THREAD, EXCEPT `request` ─────────
 // `start()` / `step()` / `submit()` / `poll()` never block. `request()` and
 // `request_all()` wait in a loop that polls the link and calls the WAIT HOOK each
-// turn: a client whose remote is served by the SAME thread (a jnext dialling a jnext
-// in this process) installs a hook that pumps that server. A `request` made from
-// inside the hook is refused (`Reentrant`).
+// turn. The hook is the local facade's `Debugger::pump()`: it keeps this process's
+// own servers (an attached DeZog, say) served while the client waits, and it lets the
+// in-process loopback suites (with injected, distinct session tokens) talk to an
+// in-process server. A `request` made from inside the hook is refused (`Reentrant`).
 //
 // ── SESSION WITH ONESELF ────────────────────────────────────────────────────
 // CMD_INIT's program name ends with this process's session token (dzrp_session.h);

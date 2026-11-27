@@ -1282,7 +1282,7 @@ static void link_rows() {
         const std::vector<std::string> bad = {
             "serial:/dev/ttyUSB0", "udp:1.2.3.4:5", "tcp::11000", "tcp:::1:5", "tcp:[::1:5",
             "tcp:1.2.3.4", "tcp:1.2.3.4:0", "tcp:1.2.3.4:65536", "tcp:1.2.3.4:+5", "tcp:1.2.3.4: 5",
-            "tcp:1.2.3.4:5x", "tcp:" + host254 + ":5", "tcp:a..b:5", std::string("tcp:1.2.3\0.4:5", 15)};
+            "tcp:1.2.3.4:5x", "tcp:1.2.3.4:4294967377", "tcp:1.2.3.4:011000", "tcp:" + host254 + ":5", "tcp:a..b:5", std::string("tcp:1.2.3\0.4:5", 15)};
         bool        all = true;
         std::string why;
         for (const std::string& u : bad) {
@@ -1481,6 +1481,32 @@ static void link_rows() {
                             "arriving mid-wait poll(3000) returns early, long before 3 s",
               idle >= 120 && idle < 3000 && early >= 100 && early < 2500 && rx == "tick",
               "idle=" + std::to_string(idle) + " early=" + std::to_string(early) + " rx=" + rx);
+    }
+
+    {
+        // A reply far over the input cap, drained slowly: nothing is lost, order is kept,
+        // and the link never buffers more than its cap plus one chunk.
+        LineProtocol p6;
+        Server       s6(cfg_named("bigrx"), p6);
+        s6.open("127.0.0.1", 0);
+        TcpLink link("127.0.0.1", s6.port());
+        link.open();
+        link_until(s6, link, [&] { return link.state() == LinkState::Open; });
+        constexpr std::size_t kRx = std::size_t{3} << 20;
+        const std::string cmd = "big " + std::to_string(kRx) + "\n";
+        link.write(reinterpret_cast<const std::uint8_t*>(cmd.data()), cmd.size());
+        std::string rx;
+        std::size_t peak = 0;
+        link_until(s6, link, [&] {
+            peak = std::max(peak, link.buffered());
+            std::uint8_t b[8192];
+            const std::size_t n = link.read(b, sizeof(b));
+            rx.append(reinterpret_cast<const char*>(b), n);
+            return rx.size() >= kRx;
+        }, 60000);
+        check("RLK-TCP-09", "a 3 MiB reply (three times the input cap) drained 8 KiB at a time arrives identical and in order, and the buffered input never exceeds the 1 MiB cap plus one 16 KiB chunk",
+              is_pattern(rx, kRx) && peak > 0 && peak <= (std::size_t{1} << 20) + (std::size_t{16} << 10),
+              "rx=" + std::to_string(rx.size()) + " peak=" + std::to_string(peak));
     }
 
     // MemoryLink over the fake.

@@ -629,6 +629,40 @@ static void framing_rows() {
         check("DZC-FR-16", "the parser error is sticky until reset(); after reset() a good frame parses",
               failed && sticky && !rp.failed() && rp.ready() && rp.take().payload == Bytes{1});
     }
+    // FR-17: the serial stub prefixes EVERY frame: the hunt is re-armed after each one.
+    {
+        const Bytes f1 = encode_response(3, Bytes{7, 8});
+        const Bytes f2 = encode_response(4, Bytes{9});
+        const Bytes j1 = {0x00, 0x11, 0x00};
+        const Bytes j2 = {0x00, 0x00, 0x22, 0x33, 0x00};
+        const Bytes stream = cat(cat(cat(cat(j1, Bytes{0xA5}), f1), cat(j2, Bytes{0xA5})), f2);
+        auto parse = [&](std::size_t step, std::size_t& swallowed) {
+            ResponseParser rp(ResponseParser::Options{true});
+            std::vector<Response> got;
+            std::size_t off = 0;
+            while (off < stream.size()) {
+                const std::size_t n = std::min(step, stream.size() - off);
+                std::size_t used = 0;
+                while (used < n) {
+                    const std::size_t k = rp.feed(stream.data() + off + used, n - used, g_now);
+                    used += k;
+                    if (rp.ready()) got.push_back(rp.take());
+                    else if (k == 0) break;
+                }
+                off += n;
+            }
+            swallowed = rp.swallowed();
+            return got;
+        };
+        std::size_t sw1 = 0, sw2 = 0;
+        const auto one = parse(stream.size(), sw1);
+        const auto split = parse(1, sw2);
+        const std::size_t want = j1.size() + j2.size();
+        check("DZC-FR-17", "preamble: two frames back to back, the second with its own junk, parse in one feed and split byte by byte, and swallowed() counts the junk of both",
+              one.size() == 2 && split.size() == 2 && one[0].payload == Bytes{7, 8} && one[1].payload == Bytes{9} &&
+                  split[1].seq == 4 && sw1 == want && sw2 == want,
+              std::to_string(sw1) + "/" + std::to_string(sw2));
+    }
 }
 
 // ==============================================================================================
@@ -1025,6 +1059,80 @@ static void detach_row() {
               std::count(s.ids.begin(), s.ids.end(), static_cast<int>(CMD_CLOSE)) == 0 && s.ids.size() == before + 1);
 }
 
+
+// SES-22..25: teardown with a command queued behind the window, and the bit-0 rule.
+static void as_ng(Script& s) {
+    s.name = "dezogif v2.2.1";
+    s.ver[1] = 1;
+}
+
+static void teardown_rows() {
+    {   // timeout: the command behind the window ends Aborted and a wait on it returns
+        AutoMs exact(0);
+        Script s;
+        as_ng(s);
+        hold(s);
+        auto c = make_client(s);
+        bring_up(*c, s);
+        std::uint32_t ta = 0, tb = 0;
+        c->submit(CMD_GET_REGISTERS, {}, ta);
+        c->submit(CMD_GET_REGISTERS, {}, tb);   // window 1: queued, never sent
+        s.service();
+        advance(2000);
+        c->poll(0);
+        const bool both = c->done(ta) && c->done(tb);
+        const Status sa = c->take(ta).status, sb = c->take(tb).status;
+        check("DZC-SES-22", "a timeout with a command queued behind the window: the oldest is Timeout, the queued one is resolved at once as Aborted, and nothing was sent for it",
+              both && sa == Status::Timeout && sb == Status::Aborted && s.held.size() == 1,
+              std::to_string(both) + " " + status_name(sa) + " " + status_name(sb));
+    }
+    {   // link lost
+        Script s;
+        as_ng(s);
+        hold(s);
+        auto c = make_client(s);
+        bring_up(*c, s);
+        std::uint32_t ta = 0, tb = 0;
+        c->submit(CMD_GET_REGISTERS, {}, ta);
+        c->submit(CMD_GET_REGISTERS, {}, tb);
+        s.service();
+        s.close();
+        spin(*c, s, [&] { return c->done(tb); });
+        const bool both = c->done(ta) && c->done(tb);
+        const Status sa = c->take(ta).status, sb = c->take(tb).status;
+        check("DZC-SES-23", "the link lost with a command queued behind the window: both the in-flight and the queued command end LinkLost",
+              both && sa == Status::LinkLost && sb == Status::LinkLost, std::string(status_name(sa)) + " " + status_name(sb));
+    }
+    {   // protocol error
+        Script s;
+        as_ng(s);
+        s.custom = [](Script& sc, const Command& cmd) {
+            if (cmd.id == CMD_GET_REGISTERS) { sc.reply(9, {}); return true; }
+            return false;
+        };
+        auto c = make_client(s);
+        bring_up(*c, s);
+        std::uint32_t ta = 0, tb = 0;
+        c->submit(CMD_GET_REGISTERS, {}, ta);
+        c->submit(CMD_GET_REGISTERS, {}, tb);
+        spin(*c, s, [&] { return c->done(tb); });
+        const bool both = c->done(ta) && c->done(tb);
+        const Status sa = c->take(ta).status, sb = c->take(tb).status;
+        check("DZC-SES-24", "a protocol error with a command queued behind the window: the oldest is ProtocolError and the queued one Aborted, both resolved",
+              both && sa == Status::ProtocolError && sb == Status::Aborted && c->state() == SessionState::Failed,
+              std::string(status_name(sa)) + " " + status_name(sb));
+    }
+    {   // bit 0 of the bitfield is not a command
+        Script s;
+        s.bitfield = {0x0F};   // bits 0..3
+        auto c = make_client(s);
+        const bool up = bring_up(*c, s);
+        check("DZC-SES-25", "a bitfield with bit 0 set: command 0 is not in the set and the set counts only commands 1..3",
+              up && !c->in_set(0) && c->in_set(1) && c->in_set(3) && c->command_set().count() == 3,
+              std::to_string(c->command_set().count()));
+    }
+}
+
 // ==============================================================================================
 // DZC-ID - the identity rule
 // ==============================================================================================
@@ -1132,6 +1240,26 @@ static void identity_rows() {
                   line.find("window 15") != std::string::npos,
               line);
     }
+    {
+        auto mode = [](std::initializer_list<int> extra) {
+            Script s;
+            s.name = "dezogif v2.3.0-rc2";
+            std::vector<int> ids = {1, 2, 3, 24};
+            ids.insert(ids.end(), extra.begin(), extra.end());
+            Bytes b;
+            for (int id : ids) {
+                if (b.size() <= static_cast<std::size_t>(id / 8)) b.resize(static_cast<std::size_t>(id / 8) + 1, 0);
+                b[id / 8] = static_cast<std::uint8_t>(b[id / 8] | (1u << (id % 8)));
+            }
+            s.bitfield = b;
+            auto c = make_client(s);
+            bring_up(*c, s);
+            return c->breakpoint_mode();
+        };
+        check("DZC-ID-09", "Dezogif22 breakpoints: 40 without 41 is Simple, 41 without 40 is Simple, both is Normal",
+              mode({40}) == BreakpointMode::Simple && mode({41}) == BreakpointMode::Simple &&
+                  mode({40, 41}) == BreakpointMode::Normal);
+    }
 }
 
 // ==============================================================================================
@@ -1237,6 +1365,20 @@ static void gate_rows() {
         check("DZC-GATE-08", "before Ready: request(3) is NotReady and only CMD_INIT reached the peer",
               c->state() == SessionState::Initialising && r.status == Status::NotReady &&
                   s.ids == std::vector<int>({CMD_INIT}) && log.count("refused to send") == 1);
+    }
+    {
+        Script s;
+        auto c = make_client(s);
+        bring_up(*c, s);
+        s.service();
+        const std::size_t before = s.ids.size();
+        LogTap log;
+        std::uint32_t t = 0;
+        const Status st = c->submit(CMD_WRITE_MEM, Bytes(static_cast<std::size_t>(MAX_PAYLOAD_BYTES) + 1, 0), t);
+        s.service();
+        check("DZC-GATE-09", "a payload over the 16 MiB cap is Refused with one error line, nothing is sent and the session stays Ready",
+              st == Status::Refused && s.ids.size() == before && c->state() == SessionState::Ready &&
+                  log.count("refused to send") == 1);
     }
 }
 
@@ -1515,6 +1657,28 @@ static void probe_rows() {
         check("DZC-PRB-05", "a scripted peer that never answers CMD_READ_MEM: that line says timeout and the probe exits 1",
               r.rc == 1 && has(line, "timeout"), "rc=" + std::to_string(r.rc) + "\n" + r.out);
     }
+    {
+        Script s;
+        s.custom = [](Script& sc, const Command& c) {
+            if (c.id != CMD_GET_REGISTERS) return false;
+            Bytes p(29, 0);
+            p[28] = 8;   // eight slots declared, none carried
+            sc.reply(c.seq, p);
+            return true;
+        };
+        const ProbeRun r = run_probe_args({"--timeout-ms", "100", "tcp:1.2.3.4:5"}, script_env(s));
+        check("DZC-PRB-06", "a registers reply of 29 bytes that declares 8 slots is reported MALFORMED with its hex, the probe says it stopped at the malformed reply and exits 1",
+              r.rc == 1 && has(r.out, "MALFORMED") && has(r.out, "malformed (29 bytes)") &&
+                  has(r.out, "stopped at the malformed reply") && has(r.out, " 1 failed"),
+              "rc=" + std::to_string(r.rc) + "\n" + r.out);
+    }
+    {
+        Script s;
+        s.name = "CSpect v2.19";
+        const ProbeRun r = run_probe_args({"--timeout-ms", "100", "tcp:1.2.3.4:5"}, script_env(s));
+        check("DZC-PRB-07", "a refused handshake counts as a failed command: exit 1 and a summary of \"1 commands, 1 failed\"",
+              r.rc == 1 && has(r.out, "summary: 1 commands, 1 failed"), "rc=" + std::to_string(r.rc) + "\n" + r.out);
+    }
 }
 
 int main() {
@@ -1522,6 +1686,7 @@ int main() {
     framing_rows();
     session_rows();
     detach_row();
+    teardown_rows();
     identity_rows();
     gate_rows();
     wait_rows();

@@ -449,6 +449,8 @@ int run_probe(int argc, char** argv, std::FILE* out, const ProbeEnv& env) {
         std::fprintf(out, "FAILED: %s\n", client.error().empty() ? "no session" : client.error().c_str());
         if (client.failure() == Status::Timeout || client.state() == SessionState::Initialising)
             std::fputs("  (on a dezogif_ng Next: press the NMI button before connecting)\n", out);
+        ++p.commands;   // the failed connect / CMD_INIT counts as a failed command
+        ++p.failed;
         return p.summary(1);
     }
     const bool probed = client.profile() == Profile::Jnext || client.profile() == Profile::Dezogif22;
@@ -465,7 +467,10 @@ int run_probe(int argc, char** argv, std::FILE* out, const ProbeEnv& env) {
     const bool seq_ok = p.sequence(client);
     int rc = seq_ok ? 0 : 1;
     if (!seq_ok) {
-        std::fprintf(out, "session ended: %s\n", client.error().c_str());
+        if (client.state() == SessionState::Ready)
+            std::fputs("stopped at the malformed reply\n", out);
+        else
+            std::fprintf(out, "session ended: %s\n", client.error().c_str());
         return p.summary(1);
     }
 
