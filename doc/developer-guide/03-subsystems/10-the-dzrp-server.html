@@ -3413,29 +3413,11 @@ refused:</p>
 <td>simple (13/14)</td>
 <td>1</td>
 </tr>
-<tr>
-<td><code>dezogif v...</code></td>
-<td>2.1</td>
-<td>serial</td>
-<td><code>DezogifSerial</code></td>
-<td>1-6, 8-17, 20-23</td>
-<td>simple</td>
-<td>1</td>
-</tr>
-<tr>
-<td><code>dezogif v...</code></td>
-<td>2.2 or later</td>
-<td>any</td>
-<td><code>Dezogif22</code></td>
-<td><code>GET_SUPPORTED_COMMANDS</code></td>
-<td>normal if it serves 40 and 41, else simple</td>
-<td>1</td>
-</tr>
 </tbody>
 </table>
-<p>The serial row is the intersection of two stubs that answer alike: dezogif_ng, and
-the upstream stub, which answers every id above 23 with "not supported" and so
-resets its session on 40 and 41 as well as on 7, 18 and 19. The machine type must
+<p>Only the WiFi build of dezogif_ng is supported as a real-Next stub. Any other
+<code>dezogif</code> (2.2.0 or later, or 2.1 over a link that is not TCP, such as a cable) is
+refused with a reason naming the WiFi dezogif_ng stub. The machine type must
 be ZXNEXT (4) and the major version 2.</p>
 <p><strong>The send gate.</strong> A dezogif stub resets its session on a command it does not
 serve, and a running program must not be sent anything but <code>CMD_PAUSE</code>. So every

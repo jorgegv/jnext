@@ -198,12 +198,10 @@ refused:
 |---|---|---|---|---|---|---|
 | `jnext v...` | 2.2 or later | any | `Jnext` | `GET_SUPPORTED_COMMANDS` | normal (40/41) | 15 |
 | `dezogif v...` | 2.1 | TCP | `DezogifNg` | 1-23, 40, 41 | simple (13/14) | 1 |
-| `dezogif v...` | 2.1 | serial | `DezogifSerial` | 1-6, 8-17, 20-23 | simple | 1 |
-| `dezogif v...` | 2.2 or later | any | `Dezogif22` | `GET_SUPPORTED_COMMANDS` | normal if it serves 40 and 41, else simple | 1 |
 
-The serial row is the intersection of two stubs that answer alike: dezogif_ng, and
-the upstream stub, which answers every id above 23 with "not supported" and so
-resets its session on 40 and 41 as well as on 7, 18 and 19. The machine type must
+Only the WiFi build of dezogif_ng is supported as a real-Next stub. Any other
+`dezogif` (2.2.0 or later, or 2.1 over a link that is not TCP, such as a cable) is
+refused with a reason naming the WiFi dezogif_ng stub. The machine type must
 be ZXNEXT (4) and the major version 2.
 
 **The send gate.** A dezogif stub resets its session on a command it does not
