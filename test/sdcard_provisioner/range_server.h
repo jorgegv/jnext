@@ -25,7 +25,9 @@
 // counts the holds that ended because `stall_ms` ran out (a client that waited for the
 // server), never one that ended on the client's close, `release()` or ~Server; `release()`
 // ends the hold of the connection being served now (the server closes it and accepts the
-// next: "the dead connection is gone, the network is back").
+// next: "the dead connection is gone, the network is back"). `wait_client_close()` says WHEN the
+// client closed the held connection (the server sees the close within ~5 ms): a row bounds how long
+// a client takes to let go of the network after it decided to stop.
 #pragma once
 
 #include "esp01/esp_socket.h"
@@ -107,6 +109,20 @@ public:
     int holds_run_out() const { return holds_run_out_.load(); }
     /// End the hold of the connection accepted before this call (a connection accepted after it is not touched).
     void release() { ++release_gen_; }
+    /// Wait up to `timeout_ms` for the CLIENT to close the connection last held (not the server: a hold that ran
+    /// out or was released is not a client close). True and the time the server saw the close, or false.
+    bool wait_client_close(std::chrono::steady_clock::time_point& at, int timeout_ms) const {
+        const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+        for (;;) {
+            const long long ns = client_close_ns_.load();
+            if (ns != 0) {
+                at = std::chrono::steady_clock::time_point(std::chrono::nanoseconds(ns));
+                return true;
+            }
+            if (std::chrono::steady_clock::now() >= until) return false;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    }
 
 private:
     static void sleep_ms(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
@@ -114,6 +130,7 @@ private:
     /// Hold `c` open, sending nothing, for up to `ms`; return early when the client closes it, release() is called or the Server is being destroyed.
     void hold(esp::net::NativeSocket c, int ms) {
         const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+        client_close_ns_ = 0;
         while (!stop_) {
             if (std::chrono::steady_clock::now() >= until) { ++holds_run_out_; return; }
             if (release_gen_.load() != conn_gen_) return;
@@ -121,7 +138,10 @@ private:
             bool eof = false, failed = false, reset = false;
             std::string err;
             esp::net::recv(c, b, sizeof(b), true, eof, failed, reset, err);
-            if (eof || failed) return;
+            if (eof || failed) {
+                client_close_ns_ = std::chrono::steady_clock::now().time_since_epoch().count();   // ns since epoch
+                return;
+            }
             sleep_ms(5);
         }
     }
@@ -278,6 +298,7 @@ private:
     std::thread            thread_;
     std::atomic<bool>      stop_{false};
     std::atomic<int>       holds_run_out_{0};
+    std::atomic<long long> client_close_ns_{0};   // steady_clock ns when the client closed the held connection; 0 = not (yet)
     std::atomic<unsigned>  release_gen_{0};
     unsigned               conn_gen_ = 0;   // release_gen_ when the connection being served was accepted (server thread only)
     mutable std::mutex     m_;

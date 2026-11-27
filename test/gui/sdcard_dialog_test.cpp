@@ -211,7 +211,7 @@ void test_through_the_backend() {
     // main.cpp: opts.progress = [&](uint64_t d, uint64_t t) { return gui.progress(d, t); };
     const Clk::time_point t0 = Clk::now();
     hs::HostStalls stalls(t0);   // the process's own stalls: the timer's gaps are counted net of them
-    double first_at = -1, click_at = -1, false_at = -1;
+    double first_at = -1, click_at = -1, false_at = -1, last_call_at = -1;
     int ncalls = 0, calls_at_false = 0;
     bool visible = false;
     std::string label_at_click;
@@ -231,6 +231,7 @@ void test_through_the_backend() {
     sdcard::ProgressFn pf = [&](uint64_t d, uint64_t t) {
         const bool go = gui.progress(d, t);
         ++ncalls;
+        last_call_at = since(t0);
         if (!go && false_at < 0) { false_at = since(t0); calls_at_false = ncalls; }
         if (d == 100000 && first_at < 0) {   // the last byte has arrived: the stall begins
             first_at = since(t0);
@@ -243,6 +244,11 @@ void test_through_the_backend() {
     std::string err;
     const bool ok = sdcard::http_download(srv.url(), dest, pf, err, {200, 10000});
     const int run_out = srv.holds_run_out();
+    // The backend closes the transfer before it settles the partial: the server sees the close within 1 s of the last call
+    std::chrono::steady_clock::time_point closed_tp;
+    const bool closed_seen = srv.wait_client_close(closed_tp, 10000);
+    const double close_after =
+        closed_seen ? std::max(0.0, stalls.net_gap(last_call_at, std::chrono::duration<double>(closed_tp - t0).count())) : -1.0;
     ticker.stop();
 
     int n = 0;
@@ -265,19 +271,20 @@ void test_through_the_backend() {
           "6.5 s later, the label the user was reading at the click says 'Stalled: no data received for N s' "
           "with N from 5 to 9 and 'gives up after 30 s', and the backend stops within 1 s of the click (the "
           "ProgressFn call that returned false is the last it got) saying 'cancelled by user' with the 100000 "
-          "bytes kept, the server's 60 s hold not run out at the return (the backend did not wait for it); the "
+          "bytes kept, the server's 60 s hold not run out at the return (the backend did not wait for it) and the "
+          "server seeing the client close the connection within 1 s of the last call (net of the process's stalls); the "
           "timer's gaps are net of the process's own stalls (sentinel thread)",
           !ok && visible && first_at >= 0 && click_at > first_at && n >= 5 && gap <= 0.8 &&
               shown_s >= 5 && shown_s <= 9 && has(label_at_click, "gives up after 30 s") &&
               false_at >= click_at && false_at - click_at <= 1.0 && calls_at_false == ncalls && run_out == 0 &&
-              err == "cancelled by user" &&
+              close_after >= 0 && close_after <= 1.0 && err == "cancelled by user" &&
               slurp(sdcard::partial_path(dest)) == body.substr(0, 100000) && sdcard::read_resume_info(dest, ri),
           "ok=" + std::to_string(ok) + " visible=" + std::to_string(visible) + " first_at=" + std::to_string(first_at) +
               " click_at=" + std::to_string(click_at) + " fires=" + std::to_string(n) + " max_gap=" + std::to_string(gap) +
               " label_at_click='" + label_at_click + "' shown_s=" + std::to_string(shown_s) +
               " false_after_click=" + std::to_string(false_at - click_at) + " calls_at_false=" +
               std::to_string(calls_at_false) + " calls=" + std::to_string(ncalls) + " holds_run_out=" +
-              std::to_string(run_out) + " err='" + err + "' part=" +
+              std::to_string(run_out) + " close_after=" + std::to_string(close_after) + " err='" + err + "' part=" +
               std::to_string(slurp(sdcard::partial_path(dest)).size()));
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
