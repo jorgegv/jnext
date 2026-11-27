@@ -675,9 +675,10 @@ const char* local_only_reason(Capability c) {
 }  // namespace
 
 CapabilitySet Debugger::capabilities() const {
-    // Local: every bit. Non-local: the target's claim, cut down to what this facade
-    // serves over a target, so a claimed bit the facade cannot serve is never true.
-    return impl_->emu ? CapabilitySet::all() : (impl_->target.capabilities() & kNonLocalServed);
+    // The target's claim, cut down to what this facade serves: every bit locally, the
+    // eight of `kNonLocalServed` over a target, so a claimed bit the facade cannot
+    // serve is never true.
+    return impl_->target.capabilities() & (impl_->emu ? CapabilitySet::all() : kNonLocalServed);
 }
 
 std::string Debugger::why_unavailable(Capability c) const {
@@ -697,7 +698,6 @@ std::string Debugger::why_unavailable(Capability c) const {
 TargetInfo Debugger::target_info() const { return impl_->target.info(); }
 
 RegisterValidity Debugger::register_validity() const {
-    if (impl_->emu) return RegisterValidity::all();
     // The target's mask, rebuilt field by field so bits above `Count` are dropped.
     const RegisterValidity raw = impl_->target.register_validity();
     RegisterValidity out;
