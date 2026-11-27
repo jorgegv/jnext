@@ -207,13 +207,13 @@ public:
     /// per the VHDL processes, and fires the F2/F3/F7/F8 side-effect
     /// callbacks on the rising edge of their bits (gated by NR 0x06).
     ///
-    /// Production code calls this once per emulator tick (or once per
-    /// membrane scan cycle). Tests use it directly to step through
-    /// state transitions.
+    /// One call is one CLK_28_DEBOUNCE_EN period. No production code
+    /// ticks it on a clock: the host keys drive it through
+    /// `simulate_mf_fkey_press()`; tests also step it directly.
     void tick();
 
-    /// Convenience helper used by the test plan to drive a complete
-    /// MF F-key press cycle:
+    /// Helper used by both frontends (host F-key taps) and the tests to
+    /// drive a complete MF F-key press cycle:
     ///   1. press M1 + the F-key column,
     ///   2. tick() through MF_ROW_A11 → MF_ROW_A12 → MF_CHECK,
     ///   3. release M1,
