@@ -10,7 +10,7 @@
     {
       "name": "run-status",
       "source": "./.claude/mods/run-status",
-      "description": "A Run status pane for an autonomous run, refreshed every minute from the run's files, gh and the remote-run lanes"
+      "description": "A Run status pane for an autonomous run, refreshed every 5 minutes from the run's files, gh and the remote-run lanes"
     }
   ]
 }
