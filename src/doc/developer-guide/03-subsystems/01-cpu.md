@@ -99,22 +99,21 @@ and consults `kZ80NOpcodeTable`, a 256-entry table built at static-init from the
 `Z80NOpcode` enum. A hit dispatches to `execute_z80n()` and never reaches FUSE,
 which would otherwise decode it as a NOP; a miss falls through untouched.
 
-Three encodings are magic breakpoints: `ED FF`, `FD 00` and `DD 01`. A magic
+Two encodings are magic breakpoints: `ED FF` and `FD 00`. A magic
 breakpoint is an instruction a program plants in its own code to stop the
 emulator at that exact spot and hand control to the debugger — the encodings are
 the ones ZEsarUX, CSpect and sjasmplus's `break` established, and JNEXT honours
-all three. They only bite when `--magic-breakpoint` is given; otherwise they
-execute as on real silicon: `ED FF` and `FD 00` as two-byte NOPs, `DD 01 nn nn`
-as `LD BC,nn` (the `DD` prefix ignored).
+both. They only bite when `--magic-breakpoint` is given; otherwise they
+execute as on real silicon, as two-byte NOPs.
 
 `ED FF` and `FD 00` are real hardware instructions (two M1 fetches, R += 2,
 8 T-states, no register change), so `execute()` runs them through FUSE like any
 other and fires the hook after the instruction, from the fetched prefix chain
-(never a second memory read). `DD 01` is not an instruction on the hardware, so
-`execute()` intercepts it before FUSE and, when the hook returns true, skips the
-two bytes like a two-byte NOP: both M1 callbacks, both fetches' contention
-(`contend_read()`, so the cost is at least 8 T-states), R += 2 and Q cleared.
-It consumes no operand.
+(never a second memory read). `DD 01`, the older CSpect and sjasmplus form, is
+deliberately not one: on the hardware the `DD` prefix is inert and `01 nn nn` is
+`LD BC,nn`, so `execute()` runs it as that, through FUSE, with the switch on or
+off. Honouring it as a breakpoint would make the program compute differently
+depending on the switch.
 
 Z80N instructions account for their own time rather than quoting a table
 constant. The wrapper charges the two M1 fetches via `contend_read()`,
