@@ -74,9 +74,9 @@ serial, like `repeat_halt()` and for the same reason without a register sync. It
 and `IncDecZ`. That last one is a one-bit shadow that exists only in the VHDL
 (`t80n.vhd:1358-1367`), where it becomes observable through the Z80N `LDWS`
 instruction. It cannot be read out of FUSE at all, so `execute()` reconstructs
-it after the fact for DJNZ, `INC BC` / `DEC BC` and the ED block transfers,
-walking any DD/FD prefix chain first because those prefixes do not change which
-mcode path runs.
+it after the fact for DJNZ, `INC BC` / `DEC BC` and the ED block transfers. The
+DD/FD prefixes in front of them do not change which mcode path runs, and
+`execute()` has already stripped every redundant one (see "Prefix runs").
 
 ## The Z80N instruction set
 
@@ -97,7 +97,10 @@ NextZXOS itself uses `NEXTREG`, `MUL` and the `ADD rr,A` forms constantly.
 `execute()` reads the byte at PC itself. On `0xED` it reads the extension byte
 and consults `kZ80NOpcodeTable`, a 256-entry table built at static-init from the
 `Z80NOpcode` enum. A hit dispatches to `execute_z80n()` and never reaches FUSE,
-which would otherwise decode it as a NOP; a miss falls through untouched.
+which would otherwise decode it as a NOP; a miss falls through untouched. Z80N is
+also reached behind DD/FD: the prefixes are stripped first (below), so `DD ED 27 n`
+is `TEST n` plus one M1, as on the T80N (`t80n.vhd:521-526`: an ED after DD/FD
+clears the IX/IY choice, and the ED section never reads it).
 
 Two encodings are magic breakpoints: `ED FF` and `FD 00`. A magic
 breakpoint is an instruction a program plants in its own code to stop the
@@ -200,6 +203,40 @@ M1's own automap decode left, and `contend_read(PC, 4)` charges that recorded
 value, so the first M1 of a prefix chain is not charged for the state the chain's
 last M1 leaves behind.
 
+## Prefix runs
+
+On the T80N a DD or FD is an instruction of one M-cycle, 4 T-states, that only
+sets the prefix state (`t80n_mcode.vhd:231-235`, `:1384-1387`); R and PC advance
+once per M1 (`t80n.vhd:490-498`). The next M1 overwrites the IX/IY choice (DD/FD)
+or clears it (ED), so only the LAST byte of a run matters and every earlier one is
+a bare 4 T M1. FUSE chains through such a run inside one call with no bound, which
+let 64 KB of `DD` hang the frame loop (only reset stops that run on the real
+machine, but the machine around the CPU keeps running).
+
+`execute()` therefore strips each DD/FD that is followed by DD, FD or ED
+(`strip_prefixes_()`): one `on_m1_cycle`, one contended 4 T fetch, R + 1, PC + 1
+per byte. What is left is the byte that decides the instruction: an ED goes
+through the ordinary ED branch (Z80N or FUSE), and a DD/FD followed by anything
+else is a one-hop instruction for FUSE. A slot walks at most 64 hops
+(`kMaxPrefixHops`, the size of the M1 fetch buffer), so every run of 64 hops or
+fewer is one slot, T-state for T-state what FUSE would charge.
+
+A longer run is cut right after a prefix M1. The slot ends there with
+`prefix_pending()` set to that DD or FD: the T80N's own state at that boundary
+(PC past the prefix, `XY_State` pending). The next slot resumes in the middle of
+the instruction: the pending prefix is index 0 of the M1 buffer at PC - 1 (not
+fetched again, no hook), the byte at PC is its next M1, and `fuse_z80_resume_prefix()`
+makes FUSE enter its DD/FD case directly. While a prefix is pending the slot
+accepts neither INT nor NMI (`t80n.vhd:1765`, `:1768`: only at `Prefix = "00"`; an
+NMI edge stays latched until the run ends, an INT pulse that ends meanwhile is
+missed) and runs no esxdos stand-in. The debugger treats a slot that starts inside
+an instruction as no instruction start: PC breakpoints, `Execute` subscriptions,
+tape traps and the coverage set skip it, while Pause, Step Into and
+`RUN_TO_CYCLE` stay per slot, so every step is bounded. The pending prefix travels
+in the binary stream (an appended block, absent in older streams) and in
+`state/emulator.json` (`cpu_prefix_pending`: `none`, `dd` or `fd`); a
+`set_registers()` that moves PC clears it.
+
 ## M1 hooks and interrupts
 
 Two callbacks bracket the opcode fetch, and the order matters. `on_m1_prefetch`
@@ -210,7 +247,8 @@ fetched byte of a prefix chain — including the inner byte of `DD ED xx` —
 because the IM2 opcode decoder models one event per M1. Both fire for every M1
 byte of an instruction, the inner bytes of a prefix chain included
 (`fetch_prefix_chain_()`): the DivMMC and Multiface decisions are per M1, and an
-inner byte can sit on an entry point or in the unmap window.
+inner byte can sit on an entry point or in the unmap window. Across a cut prefix
+run every M1 still fires once, in the slot that fetches it.
 
 `request_interrupt(vector, first, last)` gives the CPU the window of
 instruction boundaries, on the FUSE T-state counter, at which /INT is seen low.
