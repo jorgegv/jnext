@@ -3678,7 +3678,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
                 // A fall-through would be INERT TODAY: it would reach
                 // `case Qt::Key_F5` further down and drive the EmuFnKeys FSM,
                 // but jnext implements no F5 side effect at all —
-                // emu_fnkeys.h:68-69 puts F5/F6 out of scope for G132 (tracked
+                // emu_fnkeys.h:71-72 puts F5/F6 out of scope for G132 (tracked
                 // under G147) and fire_mf_side_effects() dispatches F2/F3/F7/F8
                 // only — so no NextREG is written. On real HARDWARE F5 is the
                 // expansion-bus enable hotkey (zxnext.vhd:6344 -> :2190

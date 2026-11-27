@@ -206,10 +206,11 @@ void EmuFnKeys::tick() {
     //   if state = S_IDLE:
     //     local_fnkeys <= (others => '0')  (clear all strobes)
     //
-    // NB: The VHDL `state` reference inside this clocked process is the
-    // POST-EDGE state — i.e. the value just latched from next_state. Our
-    // `state_` variable above has already been updated, so we use it
-    // directly here, matching VHDL semantics exactly.
+    // NB: a clocked VHDL process reads the PRE-edge `state`. Here `state_`
+    // is already updated, so the latch happens on the post-update state:
+    // the VHDL's next-edge latch collapsed into the same tick. The output
+    // vector leads the VHDL by one CLK_28 edge, which nothing observes;
+    // the timer predicate is unchanged.
     // -------------------------------------------------------------------
     switch (state_) {
         case State::MF_ROW_A11: {
@@ -314,18 +315,18 @@ uint16_t EmuFnKeys::simulate_mf_fkey_press(int idx) {
     //
     // Tick 0 (entering): currently in IDLE, M1 not yet pressed.
     // After press_membrane_fkey():
-    //   tick → IDLE; next_state evaluated as MF_ROW_A11 (M1 low) — state
-    //          becomes MF_ROW_A11.
-    //   tick → MF_ROW_A11 → MF_ROW_A12 (latches F1..F5 col bits).
-    //   tick → MF_ROW_A12 → MF_CHECK   (latches F6..F10 col bits).
+    //   tick 1: IDLE → MF_ROW_A11 (latches F1..F5; F2/F3 callbacks).
+    //   tick 2: MF_ROW_A11 → MF_ROW_A12 (latches F6..F10; F7/F8 callbacks).
+    //   tick 3: MF_ROW_A12 → MF_CHECK.
     //   release M1 BEFORE the next tick.
-    //   tick → MF_CHECK → MF_DONE      (M1 high).
+    //   tick 4: MF_CHECK → MF_DONE (F9 term only, no callbacks).
+    //   tick 5: MF_DONE → IDLE.
     press_membrane_fkey(idx);
-    tick();                       // IDLE → MF_ROW_A11 (state register clocks)
-    tick();                       // MF_ROW_A11 → MF_ROW_A12 (F1..F5 latch)
-    tick();                       // MF_ROW_A12 → MF_CHECK   (F6..F10 latch)
+    tick();                       // IDLE → MF_ROW_A11 (F1..F5 latch)
+    tick();                       // MF_ROW_A11 → MF_ROW_A12 (F6..F10 latch)
+    tick();                       // MF_ROW_A12 → MF_CHECK
     release_membrane();           // M1 high before next tick
-    tick();                       // MF_CHECK → MF_DONE (fires callbacks)
+    tick();                       // MF_CHECK → MF_DONE (F9 term only)
     const uint16_t latched = local_fnkeys_;
     tick();                       // MF_DONE → IDLE (clears local_fnkeys)
     return latched;
