@@ -1575,6 +1575,7 @@ check "HS-204c" "the shell resolver prints the new name for a directory with the
     "n=[$SC_NEW]" "o=[$SC_OLD]" "b=[$SC_NEW]" "x=[$SC_NEW]"
 mkdir -p "$H5/home/.jnext/sdcard/test-suite/sdcard" "$H5/bin"
 SC_D="$H5/home/.jnext/sdcard/test-suite/sdcard"
+: > "$H5/calls"
 printf '#!/usr/bin/env bash\necho x >> "%s/calls"\nexit 0\n' "$H5" > "$H5/bin/jnext-stub"; chmod +x "$H5/bin/jnext-stub"
 sc_card() {   # sc_card <name>: a current master under <name>, with its witness
     printf 'MASTER-BYTES\n' > "$SC_D/$1"
@@ -1635,6 +1636,7 @@ check "HS-198b" "a file naming the user's SD card FAILS the preflight, not just 
 BH_FIX="$T/bench171"; BH_LOG="$BH_FIX/calls.log"
 rm -rf "$BH_FIX"; mkdir -p "$BH_FIX/test/bench/nex" "$BH_FIX/test/00regression/nex" "$BH_FIX/test/00regression/tap" "$BH_FIX/build/gui-release-non-pgo"
 cp "$PROJECT_DIR/test/bench/bench.sh" "$PROJECT_DIR/test/bench/bench-lock.sh" "$BH_FIX/test/bench/"
+mkdir -p "$BH_FIX/tools"; cp "$PROJECT_DIR/tools/sd-card-name.sh" "$BH_FIX/tools/"; cp "$PROJECT_DIR/test/00regression/test-functions.inc" "$BH_FIX/test/00regression/"   # the card-name resolver the bench calls (GH #579)
 for f in test/00regression/nex/copper_demo.nex test/00regression/nex/beast.nex test/00regression/tap/bifrost.tap \
          test/bench/nex/halt_idle_35.nex test/bench/nex/halt_idle_28.nex test/bench/nex/ctc_dac_28.nex; do : > "$BH_FIX/$f"; done
 printf 'CMAKE_BUILD_TYPE:STRING=Release\n' > "$BH_FIX/build/gui-release-non-pgo/CMakeCache.txt"

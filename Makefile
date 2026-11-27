@@ -203,7 +203,9 @@ USAGE_OUT         := USAGE.md
 # generator also runs pandoc, which is why it is checked by docs-man-check
 # (and inherits its pandoc-version-gap skip) rather than by the guide's check.
 GUIDE_CLI_GEN     := tools/gen-userguide-cli.pl
-GUIDE_CLI_OUT     := src/doc/user-guide/appendix-a-reference/01-command-line-options.md
+# The default card's file name in a directory (new name, else old: tools/sd-card-name.sh), by absolute path so a make run with -C elsewhere finds it.
+SD_CARD_NAME_TOOL := $(dir $(abspath $(firstword $(MAKEFILE_LIST))))tools/sd-card-name.sh
+GUIDE_CLI_OUT     :=src/doc/user-guide/appendix-a-reference/01-command-line-options.md
 
 # Every recipe runs in the C locale. Two reasons, both about not lying:
 #  - builds: compiler/linker diagnostics stay in English (greppable, quotable).
@@ -1495,7 +1497,7 @@ worktree-bootstrap:
 	@# there). Failing the target over a self-healing condition would be a false
 	@# alarm. And it REPORTS rather than initialising: this target has never mutated
 	@# a checkout, and `git submodule update --init` is a write to someone's tree.
-	@sd="$$HOME/.jnext/sdcard/test-suite/sdcard/$$(bash tools/sd-card-name.sh "$$HOME/.jnext/sdcard/test-suite/sdcard")"; \
+	@sd="$$HOME/.jnext/sdcard/test-suite/sdcard/$$(bash $(SD_CARD_NAME_TOOL) "$$HOME/.jnext/sdcard/test-suite/sdcard")"; \
 	pending=0; \
 	if [ ! -f roms/nextboot.rom ]; then \
 		printf "$(BADGE_FAIL) ERROR $(RESET) roms/nextboot.rom missing — this is a tracked file; the checkout is broken\n"; \
@@ -1751,7 +1753,7 @@ docs-screenshots: unit-test-build
 	@# crash. A clone can still be orphaned that way; it is a plain directory
 	@# under $$HOME/.jnext/runs and `rm -rf` is the whole recovery.
 	@set -e; \
-	 sd="$${JNEXT_TEST_SD_IMAGE:-$$HOME/.jnext/sdcard/test-suite/sdcard/$$(bash tools/sd-card-name.sh "$$HOME/.jnext/sdcard/test-suite/sdcard")}"; \
+	 sd="$${JNEXT_TEST_SD_IMAGE:-$$HOME/.jnext/sdcard/test-suite/sdcard/$$(bash $(SD_CARD_NAME_TOOL) "$$HOME/.jnext/sdcard/test-suite/sdcard")}"; \
 	 if [ ! -f "$$sd" ]; then \
 	   printf "$(BADGE_FAIL) FAIL $(RESET) no NextZXOS SD image at $$sd\n"; \
 	   printf "        provision it with 'JNEXT_CONFIG_DIR=$$HOME/.jnext/sdcard/test-suite ./build/jnext --headless --sdcard-download-confirm',\n"; \
