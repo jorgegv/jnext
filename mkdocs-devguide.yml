@@ -132,6 +132,7 @@ nav:
       - A.1 Issues and pull requests: appendix-a-contributing/01-issues-and-pull-requests.md
       - A.2 Branches, worktrees and review: appendix-a-contributing/02-branches-worktrees-and-review.md
       - A.3 House style: appendix-a-contributing/03-house-style.md
+      - A.4 Claude Code mods: appendix-a-contributing/04-claude-code-mods.md
 
 # Same posture as the user guide: `mkdocs build --strict` must fail on a page
 # missing from the nav and on a cross-reference that no longer resolves.

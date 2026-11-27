@@ -1,0 +1,157 @@
+import { expect, test } from 'claude-code/testing'
+
+const PANE = {
+  plugin: 'run-status',
+  component: 'Pane',
+  requestId: 'run-status',
+  props: {
+    title: 'Run status',
+    isFocused: false,
+    bodyColumns: 80,
+    placement: 'dock',
+    scroll: { offset: 0, bodyRows: 40 },
+    view: {},
+  },
+} as const
+
+const SLOT = '#!/bin/sh\nexport JNEXT_REMOTE_RUN_HOSTS="host-a host-b" JNEXT_REMOTE_RUN_DIR=~/work-dir/\n'
+
+const AGENTS = [
+  '| slot | agent | role | issue | worktree | state |',
+  '|---|---|---|---|---|---|',
+  '| nonepic-3 | impl-580 | implementer | #580 | ~/tmp/worktrees/jnext/gh580 | dispatched 09:20 |',
+  '| - | - | - | #579 | ~/tmp/worktrees/jnext/gh579 | plan GO; HELD until #577 lands |',
+].join('\n')
+
+test('a refresh lays out running, waiting, queue and remotes', async ($, on) => {
+  on('clock.now', () => ({ value: 1795700000000 }))
+  on('session.cwd', () => ({ value: '/work/proj' }))
+  on('fs.list', () => ({ value: [{ name: '2026-11-26', kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false }] }))
+  on('fs.read', (_, e) => {
+    const path = String((e as { path?: string }).path ?? '')
+    if (path.endsWith('agents.md')) return { value: AGENTS }
+    if (path.endsWith('blocked.md')) return { value: '1. #579: rename the raw image?' }
+    if (path.endsWith('slot.sh')) return { value: SLOT }
+    return { value: '' }
+  })
+  on('process.run', (_, e) => {
+    const argv = (e as { argv: string[] }).argv
+    const out = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+    if (argv[0] === 'printenv') return out('/home/u\n')
+    if (argv[0] === 'gh' && argv[1] === 'repo') return out('{"owner":{"login":"owner1"}}')
+    if (argv[0] === 'gh' && argv[1] === 'api') return out('[{"number":9,"title":"v1.6"},{"number":7,"title":"v1.5"}]')
+    if (argv[0] === 'gh' && argv[1] === 'issue')
+      return out(JSON.stringify([
+        { number: 580, title: 'CI cache', labels: [{ name: 'bug' }], author: { login: 'owner1' } },
+        { number: 579, title: 'SD rename', labels: [{ name: 'feature' }], author: { login: 'owner1' } },
+        { number: 590, title: 'A user bug', labels: [{ name: 'bug' }], author: { login: 'someone' } },
+      ]))
+    if (argv[0] === 'gh' && argv[1] === 'run') return out('[]')
+    if (argv[0] === 'cat') return out('3.10 2.00 1.00 1/100 1')
+    if (argv[0] === 'git') return out('')
+    return out('', 75)
+  })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  expect(await ui.find({ type: 'Text', text: /not gathered yet/ })).toBeDefined()
+  await ui.press({ key: 'refresh' })
+  await ui.unmount()
+
+  const after = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  const text = (await after.findAll({ type: 'Text' })).map(m => m.text).join('\n')
+  expect(await after.find({ type: 'Text', text: /^Blocked on you$/ })).toBeDefined()
+  expect(text).toContain('#579: rename the raw image?')
+  expect(text).toContain('#580 CI cache: implementer impl-580')
+  expect(text).toContain('#579 SD rename: plan GO; HELD until #577 lands')
+  expect(text).toContain('#590 A user bug')
+  expect(await after.find({ type: 'Text', text: /^1\.$/ })).toBeDefined()
+  expect(text).toContain('host-a: all lanes busy')
+  expect(text).toContain('load 3.10 2.00 1.00')
+  await after.unmount()
+})
+
+test('with nothing in blocked.md the section says Nothing', async ($, on) => {
+  on('clock.now', () => ({ value: 1795700000000 }))
+  on('session.cwd', () => ({ value: '/work/proj' }))
+  on('fs.list', () => ({ value: [{ name: '2026-11-26', kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false }] }))
+  on('fs.read', () => ({ value: '' }))
+  on('process.run', (_, e) => {
+    const argv = (e as { argv: string[] }).argv
+    const stdout = argv[0] === 'printenv' ? '/home/u' : argv[0] === 'gh' ? '[]' : ''
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  const ui = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  await ui.press({ key: 'refresh' })
+  await ui.unmount()
+  const after = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  expect(await after.find({ type: 'Text', text: /^Blocked on you$/ })).toBeDefined()
+  expect(await after.find({ type: 'Text', text: /^Nothing$/ })).toBeDefined()
+  await after.unmount()
+})
+
+// Settings derivation: which commands and paths the module asks for, from nothing but the session.
+test('the settings are derived from the environment, the repo, the run dir, slot.sh and GitHub', async ($, on) => {
+  const listed: string[] = []
+  const probed: { host?: string; dir?: string }[] = []
+  const issueArgs: string[][] = []
+  const read: string[] = []
+  on('clock.now', () => ({ value: 1795700000000 }))
+  on('session.cwd', () => ({ value: '/work/wt/gh1' }))
+  on('fs.list', (_, e) => {
+    listed.push(String((e as { path?: string }).path))
+    return { value: ['2026-11-25', '2026-11-27', '2026-11-26', 'notes'].map(name => ({ name, kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false })) }
+  })
+  on('fs.read', (_, e) => {
+    const path = String((e as { path?: string }).path ?? '')
+    read.push(path)
+    return { value: path.endsWith('slot.sh') ? 'export JNEXT_REMOTE_RUN_HOST=solo JNEXT_REMOTE_RUN_DIR=~/rr/' : '' }
+  })
+  on('process.run', (_, e) => {
+    const { argv, init } = e as { argv: string[]; init?: { env?: Record<string, string> } }
+    const env = init?.env
+    const out = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+    if (argv[0] === 'printenv') return out('/home/pat\n')
+    if (argv[0] === 'git' && argv[1] === 'rev-parse') return out('/work/myproj/.git\n')
+    if (argv[0] === 'gh' && argv[1] === 'repo') return out('{"owner":{"login":"acme"}}')
+    if (argv[0] === 'gh' && argv[1] === 'api') return out('[{"number":12,"title":"v2.0"},{"number":3,"title":"v1.1"}]')
+    if (argv[0] === 'gh' && argv[1] === 'issue') {
+      issueArgs.push(argv)
+      return out(JSON.stringify([
+        { number: 5, title: 'Maintainer feature', labels: [{ name: 'feature' }], author: { login: 'acme' } },
+        { number: 6, title: 'Outside feature', labels: [{ name: 'feature' }], author: { login: 'other' } },
+      ]))
+    }
+    if (argv[0].endsWith('remote-run.sh')) { probed.push({ host: env?.JNEXT_REMOTE_RUN_HOST ?? '', dir: env?.JNEXT_REMOTE_RUN_DIR ?? '' }); return out('') }
+    return out('[]')
+  })
+  const ui = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  await ui.press({ key: 'refresh' })
+  await ui.unmount()
+  const after = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  const text = (await after.findAll({ type: 'Text' })).map(m => m.text).join('\n')
+  expect(listed).toContain('/home/pat/tmp/autorun/myproj')
+  expect(read).toContain('/home/pat/tmp/autorun/myproj/2026-11-27/slot.sh')
+  expect(issueArgs[0]).toContain('v1.1')
+  expect(probed).toEqual([{ host: 'solo', dir: '~/rr/' }])
+  expect(text).toContain('solo: a lane is free')
+  // the maintainer's feature (author = repo owner) ranks after the outside one
+  expect(text.indexOf('#6 Outside feature')).toBeLessThan(text.indexOf('#5 Maintainer feature'))
+  await after.unmount()
+})
+
+test('what cannot be derived shows as not configured, without a crash', async ($, on) => {
+  on('clock.now', () => ({ value: 1795700000000 }))
+  on('session.cwd', () => ({ value: '/work/proj' }))
+  on('fs.list', () => { throw new Error('no such dir') })
+  on('fs.read', () => { throw new Error('no such file') })
+  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: 'nope', isStdoutTruncated: false, isStderrTruncated: false } }))
+  const ui = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  await ui.press({ key: 'refresh' })
+  await ui.unmount()
+  const after = await $.ui.mount({ ...PANE, surface: 'vscode' })
+  const text = (await after.findAll({ type: 'Text' })).map(m => m.text).join('\n')
+  expect(text).toContain('run directory: not configured')
+  expect(text).toContain('milestone: not configured')
+  expect(text).toContain('remote hosts: not configured')
+  await after.unmount()
+})
