@@ -1512,10 +1512,17 @@ static void tgt05_rows() {
         m.stop(TargetStop::Why::Breakpoint, 0x8000);
         m.stop(TargetStop::Why::Breakpoint, 0x9000);
         m.pump();
+        const bool one = m.sl.paused.size() == 1 && m.sl.paused[0].matched.size() == 1 &&
+                         m.sl.paused[0].matched[0].event_id == real.value && m.t.count("resume") == 1 &&
+                         m.sl.resumed == 0;
+        // Still stopped at the end of the pump before, a resumed-at-once stop and a real one in the next:
+        // the machine moved in between, so that is a second Paused, and only the resume count shows it.
+        m.stop(TargetStop::Why::Breakpoint, 0x8000);
+        m.stop(TargetStop::Why::Breakpoint, 0x9000);
+        m.pump();
         check("TGT-05-14", "a stop resumed at once and a real stop in one pump give exactly one Paused (and no Resumed "
-                           "for the one nobody saw)",
-              m.sl.paused.size() == 1 && m.sl.paused[0].matched.size() == 1 &&
-                  m.sl.paused[0].matched[0].event_id == real.value && m.t.count("resume") == 1 && m.sl.resumed == 0);
+                           "for the one nobody saw); the same pair again while still stopped gives a second",
+              one && m.sl.paused.size() == 2 && m.t.count("resume") == 2 && m.sl.resumed == 0);
     }
     {
         Local m;
