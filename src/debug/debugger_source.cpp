@@ -1307,7 +1307,7 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
     // No statement under the PC, or nowhere to step out to: one instruction,
     // which is where an unmapped stretch is left from.
     if (!start || (kind == SourceStep::Out && start_depth == 0)) {
-        impl_->emu->debugger_step();
+        impl_->target.step_instruction();
         return finish();
     }
 
@@ -1330,7 +1330,7 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
     const uint64_t cycle_budget =
         static_cast<uint64_t>(SOURCE_STEP_FRAME_LIMIT) * impl_->emu->timing().master_cycles_per_frame;
     for (int n = 0; n < SOURCE_STEP_LIMIT; ++n) {
-        impl_->emu->debugger_step();
+        impl_->target.step_instruction();
         impl_->ds().pause();
         if (stopped_by_event()) return finish();
 
