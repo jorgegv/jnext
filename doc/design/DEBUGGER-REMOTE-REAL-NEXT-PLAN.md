@@ -565,6 +565,14 @@ knows how to grey out what a target cannot do.
   the seam and the three method classes.
 - **Acceptance.** No test count changes except new rows; no behaviour change; bench within noise.
 - **Depends on.** R0.1 (owner-approved header); R0.5 (the hardware checkpoint, owner decision 2026-11-17).
+- **Measured (#513 Stage B).** The delivery path is unchanged by construction: `git diff` of
+  `src/core src/cpu src/memory src/video src/audio src/peripheral src/port src/platform src/gui
+  src/debugger src/remote` against the epic is empty, and `drain_boundary()`, `execute_gate()` and
+  `deliver_to_subscribers()` compile at `-O2` to the same instruction stream as before (base and
+  branch objects of `debugger_events.cpp` compared with `objdump`: the one difference is the
+  displacement of the `emu` load, which is no longer the first member of `Impl`, plus padding).
+  The wall-time `make bench` A/B and `ab-hotlatch` runs need a quiet host (load below 1.5) and are
+  still to be taken; the R1.1 box is ticked when they are.
 
 ### R1.2 Capability model
 
