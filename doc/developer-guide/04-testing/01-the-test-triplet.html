@@ -3249,6 +3249,9 @@ asks <code>test/test-affected.pl</code> which suites the branch's changed files 
 smoke set, <code>docs-check</code>, <code>cli-check</code> and one boot screenshot row (<code>boot-48k</code>). It is not a gate and
 says so; the full <code>make unit-test</code> runs once, just before landing, and the batch gate on <code>main</code> is
 unchanged.</p>
+<p>A mutation run, which asks whether named suites and rows notice one edit, uses <code>make mutant-test
+SUITES=a,b [ROWS="..."]</code> instead (the make-targets chapter describes it): it builds and runs only
+those, with no documentation check whose failure would read as a kill.</p>
 <p>The map is read from the build tree, not written by hand. Each object has a compiler depfile (the
 source and every header it read); each test executable is linked with a GNU ld map
 (<code>-Wl,-Map</code>, set in <code>test/CMakeLists.txt</code>), whose "Archive member included" section names the exact
