@@ -49,7 +49,7 @@ are sub-issues of their own; R6 is one placeholder sub-issue, opened only if R5.
 
 - [x] **R0.1** Target-seam inventory: classify every `Debugger` verb (machine / host-side / local-only); write the owner-approved `debug/target.h` and facade additions (Q1)
 - [ ] **R1.1** `Target` interface and `LocalTarget`: the machine half of `Debugger::Impl` behind it, behaviour-neutral, bench A/B
-- [ ] **R1.2** Capability model: `Debugger::capabilities()`, a reason per missing capability, register and run-state validity
+- [x] **R1.2** Capability model: `Debugger::capabilities()`, a reason per missing capability, register and run-state validity
 
 #### Sub-issue 4: Qt greying and window retargeting
 
@@ -590,10 +590,12 @@ knows how to grey out what a target cannot do.
   with `why_unavailable` of each = "no program loaded: upload one"; its `RegisterValidity` has
   `Core` cleared, so `registers()` returns zeros marked invalid; the slots stay available (they
   are true) and the MMU panel labels them "CMD_INIT defaults" until the state clears;
-  `set_mmu_slot`, memory and NextREG verbs are not gated by it. What #513 (Stage B) does for it:
-  the facade passes the target's validity mask through, and `capabilities()` stays the target's
-  set intersected with what the facade serves (#513's inventory); the panel's reason rule is
-  R1.3's. The state is the target's own and is never derived from register values.
+  `set_mmu_slot`, memory and NextREG verbs are not gated by it. What #513 does for it (Stage C, R1.2;
+  Stage B only built the seam and left `capabilities()` and the validity accessors undefined):
+  `register_validity()` passes the target's validity mask through (unknown bits dropped), and
+  `capabilities()` is the target's set intersected with what the facade serves (the served set of
+  #513's section 3, eight bits), so `why_unavailable(Run)` answers with the target's own reason;
+  the panel's reason rule is R1.3's. The state is the target's own and is never derived from register values.
   `LocalTarget` and remote jnext never report it. Row for it, added to the Tests above: a fake
   reporting "no debuggee" has `Run`, `InstructionStep` and `RunToCursor` unavailable with that
   reason and `Core` invalid, and still serves memory, NextREG reads and `set_mmu_slot`.

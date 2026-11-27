@@ -474,6 +474,35 @@ sprites whatever the target sent, treats a pattern-RAM view that is not exactly
 `RefusedUnavailable`; a write or register edit the target refused outright returns the target's
 status, with no `MUTATE` line and no revision bump.
 
+## The capability model
+
+`Debugger::capabilities()` says which verbs a facade serves. A local facade has every
+`Capability` (36 bits, in two groups: what a remote may serve, then what is local-only). A
+non-local facade has the target's set intersected with the eight capabilities the facade serves
+over a target (`RegisterWrite`, `Memory`, `PhysicalMemory`, `MmuSlots`, `NextRegs`, `Ports`,
+`SpriteData`, `SpritePaletteClip`); a target that claims more gets no more. Later work widens that
+set when it implements run control, breakpoints and watchpoints over a target.
+
+Every served machine verb checks its capability first, through one function, and refuses with
+`Unsupported` without calling the target when it is missing. A direct-value query without its
+capability returns its empty value instead: zeroed registers, default slots, `MemSpace::cpu()`
+from `rom_select()`, 0 from `nextreg_peek()`, a default sprite list, an empty pattern-RAM view.
+`peek()` and `poke()` need `Memory` for the CPU space and `PhysicalMemory` for pages, ROM images
+and DivMMC RAM.
+
+`why_unavailable(c)` is empty when the facade has `c`. For a local-only capability it is the fixed
+text of the compatibility table in the design; for one a remote may serve, it is the target's own
+reason when the target lacks it, and a fixed "not served" text when the target has it and the
+facade does not.
+
+Which register fields the target really reports is a separate mask, `register_validity()`: all
+locally; the target's, with unknown bits dropped, otherwise. `registers()` returns zeros without
+asking the target when the `Core` field is not valid. A target with no debuggee (a dezogif session
+before its client has set SP, PC and the program's slots) shows this as a capability set without
+`Run`, `InstructionStep` and `RunToCursor` (reason "no program loaded: upload one") and a validity
+mask without `Core`; it adds no capability bit, and its memory, NextREG, port and slot verbs stay
+served. `RunState::cycle` and `frame` are meaningful exactly when `MachineTime` is.
+
 ## Behind the facade
 
 `Debugger` holds one `unique_ptr<Impl>` and nothing else, so adding state never

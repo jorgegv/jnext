@@ -146,6 +146,9 @@ void Debugger::Impl::note_mutation() {
 // ---------------------------------------------------------------------------
 
 Z80Registers Debugger::registers() const {
+    // A target that cannot report the core registers (D24, no debuggee) is not asked:
+    // zeros, which `register_validity()` marks as not a reading.
+    if (!register_validity().valid(RegisterValidity::Field::Core)) return Z80Registers{};
     return impl_->target.registers();
 }
 
@@ -155,10 +158,11 @@ Z80Registers Debugger::registers() const {
 // struct is read, one field is changed, and it goes back.
 Result Debugger::set_register(ClientId by, RegId reg, uint16_t value) {
     if (impl_->rzx_active()) return Result::RefusedRzx;
+    if (!impl_->serves(Capability::RegisterWrite)) return Result::Unsupported;
 
     // The old value and the name for the MUTATE line, from a copy: the target
     // does the write (`apply_register()` is the one register table).
-    Z80Registers r = impl_->target.registers();
+    Z80Registers r = registers();
     long long old_value = 0;
     const char* name = "?";
     if (!apply_register(r, reg, value, &old_value, &name))
@@ -208,6 +212,9 @@ Expected<size_t> Debugger::peek(MemSpace space, uint32_t addr, size_t n,
         case MemSpace::Kind::Floating:
             return make_refused<size_t>(Result::Unsupported);
     }
+    if (!impl_->serves(space.kind == MemSpace::Kind::Cpu ? Capability::Memory
+                                                          : Capability::PhysicalMemory))
+        return make_refused<size_t>(Result::Unsupported);
 
     // A target's answer is untrusted (it may be a network peer): the count is
     // clamped to the request, and a short count under an Ok is reported as short.
@@ -234,6 +241,9 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
     if (space.kind == MemSpace::Kind::Page &&
         (space.index == PAGE_SENTINEL_ROM_LO || space.index == PAGE_SENTINEL_ROM_HI))
         return make_refused<size_t>(Result::RefusedReadOnly);
+    if (!impl_->serves(space.kind == MemSpace::Kind::Cpu ? Capability::Memory
+                                                          : Capability::PhysicalMemory))
+        return make_refused<size_t>(Result::Unsupported);
 
     // The byte the MUTATE line says was replaced (§4.2a `<old> -> <new>`), read
     // through the target BEFORE the write (a read has no side effect, F1). GH #381:
@@ -288,12 +298,14 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
 // ---------------------------------------------------------------------------
 
 std::array<SlotInfo, 8> Debugger::mmu_slots() const {
+    if (!impl_->serves(Capability::MmuSlots)) return std::array<SlotInfo, 8>{};
     return impl_->target.mmu_slots();
 }
 
 Result Debugger::set_mmu_slot(ClientId by, int slot, uint8_t page) {
     if (slot < 0 || slot > 7) return Result::RefusedUnavailable;
     if (impl_->rzx_active()) return Result::RefusedRzx;
+    if (!impl_->serves(Capability::MmuSlots)) return Result::Unsupported;
 
     const uint8_t old_page = impl_->target.mmu_slots()[static_cast<size_t>(slot)].nr_page;
     const Result r = impl_->target.set_mmu_slot(slot, page);
@@ -310,6 +322,7 @@ Result Debugger::set_mmu_slot(ClientId by, int slot, uint8_t page) {
 // design's first formula for that, "7FFD b4 | 1FFD b2", was wrong on the Next
 // and ignored the locks everywhere).
 MemSpace Debugger::rom_select() const {
+    if (!impl_->serves(Capability::PhysicalMemory)) return MemSpace::cpu();
     return impl_->target.rom_select();
 }
 
@@ -328,11 +341,13 @@ PagingPorts Debugger::paging_ports() const {
 // ---------------------------------------------------------------------------
 
 uint8_t Debugger::nextreg_peek(uint8_t reg) const {
+    if (!impl_->serves(Capability::NextRegs)) return 0;
     return impl_->target.nextreg_read(reg);
 }
 
 Result Debugger::nextreg_write(ClientId by, uint8_t reg, uint8_t value) {
     if (impl_->rzx_active()) return Result::RefusedRzx;
+    if (!impl_->serves(Capability::NextRegs)) return Result::Unsupported;
 
     // A MUTATION, and §4.2a lets a handler make one - EXCEPT the one NextREG
     // write that resets the machine: NR 0x02 with bit 0 set and bit 1 clear runs
@@ -376,6 +391,7 @@ Expected<uint8_t> Debugger::port_in(ClientId by, uint16_t port) {
     // during a playback it touches hardware the replay otherwise never reads
     // (GH #283).
     if (impl_->rzx_active()) return make_refused<uint8_t>(Result::RefusedRzx);
+    if (!impl_->serves(Capability::Ports)) return make_refused<uint8_t>(Result::Unsupported);
     const Expected<uint8_t> in = impl_->target.port_in(port);
     if (in.status != Result::Ok) return in;
     const uint8_t v = in.value;
@@ -388,6 +404,7 @@ Expected<uint8_t> Debugger::port_in(ClientId by, uint16_t port) {
 
 Result Debugger::port_out(ClientId by, uint16_t port, uint8_t value) {
     if (impl_->rzx_active()) return Result::RefusedRzx;
+    if (!impl_->serves(Capability::Ports)) return Result::Unsupported;
     // The same soft-reset exception as `nextreg_write()`, reached through the
     // NextREG data port (a full 16-bit match on 0x253B) with NR 0x02 selected.
     // Local machine only.
@@ -507,8 +524,10 @@ MachineInfo Debugger::machine() const {
 // ---------------------------------------------------------------------------
 
 std::vector<SpriteInfo> Debugger::sprites() const {
-    // Always exactly SPRITE_COUNT entries, whatever the target returns.
-    std::vector<SpriteInfo> out = impl_->target.sprites();
+    // Always exactly SPRITE_COUNT entries, whatever the target returns (defaults
+    // when the facade does not serve sprite data).
+    std::vector<SpriteInfo> out;
+    if (impl_->serves(Capability::SpriteData)) out = impl_->target.sprites();
     out.resize(SPRITE_COUNT);
     return out;
 }
@@ -517,6 +536,7 @@ Expected<std::array<uint8_t, SPRITE_ATTR_BYTES>>
 Debugger::sprite_attr_raw(uint8_t idx) const {
     using Bytes = std::array<uint8_t, SPRITE_ATTR_BYTES>;
     if (idx >= SPRITE_COUNT) return make_refused<Bytes>(Result::RefusedUnavailable);
+    if (!impl_->serves(Capability::SpriteData)) return make_refused<Bytes>(Result::Unsupported);
     return impl_->target.sprite_attr_raw(idx);
 }
 
@@ -525,6 +545,7 @@ Result Debugger::set_sprite_attr_raw(ClientId by, uint8_t idx,
     if (!bytes || n != SPRITE_ATTR_BYTES) return Result::RefusedUnavailable;
     if (idx >= SPRITE_COUNT) return Result::RefusedUnavailable;
     if (impl_->rzx_active()) return Result::RefusedRzx;
+    if (!impl_->serves(Capability::SpriteData)) return Result::Unsupported;
 
     const Result r = impl_->target.set_sprite_attr_raw(idx, bytes, n);
     if (r != Result::Ok) return r;
@@ -535,6 +556,7 @@ Result Debugger::set_sprite_attr_raw(ClientId by, uint8_t idx,
 
 ConstBytes Debugger::pattern_ram() const {
     // A view of anything but exactly the pattern RAM, or with no data, is empty.
+    if (!impl_->serves(Capability::SpriteData)) return ConstBytes{};
     const ConstBytes v = impl_->target.pattern_ram();
     if (!v.data || v.size != PATTERN_RAM_BYTES) return ConstBytes{};
     return v;
@@ -544,6 +566,7 @@ Result Debugger::write_pattern_ram(ClientId by, uint16_t addr,
                                    const uint8_t* src, size_t n) {
     if (!src) return Result::RefusedUnavailable;
     if (impl_->rzx_active()) return Result::RefusedRzx;
+    if (!impl_->serves(Capability::SpriteData)) return Result::Unsupported;
 
     const Result r = impl_->target.write_pattern_ram(addr, src, n);
     if (r != Result::Ok) return r;
@@ -556,10 +579,12 @@ Result Debugger::write_pattern_ram(ClientId by, uint16_t addr,
 
 Expected<uint16_t> Debugger::sprite_palette_rgb333(int bank, uint8_t index) const {
     if (bank != 0 && bank != 1) return make_refused<uint16_t>(Result::RefusedUnavailable);
+    if (!impl_->serves(Capability::SpritePaletteClip)) return make_refused<uint16_t>(Result::Unsupported);
     return impl_->target.sprite_palette_rgb333(bank, index);
 }
 
 ClipWindow Debugger::sprite_clip() const {
+    if (!impl_->serves(Capability::SpritePaletteClip)) return ClipWindow{};
     return impl_->target.sprite_clip();
 }
 
@@ -809,6 +834,7 @@ DisasmReadFn Debugger::memory_reader() const {
     if (!impl_->emu) {
         // A non-local target: plain Cpu reads through it, no fetch prediction.
         Target* t = &impl_->target;
+        if (!impl_->serves(Capability::Memory)) return [](uint16_t) -> uint8_t { return 0; };
         return [t](uint16_t a) -> uint8_t {
             uint8_t b = 0;
             (void)t->read(MemSpace::cpu(), a, 1, &b);

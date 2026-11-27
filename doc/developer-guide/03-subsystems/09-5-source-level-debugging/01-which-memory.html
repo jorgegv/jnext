@@ -3329,7 +3329,7 @@ memory go through it (<a href="07-frontends.html">3.9.5.7</a>).</p>
   <code>memory_text.h:20</code>).</li>
 </ul>
 <p>The instruction at the PC is a special read. <code>Debugger::memory_reader()</code>
-(<code>debugger_inspect.cpp:808</code>) returns the bytes the CPU <em>will fetch</em> for that one instruction
+(<code>debugger_inspect.cpp:833</code>) returns the bytes the CPU <em>will fetch</em> for that one instruction
 (<code>Emulator::predict_instruction_bytes()</code>, at most four) and <code>Mmu::peek()</code> for everything else,
 because at a DivMMC instant entry the M1 itself maps DivMMC. That is the prediction half of this
 page applied to the bytes instead of the identity.</p>

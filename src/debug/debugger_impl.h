@@ -62,6 +62,10 @@ struct Debugger::Impl {
     /// itself stays valid, see `debugger_reconstruct.cpp`).
     Emulator* const emu;
     bool is_local() const { return emu != nullptr; }
+    /// Does this facade serve capability `c`? The ONE gate of every machine verb: it
+    /// reads `Debugger::capabilities()` (target's set intersected with what the facade
+    /// serves), so a target that claims a bit the facade cannot serve gets no verb.
+    bool serves(Capability c) const { return self->capabilities().has(c); }
     /// An RZX recording or playback is in progress (local machine only: a remote
     /// has no RZX).
     bool rzx_active() const {

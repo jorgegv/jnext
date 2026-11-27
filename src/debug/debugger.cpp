@@ -612,5 +612,101 @@ Result Debugger::resize_rewind_buffer(size_t frames) {
     return Result::Ok;
 }
 
+// ---------------------------------------------------------------------------
+// TGT-02 / TGT-03 / TGT-04 - what the target can do, and what it is
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// What a facade over a `Target` serves in this build: the machine primitives of
+/// `Target` itself. Run control, breakpoints, watchpoints and instruction steps join
+/// it when a later sub-issue (R2.2, R2.3, R2.4) implements those verbs over a target.
+constexpr CapabilitySet make_non_local_served() {
+    CapabilitySet s;
+    s.set(Capability::RegisterWrite).set(Capability::Memory).set(Capability::PhysicalMemory)
+        .set(Capability::MmuSlots).set(Capability::NextRegs).set(Capability::Ports)
+        .set(Capability::SpriteData).set(Capability::SpritePaletteClip);
+    return s;
+}
+constexpr CapabilitySet kNonLocalServed = make_non_local_served();
+
+/// The first group of `Capability`: what a remote may serve. The target's own reason
+/// answers for these; the rest are local-only and the table below answers.
+constexpr bool remote_may_serve(Capability c) {
+    return static_cast<size_t>(c) <= static_cast<size_t>(Capability::SpritePaletteClip);
+}
+
+/// Plan section 11, "When unavailable", for a local-only capability.
+const char* local_only_reason(Capability c) {
+    switch (c) {
+        case Capability::CycleExact:       return "cycle-exact: local only";
+        case Capability::Rewind:           return "rewind: local only";
+        case Capability::FetchOverlays:    return "fetch overlays: local only (the target sends the slot's page only)";
+        case Capability::MachineEvents:    return "port, NextREG, interrupt, frame, Copper and DMA events: local only";
+        case Capability::Copper:           return "Copper: local only";
+        case Capability::Video:            return "video: local only";
+        case Capability::Audio:            return "audio: local only";
+        case Capability::CtcDma:           return "CTC and DMA state: local only";
+        case Capability::Trace:            return "trace: local only";
+        case Capability::Coverage:         return "coverage: local only";
+        case Capability::CallStackTracked: return "call stack: reconstructed on a remote target";
+        case Capability::Scripts:          return "scripts: local only";
+        case Capability::MagicBreakpoint:  return "magic breakpoint: local only";
+        case Capability::Load:             return "load program: upload only";
+        case Capability::Reset:            return "reset: local only";
+        case Capability::MachineTime:      return "machine time: local only";
+        case Capability::Input:            return "input injection: local only";
+        case Capability::Capture:          return "capture: local only";
+        case Capability::MachineState:     return "machine state: local only";
+        case Capability::PagingLatches:    return "paging ports and the NextREG select latch: local only";
+        // the first group and the sentinel have no entry here
+        case Capability::Run: case Capability::Pause: case Capability::InstructionStep:
+        case Capability::RunToCursor: case Capability::ExecuteBreakpoints:
+        case Capability::Watchpoints: case Capability::CommandsWhileRunning:
+        case Capability::RegisterWrite: case Capability::Memory:
+        case Capability::MemoryWhileRunning: case Capability::PhysicalMemory:
+        case Capability::MmuSlots: case Capability::NextRegs: case Capability::Ports:
+        case Capability::SpriteData: case Capability::SpritePaletteClip: case Capability::Count:
+            break;
+    }
+    return "not available on this target";
+}
+
+}  // namespace
+
+CapabilitySet Debugger::capabilities() const {
+    // Local: every bit. Non-local: the target's claim, cut down to what this facade
+    // serves over a target, so a claimed bit the facade cannot serve is never true.
+    return impl_->emu ? CapabilitySet::all() : (impl_->target.capabilities() & kNonLocalServed);
+}
+
+std::string Debugger::why_unavailable(Capability c) const {
+    if (capabilities().has(c)) return std::string();
+    if (static_cast<size_t>(c) >= CAPABILITY_COUNT) return "not a capability";
+    if (!remote_may_serve(c)) return local_only_reason(c);
+    // A capability a remote may serve, missing here: either the target lacks it (its
+    // own reason, e.g. "no program loaded: upload one" for D24's no debuggee) or the
+    // target has it and this jnext does not serve it over a target yet.
+    if (!impl_->target.capabilities().has(c)) {
+        std::string why = impl_->target.why_unavailable(c);
+        return why.empty() ? std::string("not available on this target") : why;
+    }
+    return "not served over a remote target by this jnext";
+}
+
+TargetInfo Debugger::target_info() const { return impl_->target.info(); }
+
+RegisterValidity Debugger::register_validity() const {
+    if (impl_->emu) return RegisterValidity::all();
+    // The target's mask, rebuilt field by field so bits above `Count` are dropped.
+    const RegisterValidity raw = impl_->target.register_validity();
+    RegisterValidity out;
+    for (unsigned f = 0; f < static_cast<unsigned>(RegisterValidity::Field::Count); ++f) {
+        const auto field = static_cast<RegisterValidity::Field>(f);
+        out.set(field, raw.valid(field));
+    }
+    return out;
+}
+
 }  // namespace dbg
 }  // namespace jnext

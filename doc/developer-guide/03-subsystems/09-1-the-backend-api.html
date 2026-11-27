@@ -1414,6 +1414,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-capability-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The capability model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#behind-the-facade" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3941,6 +3952,30 @@ sprites whatever the target sent, treats a pattern-RAM view that is not exactly
 <code>target_info()</code> as they came. A read that comes back short under <code>Ok</code> is reported as
 <code>RefusedUnavailable</code>; a write or register edit the target refused outright returns the target's
 status, with no <code>MUTATE</code> line and no revision bump.</p>
+<h2 id="the-capability-model">The capability model<a class="headerlink" href="#the-capability-model" title="Permanent link">&para;</a></h2>
+<p><code>Debugger::capabilities()</code> says which verbs a facade serves. A local facade has every
+<code>Capability</code> (36 bits, in two groups: what a remote may serve, then what is local-only). A
+non-local facade has the target's set intersected with the eight capabilities the facade serves
+over a target (<code>RegisterWrite</code>, <code>Memory</code>, <code>PhysicalMemory</code>, <code>MmuSlots</code>, <code>NextRegs</code>, <code>Ports</code>,
+<code>SpriteData</code>, <code>SpritePaletteClip</code>); a target that claims more gets no more. Later work widens that
+set when it implements run control, breakpoints and watchpoints over a target.</p>
+<p>Every served machine verb checks its capability first, through one function, and refuses with
+<code>Unsupported</code> without calling the target when it is missing. A direct-value query without its
+capability returns its empty value instead: zeroed registers, default slots, <code>MemSpace::cpu()</code>
+from <code>rom_select()</code>, 0 from <code>nextreg_peek()</code>, a default sprite list, an empty pattern-RAM view.
+<code>peek()</code> and <code>poke()</code> need <code>Memory</code> for the CPU space and <code>PhysicalMemory</code> for pages, ROM images
+and DivMMC RAM.</p>
+<p><code>why_unavailable(c)</code> is empty when the facade has <code>c</code>. For a local-only capability it is the fixed
+text of the compatibility table in the design; for one a remote may serve, it is the target's own
+reason when the target lacks it, and a fixed "not served" text when the target has it and the
+facade does not.</p>
+<p>Which register fields the target really reports is a separate mask, <code>register_validity()</code>: all
+locally; the target's, with unknown bits dropped, otherwise. <code>registers()</code> returns zeros without
+asking the target when the <code>Core</code> field is not valid. A target with no debuggee (a dezogif session
+before its client has set SP, PC and the program's slots) shows this as a capability set without
+<code>Run</code>, <code>InstructionStep</code> and <code>RunToCursor</code> (reason "no program loaded: upload one") and a validity
+mask without <code>Core</code>; it adds no capability bit, and its memory, NextREG, port and slot verbs stay
+served. <code>RunState::cycle</code> and <code>frame</code> are meaningful exactly when <code>MachineTime</code> is.</p>
 <h2 id="behind-the-facade">Behind the facade<a class="headerlink" href="#behind-the-facade" title="Permanent link">&para;</a></h2>
 <p><code>Debugger</code> holds one <code>unique_ptr&lt;Impl&gt;</code> and nothing else, so adding state never
 edits a header five frontends compile against. <code>Impl</code> is defined in the internal

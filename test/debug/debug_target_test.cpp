@@ -22,6 +22,7 @@
 #include "memory/mmu.h"
 #include "platform/emulator_boot.h"
 #include "port/nextreg.h"
+#include "version.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -35,7 +36,9 @@
 
 using jnext::dbg::ClientId;
 using jnext::dbg::Debugger;
+using jnext::dbg::CapabilitySet;
 using jnext::dbg::FakeTarget;
+using jnext::dbg::RegisterValidity;
 using jnext::dbg::MemSpace;
 using jnext::dbg::RegId;
 using jnext::dbg::ResetKind;
@@ -877,6 +880,265 @@ static void tgt01_source_rows() {
     }
 }
 
+// ── TGT-02 / TGT-03 / TGT-04: the capability model ──────────────────────────
+
+static CapabilitySet all_but(std::initializer_list<jnext::dbg::Capability> lack) {
+    CapabilitySet s = CapabilitySet::all();
+    for (auto c : lack) s.set(c, false);
+    return s;
+}
+
+static CapabilitySet served_set() {
+    using jnext::dbg::Capability;
+    CapabilitySet s;
+    for (auto c : {Capability::RegisterWrite, Capability::Memory, Capability::PhysicalMemory,
+                   Capability::MmuSlots, Capability::NextRegs, Capability::Ports,
+                   Capability::SpriteData, Capability::SpritePaletteClip})
+        s.set(c);
+    return s;
+}
+
+// The served verbs, each with the reason it is refused when the one capability
+// it needs is missing; every row below drives the same list.
+struct ServedCalls {
+    Result set_register, poke_cpu, poke_page, set_mmu_slot, nextreg_write, port_in, port_out, set_attr,
+        write_pattern;
+    Result peek_cpu, peek_page, peek_rom, peek_divmmc, attr_raw, palette;
+};
+
+static ServedCalls run_served(Remote& m) {
+    ServedCalls r{};
+    uint8_t b[4] = {};
+    const uint8_t v[5] = {1, 2, 3, 4, 5};
+    r.set_register   = m.d.set_register(m.a, RegId::A, 1);
+    r.poke_cpu       = m.d.poke(m.a, MemSpace::cpu(), 0x9000, 1, v).status;
+    r.poke_page      = m.d.poke(m.a, MemSpace::page(10), 0x10, 1, v).status;
+    r.set_mmu_slot   = m.d.set_mmu_slot(m.a, 6, 0x30);
+    r.nextreg_write  = m.d.nextreg_write(m.a, 0x15, 1);
+    r.port_in        = m.d.port_in(m.a, 0x00FE).status;
+    r.port_out       = m.d.port_out(m.a, 0x00FE, 1);
+    r.set_attr       = m.d.set_sprite_attr_raw(m.a, 3, v, 5);
+    r.write_pattern  = m.d.write_pattern_ram(m.a, 0, v, 2);
+    r.peek_cpu       = m.d.peek(MemSpace::cpu(), 0x9000, 2, b).status;
+    r.peek_page      = m.d.peek(MemSpace::page(10), 0x10, 2, b).status;
+    r.peek_rom       = m.d.peek(MemSpace::rom(1), 0x10, 2, b).status;
+    MemSpace dm;
+    dm.kind = MemSpace::Kind::DivMmcRam;
+    r.peek_divmmc    = m.d.peek(dm, 0x10, 2, b).status;
+    r.attr_raw       = m.d.sprite_attr_raw(3).status;
+    r.palette        = m.d.sprite_palette_rgb333(0, 1).status;
+    return r;
+}
+
+static bool is_ok(Result r) { return r == Result::Ok; }
+static bool is_un(Result r) { return r == Result::Unsupported; }
+
+static void tgt02_rows() {
+    using jnext::dbg::Capability;
+    using jnext::dbg::CAPABILITY_COUNT;
+    {
+        Local m;
+        bool all = m.dbg->capabilities() == CapabilitySet::all() && CAPABILITY_COUNT == 36;
+        for (size_t c = 0; c < CAPABILITY_COUNT; ++c)
+            all = all && m.dbg->why_unavailable(static_cast<Capability>(c)).empty();
+        check("TGT-02-01", "a local facade has all 36 capabilities and why_unavailable() is empty for each", all);
+    }
+    {
+        Remote m;   // the fake claims every capability
+        check("TGT-02-02", "a target claiming every capability gets exactly the eight the facade serves over a target",
+              m.d.capabilities() == served_set() && m.d.capabilities().bits() == served_set().bits());
+    }
+    {
+        Remote m;
+        bool ok = true;
+        for (size_t c = 0; c < CAPABILITY_COUNT; ++c) {
+            const auto cap = static_cast<Capability>(c);
+            const bool has = m.d.capabilities().has(cap);
+            ok = ok && (has == m.d.why_unavailable(cap).empty());
+        }
+        check("TGT-02-03", "non-local: why_unavailable(c) is empty exactly for the capabilities the facade has",
+              ok);
+    }
+    {
+        Remote m;
+        check("TGT-02-04", "non-local why_unavailable(Trace) is the section 11 reason, verbatim",
+              m.d.why_unavailable(Capability::Trace) == "trace: local only");
+    }
+    {
+        Remote m;
+        m.t.caps = CapabilitySet{};
+        const ServedCalls r = run_served(m);
+        check("TGT-02-05", "a target with no capability: every served machine verb is Unsupported and the target is not called",
+              is_un(r.set_register) && is_un(r.poke_cpu) && is_un(r.poke_page) && is_un(r.set_mmu_slot) &&
+                  is_un(r.nextreg_write) && is_un(r.port_in) && is_un(r.port_out) && is_un(r.set_attr) &&
+                  is_un(r.write_pattern) && is_un(r.peek_cpu) && is_un(r.peek_page) && is_un(r.peek_rom) &&
+                  is_un(r.peek_divmmc) && is_un(r.attr_raw) && is_un(r.palette) && m.t.calls.empty(),
+              std::to_string(m.t.calls.size()) + " calls");
+    }
+    {
+        Remote m;
+        m.t.caps = CapabilitySet{};
+        m.t.validity = RegisterValidity{};
+        const auto slots = m.d.mmu_slots();
+        const jnext::dbg::SlotInfo none{};
+        bool slots_empty = true;
+        for (const auto& s : slots) slots_empty = slots_empty && s.nr_page == none.nr_page && s.space == none.space;
+        const Z80Registers z = m.d.registers();
+        check("TGT-02-06", "a target with no capability and no valid register: the direct queries return their empty values "
+                           "and the target is not called",
+              z.PC == 0 && z.AF == 0 && slots_empty && m.d.rom_select() == MemSpace::cpu() &&
+                  m.d.nextreg_peek(0x15) == 0 && m.d.sprites().size() == jnext::dbg::SPRITE_COUNT &&
+                  m.d.pattern_ram().empty() && m.d.sprite_clip().x2 == jnext::dbg::ClipWindow{}.x2 &&
+                  m.d.source_page(0x8000) == MemSpace::cpu() && m.t.calls.empty(),
+              std::to_string(m.t.calls.size()) + " calls");
+    }
+    {
+        Remote m;
+        m.t.caps = all_but({Capability::RegisterWrite});
+        const ServedCalls r = run_served(m);
+        check("TGT-02-07", "lacking only RegisterWrite: set_register is refused, every other served verb is forwarded",
+              is_un(r.set_register) && is_ok(r.poke_cpu) && is_ok(r.poke_page) && is_ok(r.set_mmu_slot) &&
+                  is_ok(r.nextreg_write) && is_ok(r.port_in) && is_ok(r.peek_cpu) && is_ok(r.peek_page) &&
+                  !m.t.called("set_register"));
+    }
+    {
+        Remote m;
+        m.t.caps = all_but({Capability::Memory});
+        const ServedCalls r = run_served(m);
+        check("TGT-02-08", "lacking only Memory: peek and poke of the Cpu space are refused; Page and Rom are forwarded",
+              is_un(r.poke_cpu) && is_un(r.peek_cpu) && is_ok(r.poke_page) && is_ok(r.peek_page) &&
+                  is_ok(r.peek_rom) && is_ok(r.set_register));
+    }
+    {
+        Remote m;
+        m.t.caps = all_but({Capability::PhysicalMemory});
+        const ServedCalls r = run_served(m);
+        m.t.rom = MemSpace::rom(2);
+        check("TGT-02-09", "lacking only PhysicalMemory: Page, Rom and DivMmcRam reads and Page writes are refused, "
+                           "rom_select() is cpu(); the Cpu space is forwarded",
+              is_un(r.poke_page) && is_un(r.peek_page) && is_un(r.peek_rom) && is_un(r.peek_divmmc) &&
+                  m.d.rom_select() == MemSpace::cpu() && is_ok(r.peek_cpu) && is_ok(r.poke_cpu));
+    }
+    {
+        Remote m;
+        m.t.caps = all_but({Capability::MmuSlots});
+        const ServedCalls r = run_served(m);
+        check("TGT-02-10", "lacking only MmuSlots: mmu_slots() is the default, set_mmu_slot is refused and source_page falls back to cpu()",
+              is_un(r.set_mmu_slot) && m.d.mmu_slots()[3].nr_page == jnext::dbg::SlotInfo{}.nr_page &&
+                  m.d.source_page(0x6000) == MemSpace::cpu() && !m.t.called("mmu_slots") &&
+                  !m.t.called("set_mmu_slot") && is_ok(r.nextreg_write));
+    }
+    {
+        Remote m;
+        m.t.nr[0x15] = 9;
+        m.t.caps = all_but({Capability::NextRegs});
+        const ServedCalls r = run_served(m);
+        check("TGT-02-11", "lacking only NextRegs: nextreg_peek() is 0 without a call and nextreg_write is refused",
+              is_un(r.nextreg_write) && m.d.nextreg_peek(0x15) == 0 && !m.t.called("nextreg_read") &&
+                  !m.t.called("nextreg_write") && is_ok(r.port_in));
+    }
+    {
+        Remote m;
+        m.t.caps = all_but({Capability::Ports});
+        const ServedCalls r = run_served(m);
+        check("TGT-02-12", "lacking only Ports: port_in and port_out are refused",
+              is_un(r.port_in) && is_un(r.port_out) && !m.t.called("port_in") && !m.t.called("port_out") &&
+                  is_ok(r.nextreg_write));
+    }
+    {
+        Remote m;
+        m.t.caps = all_but({Capability::SpriteData});
+        const ServedCalls r = run_served(m);
+        check("TGT-02-13", "lacking only SpriteData: the five sprite-data verbs are refused or empty",
+              is_un(r.set_attr) && is_un(r.write_pattern) && is_un(r.attr_raw) && m.d.pattern_ram().empty() &&
+                  m.d.sprites().size() == jnext::dbg::SPRITE_COUNT && !m.t.called("sprites") &&
+                  !m.t.called("pattern_ram") && is_ok(r.palette));
+    }
+    {
+        Remote m;
+        m.t.caps = all_but({Capability::SpritePaletteClip});
+        const ServedCalls r = run_served(m);
+        check("TGT-02-14", "lacking only SpritePaletteClip: sprite_palette_rgb333 is refused and sprite_clip is the default",
+              is_un(r.palette) && m.d.sprite_clip().x2 == jnext::dbg::ClipWindow{}.x2 &&
+                  !m.t.called("sprite_clip") && is_ok(r.attr_raw));
+    }
+    {
+        // D24: a dezogif session with no debuggee. No new capability bit.
+        Remote m;
+        m.t.caps = all_but({Capability::Run, Capability::InstructionStep, Capability::RunToCursor});
+        m.t.why_text = "no program loaded: upload one";
+        m.t.validity.set(RegisterValidity::Field::Core, false);
+        const ServedCalls r = run_served(m);
+        const Z80Registers z = m.d.registers();
+        check("TGT-02-15", "a target with no debuggee: Run, InstructionStep and RunToCursor are unavailable with "
+                           "'no program loaded: upload one', Core is invalid and registers() is zeros without a call, "
+                           "while memory, NextREG, ports and the slots are still served",
+              m.d.why_unavailable(Capability::Run) == "no program loaded: upload one" &&
+                  m.d.why_unavailable(Capability::InstructionStep) == "no program loaded: upload one" &&
+                  m.d.why_unavailable(Capability::RunToCursor) == "no program loaded: upload one" &&
+                  !m.d.register_validity().valid(RegisterValidity::Field::Core) &&
+                  m.d.register_validity().valid(RegisterValidity::Field::IM) && z.PC == 0 && z.AF == 0 &&
+                  CAPABILITY_COUNT == 36 && is_ok(r.peek_cpu) && is_ok(r.set_mmu_slot) && is_ok(r.nextreg_write) &&
+                  is_ok(r.poke_cpu) && is_ok(r.port_in) && m.d.capabilities().has(Capability::MmuSlots));
+    }
+    {
+        // A capability the target has but this facade does not serve yet, and a missing one with no reason.
+        Remote m;
+        m.t.caps = all_but({Capability::Pause});
+        check("TGT-02-16", "Run claimed by the target but not served: 'not served over a remote target by this jnext'; "
+                           "Pause missing with no reason from the target: 'not available on this target'",
+              !m.d.capabilities().has(Capability::Run) &&
+                  m.d.why_unavailable(Capability::Run) == "not served over a remote target by this jnext" &&
+                  m.d.why_unavailable(Capability::Pause) == "not available on this target");
+    }
+    {
+        Local m;
+        const auto ti = m.dbg->target_info();
+        check("TGT-03-01", "a local facade's target_info() is {Local, 'jnext', the version, 'local'}",
+              ti.kind == jnext::dbg::TargetKind::Local && ti.name == "jnext" && ti.version == JNEXT_VERSION_STRING &&
+                  ti.link == "local");
+    }
+    {
+        Remote m;
+        m.t.info_v.name = std::string(1 << 20, 'n') + "\nsecond line";
+        m.t.info_v.version = "v\x01\x02";
+        m.t.info_v.link = "tcp:127.0.0.1:14000";
+        const auto ti = m.d.target_info();
+        check("TGT-03-02", "a remote target reports Remote, and its identity strings come back verbatim "
+                           "(a 1 MB name, an embedded newline, control characters)",
+              ti.kind == jnext::dbg::TargetKind::Remote && ti.name == m.t.info_v.name &&
+                  ti.version == m.t.info_v.version && ti.link == m.t.info_v.link);
+    }
+    {
+        Local m;
+        const auto v = m.dbg->register_validity();
+        bool all = true;
+        for (unsigned f = 0; f < static_cast<unsigned>(RegisterValidity::Field::Count); ++f)
+            all = all && v.valid(static_cast<RegisterValidity::Field>(f));
+        check("TGT-04-01", "a local facade's register_validity() has all 8 fields valid",
+              all && v.bits == RegisterValidity::all().bits);
+    }
+    {
+        Remote m;
+        m.t.validity.bits = 0xFFFFFFFFu;   // a hostile mask with bits above Count
+        check("TGT-04-02", "non-local register_validity() is the target's mask with the bits above Count dropped",
+              m.d.register_validity().bits == RegisterValidity::all().bits);
+        m.t.validity.bits = 0;
+        m.t.validity.set(RegisterValidity::Field::Core).set(RegisterValidity::Field::IM);
+        const auto v = m.d.register_validity();
+        check("TGT-04-04", "non-local register_validity() carries the target's fields one by one (Core and IM only)",
+              v.valid(RegisterValidity::Field::Core) && v.valid(RegisterValidity::Field::IM) &&
+                  !v.valid(RegisterValidity::Field::IFF1) && !v.valid(RegisterValidity::Field::Memptr));
+    }
+    {
+        Remote m;
+        m.t.validity.set(RegisterValidity::Field::Core, false);
+        const Z80Registers z = m.d.registers();
+        check("TGT-04-03", "a target whose validity lacks Core: registers() is Z80Registers{} and the target's registers() is not called",
+              z.PC == 0 && z.AF == 0 && !m.t.called("registers"));
+    }
+}
+
 int main() {
     loc_poke_rows();
     loc_refusal_rows();
@@ -887,6 +1149,7 @@ int main() {
     tgt01_host_rows();
     tgt01_failure_rows();
     tgt01_source_rows();
+    tgt02_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);

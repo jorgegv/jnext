@@ -623,12 +623,18 @@ Debugger::SourceMapStatus Debugger::source_map_status() const {
 uint8_t Debugger::effective_page(uint16_t addr) const {
     // A non-local facade has no fetch prediction: the slot's page (plan section 11,
     // "Overlays in the fetch identity": source lookup uses the slot's page).
-    if (!impl_->emu) return impl_->target.mmu_slots()[addr >> 13].effective_page;
+    if (!impl_->emu) {
+        if (!impl_->serves(Capability::MmuSlots)) return 0;
+        return impl_->target.mmu_slots()[addr >> 13].effective_page;
+    }
     return impl_->emu->mmu().get_effective_page(addr >> 13);
 }
 
 MemSpace Debugger::source_page(uint16_t addr) const {
-    if (!impl_->emu) return impl_->target.mmu_slots()[addr >> 13].space;
+    if (!impl_->emu) {
+        if (!impl_->serves(Capability::MmuSlots)) return MemSpace::cpu();
+        return impl_->target.mmu_slots()[addr >> 13].space;
+    }
     return impl_->emu->predict_fetch(addr);
 }
 

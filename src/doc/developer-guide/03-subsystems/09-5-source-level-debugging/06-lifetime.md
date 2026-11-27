@@ -71,7 +71,7 @@ attachment of that generation:
 - The record comes from the **attachment cache**, `Impl::attach_cache`: one
   `Attachment` per generation, holding the sidecar `SourceMap` and `SymbolTable`
   (shared, immutable), the reason text, and the sidecar identity checks still to
-  make. It keeps the last `ATTACH_CACHE_MAX` = 4 (`ATTACH_CACHE_MAX`, `debugger_impl.h:229`); when
+  make. It keeps the last `ATTACH_CACHE_MAX` = 4 (`ATTACH_CACHE_MAX`, `debugger_impl.h:233`); when
   a fifth is added the oldest record is evicted. `cache_push_current()` erases a
   generation's existing record and appends the new one, so a replaced record becomes
   the newest and is the last to be evicted.
@@ -203,7 +203,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
   `Verified ... the dot command in <space> matches its binary identity`) and keeps the check: it is
   never finished (`checks.push_back` at `debugger_source.cpp:443`), so a later entry that does not match puts the map back
   to pending.
-- **A landing does not judge it.** `recheck()` (`debugger_source.cpp:998`): for a user's map that is a dot map,
+- **A landing does not judge it.** `recheck()` (`debugger_source.cpp:1004`): for a user's map that is a dot map,
   `verify_user()` returns at once, keeping the map live and not stale (`verify_user`, `debugger_source.cpp:1010-1019`); the checks are
   re-derived by `dot_landing(fresh)` (`debugger_source.cpp:242`). A fresh landing (reset, state load, program load, cold
   boot) sends the user's dot checks (`dot_landing()` skips the others) to `dot_reset()`: pending until the next entry. A ring restore reads back what the
@@ -211,7 +211,7 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
 - **The history.** `dot_record()` (`debugger_source.cpp:221`) appends a snapshot `{generation, cycle, entry_ok, units,
   spans, held}` to `DeferredCheck::history` at every judgement and every change of the check, replacing
   the records of the same generation from that cycle on (a re-run replaces what the first run recorded
-  from there), and keeping at most `kDotHistoryMax` = 256 (`kDotHistoryMax`, `debugger_impl.h:192`; the oldest go, and
+  from there), and keeping at most `kDotHistoryMax` = 256 (`kDotHistoryMax`, `debugger_impl.h:196`; the oldest go, and
   a landing older than the oldest reads pending). `dot_landing(false)` picks the last record of the
   landed generation strictly *before* the landed cycle (a verdict at cycle C applies to the instruction
   about to run at C, which a landing at C has not run); none means pending. Records of earlier generations

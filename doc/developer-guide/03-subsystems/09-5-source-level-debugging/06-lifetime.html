@@ -3184,7 +3184,7 @@ attachment of that generation:</p>
 <li>The record comes from the <strong>attachment cache</strong>, <code>Impl::attach_cache</code>: one
   <code>Attachment</code> per generation, holding the sidecar <code>SourceMap</code> and <code>SymbolTable</code>
   (shared, immutable), the reason text, and the sidecar identity checks still to
-  make. It keeps the last <code>ATTACH_CACHE_MAX</code> = 4 (<code>ATTACH_CACHE_MAX</code>, <code>debugger_impl.h:229</code>); when
+  make. It keeps the last <code>ATTACH_CACHE_MAX</code> = 4 (<code>ATTACH_CACHE_MAX</code>, <code>debugger_impl.h:233</code>); when
   a fifth is added the oldest record is evicted. <code>cache_push_current()</code> erases a
   generation's existing record and appends the new one, so a replaced record becomes
   the newest and is the last to be evicted.</li>
@@ -3311,7 +3311,7 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
   <code>Verified ... the dot command in &lt;space&gt; matches its binary identity</code>) and keeps the check: it is
   never finished (<code>checks.push_back</code> at <code>debugger_source.cpp:443</code>), so a later entry that does not match puts the map back
   to pending.</li>
-<li><strong>A landing does not judge it.</strong> <code>recheck()</code> (<code>debugger_source.cpp:998</code>): for a user's map that is a dot map,
+<li><strong>A landing does not judge it.</strong> <code>recheck()</code> (<code>debugger_source.cpp:1004</code>): for a user's map that is a dot map,
   <code>verify_user()</code> returns at once, keeping the map live and not stale (<code>verify_user</code>, <code>debugger_source.cpp:1010-1019</code>); the checks are
   re-derived by <code>dot_landing(fresh)</code> (<code>debugger_source.cpp:242</code>). A fresh landing (reset, state load, program load, cold
   boot) sends the user's dot checks (<code>dot_landing()</code> skips the others) to <code>dot_reset()</code>: pending until the next entry. A ring restore reads back what the
@@ -3319,7 +3319,7 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
 <li><strong>The history.</strong> <code>dot_record()</code> (<code>debugger_source.cpp:221</code>) appends a snapshot <code>{generation, cycle, entry_ok, units,
   spans, held}</code> to <code>DeferredCheck::history</code> at every judgement and every change of the check, replacing
   the records of the same generation from that cycle on (a re-run replaces what the first run recorded
-  from there), and keeping at most <code>kDotHistoryMax</code> = 256 (<code>kDotHistoryMax</code>, <code>debugger_impl.h:192</code>; the oldest go, and
+  from there), and keeping at most <code>kDotHistoryMax</code> = 256 (<code>kDotHistoryMax</code>, <code>debugger_impl.h:196</code>; the oldest go, and
   a landing older than the oldest reads pending). <code>dot_landing(false)</code> picks the last record of the
   landed generation strictly <em>before</em> the landed cycle (a verdict at cycle C applies to the instruction
   about to run at C, which a landing at C has not run); none means pending. Records of earlier generations
