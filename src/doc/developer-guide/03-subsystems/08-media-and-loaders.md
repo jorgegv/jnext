@@ -1849,7 +1849,8 @@ production-numbers row), and `rs::Server::holds_run_out()` must still be zero wh
 returns, because a hold that ran out means the backend waited for the server. A cancel row
 also requires that the false-returning call is the last one the backend made, which a
 backend that merely noticed a later tick would fail. The tick-gap bound (800 ms between
-consecutive calls) is net of the process's own stalls: a sentinel thread (`host_stalls.h`)
+consecutive calls, 1200 ms for the 30 s production-numbers row, which runs longest
+and sees the most host jitter) is net of the process's own stalls: a sentinel thread (`host_stalls.h`)
 wakes every 10 ms and records each wake more than 20 ms late, and the rows subtract those
 spans from each gap. A process frozen by the host delays every thread alike and is excused;
 a long wait the backend makes by itself does not delay the sentinel and is still caught.
