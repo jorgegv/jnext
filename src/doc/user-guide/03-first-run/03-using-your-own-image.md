@@ -101,8 +101,10 @@ the colon separates BASIC statements, so NextZXOS sees only `d`. Change into the
 first, or quote the path.
 
 ROMs and the firmware always come from the first card. `--sdcard-file-add` works on any
-FAT32 image, so `jnext --sdcard card2.img --sdcard-file-add game.nex` puts a file on
-a second-card image.
+FAT32 image, so `jnext --sdcard2 card2.img --sdcard-file-add game.nex` puts a file on
+a second-card image (`--sdcard2` names the card an SD card command acts on, as `--sdcard`
+does for the first; give one of them, not both). The same goes for `--sdcard-file-extract`,
+`--sdcard-writes-flatten`, `--sdcard-export-changes` and `--sdcard-import-changes`.
 
 `--sdcard-file-extract` is the other way round, and reads any card the Next mounts, FAT12, FAT16
 or FAT32, with or without a partition table: `jnext --sdcard FILE --sdcard-file-extract /DIR/NAME`

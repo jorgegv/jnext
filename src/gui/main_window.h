@@ -335,6 +335,10 @@ public:
     QAction* go_back_sd_action()      const { return go_back_sd_action_; }
     QAction* delete_backup_action()   const { return delete_backup_action_; }
     QAction* sd_manager_action()      const { return sd_manager_action_; }   // GH #558
+    /// GH #568: the ZRCP `sd-file-add` of a running jnext, asked for by another process. The copy is
+    /// sdmanager::remote_add(); what the window adds is the busy refusal: an upgrade or a go back runs FatFs on a
+    /// worker thread under processEvents, FatFs is not reentrant, so a copy to EITHER card in that window is refused.
+    jnext::remote::zrcp::SdFileAddReply remote_sd_file_add(const jnext::remote::zrcp::SdFileAddRequest& r);
     /// Test seams of the live card-set flow (sdcard_menu_test): called just before the work (the card is out
     /// of the machine), and standing in for provision_sd_card in an upgrade. Empty in production.
     std::function<void()>                    card_op_before_work_for_test;

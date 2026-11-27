@@ -41,7 +41,9 @@
 #include "core/sdcard_provisioner.h"
 #include "debug/debugger.h"
 #include "gui/main_window.h"
+#include "gui/qt_app.h"
 #include "gui/sdcard_manager_dialog.h"
+#include "remote/zrcp/zrcp_server.h"
 #include "../row_id.h"
 
 namespace fs = std::filesystem;
@@ -393,6 +395,58 @@ int main(int argc, char** argv)
         f.win.card_op_upgrade_work_for_test = [&](std::string&) { put(card, (1 << 16) + 4096); return true; };
         live_run(f.win.upgrade_sd_action(), f, L);
         in_work = nullptr;
+        {
+            // GH #568: the same window answers a copy another jnext asks for through ZRCP. While an upgrade or a go back has the
+            // card out, FatFs is on the worker thread and not reentrant: the answer is the busy refusal (status 5), for the
+            // card it names or any other, and nothing is written; once the operation is over it is not the busy refusal.
+            reset_set();
+            Fixture g(card);
+            Live M;
+            jnext::remote::zrcp::SdFileAddReply during, during_other, after;
+            const std::string host_file = dir + "/remote-add.bin";
+            put(host_file, 16);
+            auto ask = [&](const std::string& image) {
+                jnext::remote::zrcp::SdFileAddRequest q;
+                q.image = image;
+                q.host = host_file;
+                q.card_path = "/REMOTE.BIN";
+                return g.win.remote_sd_file_add(q);
+            };
+            const std::uintmax_t size_before = fs::file_size(card);
+            std::uintmax_t size_in_work = 0;
+            in_work = [&] { during = ask(card); during_other = ask(dir + "/other.img"); size_in_work = fs::file_size(card); };
+            g.win.card_op_upgrade_work_for_test = [&](std::string&) { put(card, (1 << 16) + 4096); return true; };
+            live_run(g.win.upgrade_sd_action(), g, M);
+            in_work = nullptr;
+            after = ask(card);
+            const std::string busy = "a card operation owns the SD card (an upgrade or a go back); run the command again when it has finished";
+            check("SDMENU-R01", "inside an upgrade's work, the window's answer to a copy asked for through ZRCP is the busy refusal (5), for the card it names and for any other, and the card is not touched; after the operation it is not the busy refusal",
+                  during.status == 5 && during.text == busy && during_other.status == 5 && during_other.text == busy &&
+                      after.text.rfind("a card operation owns", 0) != 0 && size_in_work == size_before,
+                  during.text + " | " + after.text);
+        }
+        {
+            // GH #568: the Qt loop owner's ZRCP hook is QtApp::route_sd_file_add. With the window it must reach the window's busy
+            // gate (an upgrade has FatFs on its worker thread); with no window it is the plain logic.
+            reset_set();
+            Fixture g(card);
+            Live M;
+            jnext::remote::zrcp::SdFileAddReply routed, bare;
+            const std::string host_file = dir + "/route-add.bin";
+            put(host_file, 16);
+            jnext::remote::zrcp::SdFileAddRequest q;
+            q.image = card;
+            q.host = host_file;
+            q.card_path = "/ROUTE.BIN";
+            in_work = [&] { routed = QtApp::route_sd_file_add(&g.win, g.emu, q); bare = QtApp::route_sd_file_add(nullptr, g.emu, q); };
+            g.win.card_op_upgrade_work_for_test = [&](std::string&) { put(card, (1 << 16) + 4096); return true; };
+            live_run(g.win.upgrade_sd_action(), g, M);
+            in_work = nullptr;
+            check("SDMENU-R02", "QtApp's ZRCP sd-file-add routing: with the window, inside an upgrade's work, the answer is the window's busy refusal (5); with no window it is not the busy refusal",
+                  routed.status == 5 && routed.text.rfind("a card operation owns the SD card (an upgrade or a go back)", 0) == 0 &&
+                      bare.text.rfind("a card operation owns", 0) != 0,
+                  routed.text + " | " + bare.text);
+        }
         check("SDMENU-17", "File > SD Card File Manager... during a card operation shows one refusing box, opens no window and does not pause the machine",
               L.dialogs == 1 && !window_opened && !paused && !f.backend->state().paused, "boxes=" + std::to_string(L.dialogs));
         // a window with no machine behind it cannot pause one: refused with a box as well

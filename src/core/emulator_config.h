@@ -273,7 +273,7 @@ struct EmulatorConfig {
     std::string              bug_report_path;
     std::vector<std::string> command_line;
 
-    // Magic breakpoint: ED FF (ZEsarUX), FD 00 (CSpect, sjasmplus break) and DD 01 (older CSpect) trigger debugger pause
+    // Magic breakpoint: ED FF (ZEsarUX) and FD 00 (CSpect, sjasmplus break) trigger debugger pause
     bool magic_breakpoint = false;
 
     // GH #219 (--persistent-breakpoints): keep breakpoints and watchpoints

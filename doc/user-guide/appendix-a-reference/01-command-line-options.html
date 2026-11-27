@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.5</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.7</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.5</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.7</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4757,8 +4757,16 @@ the default. <code>V1.0</code>-<code>V1.2</code> files are unaffected either way
 <dt><strong>--sdcard</strong> <em>FILE</em></dt>
 <dd>Mount SD-card image <em>FILE</em> (<code>.img</code>). Optional; see <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs
 an SD-card
-image</a>. A
-ZIP archive is not an image and is refused (exit status 1): unzip it
+image</a>.
+<strong>--sdcard1</strong> is the same option, spelt like <strong>--sdcard2</strong>: each of
+the first card’s options (<strong>--sdcard</strong>, <strong>--sdcard-readonly</strong>,
+<strong>--sdcard-writes</strong>, <strong>--sdcard-writes-reset</strong>,
+<strong>--delayed-sdcard-insert-frames</strong>) also takes the spelling with a
+<code>1</code> (<strong>--sdcard1-readonly</strong>, <strong>--sdcard1-writes</strong>,
+<strong>--sdcard1-writes-reset</strong>, <strong>--delayed-sdcard1-insert-frames</strong>),
+and an option together with its other spelling is refused (exit
+status 1). The <code>1</code> spellings are not listed by <strong>--help</strong>. A ZIP
+archive is not an image and is refused (exit status 1): unzip it
 first. The WebAssembly build extracts the single <code>.img</code> inside one.</dd>
 <dt><strong>--sdcard-sha256</strong> <em>HEX</em></dt>
 <dd>The SHA-256 of the <strong>--sdcard</strong> image, as the caller has already
@@ -4796,21 +4804,23 @@ image</a>.</dd>
 <dd>Open the SD image read-only, so the host file is never modified. The
 emulated machine sees a write-protected card: writes are rejected
 with the SD write-error token rather than silently discarded. Use it
-when a run must not disturb an image other runs share.</dd>
+when a run must not disturb an image other runs share. Also spelt
+<strong>--sdcard1-readonly</strong>.</dd>
 <dt><strong>--sdcard-writes</strong> <em>FILE</em></dt>
-<dd>Keep the writes the emulated machine makes to the SD card in <em>FILE</em>,
-not in the image: the image is opened read-only and never changes,
-and <em>FILE</em>’s sectors are laid over it whenever the card is mounted,
-so the writes survive the next run. <em>FILE</em> belongs to one image,
-identified by its <strong>--sdcard-sha256</strong> digest or else by its size and
-modification time: a <em>FILE</em> made against another image is refused
-(exit status 1), and so is a file that is not a <strong>jnext</strong> SD-writes
-file. It is created at the first write and holds only the sectors
-the machine wrote (516 bytes each) and the one file jnext’s esxDOS
-stand-in keeps for a directly loaded NEX (see <strong>esxDOS calls from a
-directly loaded NEX</strong>), stored when the program closes it and handed
-back to the stand-in at the next start, whatever the program: it
-belongs to the card, not to the NEX that wrote it. Excludes
+<dd>Also spelt <strong>--sdcard1-writes</strong>. Keep the writes the emulated
+machine makes to the SD card in <em>FILE</em>, not in the image: the image
+is opened read-only and never changes, and <em>FILE</em>’s sectors are laid
+over it whenever the card is mounted, so the writes survive the next
+run. <em>FILE</em> belongs to one image, identified by its
+<strong>--sdcard-sha256</strong> digest or else by its size and modification
+time: a <em>FILE</em> made against another image is refused (exit status
+1), and so is a file that is not a <strong>jnext</strong> SD-writes file. It is
+created at the first write and holds only the sectors the machine
+wrote (516 bytes each) and the one file jnext’s esxDOS stand-in
+keeps for a directly loaded NEX (see <strong>esxDOS calls from a directly
+loaded NEX</strong>), stored when the program closes it and handed back to
+the stand-in at the next start, whatever the program: it belongs to
+the card, not to the NEX that wrote it. Excludes
 <strong>--sdcard-readonly</strong>; with <strong>--sdcard-file-add</strong> the copy goes into
 <em>FILE</em> and the image is not written. Do not change the image with
 another program while <em>FILE</em> has writes for it (hdfmonkey, mtools, a
@@ -4829,10 +4839,11 @@ state and does not change it. Files read from the image by the host
 <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an SD-card
 image</a>.</dd>
 <dt><strong>--sdcard-writes-reset</strong></dt>
-<dd>Discard the writes kept in the <strong>--sdcard-writes</strong> <em>FILE</em> before the
-card is mounted, the stand-in’s file included, so the run starts on
-the image as it is. Requires <strong>--sdcard-writes</strong>. A file that is not
-a <strong>jnext</strong> SD-writes file is refused, never removed.</dd>
+<dd>Also spelt <strong>--sdcard1-writes-reset</strong>. Discard the writes kept in
+the <strong>--sdcard-writes</strong> <em>FILE</em> before the card is mounted, the
+stand-in’s file included, so the run starts on the image as it is.
+Requires <strong>--sdcard-writes</strong>. A file that is not a <strong>jnext</strong>
+SD-writes file is refused, never removed.</dd>
 <dt><strong>--no-sdcard</strong></dt>
 <dd>Run a directly loaded NEX with no SD card at all: no NextZXOS, no
 ROMs and no warm start. An emulator convenience, like the esxDOS
@@ -4866,7 +4877,10 @@ partitions (D: for a first card with one). There is no default and
 no download: the slot is empty unless this is given. ROMs are read
 from the first card only. A <em>FILE</em> that is not a readable regular
 file, a ZIP archive, or the same file as <strong>--sdcard</strong>, is refused
-(exit status 1). See <strong>A SECOND SD CARD</strong>.</dd>
+(exit status 1). It also names the card the SD card commands
+(<strong>--sdcard-file-add</strong>, <strong>--sdcard-file-extract</strong>,
+<strong>--sdcard-writes-flatten</strong>, <strong>--sdcard-export-changes</strong>,
+<strong>--sdcard-import-changes</strong>) act on. See <strong>A SECOND SD CARD</strong>.</dd>
 <dt><strong>--sdcard2-readonly</strong></dt>
 <dd>Open the second card’s image read-only, as <strong>--sdcard-readonly</strong>
 does for the first. Requires <strong>--sdcard2</strong>.</dd>
@@ -4885,9 +4899,12 @@ into the SD-card image and <strong>exit without starting emulation</strong>.
 Without <strong>--sdcard-file-dest</strong> it lands in the root of the card
 under its own name. Give it once per run. The image written is the
 one <strong>--sdcard</strong> names, or the default-location image when
-<strong>--sdcard</strong> is omitted (your own card). With <strong>--sdcard-writes</strong>
-the copy goes into that file instead and the image is not written.
-See <strong>PUTTING A FILE ON THE CARD</strong>.</dd>
+<strong>--sdcard</strong> is omitted (your own card); <strong>--sdcard2</strong> <em>FILE</em> names
+the second card instead, never both. With <strong>--sdcard-writes</strong>
+(<strong>--sdcard2-writes</strong> for the second card) the copy goes into that
+file instead and the image is not written. When another jnext holds
+the card, the file is copied through that jnext, which must serve
+ZRCP (<strong>--zrcp-port</strong>). See <strong>PUTTING A FILE ON THE CARD</strong>.</dd>
 <dt><strong>--sdcard-file-dest</strong> <em>PATH</em></dt>
 <dd>Optional. The path on the card that <strong>--sdcard-file-add</strong>’s <em>FILE</em>
 becomes, from the root of the card (<code>/NEXTZXOS/DRV-A.DSK</code>). The
@@ -4908,13 +4925,17 @@ card <strong>--sdcard</strong> names, or the default-location image when
 <strong>--sdcard</strong> is omitted, as a run with the same options would see it
 (with <strong>--sdcard-writes</strong>, through that file). The image is never
 written; the writes file keeps its contents (as for any run given
-it, it may be compacted). See <strong>GETTING YOUR FILES OUT</strong>.</dd>
+it, it may be compacted). With <strong>--sdcard2</strong> it reads the second
+card (and <strong>--sdcard2-writes</strong>), never both cards. See <strong>GETTING
+YOUR FILES OUT</strong>.</dd>
 <dt><strong>--sdcard-writes-flatten</strong> <em>OUT</em></dt>
 <dd>Write <em>OUT</em>, a plain image of the card with the <strong>--sdcard-writes</strong>
 <em>FILE</em> laid over it (the card as the machine sees it), and <strong>exit
 without starting emulation</strong>. Any FAT tool (mtools, a loop mount,
-7-Zip) can open <em>OUT</em>. Requires <strong>--sdcard-writes</strong>. An <em>OUT</em> that
-already exists is refused. See <strong>GETTING YOUR FILES OUT</strong>.</dd>
+7-Zip) can open <em>OUT</em>. Requires <strong>--sdcard-writes</strong>
+(<strong>--sdcard2-writes</strong> for the second card, named with
+<strong>--sdcard2</strong>). An <em>OUT</em> that already exists is refused. See
+<strong>GETTING YOUR FILES OUT</strong>.</dd>
 <dt><strong>--sdcard-go-back</strong></dt>
 <dd>Go back to the previous SD card that an upgrade kept in <code>previous/</code>
 next to the default card, and <strong>exit without starting emulation</strong>.
@@ -4938,8 +4959,9 @@ empty. What it compares the card against, in this order: the card as
 jnext made it (the default card, when its original image is still on
 disk and matches), the image named by <strong>--sdcard-export-base</strong>, the
 card itself when there is a <strong>--sdcard-writes</strong> file (so only that
-file’s changes are exported); with none of these it refuses. See
-<strong>GETTING YOUR FILES OUT</strong>.</dd>
+file’s changes are exported); with none of these it refuses. It acts
+on one card: <strong>--sdcard2</strong> names the second one. See <strong>GETTING YOUR
+FILES OUT</strong>.</dd>
 <dt><strong>--sdcard-export-base</strong> <em>FILE</em></dt>
 <dd>With <strong>--sdcard-export-changes</strong>: the image the card was made from,
 to compare against. A raw distribution image is accepted as it is.</dd>
@@ -4949,8 +4971,9 @@ the card (or, with <strong>--sdcard-writes</strong>, into that file) and <strong
 without starting emulation</strong>. <em>DIR</em> must hold the <code>CHANGES.txt</code> the
 export wrote. A file already on the card is replaced, a read-only
 one too; nothing is ever deleted; the attributes (read-only, hidden,
-system) are restored. All or nothing, as <strong>--sdcard-file-add</strong>. See
-<strong>GETTING YOUR FILES OUT</strong>.</dd>
+system) are restored. All or nothing, as <strong>--sdcard-file-add</strong>. It
+acts on one card: <strong>--sdcard2</strong> names the second one. See <strong>GETTING
+YOUR FILES OUT</strong>.</dd>
 <dt><strong>--warm-start-regenerate</strong></dt>
 <dd>
 <p>Discard the cached warm-start recording and take a fresh one on the
@@ -5772,9 +5795,9 @@ spelling of <strong>--delayed-nmi</strong>, not an override of it: both forms
 queue into the same list, so giving both schedules two presses.
 Requires <strong>--headless</strong>.</dd>
 <dt><strong>--delayed-sdcard-insert-frames</strong> <em>N</em> <em>FILE</em></dt>
-<dd>Insert SD-card image <em>FILE</em> after <em>N</em> emulated frames, exactly as
-<strong>File &gt; Insert SD Card Image</strong> does (see <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an
-SD-card
+<dd>Also spelt <strong>--delayed-sdcard1-insert-frames</strong>. Insert SD-card image
+<em>FILE</em> after <em>N</em> emulated frames, exactly as <strong>File &gt; Insert SD
+Card Image</strong> does (see <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs an SD-card
 image</a>). The
 card keeps <strong>--sdcard-readonly</strong>. The run exits non-zero if the
 insert is refused - while an RZX recording is made or played, while
@@ -5834,7 +5857,7 @@ holds is left as it is. Requires <strong>--delayed-pok-frames</strong>.</dd>
 <h2 id="debugging">Debugging<a class="headerlink" href="#debugging" title="Permanent link">&para;</a></h2>
 <dl>
 <dt><strong>--magic-breakpoint</strong></dt>
-<dd>Enable the magic-breakpoint opcodes (<code>ED FF</code>, <code>FD 00</code> and <code>DD 01</code>).</dd>
+<dd>Enable the magic-breakpoint opcodes (<code>ED FF</code> and <code>FD 00</code>).</dd>
 <dt><strong>--persistent-breakpoints</strong></dt>
 <dd>Keep breakpoints and watchpoints armed while the debugger window is
 <strong>closed</strong>. Without this option — the default — closing the window
@@ -5928,7 +5951,10 @@ binds a free port the system chooses, and the log says which
 (<code>zrcp: listening on 127.0.0.1:40123</code>). One client at a time: a
 second connection is told so and closed. A port that cannot be bound
 is a startup error. Works in every frontend, <strong>--headless</strong>
-included, and alongside <strong>--dzrp-port</strong> and <strong>--gdb-port</strong>.</dd>
+included, and alongside <strong>--dzrp-port</strong> and <strong>--gdb-port</strong>. A second
+jnext’s <strong>--sdcard-file-add</strong> on a card this jnext has open is
+copied through this server (see <strong>PUTTING A FILE ON THE CARD</strong>), so
+the machine that has the card is the one that writes to it.</dd>
 <dt><strong>--debug-channel</strong> <em>PROTOCOL</em></dt>
 <dd>Browser page only: serve the debugger protocol <em>PROTOCOL</em> (<code>dzrp</code>,
 <code>zrcp</code> or <code>gdb</code>) to the page’s debug channel, the <code>debug</code> option of
