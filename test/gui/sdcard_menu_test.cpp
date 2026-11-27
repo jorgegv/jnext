@@ -697,6 +697,28 @@ int main(int argc, char** argv)
             check("SDMENU-26", "a backup removed and then recreated behind jnext's back shows at the next File open (entries and size label), with 0 hashes",
                   gone && back && carry::pristine_hash_count() == h0, del ? del->text().toStdString() : "missing");
         }
+        {   // SDMENU-27 (GH #571)
+            // Oracle: the claim of the close note, no menu of the menu bar checksums the 1 GB original when it opens.
+            fixture574();   // a sidecar and no verification record: a hash WOULD run
+            Fixture f(card);
+            const uint64_t h0 = carry::pristine_hash_count();
+            int opened = 0;
+            for (QAction* a : f.win.menuBar()->actions()) {
+                QMenu* m = a->menu();
+                if (!m) continue;
+                int shown = 0;
+                const QMetaObject::Connection c = QObject::connect(m, &QMenu::aboutToShow, [&] { ++shown; });
+                m->popup(QPoint(0, 0));
+                QCoreApplication::processEvents();
+                m->hide();
+                if (!shown) Q_EMIT m->aboutToShow();
+                QObject::disconnect(c);
+                ++opened;
+            }
+            const uint64_t hashes = carry::pristine_hash_count() - h0;
+            check("SDMENU-27", "opening every top-level menu of the menu bar (at least 8) hashes the original 0 times, with a fixture in which a hash would run",
+                  opened >= 8 && hashes == 0, std::to_string(opened) + " menus, " + std::to_string(hashes) + " hashes");
+        }
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
