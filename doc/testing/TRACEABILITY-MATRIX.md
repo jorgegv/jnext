@@ -50,7 +50,7 @@ mentions them, so a test can no longer be absent from this document.
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | Debugger Graphics decoders                 |    19 |   19 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
-| CPU/Z80N/IM2 regressions                   |    65 |   65 |    0 |    0 |       0 |          0 |
+| CPU/Z80N/IM2 regressions                   |    66 |   66 |    0 |    0 |       0 |          0 |
 | ESP-01 socket transport                    |   248 |  248 |    0 |    0 |       0 |          0 |
 | Companion: esp_sigpipe_test                |     2 |    2 |    0 |    0 |       0 |          0 |
 | ESP-01 AT engine                           |   499 |  499 |    0 |    0 |       0 |          0 |
@@ -71,9 +71,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_native_test    |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: uart_posix_test                 |    51 |   51 |    0 |    0 |       0 |          0 |
 | Companion: nextpi_test                     |   103 |  103 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  6705 | 6705 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  6706 | 6706 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6705**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6176**. Rows the 261 suites declared in `test/unit-tests.conf` run live: **18714**.
+Rows the sections above carry: **6706**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6177**. Rows the 262 suites declared in `test/unit-tests.conf` run live: **18742**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,13 +85,14 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 208 suites (12622 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 209 suites (12649 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
 | `fuse_z80_test` | 1356 | data-driven FUSE runner, no per-row IDs |
 | `z80n_test` | 85 | data-driven FUSE-style runner, opcode names not row IDs |
 | `disasm_hint_test` | 51 | debugger PC-line hint decoder (Z80 semantics, FUSE oracle; no VHDL oracle) |
+| `step_successors_test` | 21 | debugger step-successor function (Z80Cpu sweeps as oracle; VHDL only for the stackless RETN/RETI rows) |
 | `mem_tools_test` | 15 | debugger Memory panel find/fill/block-split helper (host UI policy; no VHDL oracle) |
 | `cpu_runtime_binding_test` | 18 | two machines in one process each run as they do alone (GH #551, jnext-internal: the oracle is the same fixture run alone); no FPGA counterpart |
 | `rewind_call_stack_test` | 22 | debugger call-stack tracker restored by rewind, emptied by a state load or reset (jnext-internal); the T80N core has no debugger |
@@ -225,7 +226,7 @@ These 208 suites (12622 live rows) have no VHDL-derived plan row to map, so they
 | `c_value_test` | 125 | C value formatting, type lookup, paths, visible locals (pure; jnext-internal); the T80N core has no debugger |
 | `source_debug_test` | 537 | debugger source-level stepping and source map store (CAP-SRC, jnext-internal); the T80N core has no debugger |
 | `source_debug_posix_test` | 11 | source-map sidecars that are POSIX file types (jnext-internal); the T80N core has no debugger |
-| `debugger_backend_test` | 1605 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
+| `debugger_backend_test` | 1607 | debugger backend facade (GH #276, jnext-internal); the T80N core has no debugger |
 | `debug_target_test` | 74 | debugger target seam (epic #486, jnext-internal); the T80N core has no debugger |
 | `startup_stop_test` | 48 | the --debugger / --break-at startup stop (host side): its stop points are the file formats' own entry PCs and the Breakpoints panel's address rules |
 | `startup_report_test` | 13 | start-up error box policy (GH #555): stderr bytes kept, when a box shows, its text; the design in the issue as oracle (host UI policy, no core counterpart) |
@@ -235,8 +236,8 @@ These 208 suites (12622 live rows) have no VHDL-derived plan row to map, so they
 | `resume_step_off_test` | 19 | debugger resume/step-off execution control (GH #221, jnext-internal); the T80N core has no debugger |
 | `remote_transport_test` | 85 | debugger socket transport (GH #287, jnext-internal host sockets); the T80N core has no debugger |
 | `remote_pipe_test` | 16 | browser page debug channel (GH #545, jnext-internal host byte channel); the T80N core has no debugger |
-| `dzrp_adapter_test` | 168 | DZRP remote-debugger adapter (GH #12; DeZog protocol spec, jnext-internal); the T80N core has no debugger |
-| `dzrp_client_test` | 70 | DZRP remote-debugger client (epic #486; DeZog protocol spec, cross-checked against jnext's own DzrpServer; jnext-internal); the T80N core has no debugger |
+| `dzrp_adapter_test` | 169 | DZRP remote-debugger adapter (GH #12; DeZog protocol spec, jnext-internal); the T80N core has no debugger |
+| `dzrp_client_test` | 73 | DZRP remote-debugger client (epic #486; DeZog protocol spec, cross-checked against jnext's own DzrpServer; jnext-internal); the T80N core has no debugger |
 | `gdb_rsp_test` | 126 | GDB RSP remote-debugger adapter (GH #281; GDB remote protocol + z88dk-gdb, jnext-internal); the T80N core has no debugger |
 | `script_parse_test` | 292 | debugger scripting language front end (GH #26, jnext-internal); the T80N core has no debugger |
 | `script_eval_test` | 79 | debugger scripting language evaluator (GH #26, jnext-internal); the T80N core has no debugger |
@@ -5430,7 +5431,8 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | PERF-SLNMI-02-ENABLE-CB-POLLED-WHILE-LATCH-SET | stackless-NMI enable callback is polled once per instruction while the RETN latch is set (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3461 |
 | PERF-SLNMI-03-CLEARING-ENABLE-MIDHANDLER-ABANDONS-LATCH | clearing NR 0xC0 bit 3 during the handler abandons the RETN latch and the RETN pops the real stack (zxnext.vhd:2074-2075) | zxnext.vhd:2074-2075 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3513 |
 | PERF-SLNMI-04-STATE-LOAD-CLEARING-LATCH-DISARMS-FUSE | a state load that clears the RETN latch also disarms the FUSE-side latch, so the next RETN is an ordinary stack return (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3562 |
-| V22-IM2-01-ON-RETI-CLEARS-IM2-INT-REQ-LATCH-VHDL-175 | v22 im2 01 on reti clears im2 int req latch | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3634 |
+| SLNMI-RETI-01 | RETI pops the real stack word and leaves the stackless latch set; only RETN takes C3:C2 (t80n_mcode.vhd:2419-2451, zxnext.vhd:2052,2072-2081) | t80n_mcode.vhd:2419-2451, zxnext.vhd:2052,2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3608 |
+| V22-IM2-01-ON-RETI-CLEARS-IM2-INT-REQ-LATCH-VHDL-175 | v22 im2 01 on reti clears im2 int req latch | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3679 |
 
 ## ESP-01 socket transport — `src/esp01/test/esp_socket_test.cpp`
 

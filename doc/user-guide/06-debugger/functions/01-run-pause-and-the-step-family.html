@@ -4595,7 +4595,9 @@ resumes, so a subroutine runs at full speed and you land on the following
 instruction. It only does this for instructions that can come back —
 <code>CALL nn</code>, <code>CALL cc,nn</code>, <code>RST n</code> and <code>DJNZ</code>. For anything else it is identical
 to Single Step. Note the consequence for <code>DJNZ</code>: stepping over it runs the
-whole loop.</p>
+whole loop. <code>RST $08</code> is the esxDOS call (<code>RST $08 : DEFB function</code>): the call
+returns past its function byte, so Step Over lands on the instruction after
+the <code>DEFB</code>.</p>
 <p><strong>Step Out</strong> resumes until a return instruction — <code>RET</code>, a taken <code>RET cc</code>,
 <code>RETI</code> or <code>RETN</code> — pops the stack back <em>past</em> its level when you pressed it;
 that is, until the current subroutine returns rather than a nested one. A

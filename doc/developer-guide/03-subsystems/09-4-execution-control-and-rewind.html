@@ -3297,6 +3297,12 @@ slot body without asking for a batch, so a Step over a <code>HALT</code> is one 
 </tr>
 </tbody>
 </table>
+<p>The <code>OVER</code> targets come from <code>step_successors()</code> (<code>src/debug/step_successors.h</code>), a pure function over
+the registers and two byte readers that gives the addresses the PC can hold after one instruction: one for
+a <code>CALL</code>, <code>RST</code> or <code>DJNZ</code> (the next instruction), two for <code>RST $08</code> (the byte after it and the byte after
+its esxDOS function byte, where the call returns). It follows the CPU's own instruction boundaries (a
+DD/FD prefix chain and its opcode are one instruction, however long) and is checked against <code>Z80Cpu</code> over
+every opcode by <code>step_successors_test</code>.</p>
 <p>Run to Here is the same transient <code>Execute</code> subscription at a chosen address,
 through <code>run_to_subscribed()</code>. Run to End of Frame and Run to End of Scanline
 are <code>run_to_cycle()</code> with a computed target.</p>
@@ -3324,6 +3330,7 @@ per-instruction body, ends the step when three things hold:</p>
   undocumented <code>ED</code> aliases);</li>
 <li>the pop unwound the stack strictly past the armed SP.</li>
 </ul>
+<p>The three conditions are one free function, <code>step_out_returned()</code> in <code>debug_state.h</code>, which <code>check_step_out()</code> calls.</p>
 <p>The last condition is what makes a nested call's own <code>RET</code>, or an interrupt
 handler's <code>RETI</code>, return into the routine being stepped out of rather than end
 the step. It is called from <code>step_one_instruction()</code>, not from <code>run_frame()</code>'s
