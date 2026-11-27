@@ -3446,10 +3446,11 @@ it). A refusal writes no bytes and logs an error: it is a client bug. The client
 has no way round the gate; the test probe borrows the link with <code>detach_link()</code>.</p>
 <p><strong>The wait hook.</strong> <code>submit()</code>, <code>poll()</code> and <code>step()</code> never block. <code>request()</code> and
 <code>request_all()</code> wait in a loop that polls the link and calls the <em>wait hook</em> each
-turn. A client whose remote is served by the same thread (a JNEXT dialling a
-JNEXT of its own process) installs a hook that pumps that server, as
-<code>Debugger::pump()</code> does. A <code>request</code> made from inside the hook is refused
-(<code>Reentrant</code>).</p>
+turn. The hook is the local debugger's <code>Debugger::pump()</code>: it keeps this JNEXT's
+own servers (a DeZog attached to it, say) served while the client waits, and it lets
+the in-process loopback tests, which give the client a distinct session token, talk
+to a server hosted by the same process. A <code>request</code> made from inside the hook is
+refused (<code>Reentrant</code>).</p>
 <p><strong>A session with oneself.</strong> The server refuses a <code>CMD_INIT</code> whose program name
 ends with this process's session token (<code>process_session_token()</code>): the client
 and the server would run on one thread. The refusal is error 1 with the token
