@@ -4995,7 +4995,9 @@ backend calls <code>SdcardGuiProvisioner::progress</code>, which pumps the event
 cadence is the backends' business, not a worker thread's. The rule exists once.
 <code>StallWatch</code> answers "how long since the byte count last changed", <code>download_step</code>
 is the per-tick decision both backends take (report, honour a cancel, test the
-watch), <code>DownloadTimings</code> carries the two numbers and the WinHTTP read size (tests
+watch; it only records a stop with <code>PartialDownload::stop</code>, and the backend, once its
+transfer is closed, settles the partial with <code>settle_stop</code>: the network is let go of
+before any file work), <code>DownloadTimings</code> carries the two numbers and the WinHTTP read size (tests
 pass short ones to <code>http_download</code>; <code>default_http_download</code> forwards the production
 values), and the dialog uses the same watch for its notice: once 5 s
 (<code>kStallNoticeMs</code>) pass with no byte its label gains <code>Stalled: no data received for N s</code>, the seconds counting up
@@ -5092,8 +5094,11 @@ last <code>ProgressFn</code> call it makes: a stall is decided in the step that 
 tests the clock, a cancel in the step whose call returned false. What follows (settling the
 partial on disk, closing handles, tearing the transport down) is host work that no contract
 bounds, and on a host whose file close can block for seconds under I/O load it took up to
-a minute. That nothing waited on the network afterwards is checked at the loopback server:
-its hold of the silent connection is far longer than any row (60 s, 120 s for the
+a minute. That nothing waited on the network afterwards is checked at the loopback server, in
+two ways. The backends close the transfer before settling the partial, so the server
+sees the client's close within a second of the decision (<code>rs::Server::wait_client_close()</code>,
+net of the process's own stalls; under wine an abandoned request keeps its socket until the
+server closes it, so there that half is not observable). And its hold of the silent connection is far longer than any row (60 s, 120 s for the
 production-numbers row), and <code>rs::Server::holds_run_out()</code> must still be zero when the call
 returns, because a hold that ran out means the backend waited for the server. A cancel row
 also requires that the false-returning call is the last one the backend made, which a
@@ -5103,7 +5108,7 @@ wakes every 10 ms and records each wake more than 20 ms late, and the rows subtr
 spans from each gap. A process frozen by the host delays every thread alike and is excused;
 a long wait the backend makes by itself does not delay the sentinel and is still caught.
 <code>PROV-STALL-12</code> pins the sentinel's arithmetic and <code>PROV-STALL-13</code> the server's hold
-counter and <code>release()</code>.</p>
+counter and <code>release()</code>, <code>PROV-STALL-14</code> the server's observation of the client's close and <code>PROV-STALL-15</code> that <code>download_step</code> decides without settling.</p>
 <p>What a failed fetch says is the callers' business, once. Every failure of
 a fetch is built by <code>sdcard::fetch_failure(what, url, reason, next)</code>: <code>&lt;what&gt;:
 &lt;reason&gt;</code>, then <code>URL: &lt;url&gt;</code> (exactly the string handed to the <code>DownloadFn</code>, one
