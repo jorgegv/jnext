@@ -73,7 +73,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |   103 |  103 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6705 | 6705 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6705**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6176**. Rows the 259 suites declared in `test/unit-tests.conf` run live: **18554**.
+Rows the sections above carry: **6705**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6176**. Rows the 259 suites declared in `test/unit-tests.conf` run live: **18559**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 206 suites (12462 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 206 suites (12467 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -175,8 +175,8 @@ These 206 suites (12462 live rows) have no VHDL-derived plan row to map, so they
 | `config_keys_test` | 31 | the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle) |
 | `video_recorder_cmd_test` | 46 | FFmpeg command-line construction (host encoder) |
 | `video_recorder_cmd_native_test` | 9 | FFmpeg recording through a stand-in child process (host encoder, split out of video_recorder_cmd_test, GH #460) |
-| `nex_loader_test` | 167 | NEX file-format spec (host loader), no core counterpart |
-| `nex_v13_test` | 117 | NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart |
+| `nex_loader_test` | 171 | NEX file-format spec (host loader), no core counterpart |
+| `nex_v13_test` | 118 | NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart |
 | `extended_nex_test` | 62 | narrative section, ID ranges not per-row IDs |
 | `tap_loader_test` | 67 | TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart |
 | `tap_loader_autoplay_test` | 16 | TAP automatic play/stop (host deck feature), the design in GH #395 as oracle, no core counterpart |
