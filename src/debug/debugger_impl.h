@@ -405,7 +405,7 @@ struct Debugger::Impl {
     bool        event_stop_latched = false;
     /// `DebugState::resume_generation()` at the moment the latch was written (a
     /// non-local facade: `remote_resume_gen`). `state()` ignores a latch whose
-    /// generation has moved — see there.
+    /// generation has moved, see there.
     uint64_t    event_stop_gen = 0;
 
     // ── Non-local facade only (TGT-05, epic #486 R2.2/R2.3) ─────────────────
