@@ -28,6 +28,7 @@
 #include "debug/debug_state.h"
 #include "debug/debugger.h"
 #include "debug/event_table.h"
+#include "debug/local_target.h"
 #include "debug/mem_coverage.h"
 #include "debug/psg_recorder.h"
 #include "debug/resume_guard.h"
@@ -39,12 +40,33 @@ namespace jnext {
 namespace dbg {
 
 struct Debugger::Impl {
-    Impl(Emulator& e, Debugger& owner) : emu(e), self(&owner) {
+    /// A LOCAL facade (`Debugger(Emulator&)`): builds and owns the `LocalTarget`.
+    Impl(Emulator& e, Debugger& owner)
+        : local(std::make_unique<LocalTarget>(e)), target(*local), emu(&e), self(&owner) {
         generation_counter = trace_gen_initial = e.debug_state().load_generation();
         attach_gen = user_sources_gen = generation_counter;
     }
+    /// A NON-LOCAL facade (`Debugger(Target&)`, TGT-01): no `Emulator`, so `emu`
+    /// is null and every path that reaches the local machine is guarded.
+    Impl(Target& t, Debugger& owner) : target(t), emu(nullptr), self(&owner) {}
 
-    Emulator& emu;
+    /// Held only by a local facade; declared before `target`, which binds to it.
+    std::unique_ptr<LocalTarget> local;
+    /// The machine half of the facade (epic #486, R1.1): every machine primitive a
+    /// remote can answer goes through it. The local stop machinery (pause state,
+    /// step modes, event delivery hooks, rewind, trace, coverage, captures, the
+    /// loop driver) stays here on `emu` and is local-only.
+    Target& target;
+    /// The in-process machine, or null for a non-local facade. Never cache a
+    /// sub-object of it: a CTL-12 hard reset rebuilds it in place (the pointer
+    /// itself stays valid, see `debugger_reconstruct.cpp`).
+    Emulator* const emu;
+    bool is_local() const { return emu != nullptr; }
+    /// An RZX recording or playback is in progress (local machine only: a remote
+    /// has no RZX).
+    bool rzx_active() const {
+        return emu && (emu->rzx_recorder().is_recording() || emu->rzx_player().is_playing());
+    }
 
     /// The facade that owns this `Impl`. A `Condition` takes a
     /// `const Debugger&` and a `Handler` a `Debugger&` (§4.2a makes mutation
@@ -290,8 +312,9 @@ struct Debugger::Impl {
 
     // ── Convenience ─────────────────────────────────────────────────────────
 
-    DebugState&       ds()       { return emu.debug_state(); }
-    const DebugState& ds() const { return emu.debug_state(); }
+    /// Local facade only (callers are guarded).
+    DebugState&       ds()       { return emu->debug_state(); }
+    const DebugState& ds() const { return emu->debug_state(); }
 
     /// Arm the reason the next stop will report. Called by every control verb,
     /// including `run()` (which arms `None`: a stop after a free run is
@@ -393,7 +416,8 @@ struct Debugger::Impl {
     /// `AudioWrite` subscription exists; GH #538 adds a running .psg recording.
     /// Computed here, never per write.
     void publish_audio_tap() {
-        emu.set_audio_tap(&audio_sink, audio_log_derived || events.has_kind(EventKind::AudioWrite) ||
+        if (!emu) return;
+        emu->set_audio_tap(&audio_sink, audio_log_derived || events.has_kind(EventKind::AudioWrite) ||
                                            psg != nullptr);
     }
     /// Latch one decoded audio write for the live `AudioWrite` subscriptions.
@@ -517,6 +541,12 @@ struct Debugger::Impl {
     /// one function: a change that forgets it leaves the machine armed for a
     /// client that has gone, or unarmed for one that has arrived.
     void clients_changed();
+    /// A non-local facade keeps the two bits `clients_changed()` derives here, because
+    /// there is no `DebugState` to publish them into.
+    bool remote_attached    = false;
+    bool remote_live_raster = false;
+    /// Is the machine paused? The local `DebugState`'s flag, or the target's.
+    bool paused_now() const { return emu ? ds().paused() : target.run_state().paused; }
 
     /// THE ONE WRITER of the call-stack tracker's state (GH #434 F-B, OD-2). A function of the
     /// client list and the live source map, like `clients_changed()`: on while some live client

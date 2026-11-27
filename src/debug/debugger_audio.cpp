@@ -104,6 +104,7 @@ void Debugger::Impl::AudioLogSink::audio_rewind_landing(const AudioLogEntry& m)
 
 void Debugger::Impl::sync_audio_log(bool force)
 {
+    if (!emu) return;
     bool asked = false;
     for (const auto& c : clients) {
         if (c.detached) continue;
@@ -123,7 +124,7 @@ void Debugger::Impl::sync_audio_log(bool force)
     // recorder needs the marker as much as the log does).
     if (force && (asked || psg)) {
         AudioLogEntry m;
-        m.cycle = emu.clock().get();
+        m.cycle = emu->clock().get();
         m.marker = AudioMarker::Reset;
         audio_sink.audio_record(m);
     }
@@ -136,6 +137,7 @@ void Debugger::Impl::sync_audio_log(bool force)
 // GH #538 -- INS-24, the .psg recording.
 Result Debugger::psg_record_start(ClientId by, const std::string& path)
 {
+    if (!impl_->emu) return Result::Unsupported;
     (void)by;   // attribution only
     Impl& im = *impl_;
     if (im.psg) return Result::RefusedUnavailable;
@@ -150,6 +152,7 @@ Result Debugger::psg_record_start(ClientId by, const std::string& path)
 
 Result Debugger::psg_record_stop(ClientId by)
 {
+    if (!impl_->emu) return Result::Unsupported;
     (void)by;
     Impl& im = *impl_;
     if (!im.psg) return Result::RefusedUnavailable;
@@ -165,6 +168,7 @@ bool Debugger::psg_recording() const { return impl_->psg != nullptr; }
 
 Result Debugger::set_audio_log_enabled(ClientId by, bool enabled)
 {
+    if (!impl_->emu) return Result::Unsupported;
     Impl::Client* c = impl_->find_client(by);
     if (!c) return Result::RefusedUnavailable;
     c->audio_log = enabled;
@@ -177,6 +181,7 @@ bool Debugger::audio_log_enabled() const { return impl_->audio_log_derived; }
 
 Result Debugger::audio_log_clear(ClientId by)
 {
+    if (!impl_->emu) return Result::Unsupported;
     if (!impl_->find_client(by)) return Result::RefusedUnavailable;
     const size_t n = impl_->audio_count;
     impl_->audio_head = impl_->audio_count = 0;
@@ -186,6 +191,7 @@ Result Debugger::audio_log_clear(ClientId by)
 
 Result Debugger::audio_log_resize(size_t entries)
 {
+    if (!impl_->emu) return Result::Unsupported;
     if (entries < 1 || entries > AUDIO_LOG_MAX_ENTRIES) return Result::RefusedUnavailable;
     Impl& im = *impl_;
     if (im.audio_log_derived) {
@@ -203,6 +209,7 @@ Result Debugger::audio_log_resize(size_t entries)
 
 Expected<std::vector<AudioLogEntry>> Debugger::audio_log_entries(uint64_t since_seq) const
 {
+    if (!impl_->emu) return make_refused<std::vector<AudioLogEntry>>(Result::Unsupported);
     const Impl& im = *impl_;
     if (!im.audio_log_derived) return make_refused<std::vector<AudioLogEntry>>(Result::RefusedUnavailable);
     std::vector<AudioLogEntry> out;
@@ -215,6 +222,7 @@ Expected<std::vector<AudioLogEntry>> Debugger::audio_log_entries(uint64_t since_
 
 Result Debugger::audio_log_export(const std::string& path) const
 {
+    if (!impl_->emu) return Result::Unsupported;
     const Impl& im = *impl_;
     if (!im.audio_log_derived) return Result::RefusedUnavailable;
     std::FILE* f = std::fopen(path.c_str(), "wb");

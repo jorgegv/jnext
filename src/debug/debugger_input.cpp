@@ -47,6 +47,7 @@ namespace dbg {
 // IN-02 — a LEVEL at a matrix position, for replay of recorded state. The DSL's
 // bare `press` / `release`; only `press … for n` is IN-01.
 Result Debugger::set_key(ClientId by, int row, int col, bool pressed) {
+    if (!impl_->emu) return Result::Unsupported;
     // Refused, not clamped: a clamped injection presses the WRONG key, and a
     // caller that got the position wrong must find out rather than see an
     // emulation bug. `Keyboard::set_matrix_bit` guards too — this is the layer
@@ -54,7 +55,7 @@ Result Debugger::set_key(ClientId by, int row, int col, bool pressed) {
     if (row < 0 || row > 7 || col < 0 || col > 4) return Result::RefusedUnavailable;
 
     // GH #276 B4 — queued for the next frame edge (REQ-dsl-20, above).
-    impl_->emu.keyboard().queue_matrix_level(row, col, pressed);
+    impl_->emu->keyboard().queue_matrix_level(row, col, pressed);
     impl_->log_mutate_range(by, "key matrix",
                             "[" + std::to_string(row) + "," + std::to_string(col) +
                                 (pressed ? "] pressed" : "] released") +
@@ -66,13 +67,14 @@ Result Debugger::set_key(ClientId by, int row, int col, bool pressed) {
 // IN-02 — one of the 16 extended keys. `id` is the `Keyboard::ExtKey` numbering,
 // which is aligned 1:1 with the NR 0xB0 / 0xB1 readback bits.
 Result Debugger::set_extended_key(ClientId by, int id, bool pressed) {
+    if (!impl_->emu) return Result::Unsupported;
     // Out-of-range ids are REFUSED, not ignored (the published header says so).
     // `Keyboard::set_extended_key` ignores them, which is right for a host key
     // handler and wrong for a verb whose caller wants an answer.
     if (id < 0 || id > 15) return Result::RefusedUnavailable;
 
     // GH #276 B4 — queued for the next frame edge (REQ-dsl-20, above).
-    impl_->emu.keyboard().queue_extended_level(id, pressed);
+    impl_->emu->keyboard().queue_extended_level(id, pressed);
     impl_->log_mutate_range(by, "extended key " + std::to_string(id),
                             std::string(pressed ? "pressed" : "released") +
                                 " at the next frame edge");
@@ -83,6 +85,7 @@ Result Debugger::set_extended_key(ClientId by, int id, bool pressed) {
 // IN-01 — a PULSE by matrix position: down for `hold_frames` frames, then up,
 // with the 4-frame released gap after it. APPENDED behind whatever is queued.
 Expected<size_t> Debugger::press_key(ClientId by, const MatrixKey& key, int hold_frames) {
+    if (!impl_->emu) return make_refused<size_t>(Result::Unsupported);
     // Refused, not clamped, like IN-02: a clamped position presses the wrong
     // key. The second key is all-or-nothing — both of row2/col2 set, or both
     // absent (-1) — since `Keyboard::AutoKey` presses it iff row2 >= 0 and a
@@ -98,7 +101,7 @@ Expected<size_t> Debugger::press_key(ClientId by, const MatrixKey& key, int hold
 
     const Keyboard::AutoKey ak{key.row1, key.col1, second_absent ? -1 : key.row2,
                                second_absent ? -1 : key.col2, hold_frames};
-    const size_t queued = impl_->emu.keyboard().queue_auto_type({ak});
+    const size_t queued = impl_->emu->keyboard().queue_auto_type({ak});
 
     std::string what = "[" + std::to_string(key.row1) + "," + std::to_string(key.col1) + "]";
     if (!second_absent)
@@ -123,6 +126,7 @@ Expected<size_t> Debugger::press_key(ClientId by, const MatrixKey& key, int hold
 // off the matrix. A second test of the same fact would be a guard no row could
 // tell from nothing (row IN-01-04 pins the refusal).
 Expected<size_t> Debugger::press_key(ClientId by, const std::string& name, int hold_frames) {
+    if (!impl_->emu) return make_refused<size_t>(Result::Unsupported);
     MatrixKey key;
     (void)key_name_to_matrix(name, key);
     return press_key(by, key, hold_frames);
@@ -136,7 +140,8 @@ Expected<size_t> Debugger::press_key(ClientId by, const std::string& name, int h
 // including later in the same frame. A client that wants frame-edge semantics
 // (the DSL's `joystick n bits`) queues the call for the edge itself.
 Result Debugger::set_joystick(ClientId by, JoystickSide side, uint16_t bits12) {
-    Joystick& joy = impl_->emu.joystick();
+    if (!impl_->emu) return Result::Unsupported;
+    Joystick& joy = impl_->emu->joystick();
     if (side == JoystickSide::Left) joy.set_joy_left(bits12);
     else                            joy.set_joy_right(bits12);
     char val[16];
@@ -168,8 +173,9 @@ Result Debugger::set_joystick(ClientId by, JoystickSide side, uint16_t bits12) {
 // owner's O2), which would have changed that flag's behaviour. One path now: the
 // verb IS the F9/F10 hotkey, gates and all (rows IN-04-02/03).
 Result Debugger::press_nmi(ClientId by, NmiButton button) {
-    if (button == NmiButton::Mf) impl_->emu.on_hotkey_f9_mf_nmi();
-    else                         impl_->emu.on_hotkey_f10_divmmc_nmi();
+    if (!impl_->emu) return Result::Unsupported;
+    if (button == NmiButton::Mf) impl_->emu->on_hotkey_f9_mf_nmi();
+    else                         impl_->emu->on_hotkey_f10_divmmc_nmi();
     impl_->log_mutate_range(by, "nmi button",
                             button == NmiButton::Mf ? "MF pressed" : "DRIVE pressed");
     impl_->note_mutation();

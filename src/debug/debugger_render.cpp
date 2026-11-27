@@ -142,6 +142,7 @@ void replay_restore(Emulator& emu)
 Result Debugger::render_layer(Layer layer, int vc, uint32_t* dst,
                               size_t stride_pixels) const
 {
+    if (!impl_->emu) return Result::Unsupported;
     // Refused, never clamped: a clamped vc would draw a DIFFERENT picture from
     // the one asked for, and a short stride would write past the caller's row.
     // A running machine is not a backend call at all — the widget draws its
@@ -151,7 +152,7 @@ Result Debugger::render_layer(Layer layer, int vc, uint32_t* dst,
     if (!dst)                                      return Result::RefusedUnavailable;
     if (stride_pixels < RENDER_WIDTH)              return Result::RefusedUnavailable;
 
-    Emulator& emu = impl_->emu;
+    Emulator& emu = *impl_->emu;
 
     // G104: every layer engine emits the canonical 640 cells — the ULA
     // (phase 2), Layer 2 (phase 3), the tilemap in both column modes (phase 4)

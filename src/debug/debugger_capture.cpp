@@ -48,6 +48,7 @@ size_t current_snapshot_width(Emulator& emu) {
 
 // CAP-03 — save.
 Result Debugger::bookmark_save(ClientId by, const std::string& name, SaveStateMode mode) {
+    if (!impl_->emu) return Result::Unsupported;
     // The client row and the name's slot in it. Looked up by id, never kept
     // across a call that can reach a listener: see the second lookup below.
     auto find_slot = [&](Impl::Client& c) -> Impl::Bookmark* {
@@ -105,7 +106,7 @@ Result Debugger::bookmark_save(ClientId by, const std::string& name, SaveStateMo
     }
     const size_t width = bytes.size();
     slot->bytes = std::move(bytes);
-    slot->type  = impl_->emu.config().type;
+    slot->type  = impl_->emu->config().type;
     const std::string line = "BOOKMARK \"" + name + "\" saved (" + std::to_string(width) +
                              " bytes, " + machine_type_str(slot->type) + ")";
     impl_->self->log(by, LogLevel::Info, line);
@@ -114,6 +115,7 @@ Result Debugger::bookmark_save(ClientId by, const std::string& name, SaveStateMo
 
 // CAP-03 — restore.
 Result Debugger::bookmark_restore(ClientId by, const std::string& name) {
+    if (!impl_->emu) return Result::Unsupported;
     // §5 FIRST, whatever the arguments: a restore replaces the machine a handler
     // is running in. (`load_state_bytes()` below would refuse too, but only once
     // the name had been found — an unknown name inside a delivery must get the
@@ -138,8 +140,8 @@ Result Debugger::bookmark_restore(ClientId by, const std::string& name) {
     // mismatch would be found by a sentinel half-way through a partial restore
     // and would LATCH corruption; refused here, the machine is untouched and
     // nothing is latched (rows CAP-03-12/13).
-    const MachineType now_type  = impl_->emu.config().type;
-    const size_t      now_width = current_snapshot_width(impl_->emu);
+    const MachineType now_type  = impl_->emu->config().type;
+    const size_t      now_width = current_snapshot_width(*impl_->emu);
     if (bm->type != now_type || bm->bytes.size() != now_width) {
         impl_->self->log(by, LogLevel::Warn,
                          "BOOKMARK \"" + name + "\" not restored: it was saved on a " +
@@ -158,6 +160,7 @@ Result Debugger::bookmark_restore(ClientId by, const std::string& name) {
 // CAP-03 — list. A client's own names, in save order; empty for an id with no
 // live client row (the header's "cannot refuse" answer for this query).
 std::vector<std::string> Debugger::bookmarks(ClientId cid) const {
+    if (!impl_->emu) return {};
     std::vector<std::string> out;
     const Impl::Client* c = impl_->find_client(cid);
     if (!c) return out;
@@ -187,6 +190,7 @@ std::vector<std::string> Debugger::bookmarks(ClientId cid) const {
 
 Result Debugger::screenshot(ClientId by, const std::string& path, uint8_t layer_mask,
                             ScreenshotFormat format) {
+    if (!impl_->emu) return Result::Unsupported;
     // "No such thing" — a layer that does not exist, no layer at all (the CLI
     // parser cannot produce 0 either), or a masked `.SCR`, which the header
     // excludes (a `.SCR` is screen memory; there is no layer to leave out).
@@ -200,7 +204,7 @@ Result Debugger::screenshot(ClientId by, const std::string& path, uint8_t layer_
     c.path       = path;
     c.layer_mask = layer_mask;
     c.format     = format;
-    c.after      = impl_->emu.rendered_frames();
+    c.after      = impl_->emu->rendered_frames();
     const bool first = impl_->captures.empty();
     impl_->captures.push_back(c);
     if (first) impl_->arm_capture_head();
@@ -208,15 +212,17 @@ Result Debugger::screenshot(ClientId by, const std::string& path, uint8_t layer_
 }
 
 void Debugger::Impl::arm_capture_head() {
-    emu.renderer().set_layer_mask(captures.empty() ? static_cast<uint8_t>(Renderer::LAYER_ALL)
+    if (!emu) return;
+    emu->renderer().set_layer_mask(captures.empty() ? static_cast<uint8_t>(Renderer::LAYER_ALL)
                                                    : captures.front().layer_mask);
     ds().set_capture_render(!captures.empty());
 }
 
 void Debugger::Impl::service_captures() {
+    if (!emu) return;
     if (captures.empty()) return;
-    const uint64_t now        = emu.rendered_frames();
-    const uint8_t  frame_mask = emu.renderer().layer_mask();
+    const uint64_t now        = emu->rendered_frames();
+    const uint8_t  frame_mask = emu->renderer().layer_mask();
     bool           took       = false;
     bool           rearm      = false;
 
@@ -235,10 +241,10 @@ void Debugger::Impl::service_captures() {
         }
         bool ok;
         if (c.format == ScreenshotFormat::Scr) {
-            ok = save_screenshot_scr(c.path, emu.ula().screen_dump());
+            ok = save_screenshot_scr(c.path, emu->ula().screen_dump());
         } else {
-            ok = save_screenshot_png(c.path, emu.get_framebuffer(), emu.get_framebuffer_width(),
-                                     emu.get_framebuffer_height());
+            ok = save_screenshot_png(c.path, emu->get_framebuffer(), emu->get_framebuffer_width(),
+                                     emu->get_framebuffer_height());
         }
         // `save_screenshot_*` has already logged WHY a write failed; this is the
         // line a listener (and a CI transcript) can key on. A failed write is not
@@ -296,6 +302,7 @@ void Debugger::Impl::service_captures() {
 // render bit), which `screenshot()`, equally allowed from a handler, does too.
 // Row CAP-01-16.
 Result Debugger::flush_captures(ClientId by) {
+    if (!impl_->emu) return Result::Unsupported;
     bool dropped = false;
     for (auto it = impl_->captures.begin(); it != impl_->captures.end();) {
         if (it->by != by) { ++it; continue; }
@@ -357,12 +364,13 @@ Result Debugger::flush_captures(ClientId by) {
 // ---------------------------------------------------------------------------
 
 Result Debugger::save_snapshot(ClientId by, const std::string& path) {
+    if (!impl_->emu) return Result::Unsupported;
     const Result at =
         impl_->reach_frame_boundary(by, SaveStateMode::AdvanceToBoundary, "save_snapshot");
     if (at != Result::Ok) return at;
 
-    Mmu& mmu = impl_->emu.mmu();
-    const uint16_t below = static_cast<uint16_t>(impl_->emu.cpu().get_registers().SP - 2);
+    Mmu& mmu = impl_->emu->mmu();
+    const uint16_t below = static_cast<uint16_t>(impl_->emu->cpu().get_registers().SP - 2);
     auto word_below_sp = [&]() {
         return static_cast<uint16_t>(mmu.peek(below) |
                                      (mmu.peek(static_cast<uint16_t>(below + 1)) << 8));
@@ -371,7 +379,7 @@ Result Debugger::save_snapshot(ClientId by, const std::string& path) {
 
     std::string error;
     size_t      bytes = 0;
-    const bool  wrote = save_snapshot_file(impl_->emu, path, error, bytes);
+    const bool  wrote = save_snapshot_file(*impl_->emu, path, error, bytes);
 
     const uint16_t stack_after = word_below_sp();
     if (stack_after != stack_before) {

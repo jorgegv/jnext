@@ -107,7 +107,7 @@ Result Debugger::Impl::refuse_inside_delivery(const char* verb) const {
 Debugger::Impl::PreBoot Debugger::Impl::prepare_rebuild() {
     sync_notifications();
     // GH #538: a recording keeps the silent frames that played before the rebuild.
-    if (psg) psg->note_time(frame_tag(emu));
+    if (psg) psg->note_time(frame_tag(*emu));
     return capture_pre_boot();
 }
 
@@ -150,7 +150,7 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     //      the constructor. A page-qualified `Mem` filter would otherwise be
     //      wrong in BOTH directions after every cold boot.
     for (int s = 0; s < 8; ++s)
-        ds().on_slot_remapped(s, emu.mmu().get_effective_page(s));
+        ds().on_slot_remapped(s, emu->mmu().get_effective_page(s));
 
     // (1c) PUBLISH THE GATES — the ONLY writer of the `ev_mask_rd_` /
     //      `ev_mask_wr_` / `ev_port_` bytes across a cold boot. `emulator_boot.h`
@@ -233,7 +233,7 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     sync_call_stack(/*force=*/true);   // GH #434 F-B: the clients' requests and the source map, not a stored bool
     sync_audio_scope(/*force=*/true);  // GH #536: the new machine holds no tap; the clients' requests say whether it gets one
     sync_audio_log(/*force=*/true);    // GH #531: the new Emulator holds no sink; the clients' requests re-install it
-    if (want_trace)      emu.trace_log().set_enabled(*want_trace);
+    if (want_trace)      emu->trace_log().set_enabled(*want_trace);
     if (want_persistent) ds().set_persistent_breakpoints(*want_persistent);
     //     GH #276 B4 — INS-20, the fourth enable rule 2 names. Not a `want_*`:
     //     the bits and the switch never left `Impl`, only the POINTER the hot
@@ -254,7 +254,7 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     //     rather than for the old machine's count (rows CAP-01-09). Re-based on an
     //     in-place landing too, where the framebuffer still shows the machine
     //     before the load.
-    for (Capture& c : captures) c.after = emu.rendered_frames();
+    for (Capture& c : captures) c.after = emu->rendered_frames();
     if (!captures.empty()) arm_capture_head();
     //
     //     ORDER RELATIVE TO THE PAUSE IS NOT LOAD-BEARING, and an earlier draft
@@ -297,7 +297,7 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
     //     that transition's notification, rule 4), paused-to-running (a `done`
     //     without `begin`) pushes `Resumed`.
     last_resume_gen = ds().resume_generation();
-    last_frame_cycle = emu.current_frame_cycle();   // as `sync_notifications()` reads it
+    last_frame_cycle = emu->current_frame_cycle();   // as `sync_notifications()` reads it
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +305,7 @@ void Debugger::Impl::reapply_after_machine_rebuild(const PreBoot& pre) {
 // ---------------------------------------------------------------------------
 
 Result Debugger::set_loop_driver(const LoopDriver& d) {
+    if (!impl_->emu) return Result::Unsupported;
     impl_->driver = d;
     // A `LoopDriver{}` with both closures empty is how a loop owner CLEARS the
     // registration (at shutdown, or a test restoring the bare-harness case), so
@@ -343,6 +344,7 @@ Result Debugger::set_loop_driver(const LoopDriver& d) {
 // `capture_pre_boot()`, the pause and its OWNER — so the three routes share one
 // capture and one re-application (rows CTL-12-41..47).
 Result Debugger::on_cold_boot_begin() {
+    if (!impl_->emu) return Result::Unsupported;
     // Last wins: a second `begin` with no `done` between them is a loop owner
     // that announced a boot, did not perform it, and is announcing another —
     // the machine the SECOND one captures is the one about to be destroyed.
@@ -351,6 +353,7 @@ Result Debugger::on_cold_boot_begin() {
 }
 
 Result Debugger::on_cold_boot_done() {
+    if (!impl_->emu) return Result::Unsupported;
     // The re-application clears the latch ring, re-arms the stop evidence and
     // may re-pause the machine — none of which may happen under a drain that is
     // walking the ring (§5; fix round 1b). `on_cold_boot_begin()` has no such
@@ -382,7 +385,7 @@ Result Debugger::on_cold_boot_done() {
     // push. The LATCH (the §4.3 `Reset` event a subscription can see) must come
     // after the re-application or it is dropped on a null table —
     // `emulator_boot.h` item 3 says so at the site.
-    impl_->emu.debug_latch_reset(/*hard=*/true);
+    impl_->emu->debug_latch_reset(/*hard=*/true);
     impl_->self->log(CLIENT_NONE, LogLevel::Info,
                      "RESET hard (guest-initiated cold boot, reconstruct re-applied)");
     impl_->notify_reset(ResetKind::Hard);
@@ -443,7 +446,7 @@ Result Debugger::Impl::reset_hard(ClientId by) {
     // `on_cold_boot_done`). It is latched, not delivered here: §4.3 delivers
     // every event at an instruction boundary with the machine stopped, and this
     // is not one.
-    emu.debug_latch_reset(/*hard=*/true);
+    emu->debug_latch_reset(/*hard=*/true);
     log_mutate_range(by, "machine", booted ? "hard reset (cold boot)"
                                            : "hard reset FAILED (cold boot)");
 
@@ -467,6 +470,7 @@ uint64_t Debugger::program_loads() const { return impl_->program_loads; }
 void Debugger::note_program_replaced() { ++impl_->program_loads; }
 
 Result Debugger::load(ClientId by, const std::string& path) {
+    if (!impl_->emu) return Result::Unsupported;
     const Result nested = impl_->refuse_inside_delivery("load");
     if (nested != Result::Ok) return nested;
 
@@ -517,7 +521,7 @@ Result Debugger::load(ClientId by, const std::string& path) {
     // `reset(Hard)` does. A load that did NOT reconstruct pushes nothing: the
     // machine was not reset, and saying it was would be false to every other
     // client (rows CTL-15-13/14).
-    if (reconstructed) impl_->emu.debug_latch_reset(/*hard=*/true);
+    if (reconstructed) impl_->emu->debug_latch_reset(/*hard=*/true);
 
     impl_->log_mutate_range(by, "machine",
                             loaded ? ("loaded \"" + path + "\"" +

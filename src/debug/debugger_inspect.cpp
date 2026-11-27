@@ -142,7 +142,9 @@ constexpr uint32_t PAGE_BYTES = 0x2000;
 }  // namespace
 
 void Debugger::Impl::note_mutation() {
-    if (RewindBuffer* rb = emu.rewind_buffer()) rb->mark_mutated(emu.clock().get());
+    // The rewind ring is the local machine's: a remote has none to mark.
+    if (!emu) return;
+    if (RewindBuffer* rb = emu->rewind_buffer()) rb->mark_mutated(emu->clock().get());
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +152,7 @@ void Debugger::Impl::note_mutation() {
 // ---------------------------------------------------------------------------
 
 Z80Registers Debugger::registers() const {
-    return impl_->emu.cpu().get_registers();
+    return impl_->target.registers();
 }
 
 // §4.2a — one register at a time. There is deliberately no "set all": the only
@@ -158,84 +160,18 @@ Z80Registers Debugger::registers() const {
 // clobbers I and R while writing A (a real GDB `G`-packet hazard), so the whole
 // struct is read, one field is changed, and it goes back.
 Result Debugger::set_register(ClientId by, RegId reg, uint16_t value) {
-    if (impl_->emu.rzx_recorder().is_recording() ||
-        impl_->emu.rzx_player().is_playing())
-        return Result::RefusedRzx;
+    if (impl_->rzx_active()) return Result::RefusedRzx;
 
-    Z80Registers r = impl_->emu.cpu().get_registers();
-    const uint8_t lo = static_cast<uint8_t>(value & 0xFF);
-
-    // The old value, for the MUTATE line, captured per case below.
+    // The old value and the name for the MUTATE line, from a copy: the target
+    // does the write (`apply_register()` is the one register table).
+    Z80Registers r = impl_->target.registers();
     long long old_value = 0;
     const char* name = "?";
+    if (!apply_register(r, reg, value, &old_value, &name))
+        return Result::Unsupported;   // not a register; see RegId::Count
 
-    auto hi_of = [](uint16_t v) { return static_cast<uint16_t>(v >> 8); };
-    auto lo_of = [](uint16_t v) { return static_cast<uint16_t>(v & 0xFF); };
-    auto set_hi = [](uint16_t& pair, uint8_t v) {
-        pair = static_cast<uint16_t>((pair & 0x00FF) | (static_cast<uint16_t>(v) << 8));
-    };
-    auto set_lo = [](uint16_t& pair, uint8_t v) {
-        pair = static_cast<uint16_t>((pair & 0xFF00) | v);
-    };
-
-    switch (reg) {
-        // ── 16-bit pairs ────────────────────────────────────────────────────
-        case RegId::AF:  old_value = r.AF;  r.AF  = value; name = "AF";  break;
-        case RegId::BC:  old_value = r.BC;  r.BC  = value; name = "BC";  break;
-        case RegId::DE:  old_value = r.DE;  r.DE  = value; name = "DE";  break;
-        case RegId::HL:  old_value = r.HL;  r.HL  = value; name = "HL";  break;
-        case RegId::AF2: old_value = r.AF2; r.AF2 = value; name = "AF'"; break;
-        case RegId::BC2: old_value = r.BC2; r.BC2 = value; name = "BC'"; break;
-        case RegId::DE2: old_value = r.DE2; r.DE2 = value; name = "DE'"; break;
-        case RegId::HL2: old_value = r.HL2; r.HL2 = value; name = "HL'"; break;
-        case RegId::IX:  old_value = r.IX;  r.IX  = value; name = "IX";  break;
-        case RegId::IY:  old_value = r.IY;  r.IY  = value; name = "IY";  break;
-        case RegId::SP:  old_value = r.SP;  r.SP  = value; name = "SP";  break;
-        case RegId::PC:
-            old_value = r.PC;
-            r.PC = value;
-            name = "PC";
-            // §4.2a, an obligation on THIS implementation rather than a property
-            // of the code: setting PC must clear `halted`. Nothing in the tree
-            // did it, and without it a frontend that redirects PC out of a HALT
-            // leaves the CPU parked at the new address.
-            r.halted = false;
-            break;
-
-        // ── 8-bit halves ────────────────────────────────────────────────────
-        case RegId::A:   old_value = hi_of(r.AF);  set_hi(r.AF,  lo); name = "A";   break;
-        case RegId::F:   old_value = lo_of(r.AF);  set_lo(r.AF,  lo); name = "F";   break;
-        case RegId::B:   old_value = hi_of(r.BC);  set_hi(r.BC,  lo); name = "B";   break;
-        case RegId::C:   old_value = lo_of(r.BC);  set_lo(r.BC,  lo); name = "C";   break;
-        case RegId::D:   old_value = hi_of(r.DE);  set_hi(r.DE,  lo); name = "D";   break;
-        case RegId::E:   old_value = lo_of(r.DE);  set_lo(r.DE,  lo); name = "E";   break;
-        case RegId::H:   old_value = hi_of(r.HL);  set_hi(r.HL,  lo); name = "H";   break;
-        case RegId::L:   old_value = lo_of(r.HL);  set_lo(r.HL,  lo); name = "L";   break;
-        case RegId::A2:  old_value = hi_of(r.AF2); set_hi(r.AF2, lo); name = "A'";  break;
-        case RegId::F2:  old_value = lo_of(r.AF2); set_lo(r.AF2, lo); name = "F'";  break;
-        case RegId::B2:  old_value = hi_of(r.BC2); set_hi(r.BC2, lo); name = "B'";  break;
-        case RegId::C2:  old_value = lo_of(r.BC2); set_lo(r.BC2, lo); name = "C'";  break;
-        case RegId::D2:  old_value = hi_of(r.DE2); set_hi(r.DE2, lo); name = "D'";  break;
-        case RegId::E2:  old_value = lo_of(r.DE2); set_lo(r.DE2, lo); name = "E'";  break;
-        case RegId::H2:  old_value = hi_of(r.HL2); set_hi(r.HL2, lo); name = "H'";  break;
-        case RegId::L2:  old_value = lo_of(r.HL2); set_lo(r.HL2, lo); name = "L'";  break;
-        case RegId::IXH: old_value = hi_of(r.IX);  set_hi(r.IX,  lo); name = "IXH"; break;
-        case RegId::IXL: old_value = lo_of(r.IX);  set_lo(r.IX,  lo); name = "IXL"; break;
-        case RegId::IYH: old_value = hi_of(r.IY);  set_hi(r.IY,  lo); name = "IYH"; break;
-        case RegId::IYL: old_value = lo_of(r.IY);  set_lo(r.IY,  lo); name = "IYL"; break;
-
-        // ── the rest ────────────────────────────────────────────────────────
-        case RegId::I:    old_value = r.I;    r.I    = lo;        name = "I";    break;
-        case RegId::R:    old_value = r.R;    r.R    = lo;        name = "R";    break;
-        case RegId::IFF1: old_value = r.IFF1; r.IFF1 = (lo != 0); name = "IFF1"; break;
-        case RegId::IFF2: old_value = r.IFF2; r.IFF2 = (lo != 0); name = "IFF2"; break;
-        case RegId::IM:   old_value = r.IM;   r.IM   = lo & 0x03; name = "IM";   break;
-
-        case RegId::Count:
-            return Result::Unsupported;   // not a register; see RegId::Count
-    }
-
-    impl_->emu.cpu().set_registers(r);
+    const Result res = impl_->target.set_register(reg, value);
+    if (res != Result::Ok) return res;
     impl_->log_mutate(by, std::string("reg ") + name, old_value, value);
     impl_->note_mutation();
     return Result::Ok;
@@ -259,67 +195,15 @@ Expected<size_t> Debugger::peek(MemSpace space, uint32_t addr, size_t n,
                                uint8_t* buf) const {
     if (!buf) return make_refused<size_t>(Result::RefusedUnavailable);
 
-    Emulator& emu = impl_->emu;
+    // The identity-only kinds (GH #339): named by the read arbiter, accessed by no
+    // verb yet. `DivMmcRam` (GH #351) and the three spaces below are the readable
+    // ones; the facade refuses the rest, whatever the target is.
     switch (space.kind) {
-        case MemSpace::Kind::Cpu: {
-            for (size_t i = 0; i < n; ++i)
-                buf[i] = emu.mmu().peek(static_cast<uint16_t>((addr + i) & 0xFFFF));
-            return make_ok<size_t>(n);
-        }
-        case MemSpace::Kind::Page: {
-            // TWO guards, and each one has a row that bites (review of B1 found
-            // three copies of one condition here, of which two were unreachable
-            // and none was distinguishable by a test):
-            //
-            //   1. an index outside the 8-bit page-number space at all. Without
-            //      this, the narrowing cast below turns 0x100 into page 0 and a
-            //      nonsense request reads real memory (rows INS-02-16/17).
-            //   2. `nr_page_ptr()` == nullptr, which is EVERY page >= 0xE0:
-            //      `mmu_A21_A13(8)='1'` -> `sram_pre_active='0'`
-            //      (zxnext.vhd:3061), the SRAM does not respond, so there is no
-            //      backing store to hand out. The two ROM sentinels 0xFE / 0xFF
-            //      are inside that band and are refused BY IT — there is no
-            //      separate sentinel test on this path, because one that cannot
-            //      produce a different answer is not a guard, it is a comment
-            //      (rows INS-02-06/07 for the sentinels, INS-02-13 for 0xE0 and
-            //      INS-02-14 for 0xFD, which are the band and NOT sentinels,
-            //      and INS-02-15 for 0xDF, the top page that is still valid).
-            //
-            // The poke path below DOES test the sentinels separately, and there
-            // it is load-bearing: a sentinel is `RefusedReadOnly`, a different
-            // answer from `InvalidPage`, and it must be given before any write.
-            if (space.index > 0xFF) return make_refused<size_t>(Result::InvalidPage);
-            const uint8_t* p = emu.mmu().nr_page_ptr(static_cast<uint8_t>(space.index));
-            if (!p) return make_refused<size_t>(Result::InvalidPage);
-            // A page is 8 KB. A read that runs past its end is SHORT, not an
-            // error: `Expected<size_t>` reports what it managed (INS-02).
-            size_t done = 0;
-            for (; done < n && addr + done < PAGE_BYTES; ++done)
-                buf[done] = p[addr + done];
-            return Expected<size_t>{done == n ? Result::Ok : Result::RefusedUnavailable, done};
-        }
-        case MemSpace::Kind::Rom: {
-            const uint8_t* p = emu.mmu().rom_image_ptr(static_cast<uint8_t>(space.index));
-            if (!p) return make_refused<size_t>(Result::InvalidPage);
-            size_t done = 0;
-            for (; done < n && addr + done < 0x4000; ++done)
-                buf[done] = p[addr + done];
-            return Expected<size_t>{done == n ? Result::Ok : Result::RefusedUnavailable, done};
-        }
-        // GH #351 (E23-21): a DivMMC RAM bank, read-only here (`poke` refuses it). Bank
-        // b is SRAM page 0x10 + b on the Next (zxnext.vhd:3092-3098), the page
-        // `DivMmc::ram_page()` returns whatever E3 selects now. Side-effect free.
-        case MemSpace::Kind::DivMmcRam: {
-            if (space.index >= static_cast<unsigned>(DivMmc::kRamPages)) return make_refused<size_t>(Result::InvalidPage);
-            const uint8_t* p = emu.divmmc().ram_page(space.index);
-            size_t done = 0;
-            for (; done < n && addr + done < static_cast<size_t>(DivMmc::kRamPageSize); ++done)
-                buf[done] = p[addr + done];
-            return Expected<size_t>{done == n ? Result::Ok : Result::RefusedUnavailable, done};
-        }
-        // The identity-only kinds (GH #339): named by the read arbiter, accessed
-        // by no verb yet. Listed one by one (no `default`) so `-Werror=switch`
-        // flags the next kind added to `MemSpace::Kind`.
+        case MemSpace::Kind::Cpu:
+        case MemSpace::Kind::Page:
+        case MemSpace::Kind::Rom:
+        case MemSpace::Kind::DivMmcRam:
+            break;
         case MemSpace::Kind::BootRom:
         case MemSpace::Kind::MultifaceRom:
         case MemSpace::Kind::MultifaceRam:
@@ -330,17 +214,19 @@ Expected<size_t> Debugger::peek(MemSpace space, uint32_t addr, size_t n,
         case MemSpace::Kind::Floating:
             return make_refused<size_t>(Result::Unsupported);
     }
-    return make_refused<size_t>(Result::Unsupported);
+
+    // A target's answer is untrusted (it may be a network peer): the count is
+    // clamped to the request, and a short count under an Ok is reported as short.
+    Expected<size_t> r = impl_->target.read(space, addr, n, buf);
+    if (r.value > n) r.value = n;
+    if (r.status == Result::Ok && r.value < n) r.status = Result::RefusedUnavailable;
+    return r;
 }
 
 Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
                                 size_t n, const uint8_t* buf) {
     if (!buf) return make_refused<size_t>(Result::RefusedUnavailable);
-    if (impl_->emu.rzx_recorder().is_recording() ||
-        impl_->emu.rzx_player().is_playing())
-        return make_refused<size_t>(Result::RefusedRzx);
-
-    Emulator& emu = impl_->emu;
+    if (impl_->rzx_active()) return make_refused<size_t>(Result::RefusedRzx);
 
     // An identity-only kind (GH #339) names no store a verb can write: refused
     // BEFORE anything is written or logged, like every refusal below.
@@ -355,61 +241,21 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
         (space.index == PAGE_SENTINEL_ROM_LO || space.index == PAGE_SENTINEL_ROM_HI))
         return make_refused<size_t>(Result::RefusedReadOnly);
 
-    size_t done = 0;
-    // The byte the MUTATE line says was replaced (§4.2a `<old> -> <new>`). The Cpu
-    // space reads it here; a Page is read in its branch below, once it is known to
-    // exist (GH #381: a poke(Page) used to log 0 for every old byte, so a trainer
-    // that changed 0x35 to 0x00 read "0x0 -> 0x0", as if nothing had happened).
-    uint8_t old_first = n > 0 && space.kind == MemSpace::Kind::Cpu
-        ? emu.mmu().peek(static_cast<uint16_t>(addr & 0xFFFF))
-        : 0;
+    // The byte the MUTATE line says was replaced (§4.2a `<old> -> <new>`), read
+    // through the target BEFORE the write (a read has no side effect, F1). GH #381:
+    // a poke(Page) used to log 0 for every old byte, so a trainer that changed 0x35
+    // to 0x00 read "0x0 -> 0x0", as if nothing had happened. It stays 0 when the
+    // read is short or refused (an address past the page, a page that does not exist).
+    uint8_t old_first = 0;
+    if (n > 0) (void)impl_->target.read(space, addr, 1, &old_first);
+
+    Expected<size_t> w = impl_->target.write(space, addr, n, buf);
+    if (w.value > n) w.value = n;   // untrusted: never more than was asked
 
     if (space.kind == MemSpace::Kind::Cpu) {
-        // §4.2a: `Mmu::write` — through the live map, overlays honoured, ROM
-        // ignored, the per-scanline change logs and the attribute mux updated,
-        // no latch, no event. Exactly the Memory panel's path, because it is the
-        // same function the Memory panel calls.
-        //
-        // GH #281 (F1) — AND IT COUNTS WHAT LANDED. Each byte goes through
-        // `Mmu::write_landed()`, which IS `Mmu::write` returning its own routing
-        // decision, so a byte an overlay takes (Layer 2 write-over, DivMMC or
-        // Multiface RAM) counts and a byte dropped on ROM does not — decided by
-        // the one copy of the rules, never re-derived here. Every byte is still
-        // offered, as the CPU's own write would be: a range straddling ROM and
-        // RAM lands its RAM bytes (DZRP relies on that). `value` is the count
-        // that landed; `Ok` iff all of them did, `RefusedReadOnly` otherwise —
-        // with 0 when none did (CAP-INS-02, REQ-gdb-6).
-        //
-        // GH #276 B2 — UNDER `InspectionScope`, and that is the write half of
-        // what `Mmu::peek()` does for reads (B1's F1). "Outside any
-        // GuestExecutionScope" is true of a `pump()` command and FALSE of the
-        // case that matters: a script mutation runs AT A DELIVERY, inside
-        // `run_frame()`'s `GuestExecutionScope`, where `watchpoints_live()` is
-        // true — so without this a handler's `poke` would latch a watch on
-        // itself and the machine would stop on the debugger's own write.
-        //
-        // The drain already wraps every handler in one scope, so this is the
-        // SECOND of two guards, and deliberately: it makes the property hold for
-        // any caller on any path, which is the same argument
-        // `GuestExecutionScope` itself rests on ("safe by DEFAULT rather than by
-        // discipline"). It nests and restores, so the drain's outer scope is
-        // unaffected.
-        //
-        // IT IS THEREFORE REDUNDANT TODAY, and saying so is the point: mutating
-        // it away leaves every row green, because the only two callers that exist
-        // are a frontend (outside execution, `guest_access()` already false) and a
-        // handler (inside the drain's scope). It is kept for the caller that does
-        // not exist yet — the same bet `Mmu::peek()`'s scope makes for panels —
-        // and NOT because a test demands it. `EVT-DEL-05/06` pin the drain's
-        // scope, which is the one that is load-bearing, through `port_out()`,
-        // which carries none of its own.
-        DebugState::InspectionScope scope(emu.debug_state());
-        size_t landed = 0;
-        for (; done < n; ++done)
-            if (emu.mmu().write_landed(static_cast<uint16_t>((addr + done) & 0xFFFF), buf[done]))
-                ++landed;
-        // A MUTATE line only for what changed: a byte dropped on ROM mutated
-        // nothing, and the line would say it had.
+        // The count is what LANDED. A MUTATE line only for what changed: a byte
+        // dropped on ROM mutated nothing, and the line would say it had.
+        const size_t landed = w.value;
         if (landed == n && n == 1)
             impl_->log_mutate(by, space_name(space, addr), old_first, buf[0]);
         else if (landed > 0)
@@ -419,31 +265,22 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
                                                       std::to_string(n) +
                                                       " bytes (the rest read-only)");
         if (landed > 0) impl_->note_mutation();
-        return Expected<size_t>{landed == n ? Result::Ok : Result::RefusedReadOnly, landed};
-    } else {
-        // Same two guards as the peek path, in the same order and for the same
-        // reasons; the sentinel check that precedes them is the one that is
-        // NOT shared, because here a sentinel answers `RefusedReadOnly`.
-        if (space.index > 0xFF) return make_refused<size_t>(Result::InvalidPage);
-        uint8_t* p = emu.mmu().nr_page_ptr(static_cast<uint8_t>(space.index));
-        if (!p) return make_refused<size_t>(Result::InvalidPage);
-        // GH #362 — a poke of a page's backing byte is a write like any other
-        // for the tilemap / LoRes / Layer 2 beam replays (coarse tag): log it
-        // before it lands.
-        const uint8_t page = static_cast<uint8_t>(space.index);
-        if (n > 0 && addr < PAGE_BYTES) old_first = p[addr];
-        for (; done < n && addr + done < PAGE_BYTES; ++done) {
-            emu.mmu().log_page_store(page, static_cast<uint16_t>(addr + done),
-                                     p + addr + done, buf[done]);
-            p[addr + done] = buf[done];
-        }
+        // Ok iff all landed; a target that refused outright (a link that is down)
+        // keeps its own answer, a partial write is the read-only refusal.
+        const Result st = landed == n ? Result::Ok
+                          : (w.status == Result::Ok || w.status == Result::RefusedReadOnly)
+                                ? Result::RefusedReadOnly
+                                : w.status;
+        return Expected<size_t>{st, landed};
     }
 
+    // Page. A page the store does not have is refused before anything is logged.
+    if (w.status == Result::InvalidPage) return make_refused<size_t>(Result::InvalidPage);
+    const size_t done = w.value;
     if (n == 1) impl_->log_mutate(by, space_name(space, addr), old_first, buf[0]);
     else        impl_->log_mutate_range(by, space_name(space, addr),
                                         std::to_string(done) + " bytes");
     impl_->note_mutation();
-
     return Expected<size_t>{done == n ? Result::Ok : Result::RefusedUnavailable, done};
 }
 
@@ -452,43 +289,16 @@ Expected<size_t> Debugger::poke(ClientId by, MemSpace space, uint32_t addr,
 // ---------------------------------------------------------------------------
 
 std::array<SlotInfo, 8> Debugger::mmu_slots() const {
-    std::array<SlotInfo, 8> out{};
-    const Mmu& mmu = impl_->emu.mmu();
-    for (int s = 0; s < 8; ++s) {
-        SlotInfo& si = out[s];
-        si.nr_page        = mmu.get_nr_page(s);
-        si.effective_page = mmu.get_effective_page(s);
-        si.is_rom         = mmu.is_slot_rom(s);
-        // The COMPLETE address of the backing store, so no client composes one.
-        // A ROM slot's effective_page is an un-shifted `ram_` page index, NOT an
-        // NR page number, and handing it to `MemSpace::page()` is exactly the
-        // mistake round 4 of the design review caught on two frontends at once.
-        if (si.is_rom) {
-            si.space        = MemSpace::rom(static_cast<uint16_t>(si.effective_page >> 1));
-            si.space_offset = static_cast<uint16_t>((si.effective_page & 1) * 0x2000);
-        } else {
-            si.space        = MemSpace::page(si.nr_page);
-            si.space_offset = 0;
-        }
-        si.now = mmu.route(static_cast<uint16_t>(s << 13)).space;
-    }
-    return out;
+    return impl_->target.mmu_slots();
 }
 
 Result Debugger::set_mmu_slot(ClientId by, int slot, uint8_t page) {
     if (slot < 0 || slot > 7) return Result::RefusedUnavailable;
-    if (impl_->emu.rzx_recorder().is_recording() ||
-        impl_->emu.rzx_player().is_playing())
-        return Result::RefusedRzx;
+    if (impl_->rzx_active()) return Result::RefusedRzx;
 
-    const uint8_t old_page = impl_->emu.mmu().get_nr_page(slot);
-    // Through the NR 0x50-0x57 WRITE HANDLER, i.e. exactly what the guest's
-    // own `NEXTREG 0x50+slot,page` does (GH #12): page 0xFF on slot 0/1
-    // re-engages legacy ROM paging there (zxnext.vhd:4611-4612, :3052). A bare
-    // `Mmu::set_page(slot, 0xFF)` instead left the slot UNMAPPED — reads 0xFF,
-    // writes dropped — which is what DZRP's CMD_SET_SLOT 0,0xFF, sent for slots
-    // 0/1 on every DeZog .sna/.z80/.nex load, then did to the ROM.
-    impl_->emu.nextreg().write(static_cast<uint8_t>(0x50 + slot), page);
+    const uint8_t old_page = impl_->target.mmu_slots()[static_cast<size_t>(slot)].nr_page;
+    const Result r = impl_->target.set_mmu_slot(slot, page);
+    if (r != Result::Ok) return r;
     impl_->log_mutate(by, "mmu slot " + std::to_string(slot), old_page, page);
     impl_->note_mutation();
     return Result::Ok;
@@ -501,12 +311,13 @@ Result Debugger::set_mmu_slot(ClientId by, int slot, uint8_t page) {
 // design's first formula for that, "7FFD b4 | 1FFD b2", was wrong on the Next
 // and ignored the locks everywhere).
 MemSpace Debugger::rom_select() const {
-    return MemSpace::rom(impl_->emu.mmu().current_sram_rom());
+    return impl_->target.rom_select();
 }
 
 PagingPorts Debugger::paging_ports() const {
+    if (!impl_->emu) return PagingPorts{};
     PagingPorts p;
-    const Mmu& mmu = impl_->emu.mmu();
+    const Mmu& mmu = impl_->emu->mmu();
     p.port_7ffd = mmu.port_7ffd();
     p.port_1ffd = mmu.port_1ffd();
     p.port_dffd = mmu.port_dffd_reg();
@@ -518,35 +329,28 @@ PagingPorts Debugger::paging_ports() const {
 // ---------------------------------------------------------------------------
 
 uint8_t Debugger::nextreg_peek(uint8_t reg) const {
-    // peek(), never read(): read() runs the register's read handler, which for
-    // NR 0x2C/0x2E latches the Pi-I2S sample the guest is about to read, and it
-    // emits a trace line per read. A panel sweeping 256 registers four times a
-    // second would corrupt one and fabricate a thousand phantom reads.
-    return impl_->emu.nextreg().peek(reg);
+    return impl_->target.nextreg_read(reg);
 }
 
 Result Debugger::nextreg_write(ClientId by, uint8_t reg, uint8_t value) {
-    if (impl_->emu.rzx_recorder().is_recording() ||
-        impl_->emu.rzx_player().is_playing())
-        return Result::RefusedRzx;
+    if (impl_->rzx_active()) return Result::RefusedRzx;
 
-    // A MUTATION, and §4.2a lets a handler make one — EXCEPT the one NextREG
+    // A MUTATION, and §4.2a lets a handler make one - EXCEPT the one NextREG
     // write that resets the machine: NR 0x02 with bit 0 set and bit 1 clear runs
     // `Emulator::soft_reset()` synchronously (bit 1 is a HARD reset, which is
     // deferred to the loop owner and so harmless here). From inside a delivery
     // that re-`init()`s the machine under the frame running the handler (§5; fix
     // round 1b). Every other register, and this one's other bits, stay writable.
-    if (reg == 0x02 && (value & 0x03) == 0x01) {
+    // Local machine only: a remote has no delivery to be inside.
+    if (impl_->is_local() && reg == 0x02 && (value & 0x03) == 0x01) {
         if (const Result nested = impl_->refuse_inside_delivery("nextreg_write");
             nested != Result::Ok)
             return nested;
     }
 
-    const uint8_t old_value = impl_->emu.nextreg().peek(reg);
-    // The register's own write handler runs, synchronously, side effects
-    // included — INS-04. Source is the Debugger, so it fires no NextRegWrite
-    // event on itself; that gating is B2's, on the hook that does not exist yet.
-    impl_->emu.nextreg().write(reg, value);
+    const uint8_t old_value = impl_->target.nextreg_read(reg);
+    const Result r = impl_->target.nextreg_write(reg, value);
+    if (r != Result::Ok) return r;
     char what[24];
     std::snprintf(what, sizeof(what), "nextreg 0x%02X", reg);
     impl_->log_mutate(by, what, old_value, value);
@@ -555,7 +359,8 @@ Result Debugger::nextreg_write(ClientId by, uint8_t reg, uint8_t value) {
 }
 
 uint8_t Debugger::nextreg_selected() const {
-    return impl_->emu.nextreg().selected();
+    if (!impl_->emu) return 0;
+    return impl_->emu->nextreg().selected();
 }
 
 // ---------------------------------------------------------------------------
@@ -571,11 +376,10 @@ Expected<uint8_t> Debugger::port_in(ClientId by, uint16_t port) {
     // recording that changes the machine in a way the file cannot replay;
     // during a playback it touches hardware the replay otherwise never reads
     // (GH #283).
-    if (impl_->emu.rzx_recorder().is_recording() ||
-        impl_->emu.rzx_player().is_playing()) {
-        return make_refused<uint8_t>(Result::RefusedRzx);
-    }
-    const uint8_t v = impl_->emu.port().read(port);
+    if (impl_->rzx_active()) return make_refused<uint8_t>(Result::RefusedRzx);
+    const Expected<uint8_t> in = impl_->target.port_in(port);
+    if (in.status != Result::Ok) return in;
+    const uint8_t v = in.value;
     char what[24];
     std::snprintf(what, sizeof(what), "port in 0x%04X", port);
     impl_->log_mutate(by, what, v, v);
@@ -584,18 +388,18 @@ Expected<uint8_t> Debugger::port_in(ClientId by, uint16_t port) {
 }
 
 Result Debugger::port_out(ClientId by, uint16_t port, uint8_t value) {
-    if (impl_->emu.rzx_recorder().is_recording() ||
-        impl_->emu.rzx_player().is_playing())
-        return Result::RefusedRzx;
+    if (impl_->rzx_active()) return Result::RefusedRzx;
     // The same soft-reset exception as `nextreg_write()`, reached through the
     // NextREG data port (a full 16-bit match on 0x253B) with NR 0x02 selected.
-    if (port == 0x253B && impl_->emu.nextreg().selected() == 0x02 &&
+    // Local machine only.
+    if (impl_->is_local() && port == 0x253B && impl_->emu->nextreg().selected() == 0x02 &&
         (value & 0x03) == 0x01) {
         if (const Result nested = impl_->refuse_inside_delivery("port_out");
             nested != Result::Ok)
             return nested;
     }
-    impl_->emu.port().write(port, value);
+    const Result r = impl_->target.port_out(port, value);
+    if (r != Result::Ok) return r;
     char what[24];
     std::snprintf(what, sizeof(what), "port out 0x%04X", port);
     // The value in HEX, as the `0x` says: `std::to_string` here once spelled
@@ -639,42 +443,45 @@ static void live_counters(Emulator& emu, int& vc, int& hc) {
 }
 
 RasterState Debugger::raster() const {
-    snapshot_if_paused(impl_->emu);
+    if (!impl_->emu) return RasterState{};
+    snapshot_if_paused(*impl_->emu);
     // The clock-derived counters rather than VideoTiming::pos() (the latter
     // only advances while a debugger is attached; the clock is what every other
     // raster consumer uses — paused, they equal the paused_hc/paused_vc
     // snapshot), and the LIVE ULA mode registers, because they decide WHAT is
     // being fetched.
     int vc = 0, hc = 0;
-    live_counters(impl_->emu, vc, hc);
-    return raster_state_at(impl_->emu.video_timing(), hc, vc,
-                           impl_->emu.ula().get_screen_mode_reg(),
-                           impl_->emu.ula().get_shadow_screen_en());
+    live_counters(*impl_->emu, vc, hc);
+    return raster_state_at(impl_->emu->video_timing(), hc, vc,
+                           impl_->emu->ula().get_screen_mode_reg(),
+                           impl_->emu->ula().get_shadow_screen_en());
 }
 
 Time Debugger::time() const {
-    snapshot_if_paused(impl_->emu);
+    if (!impl_->emu) return Time{};
+    snapshot_if_paused(*impl_->emu);
     Time t;
-    t.master_cycle   = impl_->emu.clock().get();
-    t.tstates_total  = impl_->emu.monotonic_tstates();
-    t.frame          = frame_tag(impl_->emu);          // F2
-    t.cycle_in_frame = t.master_cycle - impl_->emu.current_frame_cycle();
+    t.master_cycle   = impl_->emu->clock().get();
+    t.tstates_total  = impl_->emu->monotonic_tstates();
+    t.frame          = frame_tag(*impl_->emu);          // F2
+    t.cycle_in_frame = t.master_cycle - impl_->emu->current_frame_cycle();
     int vc = 0, hc = 0;
-    live_counters(impl_->emu, vc, hc);
+    live_counters(*impl_->emu, vc, hc);
     t.vc_raw         = static_cast<int16_t>(vc);
     t.hc_raw         = static_cast<int16_t>(hc);
     return t;
 }
 
-uint64_t Debugger::time_epoch() const { return impl_->emu.time_epoch(); }
+uint64_t Debugger::time_epoch() const { return impl_->emu ? impl_->emu->time_epoch() : 0; }
 
 MachineInfo Debugger::machine() const {
+    if (!impl_->emu) return MachineInfo{};
     MachineInfo mi;
-    const MachineTiming& t  = impl_->emu.timing();
-    const VideoTiming&   vt = impl_->emu.video_timing();
+    const MachineTiming& t  = impl_->emu->timing();
+    const VideoTiming&   vt = impl_->emu->video_timing();
 
-    mi.type        = impl_->emu.config().type;
-    mi.cpu_divisor = impl_->emu.clock().cpu_divisor();
+    mi.type        = impl_->emu->config().type;
+    mi.cpu_divisor = impl_->emu->clock().cpu_divisor();
 
     mi.tstates_per_line          = t.tstates_per_line;
     mi.tstates_per_frame         = t.tstates_per_frame;
@@ -684,7 +491,7 @@ MachineInfo Debugger::machine() const {
     mi.lines      = t.lines_per_frame;
     // Derived from the live frame length, not a nominal 50: a 60 Hz NR 0x05 or a
     // machine-type change moves it, which is the whole reason INS-19 carries it.
-    mi.fps        = 1000.0 / impl_->emu.frame_period_ms();
+    mi.fps        = 1000.0 / impl_->emu->frame_period_ms();
     mi.hc_max     = vt.hc_max();
     mi.vc_max     = vt.vc_max();
     mi.max_hblank = vt.max_hblank();
@@ -701,10 +508,9 @@ MachineInfo Debugger::machine() const {
 // ---------------------------------------------------------------------------
 
 std::vector<SpriteInfo> Debugger::sprites() const {
-    std::vector<SpriteInfo> out;
-    out.reserve(SPRITE_COUNT);
-    for (size_t i = 0; i < SPRITE_COUNT; ++i)
-        out.push_back(impl_->emu.sprites().get_sprite_info(static_cast<uint8_t>(i)));
+    // Always exactly SPRITE_COUNT entries, whatever the target returns.
+    std::vector<SpriteInfo> out = impl_->target.sprites();
+    out.resize(SPRITE_COUNT);
     return out;
 }
 
@@ -712,41 +518,36 @@ Expected<std::array<uint8_t, SPRITE_ATTR_BYTES>>
 Debugger::sprite_attr_raw(uint8_t idx) const {
     using Bytes = std::array<uint8_t, SPRITE_ATTR_BYTES>;
     if (idx >= SPRITE_COUNT) return make_refused<Bytes>(Result::RefusedUnavailable);
-    Bytes b{};
-    for (size_t i = 0; i < SPRITE_ATTR_BYTES; ++i)
-        b[i] = impl_->emu.sprites().read_attr_byte(idx, static_cast<uint8_t>(i));
-    return make_ok<Bytes>(b);
+    return impl_->target.sprite_attr_raw(idx);
 }
 
 Result Debugger::set_sprite_attr_raw(ClientId by, uint8_t idx,
                                      const uint8_t* bytes, size_t n) {
     if (!bytes || n != SPRITE_ATTR_BYTES) return Result::RefusedUnavailable;
     if (idx >= SPRITE_COUNT) return Result::RefusedUnavailable;
-    if (impl_->emu.rzx_recorder().is_recording() ||
-        impl_->emu.rzx_player().is_playing())
-        return Result::RefusedRzx;
+    if (impl_->rzx_active()) return Result::RefusedRzx;
 
-    for (size_t i = 0; i < n; ++i)
-        impl_->emu.sprites().write_attr_byte_at(idx, static_cast<uint8_t>(i), bytes[i]);
+    const Result r = impl_->target.set_sprite_attr_raw(idx, bytes, n);
+    if (r != Result::Ok) return r;
     impl_->log_mutate_range(by, "sprite " + std::to_string(idx), "5 attribute bytes");
     impl_->note_mutation();
     return Result::Ok;
 }
 
 ConstBytes Debugger::pattern_ram() const {
-    return ConstBytes{impl_->emu.sprites().pattern_ram_data(), PATTERN_RAM_BYTES};
+    // A view of anything but exactly the pattern RAM, or with no data, is empty.
+    const ConstBytes v = impl_->target.pattern_ram();
+    if (!v.data || v.size != PATTERN_RAM_BYTES) return ConstBytes{};
+    return v;
 }
 
 Result Debugger::write_pattern_ram(ClientId by, uint16_t addr,
                                    const uint8_t* src, size_t n) {
     if (!src) return Result::RefusedUnavailable;
-    if (impl_->emu.rzx_recorder().is_recording() ||
-        impl_->emu.rzx_player().is_playing())
-        return Result::RefusedRzx;
+    if (impl_->rzx_active()) return Result::RefusedRzx;
 
-    for (size_t i = 0; i < n; ++i)
-        impl_->emu.sprites().write_pattern_byte_at(
-            static_cast<uint16_t>(addr + i), src[i]);
+    const Result r = impl_->target.write_pattern_ram(addr, src, n);
+    if (r != Result::Ok) return r;
     char what[32];
     std::snprintf(what, sizeof(what), "sprite pattern 0x%04X", static_cast<unsigned>(addr));
     impl_->log_mutate_range(by, what, std::to_string(n) + " bytes");
@@ -756,18 +557,11 @@ Result Debugger::write_pattern_ram(ClientId by, uint16_t addr,
 
 Expected<uint16_t> Debugger::sprite_palette_rgb333(int bank, uint8_t index) const {
     if (bank != 0 && bank != 1) return make_refused<uint16_t>(Result::RefusedUnavailable);
-    const ::PaletteId id = bank ? ::PaletteId::SPRITE_SECOND : ::PaletteId::SPRITE_FIRST;
-    return make_ok<uint16_t>(impl_->emu.palette().entry_rgb333(id, index));
+    return impl_->target.sprite_palette_rgb333(bank, index);
 }
 
 ClipWindow Debugger::sprite_clip() const {
-    ClipWindow w;
-    const SpriteEngine& s = impl_->emu.sprites();
-    w.x1 = s.clip_x1();
-    w.x2 = s.clip_x2();
-    w.y1 = s.clip_y1();
-    w.y2 = s.clip_y2();
-    return w;
+    return impl_->target.sprite_clip();
 }
 
 // ---------------------------------------------------------------------------
@@ -775,8 +569,9 @@ ClipWindow Debugger::sprite_clip() const {
 // ---------------------------------------------------------------------------
 
 CopperState Debugger::copper() const {
+    if (!impl_->emu) return CopperState{};
     CopperState cs;
-    const Copper& c = impl_->emu.copper();
+    const Copper& c = impl_->emu->copper();
     cs.pc      = c.pc();
     cs.running = c.is_running();
     cs.mode    = c.mode();
@@ -790,61 +585,70 @@ CopperState Debugger::copper() const {
 
 Expected<std::array<uint8_t, AY_REGISTER_COUNT>>
 Debugger::ay_registers(int chip) const {
+    if (!impl_->emu) return make_refused<std::array<uint8_t, AY_REGISTER_COUNT>>(Result::Unsupported);
     using Regs = std::array<uint8_t, AY_REGISTER_COUNT>;
     if (chip < 0 || chip >= static_cast<int>(AY_CHIP_COUNT))
         return make_refused<Regs>(Result::RefusedUnavailable);
     Regs regs{};
-    const AyChip& ay = impl_->emu.turbosound().ay(chip);
+    const AyChip& ay = impl_->emu->turbosound().ay(chip);
     for (size_t i = 0; i < AY_REGISTER_COUNT; ++i)
         regs[i] = ay.read_register(static_cast<uint8_t>(i));
     return make_ok<Regs>(regs);
 }
 
 bool Debugger::turbosound_enabled() const {
+    if (!impl_->emu) return false;
     // The LIVE signal (`turbosound_en_i` from NR 0x08 bit 1), not the NextREG
     // shadow — INS-10's whole point.
-    return impl_->emu.turbosound().enabled();
+    return impl_->emu->turbosound().enabled();
 }
 
 AyChipMode Debugger::ay_mode() const {
+    if (!impl_->emu) return AyChipMode{};
     // `TurboSound::ay_mode()` is a bool: true = AY curve, false = YM. NOT the
     // whole NR 0x06 field (bits 1:0, four values, one of which holds the chips
     // in reset) — INS-10 asks only for this accessor, and a frontend that needs
     // the reset state reads NR 0x06 through nextreg_peek().
-    return impl_->emu.turbosound().ay_mode() ? AyChipMode::Ay : AyChipMode::Ym;
+    return impl_->emu->turbosound().ay_mode() ? AyChipMode::Ay : AyChipMode::Ym;
 }
 
 StereoMode Debugger::stereo_mode() const {
-    return impl_->emu.turbosound().stereo_mode() ? StereoMode::Acb : StereoMode::Abc;
+    if (!impl_->emu) return StereoMode{};
+    return impl_->emu->turbosound().stereo_mode() ? StereoMode::Acb : StereoMode::Abc;
 }
 
 uint8_t Debugger::audio_mute_mask() const {
-    return impl_->emu.audio_mute_mask();
+    if (!impl_->emu) return 0;
+    return impl_->emu->audio_mute_mask();
 }
 
 Result Debugger::set_audio_mute_mask(ClientId by, uint8_t mask) {
-    const uint8_t old_mask = impl_->emu.audio_mute_mask();
-    impl_->emu.set_audio_mute_mask(mask);
+    if (!impl_->emu) return Result::Unsupported;
+    const uint8_t old_mask = impl_->emu->audio_mute_mask();
+    impl_->emu->set_audio_mute_mask(mask);
     impl_->log_mutate(by, "audio mute mask", old_mask, mask);
     return Result::Ok;
 }
 
 uint16_t Debugger::audio_channel_mute_mask() const {
-    return impl_->emu.audio_channel_mute_mask();
+    if (!impl_->emu) return 0;
+    return impl_->emu->audio_channel_mute_mask();
 }
 
 Result Debugger::set_audio_channel_mute_mask(ClientId by, uint16_t mask) {
-    const uint16_t old_mask = impl_->emu.audio_channel_mute_mask();
-    impl_->emu.set_audio_channel_mute_mask(mask);
+    if (!impl_->emu) return Result::Unsupported;
+    const uint16_t old_mask = impl_->emu->audio_channel_mute_mask();
+    impl_->emu->set_audio_channel_mute_mask(mask);
     // The logged value is the stored one, after masking.
-    impl_->log_mutate(by, "audio channel mute mask", old_mask, impl_->emu.audio_channel_mute_mask());
+    impl_->log_mutate(by, "audio channel mute mask", old_mask, impl_->emu->audio_channel_mute_mask());
     return Result::Ok;
 }
 
 Result Debugger::clear_audio_drops(ClientId by) {
+    if (!impl_->emu) return Result::Unsupported;
     uint64_t total = 0;
-    for (const AudioDropCounter& c : impl_->emu.audio_drops()) total += c.count;
-    impl_->emu.clear_audio_drops();
+    for (const AudioDropCounter& c : impl_->emu->audio_drops()) total += c.count;
+    impl_->emu->clear_audio_drops();
     impl_->log_mutate(by, "audio drop counters", total, 0);
     return Result::Ok;
 }
@@ -854,7 +658,8 @@ Result Debugger::clear_audio_drops(ClientId by) {
 // clocked by n-1, channel 0 by 3), dividing by each time constant; a timer ends the walk by contributing
 // its prescaler. One rounding, at the end.
 std::array<CtcChannelState, CTC_CHANNEL_COUNT> Debugger::ctc_state() const {
-    const Ctc& ctc = impl_->emu.ctc();
+    if (!impl_->emu) return {};
+    const Ctc& ctc = impl_->emu->ctc();
     std::array<CtcChannel::DebugView, CTC_CHANNEL_COUNT> v;
     for (size_t c = 0; c < CTC_CHANNEL_COUNT; ++c) v[c] = ctc.channel(static_cast<int>(c)).debug_view();
 
@@ -889,7 +694,8 @@ std::array<CtcChannelState, CTC_CHANNEL_COUNT> Debugger::ctc_state() const {
 
 // INS-25 -- the DMA's pacing and transfer state.
 DmaState Debugger::dma_state() const {
-    const Dma& dma = impl_->emu.dma();
+    if (!impl_->emu) return DmaState{};
+    const Dma& dma = impl_->emu->dma();
     const Dma::DebugView v = dma.debug_view();
     DmaState s;
     s.active = dma.state() == Dma::State::TRANSFERRING;
@@ -912,7 +718,8 @@ DmaState Debugger::dma_state() const {
 // INS-22 -- the decoded audio chain. Every source is a const accessor or a
 // peek: nothing here runs a NextREG read handler or a port read.
 AudioState Debugger::audio_state() const {
-    Emulator& emu = impl_->emu;
+    if (!impl_->emu) return AudioState{};
+    Emulator& emu = *impl_->emu;
     const TurboSound& ts = emu.turbosound();
     AudioState st;
 
@@ -1000,7 +807,16 @@ AudioState Debugger::audio_state() const {
 // ---------------------------------------------------------------------------
 
 DisasmReadFn Debugger::memory_reader() const {
-    Emulator* emu = &impl_->emu;
+    if (!impl_->emu) {
+        // A non-local target: plain Cpu reads through it, no fetch prediction.
+        Target* t = &impl_->target;
+        return [t](uint16_t a) -> uint8_t {
+            uint8_t b = 0;
+            (void)t->read(MemSpace::cpu(), a, 1, &b);
+            return b;
+        };
+    }
+    Emulator* emu = impl_->emu;
     // GH #360 F1: the instruction at the PC is read as the CPU WILL fetch it, not
     // as the data view shows it. At a DivMMC instant entry the M1 itself maps
     // DivMMC (design 4.4), so a peek of the PC line shows the bytes of the map
@@ -1023,7 +839,9 @@ DisasmReadFn Debugger::memory_reader() const {
 }
 
 DisasmReadFn Debugger::operand_reader() const {
-    Emulator* emu = &impl_->emu;
+    // A non-local target has no fetch prediction: the same plain reads.
+    if (!impl_->emu) return memory_reader();
+    Emulator* emu = impl_->emu;
     return emu->predict_data_reader(emu->cpu().get_registers().PC);
 }
 
@@ -1065,14 +883,17 @@ bool Debugger::is_call_like(uint16_t addr) const {
 // ---------------------------------------------------------------------------
 
 const std::vector<CallFrame>& Debugger::call_stack() const {
-    return impl_->emu.call_stack().frames();
+    if (!impl_->emu) { static const std::vector<CallFrame> none; return none; }
+    return impl_->emu->call_stack().frames();
 }
 
 bool Debugger::call_stack_enabled() const {
-    return impl_->emu.call_stack().enabled();
+    if (!impl_->emu) return false;
+    return impl_->emu->call_stack().enabled();
 }
 
 Result Debugger::set_call_stack_enabled(ClientId by, bool enabled) {
+    if (!impl_->emu) return Result::Unsupported;
     // GH #434 F-B — the request is the CLIENT's, on its row (so a reconstruct keeps it and a
     // detach drops it); the machine's state is derived from every row by `sync_call_stack()`.
     Impl::Client* c = impl_->find_client(by);
@@ -1083,10 +904,11 @@ Result Debugger::set_call_stack_enabled(ClientId by, bool enabled) {
     return Result::Ok;
 }
 
-bool Debugger::trace_enabled() const { return impl_->emu.trace_log().enabled(); }
+bool Debugger::trace_enabled() const { return impl_->emu && impl_->emu->trace_log().enabled(); }
 
 Result Debugger::set_trace_enabled(bool enabled) {
-    impl_->emu.trace_log().set_enabled(enabled);
+    if (!impl_->emu) return Result::Unsupported;
+    impl_->emu->trace_log().set_enabled(enabled);
     // GH #276 B3 — client intent, re-applied across a reconstruct
     // (`Impl::want_trace`).
     impl_->want_trace = enabled;
@@ -1095,21 +917,24 @@ Result Debugger::set_trace_enabled(bool enabled) {
 }
 
 Result Debugger::trace_clear() {
-    impl_->emu.trace_log().clear();
+    if (!impl_->emu) return Result::Unsupported;
+    impl_->emu->trace_log().clear();
     impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
 Result Debugger::trace_resize(size_t entries) {
+    if (!impl_->emu) return Result::Unsupported;
     if (entries == 0) return Result::RefusedUnavailable;
-    impl_->emu.trace_log().resize(entries);
+    impl_->emu->trace_log().resize(entries);
     impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
 Expected<std::vector<TraceEntry>> Debugger::trace_entries() const {
+    if (!impl_->emu) return make_refused<std::vector<TraceEntry>>(Result::Unsupported);
     using Entries = std::vector<TraceEntry>;
-    const TraceLog& log = impl_->emu.trace_log();
+    const TraceLog& log = impl_->emu->trace_log();
     if (!log.enabled()) return make_refused<Entries>(Result::RefusedUnavailable);
     Entries out;
     out.reserve(log.size());
@@ -1118,7 +943,8 @@ Expected<std::vector<TraceEntry>> Debugger::trace_entries() const {
 }
 
 Result Debugger::trace_export(const std::string& path) const {
-    return impl_->emu.trace_log().export_to_file(path) ? Result::Ok
+    if (!impl_->emu) return Result::Unsupported;
+    return impl_->emu->trace_log().export_to_file(path) ? Result::Ok
                                                        : Result::RefusedUnavailable;
 }
 
@@ -1144,6 +970,7 @@ Result Debugger::trace_export(const std::string& path) const {
 // ---------------------------------------------------------------------------
 
 Result Debugger::coverage_enable(bool enabled) {
+    if (!impl_->emu) return Result::Unsupported;
     impl_->coverage_on = enabled;
     if (!enabled) impl_->coverage.reset();
     impl_->publish_coverage();
@@ -1151,15 +978,16 @@ Result Debugger::coverage_enable(bool enabled) {
     return Result::Ok;
 }
 
-bool Debugger::coverage_enabled() const { return impl_->coverage_on; }
+bool Debugger::coverage_enabled() const { return impl_->emu && impl_->coverage_on; }
 
 Result Debugger::coverage_clear() {
+    if (!impl_->emu) return Result::Unsupported;
     impl_->coverage.reset();
     impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
-const CoverageBits& Debugger::coverage() const { return impl_->coverage; }
+const CoverageBits& Debugger::coverage() const { if (!impl_->emu) { static const CoverageBits none; return none; } return impl_->coverage; }
 
 // ---------------------------------------------------------------------------
 // INS-21 -- memory coverage by execute, read and write (GH #388, E23-25)
@@ -1174,6 +1002,7 @@ const CoverageBits& Debugger::coverage() const { return impl_->coverage; }
 // ---------------------------------------------------------------------------
 
 Result Debugger::mem_coverage_enable(bool enabled) {
+    if (!impl_->emu) return Result::Unsupported;
     if (enabled && !impl_->mem_cov) impl_->mem_cov = std::make_unique<MemCoverage>();
     impl_->mem_cov_on = enabled;
     if (!enabled && impl_->mem_cov) impl_->mem_cov->clear();
@@ -1182,9 +1011,10 @@ Result Debugger::mem_coverage_enable(bool enabled) {
     return Result::Ok;
 }
 
-bool Debugger::mem_coverage_enabled() const { return impl_->mem_cov_on; }
+bool Debugger::mem_coverage_enabled() const { return impl_->emu && impl_->mem_cov_on; }
 
 Result Debugger::mem_coverage_clear() {
+    if (!impl_->emu) return Result::Unsupported;
     if (impl_->mem_cov) impl_->mem_cov->clear();
     impl_->bump_revision();   // GH #428
     return Result::Ok;
@@ -1192,6 +1022,7 @@ Result Debugger::mem_coverage_clear() {
 
 Expected<size_t> Debugger::mem_coverage(MemSpace space, uint32_t addr, size_t n,
                                         uint8_t* out) const {
+    if (!impl_->emu) return make_refused<size_t>(Result::Unsupported);
     if (!out) return make_refused<size_t>(Result::RefusedUnavailable);
     const MemCoverage* cov = impl_->mem_cov.get();
     if (space.kind == MemSpace::Kind::Cpu) {
@@ -1199,7 +1030,7 @@ Expected<size_t> Debugger::mem_coverage(MemSpace space, uint32_t addr, size_t n,
         // Mmu::route(), so a Layer 2 read mapping or the DivMMC shows its own map.
         for (size_t i = 0; i < n; ++i) {
             const uint16_t a = static_cast<uint16_t>((addr + i) & 0xFFFF);
-            const Mmu::Route r = impl_->emu.mmu().route(a);
+            const Mmu::Route r = impl_->emu->mmu().route(a);
             out[i] = cov ? cov->get(r.space, r.offset) : 0;
         }
         return make_ok<size_t>(n);
@@ -1219,12 +1050,14 @@ Expected<size_t> Debugger::mem_coverage(MemSpace space, uint32_t addr, size_t n,
 }
 
 uint8_t Debugger::mem_coverage_fetch(uint16_t addr) const {
+    if (!impl_->emu) return 0;
     if (!impl_->mem_cov) return 0;
     const MemSpace s = source_page(addr);
     return impl_->mem_cov->get(s, space_offset(s, addr));
 }
 
 std::vector<MemSpace> Debugger::mem_coverage_spaces() const {
+    if (!impl_->emu) return {};
     return impl_->mem_cov ? impl_->mem_cov->spaces() : std::vector<MemSpace>{};
 }
 
@@ -1233,7 +1066,8 @@ std::vector<MemSpace> Debugger::mem_coverage_spaces() const {
 // ---------------------------------------------------------------------------
 
 ConstU32s Debugger::framebuffer() const {
-    Emulator& emu = impl_->emu;
+    if (!impl_->emu) return ConstU32s{};
+    Emulator& emu = *impl_->emu;
     return ConstU32s{emu.get_framebuffer(),
                      static_cast<size_t>(emu.get_framebuffer_width()) *
                          static_cast<size_t>(emu.get_framebuffer_height())};
@@ -1244,35 +1078,38 @@ ConstU32s Debugger::framebuffer() const {
 // ---------------------------------------------------------------------------
 
 std::vector<uint16_t> Debugger::palette(PaletteId id) const {
+    if (!impl_->emu) return {};
     ::PaletteId hw;
-    if (!resolve_palette(impl_->emu, id, hw)) return {};
+    if (!resolve_palette(*impl_->emu, id, hw)) return {};
     std::vector<uint16_t> out;
     out.reserve(PaletteManager::FULL_SIZE);
     for (int i = 0; i < PaletteManager::FULL_SIZE; ++i)
-        out.push_back(impl_->emu.palette().entry_rgb333(hw, static_cast<uint8_t>(i)));
+        out.push_back(impl_->emu->palette().entry_rgb333(hw, static_cast<uint8_t>(i)));
     return out;
 }
 
 std::vector<uint8_t> Debugger::palette_priority(PaletteId id) const {
+    if (!impl_->emu) return {};
     ::PaletteId hw;
-    if (!resolve_palette(impl_->emu, id, hw)) return {};
+    if (!resolve_palette(*impl_->emu, id, hw)) return {};
     std::vector<uint8_t> out;
     out.reserve(PaletteManager::FULL_SIZE);
     for (int i = 0; i < PaletteManager::FULL_SIZE; ++i)
-        out.push_back(impl_->emu.palette().entry_priority(hw, static_cast<uint8_t>(i)));
+        out.push_back(impl_->emu->palette().entry_priority(hw, static_cast<uint8_t>(i)));
     return out;
 }
 
 Result Debugger::set_palette(ClientId by, PaletteId id, uint8_t index,
                              uint16_t rgb333) {
+    if (!impl_->emu) return Result::Unsupported;
     ::PaletteId hw;
-    if (!resolve_palette(impl_->emu, id, hw)) return Result::RefusedUnavailable;
-    if (impl_->emu.rzx_recorder().is_recording() ||
-        impl_->emu.rzx_player().is_playing())
+    if (!resolve_palette(*impl_->emu, id, hw)) return Result::RefusedUnavailable;
+    if (impl_->emu->rzx_recorder().is_recording() ||
+        impl_->emu->rzx_player().is_playing())
         return Result::RefusedRzx;
 
-    const uint16_t old_value = impl_->emu.palette().entry_rgb333(hw, index);
-    impl_->emu.palette().set_entry_rgb333(hw, index, rgb333);
+    const uint16_t old_value = impl_->emu->palette().entry_rgb333(hw, index);
+    impl_->emu->palette().set_entry_rgb333(hw, index, rgb333);
     char what[40];
     std::snprintf(what, sizeof(what), "palette %u[%u]",
                   static_cast<unsigned>(hw), static_cast<unsigned>(index));
@@ -1282,12 +1119,14 @@ Result Debugger::set_palette(ClientId by, PaletteId id, uint8_t index,
 }
 
 uint8_t Debugger::active_ula_palette_bank() const {
-    return impl_->emu.palette().active_ula_palette() ? 1 : 0;
+    if (!impl_->emu) return 0;
+    return impl_->emu->palette().active_ula_palette() ? 1 : 0;
 }
 
 UlaScreenRegs Debugger::ula_screen_regs() const {
+    if (!impl_->emu) return UlaScreenRegs{};
     UlaScreenRegs r;
-    const Ula& ula = impl_->emu.ula();
+    const Ula& ula = impl_->emu->ula();
     r.active_bank     = ula.get_shadow_screen_en() ? 7 : 5;
     r.port_ff         = ula.get_screen_mode_reg();
     // NR 0x26 is the COARSE byte; the NR 0x68 b2 fine-scroll flag is a separate
@@ -1295,7 +1134,7 @@ UlaScreenRegs Debugger::ula_screen_regs() const {
     r.scroll_x        = ula.get_ula_scroll_x_coarse();
     r.scroll_y        = ula.get_ula_scroll_y();
     r.border          = ula.get_border();
-    r.second_palette  = impl_->emu.palette().active_ula_palette();
+    r.second_palette  = impl_->emu->palette().active_ula_palette();
     r.enabled         = ula.ula_enabled();
     return r;
 }
@@ -1306,14 +1145,16 @@ UlaScreenRegs Debugger::ula_screen_regs() const {
 // is an observation with no side effect, at any instant — mid-frame, paused, or
 // between frames. It is the byte-diffable unit the #20 recorder compares.
 std::vector<uint8_t> Debugger::ula_screen_dump() const {
-    return impl_->emu.ula().screen_dump();
+    if (!impl_->emu) return {};
+    return impl_->emu->ula().screen_dump();
 }
 
 ClipWindow Debugger::clip_window(ClipLayer layer) const {
+    if (!impl_->emu && layer != ClipLayer::Sprites) return ClipWindow{};
     ClipWindow w;
     switch (layer) {
         case ClipLayer::Layer2: {
-            const Layer2& l2 = impl_->emu.layer2();
+            const Layer2& l2 = impl_->emu->layer2();
             w.x1 = l2.clip_x1(); w.x2 = l2.clip_x2();
             w.y1 = l2.clip_y1(); w.y2 = l2.clip_y2();
             break;
@@ -1321,13 +1162,13 @@ ClipWindow Debugger::clip_window(ClipLayer layer) const {
         case ClipLayer::Sprites:
             return sprite_clip();
         case ClipLayer::Ula: {
-            const Ula& ula = impl_->emu.ula();
+            const Ula& ula = impl_->emu->ula();
             w.x1 = ula.clip_x1(); w.x2 = ula.clip_x2();
             w.y1 = ula.clip_y1(); w.y2 = ula.clip_y2();
             break;
         }
         case ClipLayer::Tilemap: {
-            const Tilemap& tm = impl_->emu.tilemap();
+            const Tilemap& tm = impl_->emu->tilemap();
             w.x1 = tm.clip_x1(); w.x2 = tm.clip_x2();
             w.y1 = tm.clip_y1(); w.y2 = tm.clip_y2();
             break;
@@ -1343,15 +1184,16 @@ ClipWindow Debugger::clip_window(ClipLayer layer) const {
 // ---------------------------------------------------------------------------
 
 InputState Debugger::input_state() const {
+    if (!impl_->emu) return InputState{};
     InputState st;
-    const Keyboard& kb = impl_->emu.keyboard();
+    const Keyboard& kb = impl_->emu->keyboard();
     for (int r = 0; r < 8; ++r) st.matrix[r] = kb.matrix_row(r);
     // ACTIVE-HIGH, as NR 0xB0 / 0xB1 read it back — the opposite polarity from
     // `matrix`, which is why both are documented at the struct.
     // The written state, not the guest's view (Keyboard::latch_guest_view()):
     // inspection shows what is pressed, not what the guest has seen yet.
     st.ext_keys = kb.live_extended_keys();
-    const Joystick& joy = impl_->emu.joystick();
+    const Joystick& joy = impl_->emu->joystick();
     st.joy_left12  = joy.joy_left_bits();
     st.joy_right12 = joy.joy_right_bits();
     st.port_1f     = joy.read_port_1f();
@@ -1364,14 +1206,15 @@ InputState Debugger::input_state() const {
 // ---------------------------------------------------------------------------
 
 Result Debugger::set_border(ClientId by, uint8_t colour) {
+    if (!impl_->emu) return Result::Unsupported;
     // §4.2a's RZX wall, as every other mutation has it: a recording cannot
     // carry the change and a playback would diverge (GH #12 — this verb alone
     // lacked it).
-    if (impl_->emu.rzx_recorder().is_recording() ||
-        impl_->emu.rzx_player().is_playing())
+    if (impl_->emu->rzx_recorder().is_recording() ||
+        impl_->emu->rzx_player().is_playing())
         return Result::RefusedRzx;
-    const uint8_t old_colour = impl_->emu.ula().get_border();
-    impl_->emu.ula().set_border(colour);
+    const uint8_t old_colour = impl_->emu->ula().get_border();
+    impl_->emu->ula().set_border(colour);
     impl_->log_mutate(by, "border", old_colour, colour & 0x07);
     impl_->note_mutation();
     return Result::Ok;
