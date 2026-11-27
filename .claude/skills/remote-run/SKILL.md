@@ -94,7 +94,7 @@ patch of the order of 70 KB or more makes the transport fail, which is the usual
 only after the tree check.
 
 `slot.sh --patch` does all of this for an agent (`autonomous-run` skill): `<run>/slot.sh --patch make -C <worktree>
-mutant-test SUITES=<a,b> [ROWS="<row> ..."] JNEXT_SUITE_VMEM_KB=3145728` (or another heavy target when the killers cannot be named). `mutant-test` builds and runs only the named suites and rows, prints `mutant-test: SURVIVED` / `KILLED` / `NO VERDICT` and exits 0 / 1 / 2. Read its result as exit 0 = the mutant SURVIVED the target; non-zero with a
+mutant-test SUITES=<a,b> [ROWS="<row> ..."] JNEXT_SUITE_VMEM_KB=3145728` (or another heavy target when the killers cannot be named). `mutant-test` builds and runs only the named suites and rows, prints `mutant-test: SURVIVED` / `KILLED` / `NO VERDICT` (the script exits 0 / 1 / 2, but `make` exits 2 for any failed recipe, so read the last `mutant-test:` line). Read its result as exit 0 = the mutant SURVIVED the target; non-zero with a
 FAIL row, `Failed` > 0, a crash or no `Total:` line = KILLED; any `PATCH REFUSED` or `mutant-test: NO VERDICT` (a typo in a name, a mutant that does not compile) = no verdict, fix and re-run. A patch run whose session is lost after the start, whose harness refuses to run (its banner `TEST HARNESS REFUSES TO RUN` alone on a line, exit 2 of make; the words quoted in a FAIL listing do not count) or that hits the run-level timeout is also exit 2 `PATCH REFUSED ... no verdict`, never exit 1: for a mutant a red exit is the "good" answer, so a status that says nothing about the mutant must not look like one.
 
 ### The batch gate

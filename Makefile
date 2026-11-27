@@ -1329,7 +1329,7 @@ traceability-selftest:
 	@# of its own, and shipped skipping every `?`-prefixed suite.
 	@perl test/traceability-citations-selftest.pl
 
-# Mutant run (GH #585): build and run only SUITES=a,b [ROWS="r ..."]; exit 0 survived, 1 killed, 2 no verdict
+# Mutant run (GH #585): build and run only SUITES=a,b [ROWS="r ..."]; last line says SURVIVED, KILLED or NO VERDICT
 mutant-test: sdcard-image
 	@MT_MAKE="$(MAKE)" MT_JOBS=$(JOBS) MT_SUITES="$(SUITES)" MT_ROWS="$(ROWS)" bash test/mutant-test.sh
 

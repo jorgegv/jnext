@@ -4,7 +4,8 @@
 #
 #   make mutant-test SUITES=a,b [ROWS="row-x row-y"] [JNEXT_SUITE_VMEM_KB=3145728]
 #
-# Exit status, with a last line that says it:
+# Exit status of this script, with a last line that says it (`make` itself exits 2 for ANY failed recipe, a
+# kill included, so a make-driven run is read by that last line, and remote-run by the banner rule below):
 #   0  `mutant-test: SURVIVED`   every named suite and row passed
 #   1  `mutant-test: KILLED`     a named suite or row failed (FAIL row, Failed > 0, crash, no Total:)
 #   2  `mutant-test: NO VERDICT: <reason>`, after the banner line `TEST HARNESS REFUSES TO RUN` alone on

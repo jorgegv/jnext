@@ -99,10 +99,12 @@ checked first, with `run-unit-tests.sh --only <list> --check`, which makes the
 manifest's registry, gate, OS, duplicate and source checks without needing a
 binary: a typo, a suite the configuration gates out and a row no manifest declares
 are refused before anything is built. It runs no documentation, CLI or smoke
-checks. Exit 0 prints `mutant-test: SURVIVED`, exit 1 `mutant-test: KILLED` (it
-stops at the first kill), exit 2 `mutant-test: NO VERDICT` after the harness's
-`TEST HARNESS REFUSES TO RUN` banner (a bad name, or a configure or build failure:
-a mutant that does not compile proves nothing). `make unit-test-configure`
+checks. The last line says the verdict: `mutant-test: SURVIVED` (exit 0),
+`mutant-test: KILLED` (it stops at the first kill) or `mutant-test: NO VERDICT`
+after the harness's `TEST HARNESS REFUSES TO RUN` banner (a bad name, or a
+configure or build failure: a mutant that does not compile proves nothing). The
+script's statuses are 0, 1 and 2, but `make` reports any failed recipe as 2, so
+read the last line, not the status. `make unit-test-configure`
 configures or verifies `build/` without building it; `make unit-test-build` runs it
 first.
 
