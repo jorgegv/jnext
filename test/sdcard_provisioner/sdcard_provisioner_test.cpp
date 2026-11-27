@@ -3220,7 +3220,10 @@ void test_name_rows() {
                   r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + newn && fs::is_regular_file(dir + "/" + newn) &&
                   slurp_text(dir + "/previous/" + oldn) == old_bytes && gone(dir + "/" + oldn) && st.backup &&
                   st.card_present && slurp_text(dir + "/" + newn + ".distro") == "sn-emulator-99.99.zip\n" &&
-                  sdcard::upgrade::backup_distribution(dir) == "sn-emulator-24.11.zip", r.error + r.warning);
+                  sdcard::upgrade::backup_distribution(dir) == "sn-emulator-24.11.zip", r.error + r.warning + " path=" + r.path + " new=" + std::to_string(fs::is_regular_file(dir + "/" + newn)) +
+                  " prev_old=" + slurp_text(dir + "/previous/" + oldn) + " old_gone=" + std::to_string(gone(dir + "/" + oldn)) +
+                  " backup=" + std::to_string(st.backup) + " present=" + std::to_string(st.card_present) +
+                  " distro=" + slurp_text(dir + "/" + newn + ".distro") + " bdist=" + sdcard::upgrade::backup_distribution(dir));
             std::string err;
             const sdcard::backup::Result gb = sdcard::backup::go_back(dir, err);
             const sdcard::backup::Status st2 = sdcard::backup::card_set_status(dir, "sn-emulator-99.99.zip", false);

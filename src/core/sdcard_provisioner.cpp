@@ -1523,7 +1523,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             if (opts.show_report) opts.show_report(report_text);
         }
         r.status = ProvisionStatus::Ok;
-        r.path   = fixed;
+        r.path   = default_sdcard_image_path();   // the new card was installed under the new name, whatever the old one was called
         r.upgraded = true;
         return r;
     }
