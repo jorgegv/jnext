@@ -2228,6 +2228,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-client-half" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The client half
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#tests" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3129,7 +3140,11 @@ validated is <code>doc/testing/DZRP-VALIDATION.md</code>.</p>
 <tbody>
 <tr>
 <td><code>src/remote/dzrp/dzrp_frame.{h,cpp}</code></td>
-<td><code>FrameParser</code> and <code>encode_response</code>: the framing, and nothing else</td>
+<td>The framing, and nothing else, in both directions: <code>FrameParser</code> and <code>encode_response</code> (the server's half), <code>encode_command</code> and <code>ResponseParser</code> (the client's)</td>
+</tr>
+<tr>
+<td><code>src/remote/dzrp/dzrp_protocol.h</code></td>
+<td>The command ids, notification ids, break reasons and the version JNEXT speaks, shared by the server and the client</td>
 </tr>
 <tr>
 <td><code>src/remote/dzrp/dzrp_server.{h,cpp}</code></td>
@@ -3145,7 +3160,8 @@ validated is <code>doc/testing/DZRP-VALIDATION.md</code>.</p>
 </tr>
 </tbody>
 </table>
-<p><strong>Framing.</strong> The two directions count their length differently, and both are
+<p><strong>Framing.</strong> (Each parser reads one direction: the server's <code>FrameParser</code> reads
+commands, the client's <code>ResponseParser</code> reads responses.) The two directions count their length differently, and both are
 easy to get wrong: a command's length counts its payload only, a response's (and
 a notification's) counts from the sequence byte. Sequence 0 is reserved for
 notifications, and a command that uses it closes the connection. A payload over
@@ -3309,14 +3325,167 @@ nobody to resume it.</p>
 pause and resume it, and whichever acted last wins; and a <code>--headless</code> stop that
 would exit a run (<code>ExitNonZero</code>) pauses and notifies instead while a remote
 client is connected, so a client blocked in a <code>CONTINUE</code> gets its stop.</p>
+<h2 id="the-client-half">The client half<a class="headerlink" href="#the-client-half" title="Permanent link">&para;</a></h2>
+<p>JNEXT is also a DZRP <em>client</em>: it can drive another JNEXT, or the dezogif_ng stub
+on a real Next, as a debug target. The protocol half of that is <code>DzrpClient</code>
+(<code>src/remote/dzrp/</code>), Qt-free, with no dependency on the debugger backend and no
+socket call of its own.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dzrp_frame.{h,cpp}</code></td>
+<td><code>encode_command</code>, <code>ResponseParser</code> (with an optional serial preamble hunt for 0xA5)</td>
+</tr>
+<tr>
+<td><code>dzrp_protocol.h</code></td>
+<td>the shared constants</td>
+</tr>
+<tr>
+<td><code>dzrp_session.{h,cpp}</code></td>
+<td>the session token and the program name <code>DzrpClient</code> sends</td>
+</tr>
+<tr>
+<td><code>dzrp_client.{h,cpp}</code></td>
+<td><code>DzrpClient</code>: session, profiles, sequence numbers, timeouts, notifications, the send gate</td>
+</tr>
+<tr>
+<td><code>src/remote/client_link.{h,cpp}</code></td>
+<td><code>ClientLink</code>, the byte pipe a client talks over, and <code>parse_link_uri</code> (<code>tcp:HOST:PORT</code>, IPv6 in brackets)</td>
+</tr>
+<tr>
+<td><code>src/remote/tcp_link.{h,cpp}</code></td>
+<td><code>TcpLink</code>: a TCP connection over the esp socket seam, with a connect deadline and an output queue; loopback and private addresses are allowed, link-local, cloud-metadata, unspecified and multicast ones are refused</td>
+</tr>
+<tr>
+<td><code>src/remote/memory_link.{h,cpp}</code></td>
+<td><code>MemoryLink</code>: the client end of an in-memory <code>FakeListener</code>, for the unit suites</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The session.</strong> <code>CMD_INIT</code> carries version 2.2.0 and the program name
+<code>jnext v&lt;version&gt; (session &lt;token&gt;)</code>; <code>CMD_GET_SUPPORTED_COMMANDS</code> follows when
+the remote speaks it, and its bitfield (1 to 32 bytes) becomes the command set.
+<code>CMD_CLOSE</code> ends the session. Sequence numbers run 1 to 15 and never 0; a reply is
+matched to the oldest outstanding command by the <strong>whole</strong> seq byte, as DeZog
+does, and any other reply (a wrong seq, one with nothing outstanding) ends the
+session. A command with no reply within the response timeout (default 2 s,
+counted from the moment it was sent) ends it too, because after a lost reply the
+stream cannot be resynchronised. <code>NTF_PAUSE</code> is queued for <code>take_pause()</code>;
+<code>NTF_LOG</code> is formatted per the spec (<code>$s1 $u1 $h1 $s2 $u2 $h2</code>) and logged; an
+unknown notification is ignored, frames being length-delimited.</p>
+<p><strong>Profiles.</strong> What the remote is decides what the client may send. The rule is
+one function, <code>select_profile(info, link kind)</code>; a remote it does not name is
+refused:</p>
+<table>
+<thead>
+<tr>
+<th>Remote name</th>
+<th>DZRP version</th>
+<th>Link</th>
+<th>Profile</th>
+<th>Command set</th>
+<th>Breakpoints</th>
+<th>Window</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>jnext v...</code></td>
+<td>2.2 or later</td>
+<td>any</td>
+<td><code>Jnext</code></td>
+<td><code>GET_SUPPORTED_COMMANDS</code></td>
+<td>normal (40/41)</td>
+<td>15</td>
+</tr>
+<tr>
+<td><code>dezogif v...</code></td>
+<td>2.1</td>
+<td>TCP</td>
+<td><code>DezogifNg</code></td>
+<td>1-23, 40, 41</td>
+<td>simple (13/14)</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>dezogif v...</code></td>
+<td>2.1</td>
+<td>serial</td>
+<td><code>DezogifSerial</code></td>
+<td>1-6, 8-17, 20-23</td>
+<td>simple</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>dezogif v...</code></td>
+<td>2.2 or later</td>
+<td>any</td>
+<td><code>Dezogif22</code></td>
+<td><code>GET_SUPPORTED_COMMANDS</code></td>
+<td>normal if it serves 40 and 41, else simple</td>
+<td>1</td>
+</tr>
+</tbody>
+</table>
+<p>The serial row is the intersection of two stubs that answer alike: dezogif_ng, and
+the upstream stub, which answers every id above 23 with "not supported" and so
+resets its session on 40 and 41 as well as on 7, 18 and 19. The machine type must
+be ZXNEXT (4) and the major version 2.</p>
+<p><strong>The send gate.</strong> A dezogif stub resets its session on a command it does not
+serve, and a running program must not be sent anything but <code>CMD_PAUSE</code>. So every
+command goes through one gate: the session must be ready, the id must be in the
+profile's set, and on a dezogif profile nothing but <code>CMD_PAUSE</code> goes while the
+program runs (a submitted <code>CMD_CONTINUE</code> sets that state, an <code>NTF_PAUSE</code> clears
+it). A refusal writes no bytes and logs an error: it is a client bug. The client
+has no way round the gate; the test probe borrows the link with <code>detach_link()</code>.</p>
+<p><strong>The wait hook.</strong> <code>submit()</code>, <code>poll()</code> and <code>step()</code> never block. <code>request()</code> and
+<code>request_all()</code> wait in a loop that polls the link and calls the <em>wait hook</em> each
+turn. The hook is the local debugger's <code>Debugger::pump()</code>: it keeps this JNEXT's
+own servers (a DeZog attached to it, say) served while the client waits, and it lets
+the in-process loopback tests, which give the client a distinct session token, talk
+to a server hosted by the same process. A <code>request</code> made from inside the hook is
+refused (<code>Reentrant</code>).</p>
+<p><strong>A session with oneself.</strong> The server refuses a <code>CMD_INIT</code> whose program name
+ends with this process's session token (<code>process_session_token()</code>): the client
+and the server would run on one thread. The refusal is error 1 with the token
+echoed in the name, which the client recognises ("this is this jnext's own DZRP
+server"). The match is exact, on the raw payload bytes, and runs before anything
+is attached or paused. Every other client is served as before.</p>
+<p><strong>The probe.</strong> <code>build/test/dzrp_client_probe</code> is a test-support binary (not a
+test, never packaged, not built for WebAssembly) for checking a client against a
+real remote. Against a Next running dezogif_ng over WiFi, press the NMI button
+<strong>first</strong> (a TCP connect while the program runs makes the ESP-01 print <code>CONNECT</code>,
+which breaks it), then run:</p>
+<pre><code>build/test/dzrp_client_probe tcp:192.168.1.50:11000
+</code></pre>
+<p>It connects, sends <code>CMD_INIT</code> (and <code>CMD_GET_SUPPORTED_COMMANDS</code> when the profile
+does), reads the registers, 16 bytes at <code>PC</code>, at <code>SP</code> and in each of the eight
+slots, ten NextRegs and closes, printing one line per step with its round trip
+and a summary. <code>--send-unsupported ID</code> sends, last and once, a command outside the
+profile's set past the gate, reports whether the remote answered, then reconnects
+to show whether it serves a fresh session. <code>--help</code> lists the rest. Exit status
+0 means every step ran, 1 a step failed, 2 a usage error.</p>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>dzrp_adapter_test</code> runs the production <code>DzrpServer</code> and <code>Server</code>
   over the transport's in-memory fake, on a real <code>Emulator</code> and <code>Debugger</code>, and
   asserts bytes on the wire and machine state for every command, including both
   sides of every bank and range check.</li>
+<li><code>dzrp_client_test</code> runs the client over memory links against scripted peers and a
+  real <code>DzrpServer</code> on a real machine (framing, the session, the profiles, the gate,
+  the wait hook, <code>NTF_LOG</code>, the probe); it has no socket, so it runs in every
+  configuration. Its server-side counterpart, the refusal of a session with
+  oneself, is <code>DZRP-SES-15..18</code> in <code>dzrp_adapter_test</code>.</li>
 <li><code>remote_transport_test</code> pins the transport the server stands on, including the
-  reconnect rules its rows found (XPT-SRV-30..33).</li>
+  reconnect rules its rows found (XPT-SRV-30..33), and the client links
+  (<code>RLK-*</code>: the URI grammar, <code>TcpLink</code> over real loopback sockets, <code>MemoryLink</code>,
+  the probe over real TCP).</li>
 <li>The <code>dzrp-*-func</code> regression rows drive a live JNEXT over <code>--dzrp-port 0</code>
   through two independently written clients — <code>tools/cspect_dzrp</code> and the
   owner's dezogif_ng conformance suite, copied into <code>test/dzrp/</code> — in all three

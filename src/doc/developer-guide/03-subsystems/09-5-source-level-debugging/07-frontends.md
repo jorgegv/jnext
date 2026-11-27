@@ -449,7 +449,7 @@ mapping. On the other machines segment 0 is `DIV` while DivMMC is paged in.
 the SLD or the map itself and evaluates its own breakpoint conditions (jnext arms a conditional DZRP breakpoint
 unconditionally). So a DeZog user gets no C variables from jnext. What DZRP shares with this section is the legacy `bank+1` qualifier
 ([3.9.5.1](01-which-memory.md)). `CMD_GET_REGISTERS` reports `0xFF` for every ROM slot
-(`is_rom`, `dzrp_server.cpp:549-553`), because DeZog has no bank for the ROM values
+(`is_rom`, `dzrp_server.cpp:564-568`), because DeZog has no bank for the ROM values
 `0xE0`-`0xFE`.
 
 **Scripts.** `on execute FILE:LINE` resolves through `source_map().resolve()` at load time (`source_map().resolve()`, `script_engine.cpp:332`) and

@@ -32,10 +32,22 @@
 // loopback allowed — the same public seam, so this suite opens no socket of its
 // own either.
 //
+//   RLK-*       the CLIENT links (GH #511): `parse_link_uri`, `TcpLink` over the real
+//               socket layer against a real `Server` on 127.0.0.1 port 0 (connect,
+//               refusal, the connect deadline, a peer close, a 16 MiB write, the
+//               address policy, the bounded wait), `MemoryLink` over the fake, and the
+//               DZRP probe over real TCP to an in-process DzrpServer.
+//
 // Run: ./build/test/remote_transport_test
 
+#include "remote/client_link.h"
+#include "remote/dzrp/dzrp_server.h"
 #include "remote/fake_transport.h"
+#include "remote/memory_link.h"
+#include "remote/tcp_link.h"
 #include "remote/transport.h"
+
+#include "dzrp_probe.h"
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -45,6 +57,7 @@
 #include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -1199,12 +1212,386 @@ static void pump_rows() {
     srv.stop();
 }
 
+// ── RLK - the client links (GH #511) ───────────────────────────────────────
+
+using jnext::remote::ClientLink;
+using jnext::remote::LinkKind;
+using jnext::remote::LinkSpec;
+using jnext::remote::LinkState;
+using jnext::remote::MemoryLink;
+using jnext::remote::TcpLink;
+using jnext::remote::TcpLinkOptions;
+
+/// Drive `srv` and `link` until `pred` or `ms` of real time; true if it held.
+static bool link_until(Server& srv, ClientLink& link, const std::function<bool()>& pred,
+                       long ms = 5000) {
+    const auto t0 = SteadyClock::now();
+    while (ms_since(t0) < ms) {
+        if (pred()) return true;
+        srv.service_once(0);
+        srv.flush_notifications();
+        link.poll(1);
+    }
+    return pred();
+}
+
+static std::string read_all(ClientLink& l) {
+    std::string  s;
+    std::uint8_t b[4096];
+    std::size_t  n;
+    while ((n = l.read(b, sizeof(b))) > 0) s.append(reinterpret_cast<const char*>(b), n);
+    return s;
+}
+
+static bool uri_ok(const std::string& u, const char* host, std::uint16_t port) {
+    LinkSpec    sp;
+    std::string err;
+    return jnext::remote::parse_link_uri(u, sp, err) && sp.kind == LinkKind::Tcp && sp.host == host &&
+           sp.port == port;
+}
+
+/// A Protocol that swallows what it is sent and checks it against `pat`.
+class SinkProtocol : public Protocol {
+public:
+    std::size_t got = 0;
+    bool        intact = true;
+    void on_connect(Connection&) override {}
+    ServiceStep on_service(Connection& c) override {
+        std::uint8_t b[8192];
+        std::size_t  n;
+        while ((n = c.read(b, sizeof(b))) > 0) {
+            for (std::size_t i = 0; i < n; ++i)
+                if (b[i] != pat(got + i)) intact = false;
+            got += n;
+        }
+        return ServiceStep::Idle;
+    }
+    void on_notify(Connection&) override {}
+    void on_disconnect() override {}
+};
+
+static void link_rows() {
+    // URI grammar.
+    check("RLK-URI-01", "tcp:HOST:PORT accepts a numeric IPv4, a bracketed IPv6 and a DNS name, "
+                        "with the right kind, host and port",
+          uri_ok("tcp:127.0.0.1:11000", "127.0.0.1", 11000) && uri_ok("tcp:[::1]:1", "::1", 1) &&
+              uri_ok("tcp:my-next.local:65535", "my-next.local", 65535) &&
+              uri_ok("tcp:192.168.1.50:11000", "192.168.1.50", 11000));
+    {
+        const std::string host254(254, 'a');
+        const std::vector<std::string> bad = {
+            "serial:/dev/ttyUSB0", "udp:1.2.3.4:5", "tcp::11000", "tcp:::1:5", "tcp:[::1:5",
+            "tcp:1.2.3.4", "tcp:1.2.3.4:0", "tcp:1.2.3.4:65536", "tcp:1.2.3.4:+5", "tcp:1.2.3.4: 5",
+            "tcp:1.2.3.4:5x", "tcp:1.2.3.4:4294967377", "tcp:1.2.3.4:011000", "tcp:" + host254 + ":5", "tcp:a..b:5", std::string("tcp:1.2.3\0.4:5", 15)};
+        bool        all = true;
+        std::string why;
+        for (const std::string& u : bad) {
+            LinkSpec    sp;
+            std::string err;
+            if (jnext::remote::parse_link_uri(u, sp, err) || err.empty()) {
+                all = false;
+                why += " [" + u.substr(0, 20) + "]";
+            }
+        }
+        LinkSpec    sp;
+        std::string serr;
+        jnext::remote::parse_link_uri("serial:/dev/ttyUSB0", sp, serr);
+        check("RLK-URI-02", "serial:, other schemes, a missing or empty host, an unbracketed IPv6, "
+                            "an unbalanced bracket, a missing port, ports 0 and 65536, a sign, "
+                            "whitespace, a trailing character, a 254-character host, an empty "
+                            "label and an embedded NUL are all refused with a reason",
+              all && serr.find("not in this build") != std::string::npos, why + " " + serr);
+    }
+
+    // TcpLink against a real Server.
+    LineProtocol proto;
+    Server       srv(cfg_named("rlk"), proto);
+    const bool   listening = srv.open("127.0.0.1", 0);
+    const std::uint16_t port = srv.port();
+    {
+        TcpLink link("127.0.0.1", port);
+        const bool opened     = listening && link.open();
+        const bool connecting = link.state() == LinkState::Connecting;
+        const bool up = link_until(srv, link, [&] { return link.state() == LinkState::Open; });
+        link.write(reinterpret_cast<const std::uint8_t*>("ping\n"), 5);
+        std::string rx;
+        link_until(srv, link, [&] { rx += read_all(link); return rx == "pong\n"; });
+        check("RLK-TCP-01", "a connect to the Server's port goes Connecting then Open (loopback is "
+                            "allowed by the client policy), and bytes flow both ways",
+              opened && connecting && up && rx == "pong\n", "rx=" + rx + " err=" + link.last_error());
+        check("RLK-TCP-08", "describe() is tcp:<host>:<port>, with brackets around an IPv6 host, "
+                            "and kind() is Tcp",
+              link.describe() == "tcp:127.0.0.1:" + std::to_string(port) && link.kind() == LinkKind::Tcp &&
+                  TcpLink("::1", 5).describe() == "tcp:[::1]:5");
+    }
+    {
+        // Refused: a port that was open and is closed again.
+        std::uint16_t dead = 0;
+        {
+            LineProtocol p2;
+            Server       s2(cfg_named("dead"), p2);
+            s2.open("127.0.0.1", 0);
+            dead = s2.port();
+        }
+        TcpLinkOptions o;
+        o.connect_timeout = milliseconds(4000);
+        TcpLink link("127.0.0.1", dead, o);
+        link.open();
+        const auto t0 = SteadyClock::now();
+        link_until(srv, link, [&] { return link.state() == LinkState::Failed; }, 6000);
+        check("RLK-TCP-02", "a connect to a closed port ends Failed, with an error, inside the "
+                            "connect timeout",
+              link.state() == LinkState::Failed && !link.last_error().empty() && ms_since(t0) < 4000,
+              link.last_error() + " after " + std::to_string(ms_since(t0)) + "ms");
+    }
+    {
+        // The connect deadline, on a lookup that never returns until released.
+        auto release = std::make_shared<std::atomic<bool>>(false);
+        TcpLinkOptions o;
+        o.connect_timeout = milliseconds(100);
+        o.resolver = [release](const std::string&, std::vector<esp::IpAddress>&, std::string& err) {
+            for (int i = 0; i < 2000 && !release->load(); ++i)
+                std::this_thread::sleep_for(milliseconds(1));
+            err = "blocked";
+            return false;
+        };
+        long took = 0;
+        bool failed = false, timed_out = false;
+        SteadyClock::time_point before_destroy;
+        {
+            TcpLink link("slow.invalid", 80, o);
+            const auto t0 = SteadyClock::now();
+            link.open();
+            const auto limit = t0 + milliseconds(1500);
+            while (link.state() == LinkState::Connecting && SteadyClock::now() < limit) link.poll(1);
+            took      = ms_since(t0);
+            failed    = link.state() == LinkState::Failed;
+            timed_out = link.last_error().find("timed out") != std::string::npos;
+            before_destroy = SteadyClock::now();
+        }   // the link is destroyed here, with the lookup still blocked
+        const long destroy = ms_since(before_destroy);
+        release->store(true);
+        check("RLK-TCP-03", "a lookup that never returns: Failed \"timed out\" after about the "
+                            "100 ms connect timeout and well under 1 s, and destroying the link "
+                            "returns at once",
+              failed && timed_out && took >= 90 && took < 1000 && destroy < 200,
+              "took=" + std::to_string(took) + " destroy=" + std::to_string(destroy));
+    }
+    {
+        TcpLink link("127.0.0.1", port);
+        link.open();
+        link_until(srv, link, [&] { return link.state() == LinkState::Open; });
+        link.write(reinterpret_cast<const std::uint8_t*>("bye\n"), 4);
+        std::string rx;
+        const bool closed = link_until(srv, link, [&] {
+            if (link.state() == LinkState::Closed) return true;
+            rx += read_all(link);
+            return false;
+        });
+        check("RLK-TCP-04", "the peer writes \"bye\\n\" and closes: the link delivers those bytes "
+                            "first and only then reports Closed",
+              closed && rx == "bye\n", "rx=" + rx);
+    }
+    {
+        SinkProtocol sink;
+        Server       s3(cfg_named("sink"), sink);
+        s3.open("127.0.0.1", 0);
+        TcpLink link("127.0.0.1", s3.port());
+        link.open();
+        constexpr std::size_t kBig = std::size_t{16} << 20;
+        std::vector<std::uint8_t> big(kBig);
+        for (std::size_t i = 0; i < kBig; ++i) big[i] = pat(i);
+        const bool queued = link_until(s3, link, [&] { return link.state() == LinkState::Open; }) &&
+                            link.write(big.data(), big.size());
+        const bool whole = link_until(s3, link, [&] { return sink.got >= kBig; }, 60000);
+        // The capped link gets a server of its own: s3 has a client already and would refuse it.
+        SinkProtocol sink2;
+        Server       s5(cfg_named("sink2"), sink2);
+        s5.open("127.0.0.1", 0);
+        TcpLinkOptions small;
+        small.max_output = std::size_t{64} << 10;
+        TcpLink       tiny("127.0.0.1", s5.port(), small);
+        tiny.open();
+        link_until(s5, tiny, [&] { return tiny.state() == LinkState::Open; });
+        const bool refused = !tiny.write(big.data(), std::size_t{128} << 10) &&
+                             tiny.state() == LinkState::Failed &&
+                             tiny.last_error().find("output backlog") != std::string::npos;
+        check("RLK-TCP-05", "one 16 MiB write is delivered whole and in order across many polls; "
+                            "a link with a 64 KiB output cap fails a 128 KiB write (\"output backlog\")",
+              queued && whole && sink.got == kBig && sink.intact && refused,
+              "got=" + std::to_string(sink.got) + " intact=" + std::to_string(sink.intact) +
+                  " err=" + tiny.last_error());
+    }
+    {
+        const std::string want_unspec =
+            esp::deny_reason_text(esp::classify_address(esp::ipv4(0, 0, 0, 0), jnext::remote::client_policy()));
+        const std::string want_meta = esp::deny_reason_text(
+            esp::classify_address(esp::ipv4(169, 254, 169, 254), jnext::remote::client_policy()));
+        TcpLink a("0.0.0.0", 1);
+        a.open();
+        link_until(srv, a, [&] { return a.state() == LinkState::Failed; });
+        TcpLinkOptions o;
+        o.resolver = [](const std::string&, std::vector<esp::IpAddress>& out, std::string&) {
+            out.push_back(esp::ipv4(169, 254, 169, 254));
+            return true;
+        };
+        TcpLink b("metadata.example", 80, o);
+        b.open();
+        link_until(srv, b, [&] { return b.state() == LinkState::Failed; });
+        check("RLK-TCP-06", "the address policy: 0.0.0.0 and a name that resolves to 169.254.169.254 "
+                            "both fail, the error naming the policy and the reason",
+              a.state() == LinkState::Failed && a.last_error().find("address policy") != std::string::npos &&
+                  a.last_error().find(want_unspec) != std::string::npos && b.state() == LinkState::Failed &&
+                  b.last_error().find("address policy") != std::string::npos &&
+                  b.last_error().find(want_meta) != std::string::npos,
+              a.last_error() + " | " + b.last_error());
+    }
+    {
+        // A server driven from a helper thread, so the link can wait on its own thread.
+        LineProtocol p4;
+        Server       s4(cfg_named("wait"), p4);
+        s4.open("127.0.0.1", 0);
+        TcpLink link("127.0.0.1", s4.port());
+        link.open();
+        link_until(s4, link, [&] { return link.state() == LinkState::Open; });
+        const auto t0 = SteadyClock::now();
+        link.poll(150);
+        const long idle = ms_since(t0);
+        std::atomic<bool> stop{false};
+        std::thread helper([&] {
+            const auto h0 = SteadyClock::now();
+            bool       sent = false;
+            while (!stop.load() && ms_since(h0) < 4000) {
+                s4.service_once(5);
+                if (!sent && ms_since(h0) >= 150) {
+                    p4.notify_text = "tick";
+                    sent = true;
+                }
+                s4.flush_notifications();
+                if (sent) p4.notify_text.clear();
+            }
+        });
+        const auto t1 = SteadyClock::now();
+        link.poll(3000);
+        const long early = ms_since(t1);
+        const std::string rx = read_all(link);
+        stop.store(true);
+        helper.join();
+        check("RLK-TCP-07", "poll(150) with nothing to read waits most of 150 ms; with bytes "
+                            "arriving mid-wait poll(3000) returns early, long before 3 s",
+              idle >= 120 && idle < 3000 && early >= 100 && early < 2500 && rx == "tick",
+              "idle=" + std::to_string(idle) + " early=" + std::to_string(early) + " rx=" + rx);
+    }
+
+    {
+        // A reply far over the input cap, drained slowly: nothing is lost, order is kept,
+        // and the link never buffers more than its cap plus one chunk.
+        LineProtocol p6;
+        Server       s6(cfg_named("bigrx"), p6);
+        s6.open("127.0.0.1", 0);
+        TcpLink link("127.0.0.1", s6.port());
+        link.open();
+        link_until(s6, link, [&] { return link.state() == LinkState::Open; });
+        constexpr std::size_t kRx = std::size_t{3} << 20;
+        const std::string cmd = "big " + std::to_string(kRx) + "\n";
+        link.write(reinterpret_cast<const std::uint8_t*>(cmd.data()), cmd.size());
+        std::string rx;
+        std::size_t peak = 0;
+        link_until(s6, link, [&] {
+            peak = std::max(peak, link.buffered());
+            std::uint8_t b[8192];
+            const std::size_t n = link.read(b, sizeof(b));
+            rx.append(reinterpret_cast<const char*>(b), n);
+            return rx.size() >= kRx;
+        }, 60000);
+        check("RLK-TCP-09", "a 3 MiB reply (three times the input cap) drained 8 KiB at a time arrives identical and in order, and the buffered input never exceeds the 1 MiB cap plus one 16 KiB chunk",
+              is_pattern(rx, kRx) && peak > 0 && peak <= (std::size_t{1} << 20) + (std::size_t{16} << 10),
+              "rx=" + std::to_string(rx.size()) + " peak=" + std::to_string(peak));
+    }
+
+    // MemoryLink over the fake.
+    {
+        FakeRig rig;
+        MemoryLink link(*rig.lsn);
+        link.open();
+        link.write(reinterpret_cast<const std::uint8_t*>("ping\n"), 5);
+        std::string rx;
+        rig.until([&] { rx += read_all(link); return rx == "pong\n"; });
+        check("RLK-MEM-01", "a MemoryLink against a remote::Server over the fake: bytes flow both "
+                            "ways through the production Server",
+              link.state() == LinkState::Open && rx == "pong\n", rx);
+    }
+    {
+        FakeListener lsn;   // never opened
+        MemoryLink   link(lsn);
+        const bool opened = link.open();
+        check("RLK-MEM-02", "open() while the listener is not listening fails with \"connection refused\"",
+              !opened && link.state() == LinkState::Failed && link.last_error() == "connection refused");
+    }
+    {
+        FakeRig rig;
+        MemoryLink link(*rig.lsn);
+        link.open();
+        link.write(reinterpret_cast<const std::uint8_t*>("bye\n"), 4);
+        std::string rx;
+        const bool closed = rig.until([&] {
+            if (link.state() == LinkState::Closed) return true;
+            rx += read_all(link);
+            return false;
+        });
+        check("RLK-MEM-03", "the server writes and closes: the link delivers the bytes, then reports Closed",
+              closed && rx == "bye\n", rx);
+    }
+    {
+        FakeListener lsn;
+        MemoryLink   def(lsn);
+        MemoryLink   ser(lsn, LinkKind::Serial, "x");
+        check("RLK-MEM-04", "kind() reports the impersonated kind (Tcp by default, Serial on request) and describe() is mem:<label>",
+              def.kind() == LinkKind::Tcp && ser.kind() == LinkKind::Serial && ser.describe() == "mem:x" &&
+                  def.describe() == "mem:mem");
+    }
+
+    // The probe over REAL TCP to an in-process DzrpServer.
+    {
+        Emulator       emu;
+        EmulatorConfig ec;
+        ec.type = MachineType::ZX48K;
+        emu.init(ec);
+        emu.mmu().write(0x8000, 0x18);
+        emu.mmu().write(0x8001, 0xFE);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x8000;
+        r.SP = 0xFF00;
+        r.IFF1 = 0;
+        r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+        Debugger dbg(emu);
+        jnext::remote::dzrp::DzrpServer dz(dbg);
+        const bool open = dz.server().open("127.0.0.1", 0);
+        dbg.add_service(dz.server());
+        jnext::remote::dzrp::ProbeEnv env;
+        env.wait_hook = [&dbg] { dbg.pump(PumpBudget{}); };
+        env.base.session_token = "0123456789abcdef";   // not this process's: it would be refused
+        const std::string uri = "tcp:127.0.0.1:" + std::to_string(dz.server().port());
+        std::string a0 = "dzrp_client_probe", a1 = uri;
+        char*       argv[] = {&a0[0], &a1[0]};
+        int         rc = -1;
+        const std::string out = jnext::remote::dzrp::run_probe_captured(2, argv, env, rc);
+        dbg.remove_service(dz.server());
+        check("RLK-PRB-01", "the probe over real TCP to an in-process DzrpServer: exit 0, profile jnext, \"0 failed\"",
+              open && rc == 0 && out.find("profile jnext") != std::string::npos &&
+                  out.find(" 0 failed") != std::string::npos,
+              "rc=" + std::to_string(rc) + "\n" + out);
+    }
+}
+
 int main() {
     std::printf("remote_transport_test — the shared debugger socket transport (GH #287)\n");
     fake_rows();
     server_rows();
     net_rows();
     pump_rows();
+    link_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

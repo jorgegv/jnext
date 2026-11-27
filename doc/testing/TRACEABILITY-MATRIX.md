@@ -73,7 +73,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |   103 |  103 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6700 | 6700 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6700**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6171**. Rows the 258 suites declared in `test/unit-tests.conf` run live: **18467**.
+Rows the sections above carry: **6700**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6171**. Rows the 259 suites declared in `test/unit-tests.conf` run live: **18563**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 205 suites (12380 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 206 suites (12476 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -231,9 +231,10 @@ These 205 suites (12380 live rows) have no VHDL-derived plan row to map, so they
 | `io_watchpoint_test` | 25 | debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger |
 | `bp_enable_test` | 23 | debugger breakpoint enable/disable policy (GH #225, jnext-internal); the T80N core has no debugger |
 | `resume_step_off_test` | 19 | debugger resume/step-off execution control (GH #221, jnext-internal); the T80N core has no debugger |
-| `remote_transport_test` | 69 | debugger socket transport (GH #287, jnext-internal host sockets); the T80N core has no debugger |
+| `remote_transport_test` | 85 | debugger socket transport (GH #287, jnext-internal host sockets); the T80N core has no debugger |
 | `remote_pipe_test` | 16 | browser page debug channel (GH #545, jnext-internal host byte channel); the T80N core has no debugger |
-| `dzrp_adapter_test` | 164 | DZRP remote-debugger adapter (GH #12; DeZog protocol spec, jnext-internal); the T80N core has no debugger |
+| `dzrp_adapter_test` | 168 | DZRP remote-debugger adapter (GH #12; DeZog protocol spec, jnext-internal); the T80N core has no debugger |
+| `dzrp_client_test` | 76 | DZRP remote-debugger client (epic #486; DeZog protocol spec, cross-checked against jnext's own DzrpServer; jnext-internal); the T80N core has no debugger |
 | `gdb_rsp_test` | 126 | GDB RSP remote-debugger adapter (GH #281; GDB remote protocol + z88dk-gdb, jnext-internal); the T80N core has no debugger |
 | `script_parse_test` | 292 | debugger scripting language front end (GH #26, jnext-internal); the T80N core has no debugger |
 | `script_eval_test` | 79 | debugger scripting language evaluator (GH #26, jnext-internal); the T80N core has no debugger |
