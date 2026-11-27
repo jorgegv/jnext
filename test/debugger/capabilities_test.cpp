@@ -1057,22 +1057,21 @@ void test_dialogs() {
 // ── Placeholders: no data requested; F1 ───────────────────────────────────
 
 void test_placeholders() {
-    // RTQ-80
+    // RTQ-80: the facade DOES serve sprites here (a fake target that has them); only the window's view says the
+    // capability is missing, so a refresh of the placeholdered panel would reach the target and the row sees it
     {
-        FakeFix fx(true);
-        fx.fake.caps.set(Capability::SpriteData, false);
-        fx.fake.why_text = "no sprites";
-        fx.build();
+        FakeFix fx;
+        fx.dbg()->set_capability_view_for_test(view_without(Capability::SpriteData));
         fx.fake.clear();
         for (int i = 0; i < 5; ++i) fx.tick();
         const int missing = fx.fake.count("sprites");
         QWidget* sp = fx.dbg()->sprite_panel();
         auto* ph = fx.dbg()->placeholder_for_test(sp);
         const bool shown = ph && ph->active();
-        fx.fake.caps.set(Capability::SpriteData, true);
+        fx.dbg()->set_capability_view_for_test(std::nullopt);
         fx.fake.clear();
         for (int i = 0; i < 5; ++i) fx.tick();
-        check("RTQ-80", "a placeholdered panel is not refreshed: no sprite query while SpriteData is missing, "
+        check("RTQ-80", "a placeholdered panel is not refreshed: no sprite query while the view lacks SpriteData, "
                         "queries once it is back",
               shown && missing == 0 && fx.fake.count("sprites") > 0 && !ph->active(),
               "missing=" + std::to_string(missing) + " back=" + std::to_string(fx.fake.count("sprites")));
