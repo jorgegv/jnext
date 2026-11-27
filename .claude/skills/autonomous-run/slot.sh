@@ -2,7 +2,7 @@
 # slot.sh: build/test admission for the agents of an autonomous run (GH #547 stage 4), with
 # automatic overflow of heavy runs to the remote-run host.
 #
-#   slot.sh --dir <run>/slots [--limit N] <command> [args...]
+#   slot.sh --dir <run>/slots [--limit N] [--patch] <command> [args...]
 #
 # The run directory's own slot.sh is a two-line wrapper the orchestrator writes at run start:
 #   #!/bin/bash
@@ -37,14 +37,14 @@
 #        JNEXT_REMOTE_RUN_HOST (one alias) is set;
 #     4. the worktree's branch is an issue branch gh<N>-<slug> (never main, epic*, gate-*, detached);
 #     5. `git status --porcelain` there is empty, untracked files included: the remote runs only
-#        committed state, so an edit-and-test cycle (mutations!) always stays local.
+#        committed state, so an edit-and-test cycle stays local (a mutant is a --patch run: see PATCH RUNS).
 #   An eligible command (any heavy target: the full unit-test targets, wasm-browser-test, the full
 #   regression, regression-win/-wasm, regression-rows, test-affected) is sent to a remote lane FIRST, whenever
 #   one is free right now, and runs here only when every lane of every host is busy or unusable (then it
 #   waits for a local slot, as below). A command that is not eligible stays local exactly as before.
 #   "Unless needed" (the owner's words): a run that needs THIS host sets JNEXT_SLOT_NO_OVERFLOW=1: uncommitted state
-#   (mutants), bench or xvfb probes, a measurement, or material that must never leave this host (a reporter's game
-#   shared for testing, the user's own card; slot.sh cannot detect it). Never set it for a gate run.
+#   other than a --patch run, bench or xvfb probes, a measurement, or material that must never leave this host (a
+#   reporter's game shared for testing, the user's own card; slot.sh cannot detect it). Never set it for a gate run.
 #   Sending =
 #   push origin/<branch> if it is not at HEAD (`git push origin <branch>`, never forced; COMMON-RULES
 #   "REMOTE RUNS" authorizes an agent to push its own issue branch), then remote-run.sh --stream.
@@ -64,6 +64,20 @@
 #   fallback run to its log only, so a long wait looks silent until the summary), so the run waits for a local slot and never loops. The exit
 #   status is the driver's, except 75 when <dir>/PAUSED appears meanwhile (0 green, 1 not clean or failed, 124 timeout, 2 usage). Exit 3 (the push did
 #   not land) ran nothing, so it is run locally instead; 75 never reaches here (the fallback took it).
+#
+# PATCH RUNS (GH #565: mutants on the remote hosts). `--patch` says the command runs a MUTANT: an uncommitted edit in a
+#   worktree whose HEAD is a pushed issue-branch commit (detached or not). It must be  [env LANG=C] make -C <worktree>
+#   <words>  and the worktree must carry a change (else exit 2 `PATCH REFUSED`, whatever else applies: no host,
+#   JNEXT_SLOT_NO_OVERFLOW, a busy host: a run that says it is a mutant runs a mutant or nothing; the unmutated tree's
+#   pass would read as a survivor). Eligibility then replaces conditions 4 and 5: exactly one `gh<N>-<slug>` branch of
+#   origin (refs/remotes/origin) points at HEAD, and `remote-run.sh --make-patch <worktree>` succeeds (it refuses a
+#   changed submodule, an embedded repository, no change). The patch is made when the first host is free, kept under
+#   <dir>/patches/ and removed when the driver returns. Patch mode NEVER pushes (a reviewer may not push, a detached HEAD
+#   has no branch). The driver gets --patch <file>: it proves the patch applied on the remote or exits 2 (`PATCH
+#   REFUSED`: no verdict, nothing runs here either), 3 (a stale tracking ref) runs the command here in the worktree
+#   (which IS the mutant), 75 tries the next host, the last host's --fallback-local runs here after a tree check. Not
+#   eligible: waits for a local slot and runs in the worktree, as before. --patch is a flag, not an environment
+#   variable: it never reaches the driver's nested fallback call through REMOTE_RUN_LOCAL_WRAP.
 #
 # The remote host comes from the environment this script runs in: the run's wrapper must export
 # JNEXT_REMOTE_RUN_HOSTS="<alias> <alias>" (or JNEXT_REMOTE_RUN_HOST=<alias>) and
@@ -93,9 +107,13 @@ DIR=${JNEXT_SLOT_DIR:-}
 # plus every target whose prerequisites include the PGO build gui-release: SLOT-68 derives that set from the Makefile).
 HEAVY_TARGETS=" unit-test unit-test-sdl unit-test-win unit-test-wasm wasm-browser-test regression regression-win regression-wasm regression-rows test-affected harness-selftest regression-confirm fuse-pgo gui-release gui-release-run "
 
-usage() { echo "usage: slot.sh --dir <slots dir> [--limit N] <command> [args...]" >&2; exit 2; }
+usage() { echo "usage: slot.sh --dir <slots dir> [--limit N] [--patch] <command> [args...]" >&2; exit 2; }
+PATCH=0
+PATCH_FILE=""
+trap '[[ -z "$PATCH_FILE" ]] || rm -f "$PATCH_FILE"' EXIT
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --patch) PATCH=1; shift ;;
         --dir)   [[ $# -ge 2 ]] || usage; DIR=$2; shift 2 ;;
         --limit) [[ $# -ge 2 ]] || usage; LIMIT=$2; shift 2 ;;
         --)      shift; break ;;
@@ -181,13 +199,25 @@ parse_overflow() {
     HOSTS=(${JNEXT_REMOTE_RUN_HOSTS:-${JNEXT_REMOTE_RUN_HOST:-}})
     [[ ${#HOSTS[@]} -gt 0 ]] || { OV_REASON="JNEXT_REMOTE_RUN_HOST is not set (nor JNEXT_REMOTE_RUN_HOSTS)"; return; }
     [[ -d "$OV_WT" ]] || { OV_REASON="'$OV_WT' is not a directory"; return; }
-    OV_BRANCH=$(git -C "$OV_WT" symbolic-ref --short -q HEAD 2>/dev/null) \
-        || { OV_REASON="detached HEAD (only an issue branch gh<N>-<slug> is sent)"; return; }
-    [[ "$OV_BRANCH" =~ ^gh[0-9]+-[A-Za-z0-9._-]+$ ]] \
-        || { OV_REASON="branch '$OV_BRANCH' is not an issue branch gh<N>-<slug>"; return; }
-    local st
-    st=$(git -C "$OV_WT" status --porcelain 2>/dev/null) || { OV_REASON="git status failed in '$OV_WT'"; return; }
-    [[ -z "$st" ]] || { OV_REASON="the worktree has uncommitted or untracked files (the remote runs committed state)"; return; }
+    if [[ $PATCH -eq 1 ]]; then
+        # 4p: the base is the ONE issue branch of origin at HEAD (attached or detached alike); the change travels as a patch
+        local refs b n=0 names=""
+        refs=$(git -C "$OV_WT" for-each-ref --points-at HEAD --format='%(refname:strip=3)' refs/remotes/origin 2>/dev/null) || refs=""
+        while IFS= read -r b; do
+            [[ "$b" =~ ^gh[0-9]+-[A-Za-z0-9._-]+$ ]] || continue
+            n=$((n + 1)); names+="${names:+ }$b"; OV_BRANCH=$b
+        done <<<"$refs"
+        [[ $n -ne 0 ]] || { OV_BRANCH=""; OV_REASON="no issue branch on origin is at HEAD (push it first)"; return; }
+        [[ $n -eq 1 ]] || { OV_BRANCH=""; OV_REASON="several issue branches on origin are at HEAD ($names): the base is ambiguous"; return; }
+    else
+        OV_BRANCH=$(git -C "$OV_WT" symbolic-ref --short -q HEAD 2>/dev/null) \
+            || { OV_REASON="detached HEAD (only an issue branch gh<N>-<slug> is sent)"; return; }
+        [[ "$OV_BRANCH" =~ ^gh[0-9]+-[A-Za-z0-9._-]+$ ]] \
+            || { OV_REASON="branch '$OV_BRANCH' is not an issue branch gh<N>-<slug>"; return; }
+        local st
+        st=$(git -C "$OV_WT" status --porcelain 2>/dev/null) || { OV_REASON="git status failed in '$OV_WT'"; return; }
+        [[ -z "$st" ]] || { OV_REASON="the worktree has uncommitted or untracked files (the remote runs committed state)"; return; }
+    fi
     if [[ $spaced -eq 1 ]]; then
         local q="make" x
         for x in "${words[@]}"; do q+=" $(printf '%q' "$x")"; done
@@ -207,7 +237,8 @@ parse_overflow() {
 # run (all busy or unusable: the caller keeps waiting and probes again later) and 98 when remote is out for good
 # (the push failed, the remote refused, the commit cannot be read).
 go_remote() {
-    local quiet=${1:-0} sha id rc pid h i n=${#HOSTS[@]} pushed=0 fb
+    local quiet=${1:-0} sha id rc pid h i n=${#HOSTS[@]} pushed=0 fb pa=()
+    [[ $PATCH -eq 0 ]] || pushed=1    # patch mode never pushes
     sha=$(git -C "$OV_WT" rev-parse HEAD) || return 98
     id="${OV_BRANCH//\//-}-$(date +%H%M)-$$"
     for ((i = 0; i < n; i++)); do
@@ -230,16 +261,30 @@ go_remote() {
             pushed=1
         fi
         fb=(); [[ $i -ne $((n - 1)) ]] || fb=(--fallback-local "$OV_WT")
+        if [[ $PATCH -eq 1 && -z "$PATCH_FILE" ]]; then
+            # made once, when a host is free (the tree is quiet now); a worktree that cannot be carried runs here
+            local pn perr
+            pn=${OV_WT%/}; pn=${pn##*/}; pn=${pn:0:60}; pn=${pn//[^A-Za-z0-9._-]/_}
+            mkdir -p "$DIR/patches"
+            PATCH_FILE="$DIR/patches/$pn-$$.patch"
+            if ! perr=$("$RR" --make-patch "$OV_WT" 2>&1 >"$PATCH_FILE"); then
+                rm -f "$PATCH_FILE"; PATCH_FILE=""
+                echo "[slot.sh] not sent to the remote: ${perr#remote-run: }" >&2
+                return 98
+            fi
+        fi
+        pa=(); [[ $PATCH -eq 0 ]] || pa=(--patch "$PATCH_FILE")
         admit_log "remote $h"
         echo "[slot.sh] sending to the remote host ($h), run id $id, log $LOGDIR/$id.log: ${OV_TARGETS[*]}" >&2
         env JNEXT_REMOTE_RUN_HOST="$h" JNEXT_SLOT_NO_OVERFLOW=1 REMOTE_RUN_LOCAL_WRAP="$SELF --dir $DIR" REMOTE_RUN_BASE_REPO="$OV_WT" \
-            "$RR" --stream "${fb[@]}" --keep-going --id "$id" --log-dir "$LOGDIR" \
+            "$RR" --stream "${fb[@]}" "${pa[@]}" --keep-going --id "$id" --log-dir "$LOGDIR" \
             "$OV_BRANCH" "$sha" "${OV_TARGETS[@]}" &
         pid=$!
         trap 'kill -TERM "$pid" 2>/dev/null' INT TERM
         wait "$pid"; rc=$?
         while kill -0 "$pid" 2>/dev/null; do wait "$pid"; rc=$?; done
         trap - INT TERM
+
         [[ $rc -eq 0 ]] || paused     # PAUSED set while the run waited: say 75, not the driver's folded 1
         if [[ $rc -eq 3 ]]; then echo "[slot.sh] the remote refused (the push did not land); running here" >&2; return 98; fi
         if [[ $rc -eq 75 ]]; then echo "[slot.sh] remote host $h could not be used (nothing ran)" >&2; continue; fi
@@ -297,6 +342,26 @@ apply_thread_caps() {
     echo "[slot.sh] thread caps (nproc $cpus / NSLOTS $NSLOTS = $cap): JOBS=$jobs$note" >&2
 }
 
+# patch_guard: --patch only ever runs a mutant or nothing. The command must be [env LANG=C] make -C <worktree> ...
+# and the worktree must carry a change: with none, the run would test the unmutated tree and its pass would read as
+# a survivor. This holds whatever else applies (no host, JNEXT_SLOT_NO_OVERFLOW, busy hosts).
+patch_refused() { echo "[slot.sh] PATCH REFUSED: $*" >&2; exit 2; }
+patch_guard() {
+    local a=("${CMD[@]}") i=0 st
+    if [[ "${a[0]}" == env ]]; then
+        i=1
+        while [[ "${a[i]:-}" == *=* ]]; do
+            [[ "${a[i]}" == LANG=C ]] || patch_refused "--patch needs make -C <worktree> ...: the environment word '${a[i]}' cannot be sent"
+            i=$((i + 1))
+        done
+    fi
+    [[ "${a[i]:-}" == make && "${a[i + 1]:-}" == -C && -n "${a[i + 2]:-}" ]] \
+        || patch_refused "--patch needs make -C <worktree> <words>, not '${CMD[*]:0:80}'"
+    [[ -d "${a[i + 2]}" ]] || patch_refused "'${a[i + 2]}' is not a directory"
+    st=$(git -C "${a[i + 2]}" status --porcelain 2>/dev/null) || patch_refused "git status failed in '${a[i + 2]}'"
+    [[ -n "$st" ]] || patch_refused "'${a[i + 2]}' carries no change: a patch run would test the unmutated tree"
+}
+
 parse_overflow
 announced=0
 announce() {
@@ -319,6 +384,7 @@ remote_try() {
 }
 
 paused
+[[ $PATCH -eq 0 ]] || patch_guard
 if [[ $can_remote -eq 1 ]]; then remote_try; fi   # remote first: every eligible command, long or short
 [[ $OV_SHAPE -eq 0 || $can_remote -eq 1 || "$OV_REASON" == SILENT ]] || announce
 
