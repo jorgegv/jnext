@@ -10,6 +10,7 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -672,7 +673,77 @@ std::string raw_sha_of(const std::string& raw) {
     return sp == std::string::npos ? side : side.substr(0, sp);
 }
 
+std::atomic<uint64_t> g_pristine_hashes{0};
+
+// The last verification of the original: <raw>.verified, one line "<digest> <size> <mtime>\n"
+// (digest 64 lowercase hex, size decimal uint64, mtime last_write_time ticks, decimal int64).
+struct Stamp { uint64_t size = 0; int64_t mtime = 0; };
+
+bool stamp_of(const std::string& raw, Stamp& st) {
+    std::error_code ec;
+    const uint64_t sz = fs::file_size(raw, ec);
+    if (ec) return false;
+    const auto t = fs::last_write_time(raw, ec);
+    if (ec) return false;
+    st.size = sz;
+    st.mtime = static_cast<int64_t>(t.time_since_epoch().count());
+    return true;
+}
+
+bool parse_u64(const std::string& s, uint64_t& v) {
+    if (s.empty() || s.size() > 20) return false;
+    v = 0;
+    for (char c : s) {
+        if (c < '0' || c > '9') return false;
+        const uint64_t d = static_cast<uint64_t>(c - '0');
+        if (v > (UINT64_MAX - d) / 10) return false;
+        v = v * 10 + d;
+    }
+    return true;
+}
+
+bool parse_i64(const std::string& s, int64_t& v) {
+    const bool neg = !s.empty() && s[0] == '-';
+    uint64_t m = 0;
+    if (!parse_u64(neg ? s.substr(1) : s, m)) return false;
+    if (m > (neg ? static_cast<uint64_t>(INT64_MAX) + 1 : static_cast<uint64_t>(INT64_MAX))) return false;
+    v = neg ? static_cast<int64_t>(0 - m) : static_cast<int64_t>(m);
+    return true;
+}
+
+// True when the record exists, is exactly in the grammar, and names this digest, size and mtime.
+bool verified_record_valid(const std::string& raw, const std::string& want, const Stamp& now) {
+    const std::string rec = raw + ".verified";
+    std::error_code ec;
+    if (!fs::is_regular_file(rec, ec)) return false;   // not a FIFO or other special file: opening one could block
+    std::ifstream f(rec, std::ios::binary);
+    if (!f) return false;
+    char buf[257];
+    f.read(buf, sizeof buf);   // a record is under 120 bytes: a longer file is not one
+    std::string body(buf, static_cast<size_t>(f.gcount()));
+    if (body.size() > 256 || body.empty() || body.back() != '\n') return false;
+    body.pop_back();
+    if (body.find('\n') != std::string::npos) return false;
+    const size_t a = body.find(' ');
+    const size_t b = a == std::string::npos ? a : body.find(' ', a + 1);
+    if (b == std::string::npos) return false;
+    const std::string digest = body.substr(0, a);
+    if (digest.size() != 64) return false;
+    for (char c : digest) if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+    uint64_t sz = 0;
+    int64_t mt = 0;
+    if (!parse_u64(body.substr(a + 1, b - a - 1), sz) || !parse_i64(body.substr(b + 1), mt)) return false;
+    return digest == want && sz == now.size && mt == now.mtime;
+}
+
+void write_verified_record(const std::string& raw, const std::string& digest, const Stamp& st) {
+    std::ofstream f(raw + ".verified", std::ios::binary | std::ios::trunc);   // binary: a text-mode "\n" is CRLF on Windows
+    if (f) f << digest << ' ' << st.size << ' ' << st.mtime << '\n';
+}
+
 }  // namespace
+
+uint64_t pristine_hash_count() { return g_pristine_hashes.load(); }
 
 bool pristine_base_ok(const std::string& card_image, std::string& why) {
     const std::string dir = fs::path(card_image).parent_path().string();
@@ -681,7 +752,14 @@ bool pristine_base_ok(const std::string& card_image, std::string& why) {
     if (!fs::is_regular_file(raw, ec)) { why = "the original image " + raw + " is missing"; return false; }
     const std::string want = raw_sha_of(raw);
     if (want.empty()) { why = "the original image has no .sha256 sidecar"; return false; }
-    if (sha256_file(raw) != want) { why = "the original image does not match its .sha256 sidecar"; return false; }
+    // The hash takes ~0.5 s: skipped while <raw>.verified says this digest was matched at this size and mtime.
+    Stamp st;
+    const bool have_stamp = stamp_of(raw, st);
+    if (!(have_stamp && verified_record_valid(raw, want, st))) {
+        ++g_pristine_hashes;   // the stat above was taken before the hash: a change during it voids the record
+        if (sha256_file(raw) != want) { why = "the original image does not match its .sha256 sidecar"; return false; }
+        if (have_stamp) write_verified_record(raw, want, st);
+    }
     auto dist = [](const std::string& img) {
         const std::string d = first_line(img + kDistroSuffix);
         return d.empty() ? std::string(kLegacyDistribution) : d;

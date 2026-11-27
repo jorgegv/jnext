@@ -1,4 +1,4 @@
-// Browser rows WIDGET-01..32: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
+// Browser rows WIDGET-01..38: the ready-made widget (web/jnext-widget.js.in) in headless Chromium
 // (make wasm-browser-test, spec widget.mjs). Run by browser-smoke.sh on the SDK's node.
 //
 // Server A is the page host (http://localhost:<port>, a secure context): it serves the files of the
@@ -218,12 +218,15 @@ row('WIDGET-04', 'two widgets on one page are independent: own player, own state
   must(page.msgs.length === 0, page.msgs.join('; '));
 });
 
-row('WIDGET-05', 'host CSS isolation: a hostile page stylesheet leaves the toolbar in one row and the frame its size; the widget adds only .jnext-widget rules and changes nothing outside', async () => {
-  const hostile = `*{box-sizing:content-box;color:#f00;font-size:40px;letter-spacing:5px}
+// The hostile page stylesheet of WIDGET-05 and WIDGET-37.
+const HOSTILE_CSS = `*{box-sizing:content-box;color:#f00;font-size:40px;letter-spacing:5px}
 div,span{display:inline;width:3px;padding:30px;margin:11px;border:5px dotted #f0f;background:#ff0;position:relative;float:right;min-height:700px;opacity:.6;transform:translateX(30px)}
 canvas{filter:blur(2px);opacity:.5;border:4px solid #f0f}
 button{display:block;width:100%;height:80px;padding:20px;margin:9px;background:#f00;color:#0f0;font:italic 40px serif}
 body div,body button{text-transform:uppercase;line-height:90px}`;
+
+row('WIDGET-05', 'host CSS isolation: a hostile page stylesheet leaves the toolbar in one row and the frame its size; the widget adds only .jnext-widget rules and changes nothing outside', async () => {
+  const hostile = HOSTILE_CSS;
   const side = `<div id="o1">outside div</div><button id="o2">outside button</button>`;
   pages['hostile.html'] = `<!doctype html><style>${hostile}</style><body>${side}<div class="jnext-widget" data-title="Hostile" data-file="${BURL}/red.nex"></div><script src="jnext-widget.js"></script></body>`;
   pages['bare.html'] = `<!doctype html><style>${hostile}</style><body>${side}</body>`;
@@ -482,58 +485,70 @@ row('WIDGET-17', 'data-keep-writes gives a widget player whose command line carr
   must(r[2].argv.indexOf('--sdcard-writes') < 0, 'data-keep-writes="false" widget argv: ' + JSON.stringify(r[2].argv));
 });
 
-// GH #563: the attribution mount() adds under every player, so the widget and the plain template page both show it.
-const creditOf = (page, sel) => page.evaluate((sel) => {
-  const c = document.querySelector('.jnext-credit'), a = c && c.querySelector('a'), img = a && a.querySelector('svg');
-  const cv = document.querySelector(sel + ' canvas').getBoundingClientRect(), r = c.getBoundingClientRect();
-  const ir = img.getBoundingClientRect(), box = document.querySelector(sel + ' .jnext-player').getBoundingClientRect();
-  return { href: a.href, target: a.target, rel: a.rel, text: a.textContent, icon: img.getBoundingClientRect().width > 0 && !a.querySelector('img'),
-           overlap: !(r.top >= cv.bottom - 0.5 || r.bottom <= cv.top + 0.5 || r.left >= cv.right || r.right <= cv.left),
-           below: r.top >= cv.bottom - 0.5, visible: r.width > 0 && r.height > 0 && getComputedStyle(c).display !== 'none',
-           vis: getComputedStyle(a).visibility + '/' + getComputedStyle(c).visibility, opacity: parseFloat(getComputedStyle(c).opacity),
-           hit: (() => { const e = document.elementFromPoint(a.getBoundingClientRect().left + a.getBoundingClientRect().width / 2, a.getBoundingClientRect().top + a.getBoundingClientRect().height / 2); return !!e && (e === a || a.contains(e)); })(),
-           credRight: r.right, boxRight: box.right, iconW: ir.width, iconH: ir.height, vw: window.innerWidth,
-           color: getComputedStyle(a).color, bg: getComputedStyle(document.querySelector('.jw-frame') || document.body).backgroundColor };
-}, sel);
-const mustCredit = (r) => {
+// GH #563, GH #569: the JNext link is at the end of the player's controls bar (the widget's toolbar, plain.html's
+// buttons row), not on a row of its own under the screen.
+const barProbe = (page, barSel) => page.evaluate((barSel) => {
+  const bar = document.querySelector(barSel), c = bar.querySelector('.jnext-credit'), a = c && c.querySelector('a'), svg = a && a.querySelector('svg');
+  const R = (el) => { const b = el.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height }; };
+  const ar = R(a), hit = document.elementFromPoint(ar.l + ar.w / 2, ar.t + ar.h / 2), kids = [...bar.children], ir = R(svg);
+  return { last: kids[kids.length - 1] === c, prev: c.previousElementSibling && c.previousElementSibling.className, creditsInPage: document.querySelectorAll('.jnext-credit').length,
+           href: a.href, target: a.target, rel: a.rel, text: a.textContent, icon: ir.w > 0 && !a.querySelector('img'), iconW: ir.w, iconH: ir.h,
+           hit: !!hit && (hit === a || a.contains(hit)), opacity: parseFloat(getComputedStyle(c).opacity), vis: getComputedStyle(a).visibility + '/' + getComputedStyle(c).visibility,
+           credit: R(c), bar: R(bar), color: getComputedStyle(a).color, barBg: getComputedStyle(bar).backgroundColor,
+           buttons: [...bar.querySelectorAll('button')].map(R), vw: window.innerWidth, sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth };
+}, barSel);
+const mustLink = (r) => {
   must(r.href === 'https://www.jnext.es/' && r.target === '_blank' && /noopener/.test(r.rel), 'link ' + JSON.stringify(r));
-  must(r.text === 'JNext' && r.icon, 'text/icon ' + JSON.stringify(r));
-  must(r.visible && r.below && !r.overlap, 'placement ' + JSON.stringify(r));
-  must(r.vis === 'visible/visible' && r.opacity >= 0.5 && r.hit, 'not really visible or covered: ' + JSON.stringify(r));
-  must(Math.abs(r.credRight - r.boxRight) <= 2, 'credit right edge ' + r.credRight + ' vs player panel ' + r.boxRight + ' (viewport ' + r.vw + ')');
-  must(Math.abs(r.iconW - 18) <= 0.5 && Math.abs(r.iconH - 18) <= 0.5, 'icon size ' + r.iconW + 'x' + r.iconH);
+  must(r.text === 'JNext' && r.icon && Math.abs(r.iconW - 18) <= 0.5 && Math.abs(r.iconH - 18) <= 0.5, 'text/icon ' + JSON.stringify(r));
+  must(r.vis === 'visible/visible' && r.opacity >= 0.5 && r.hit && r.credit.w > 0 && r.credit.h > 0, 'not really visible or covered: ' + JSON.stringify(r));
+  must(r.last && r.creditsInPage === 1, 'the credit is not the last child of the bar: ' + JSON.stringify(r));
 };
 
-row('WIDGET-18', 'the widget shows the JNext attribution link (www.jnext.es, icon 18 px + text, new tab) under the screen, right edge on the player panel edge, no overlap with the canvas, in light and dark at a 1600 px viewport', async () => {
-  const out = [];
+row('WIDGET-18', 'the widget shows the JNext link (www.jnext.es, icon 18 px + text, new tab) at the right end of the toolbar, after the status line, and no row between the screen and the toolbar, in light and dark at a 1600 px viewport', async () => {
+  const FG = { light: 'rgb(29, 35, 48)', dark: 'rgb(230, 233, 240)' };   // the theme's --jw-fg
   for (const scheme of ['light', 'dark']) {
     const page = await open(`${AURL}/widget.html?` + QUERY, { colorScheme: scheme, viewport: { width: 1600, height: 900 } });
     await waitClickable(page);
-    const r = await creditOf(page, '.jnext-widget');
+    const r = await barProbe(page, '.jnext-widget .jw-tools');
+    const g = await page.evaluate(() => {
+      const e = document.querySelector('.jnext-widget'), R = (q) => e.querySelector(q).getBoundingClientRect();
+      return { frameH: R('.jw-frame').height, titleH: R('.jw-title').height, stageB: R('.jw-stage').bottom, stageH: R('.jw-stage').height, toolsT: R('.jw-tools').top, toolsH: R('.jw-tools').height };
+    });
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'credit-widget-' + scheme + '.png') });
     await page.context().close();
-    out.push(r);
-    must(page.msgs.length === 0, page.msgs.join('; '));
+    must(page.msgs.length === 0, scheme + ': ' + page.msgs.join('; '));
+    mustLink(r);
+    must(r.prev === 'jw-status', scheme + ': the credit does not follow the status line: ' + r.prev);
+    must(Math.abs(g.stageB - g.toolsT) <= 0.5 && g.stageH === 512, scheme + ': a row between the screen and the toolbar ' + JSON.stringify(g));
+    must(Math.abs(g.frameH - (g.titleH + 512 + g.toolsH + 2)) <= 1, scheme + ': frame height ' + JSON.stringify(g));
+    must(Math.abs(r.credit.r - (r.bar.r - 8)) <= 1, scheme + ': credit right edge ' + r.credit.r + ' vs toolbar ' + r.bar.r);
+    must(r.credit.t >= r.bar.t && r.credit.b <= r.bar.b, scheme + ': credit outside the toolbar ' + JSON.stringify([r.credit, r.bar]));
+    must(r.color === FG[scheme] && r.color !== r.barBg, scheme + ': link colour ' + r.color + ' (theme ' + FG[scheme] + ', bar ' + r.barBg + ')');
   }
-  out.forEach(mustCredit);
-  must(out[0].color !== out[0].bg && out[1].color !== out[1].bg, 'link colour equals the background: ' + JSON.stringify(out));
 });
 
-row('WIDGET-19', 'plain.html (the basic template page) shows the same attribution link under its player, right-aligned to the player panel at 1600 px and at a 390 px phone width', async () => {
-  const page = await open(`${AURL}/plain.html?` + QUERY, { viewport: { width: 1600, height: 900 } });
-  await waitFor(page, () => document.querySelector('.jnext-credit') && document.querySelector('#status').textContent === 'click the player to start', null, 300000);
-  const r = await creditOf(page, '#player');
-  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'credit-plain.png') });
-  await page.context().close();
-  mustCredit(r);
-  must(page.msgs.length === 0, page.msgs.join('; '));
-  // a phone width: the page shrinks the player; the credit follows its right edge
-  const ph = await open(`${AURL}/plain.html?` + QUERY, { viewport: { width: 390, height: 800 } });
-  await waitFor(ph, () => document.querySelector('.jnext-credit') && document.querySelector('#status').textContent === 'click the player to start', null, 300000);
-  const n = await creditOf(ph, '#player');
-  if (SHOTS) await ph.screenshot({ path: path.join(SHOTS, 'credit-plain-narrow.png') });
-  await ph.context().close();
-  mustCredit(n);
+row('WIDGET-19', 'plain.html (the basic template page) shows the link at the right end of its controls row, right edge on the player\'s right edge, no row between the player and the status line, at 1600 px and at a 390 px phone width', async () => {
+  for (const [vw, shot] of [[1600, 'credit-plain.png'], [390, 'credit-plain-narrow.png']]) {
+    const page = await open(`${AURL}/plain.html?` + QUERY, { viewport: { width: vw, height: 800 } });
+    await waitFor(page, () => document.querySelector('.jnext-credit') && document.querySelector('#status').textContent === 'click the player to start', null, 300000);
+    const r = await barProbe(page, '#controls');
+    const g = await page.evaluate(() => {
+      const p = document.getElementById('player').getBoundingClientRect(), s = document.getElementById('status');
+      return { playerR: p.right, playerB: p.bottom, statusT: s.getBoundingClientRect().top, statusMargin: parseFloat(getComputedStyle(s).marginTop),
+               siblings: document.querySelectorAll('#player ~ .jnext-credit').length };
+    });
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, shot) });
+    await page.context().close();
+    must(page.msgs.length === 0, vw + ': ' + page.msgs.join('; '));
+    mustLink(r);
+    must(g.siblings === 0 && Math.abs((g.statusT - g.playerB) - g.statusMargin) <= 1, vw + ': a row between the player and the status line ' + JSON.stringify(g));
+    must(Math.abs(r.credit.r - g.playerR) <= 2, vw + ': credit right edge ' + r.credit.r + ' vs player ' + g.playerR);
+    const wrapped = r.credit.t > r.buttons[0].b - 1, inRow = r.credit.t < Math.max(...r.buttons.map((b) => b.b));
+    must(wrapped || inRow, vw + ': credit neither wrapped nor in the row');
+    must(r.credit.l >= 0 && r.credit.r <= r.vw + 0.5, vw + ': credit outside the viewport ' + JSON.stringify(r.credit));
+    must(r.buttons.every((b) => !(r.credit.l < b.r && r.credit.r > b.l && r.credit.t < b.b && r.credit.b > b.t)), vw + ': credit overlaps a button');
+    must(r.sw === r.cw, vw + ': horizontal overflow ' + r.sw + ' vs ' + r.cw);
+  }
 });
 
 // The credit in any parent layout, the shipped itch.io page, a strict CSP, and its lifecycle (GH #563 review 1).
@@ -855,6 +870,205 @@ row('WIDGET-23', 'lifecycle: destroy() removes the credit, a failed mount leaves
   });
   await page.context().close();
   must(r.two === 2 && r.afterDestroy === 1 && r.rejected && r.afterFail === 1 && r.end === 0, 'credit counts ' + JSON.stringify(r));
+});
+
+// GH #569: the creditIn option of jnext.mount() and the widget's toolbar that holds the link.
+row('WIDGET-33', 'creditIn that is not an element (a selector string, 5, true, null, {}, a function, a Text node, a DocumentFragment, the document, an element of an iframe\'s document) is refused: mount() rejects with TypeError "jnext.mount: option \'creditIn\' must be a DOM element", and nothing is added to the page', async () => {
+  pages['ci.html'] = `<!doctype html><body><div id="p"></div><script src="jnext-${VERSION}.js"></script></body>`;
+  const page = await ctxPage(`${AURL}/ci.html`);
+  await waitFor(page, () => typeof jnext !== 'undefined', null, 60000);
+  const r = await page.evaluate(async () => {
+    const fr = document.createElement('iframe');
+    document.body.appendChild(fr);
+    const vals = { selector: '#p', five: 5, yes: true, nul: null, obj: {}, fn: function () {}, text: document.createTextNode('x'),
+                   fragment: document.createDocumentFragment(), doc: document, foreign: fr.contentDocument.createElement('div') };
+    const out = {};
+    for (const k of Object.keys(vals)) {
+      try { await jnext.mount(document.getElementById('p'), { width: 640, height: 512, creditIn: vals[k] }); out[k] = 'resolved'; }
+      catch (e) { out[k] = (e instanceof TypeError ? 'TypeError: ' : 'other: ') + e.message; }
+    }
+    return { out, players: document.querySelectorAll('.jnext-player').length, credits: document.querySelectorAll('.jnext-credit').length };
+  });
+  await page.context().close();
+  const want = "TypeError: jnext.mount: option 'creditIn' must be a DOM element";
+  must(Object.keys(r.out).length === 10 && Object.values(r.out).every((v) => v === want), 'results ' + JSON.stringify(r.out));
+  must(r.players === 0 && r.credits === 0, 'DOM was built: ' + JSON.stringify(r));
+  must(page.msgs.length === 0, page.msgs.join('; '));
+});
+
+row('WIDGET-34', 'mount() with creditIn: the credit is the host\'s last child, the host\'s other children are untouched and in order; it sits at the right end of a flex-row host and after the content of a block host; nothing is observed or polled and the container\'s margin is untouched; a host with an expando cycle works, a detached host gets the credit, destroy() removes it, a failed mount leaves none, two players on one host have one credit each', async () => {
+  pages['cin.html'] = `<!doctype html><body><script src="jnext-${VERSION}.js"></script></body>`;
+  const page = await ctxPage(`${AURL}/cin.html`, {}, { init: SPY });
+  await waitFor(page, () => typeof jnext !== 'undefined', null, 60000);
+  const r = await page.evaluate(async () => {
+    const add = (tag, css, html) => { const d = document.createElement(tag); if (css) d.style.cssText = css; if (html) d.innerHTML = html; document.body.appendChild(d); return d; };
+    const names = (h) => [...h.children].map((c) => c.tagName + '.' + c.className).join();
+    const R = (e) => e.getBoundingClientRect();
+    const o = {};
+    // a flex-row host, with an expando cycle (nothing may serialise it)
+    const fh = add('div', 'display:flex;width:420px;border:1px solid #000', '<button>A</button><span>text</span>');
+    fh.self = fh;
+    const c1 = add('div', 'margin-bottom:10px');
+    const before = names(fh);
+    const p1 = await jnext.mount(c1, { width: 320, height: 256, creditIn: fh });
+    const cr = fh.lastElementChild;
+    o.flex = { last: cr.className === 'jnext-credit', others: names(fh).replace(/,[^,]*jnext-credit$/, '') === before, parent: cr.parentNode === fh,
+               right: R(cr).right, hostRight: R(fh).right - 1, abs: getComputedStyle(cr).position, sibling: c1.nextSibling === cr, margin: c1.style.marginBottom,
+               credits: document.querySelectorAll('.jnext-credit').length };
+    // a block host: the credit follows its content
+    const bh = add('div', 'width:300px', '<p style="margin:0">hello</p>');
+    const c2 = add('div');
+    const p2 = await jnext.mount(c2, { width: 320, height: 256, creditIn: bh });
+    const cb = bh.lastElementChild;
+    o.block = { last: cb.className === 'jnext-credit', below: R(cb).top >= R(bh.firstElementChild).bottom - 1, left: R(cb).left - R(bh).left };
+    await new Promise((res) => setTimeout(res, 500));
+    const s = window.__spy;
+    o.spy = { resize: s.resize.size, ro: s.ro.size, poll: s.poll };
+    await p1.destroy();
+    o.afterDestroy = { same: names(fh) === before, margin: c1.style.marginBottom, credits: document.querySelectorAll('.jnext-credit').length };
+    await p2.destroy();
+    // a detached host
+    const dh = document.createElement('div');
+    const c3 = add('div');
+    const p3 = await jnext.mount(c3, { width: 320, height: 256, creditIn: dh });
+    o.detached = { has: dh.querySelectorAll('.jnext-credit').length };
+    await p3.destroy();
+    o.detached.after = dh.querySelectorAll('.jnext-credit').length;
+    // a failed mount leaves none in the host
+    const fhost = add('div');
+    let rejected = false;
+    try { await jnext.mount(add('div'), { width: 640, height: 512, creditIn: fhost, debug: { protocol: 'dzrp', transport: 'ws' } }); } catch (e) { rejected = true; }
+    o.failed = { rejected, credits: fhost.querySelectorAll('.jnext-credit').length };
+    // two players, one host
+    const th = add('div');
+    const pa = await jnext.mount(add('div'), { width: 320, height: 256, creditIn: th });
+    const pb = await jnext.mount(add('div'), { width: 320, height: 256, creditIn: th });
+    const two = [...th.querySelectorAll('.jnext-credit')];
+    await pa.destroy();
+    const left = [...th.querySelectorAll('.jnext-credit')];
+    await pb.destroy();
+    o.two = { two: two.length, left: left.length, mine: left[0] === two[1], end: th.querySelectorAll('.jnext-credit').length };
+    return o;
+  });
+  await page.context().close();
+  must(r.flex.last && r.flex.others && r.flex.parent && !r.flex.sibling && r.flex.abs !== 'absolute' && r.flex.margin === '10px' && r.flex.credits === 1, 'flex host ' + JSON.stringify(r.flex));
+  must(Math.abs(r.flex.right - r.flex.hostRight) <= 1, 'the credit is not at the right end of the flex row ' + JSON.stringify(r.flex));
+  must(r.block.last && r.block.below && Math.abs(r.block.left) <= 2, 'block host ' + JSON.stringify(r.block));
+  must(r.spy.resize === 0 && r.spy.ro === 0 && r.spy.poll === 0, 'something is observed or polled: ' + JSON.stringify(r.spy));
+  must(r.afterDestroy.same && r.afterDestroy.margin === '10px' && r.afterDestroy.credits === 1, 'after destroy ' + JSON.stringify(r.afterDestroy));
+  must(r.detached.has === 1 && r.detached.after === 0, 'detached host ' + JSON.stringify(r.detached));
+  must(r.failed.rejected && r.failed.credits === 0, 'failed mount ' + JSON.stringify(r.failed));
+  must(r.two.two === 2 && r.two.left === 1 && r.two.mine && r.two.end === 0, 'two players ' + JSON.stringify(r.two));
+  must(page.msgs.length === 0, page.msgs.join('; '));
+});
+
+// The widget with the NMI button (5 buttons), at the width the row asks for.
+const narrowPage = (name, attrs) => { pages[name] = `<!doctype html><body><div class="jnext-widget" data-nmi data-file="${BURL}/red.nex" ${attrs}></div><script src="jnext-widget.js"></script></body>`; };
+const toolsGeo = (page) => page.evaluate(() => {
+  const e = document.querySelector('.jnext-widget'), R = (el) => { const b = el.getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height, cy: (b.top + b.bottom) / 2 }; };
+  const tools = e.querySelector('.jw-tools'), st = e.querySelector('.jw-status'), c = e.querySelector('.jnext-credit'), btns = [...tools.querySelectorAll('button')];
+  const inFrame = [...btns, c].map((x) => { const b = x.getBoundingClientRect(), f = e.querySelector('.jw-frame').getBoundingClientRect();
+    const hit = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+    return b.left >= f.left && b.right <= f.right && b.top >= f.top && b.bottom <= f.bottom && !!hit && (hit === x || x.contains(hit)); });
+  return { tools: R(tools), status: R(st), credit: R(c), btns: btns.map(R), n: btns.length, inFrame, frame: R(e.querySelector('.jw-frame')),
+           sw: st.scrollWidth, cw: st.clientWidth, text: st.textContent };
+});
+
+row('WIDGET-35', 'toolbar widths (with the NMI button): at the default 640 the buttons, the status and the credit are one row; at data-width 320 the toolbar wraps and every button and the credit lie inside the frame and hit-test as themselves; at the width that leaves the status 20 px, the credit wraps to its own line at the toolbar\'s right edge and the state word "running" is shown whole', async () => {
+  narrowPage('w35a.html', '');
+  const a = await open(`${AURL}/w35a.html`);
+  await waitClickable(a);
+  const wide = await toolsGeo(a);
+  await a.context().close();
+  must(a.msgs.length === 0, a.msgs.join('; '));
+  must(wide.n === 5, 'buttons ' + wide.n);
+  must([...wide.btns, wide.status, wide.credit].every((x) => Math.abs(x.cy - wide.credit.cy) <= 1) && wide.tools.h < 40, 'default width is not one row ' + JSON.stringify(wide));
+  // 320
+  narrowPage('w35b.html', 'data-width="320"');
+  const b = await open(`${AURL}/w35b.html`);
+  await waitClickable(b);
+  const nar = await toolsGeo(b);
+  if (SHOTS) await b.screenshot({ path: path.join(SHOTS, 'widget-320.png') });
+  await b.context().close();
+  must(nar.inFrame.every((x) => x), 'at 320 a button or the credit is outside the frame or covered ' + JSON.stringify(nar));
+  must(nar.credit.t >= Math.max(...nar.btns.map((x) => x.t)) - 1 && nar.tools.h > wide.tools.h, 'at 320 the toolbar did not wrap ' + JSON.stringify(nar));
+  // the width that leaves the status 20 px beside the buttons and the credit (computed: fonts differ between hosts)
+  const gap = 6, pad = 16;
+  const W = Math.ceil(wide.btns.reduce((s, x) => s + x.w, 0) + wide.credit.w + 20 + (wide.btns.length + 1) * gap + pad);
+  narrowPage('w35c.html', `data-width="${W}"`);
+  const c = await open(`${AURL}/w35c.html`);
+  await waitClickable(c);
+  await c.evaluate(() => document.querySelector('.jnext-widget').jnextUi.say('running'));
+  const tight = await toolsGeo(c);
+  if (SHOTS) await c.screenshot({ path: path.join(SHOTS, 'widget-tight.png') });
+  await c.context().close();
+  must(tight.credit.t >= Math.max(...tight.btns.map((x) => x.b)) - 1, 'at ' + W + ' the credit did not wrap to its own line ' + JSON.stringify(tight));
+  must(Math.abs(tight.credit.r - (tight.tools.r - 8)) <= 1, 'wrapped credit right edge ' + tight.credit.r + ' vs toolbar ' + tight.tools.r);
+  must(tight.text === 'running' && tight.sw <= tight.cw, 'state word truncated: ' + tight.text + ' ' + tight.sw + '>' + tight.cw);
+});
+
+row('WIDGET-36', 'real fullscreen: the credit is still inside the toolbar, the toolbar is the frame\'s last box, the stage fills the space between the title bar and the toolbar, and no credit lies outside the toolbar; back from fullscreen the same holds at 640x512', async () => {
+  const page = await open(`${AURL}/widget.html?` + QUERY);
+  await waitClickable(page);
+  const geo = () => page.evaluate(() => {
+    const e = document.querySelector('.jnext-widget'), r = (q) => { const b = e.querySelector(q).getBoundingClientRect(); return { top: b.top, bottom: b.bottom, height: b.height }; };
+    const credits = [...document.querySelectorAll('.jnext-credit')];
+    return { fs: document.fullscreenElement === e.querySelector('.jw-frame'), frame: r('.jw-frame'), title: r('.jw-title'), stage: r('.jw-stage'), tools: r('.jw-tools'),
+             credits: credits.length, inTools: credits.every((c) => c.parentNode === e.querySelector('.jw-tools')), creditB: credits[0].getBoundingClientRect().bottom, stageH: r('.jw-stage').height };
+  });
+  const ok = (g, tag) => {
+    must(g.credits === 1 && g.inTools, tag + ': credit outside the toolbar ' + JSON.stringify(g));
+    must(Math.abs(g.tools.bottom - g.frame.bottom) <= 1.5, tag + ': the toolbar is not the last box ' + JSON.stringify([g.tools, g.frame]));
+    must(g.creditB <= g.tools.bottom + 0.5, tag + ': credit below the toolbar');
+    must(Math.abs(g.stage.top - g.title.bottom) < 2 && Math.abs(g.stage.bottom - g.tools.top) < 2, tag + ': stage not between title and toolbar ' + JSON.stringify(g));
+  };
+  await page.locator('.jnext-widget [data-jw=fullscreen]').click();
+  await waitFor(page, () => document.fullscreenElement && document.querySelector('.jnext-widget .jnext-player').getBoundingClientRect().width > 700, null, 60000);
+  const on = await geo();
+  await page.evaluate(() => document.exitFullscreen());
+  await waitFor(page, () => !document.fullscreenElement && document.querySelector('.jnext-widget .jnext-player').style.height === '512px', null, 60000);
+  const off = await geo();
+  await page.context().close();
+  must(on.fs && on.stageH > 512, 'fullscreen: ' + JSON.stringify(on));
+  ok(on, 'fullscreen');
+  must(off.stageH === 512, 'after exit ' + JSON.stringify(off));
+  ok(off, 'after exit');
+  must(page.msgs.length === 0, page.msgs.join('; '));
+});
+
+row('WIDGET-37', 'under WIDGET-05\'s hostile page stylesheet the credit in the toolbar keeps its looks: 13 px text, normal letter spacing, at most 26 px tall, the toolbar under 50 px, no gap between the screen and the toolbar, the credit centred in the toolbar at its right edge; a focused credit link shows an outline', async () => {
+  pages['hostile37.html'] = `<!doctype html><style>${HOSTILE_CSS}</style><body><div class="jnext-widget" data-title="Hostile" data-file="${BURL}/red.nex"></div><script src="jnext-widget.js"></script></body>`;
+  const page = await open(`${AURL}/hostile37.html`);
+  await waitClickable(page);
+  const r = await page.evaluate(() => {
+    const e = document.querySelector('.jnext-widget'), c = e.querySelector('.jnext-credit'), a = c.querySelector('a'), t = e.querySelector('.jw-tools');
+    const cr = c.getBoundingClientRect(), tr = t.getBoundingClientRect(), sb = e.querySelector('.jw-stage').getBoundingClientRect().bottom;
+    a.focus();
+    const cs = getComputedStyle(a), cc = getComputedStyle(c);
+    return { fs: cs.fontSize, ls: [cs.letterSpacing, cc.letterSpacing].join(), h: cr.height, toolsH: tr.height, gap: sb - tr.top, cy: (cr.top + cr.bottom) / 2, ty: [tr.top, tr.bottom],
+             right: cr.right, toolsR: tr.right, focusVisible: a.matches(':focus-visible'), outline: cs.outlineStyle, last: t.lastElementChild === c };
+  });
+  await page.context().close();
+  must(r.last && r.fs === '13px' && r.ls === 'normal,normal', 'credit text ' + JSON.stringify(r));
+  must(r.h <= 26 && r.toolsH < 50 && Math.abs(r.gap) <= 0.5, 'credit or toolbar inflated ' + JSON.stringify(r));
+  must(r.cy > r.ty[0] && r.cy < r.ty[1] && Math.abs(r.right - (r.toolsR - 8)) <= 1, 'credit position ' + JSON.stringify(r));
+  must(r.focusVisible && r.outline !== 'none', 'no focus outline ' + JSON.stringify(r));
+  must(page.msgs.length === 0, page.msgs.join('; '));
+});
+
+row('WIDGET-38', 'the widget under a page CSP with img-src self and Trusted Types for script: the credit is in the toolbar with its inline SVG icon (18 px, more than 3 shapes, no img), mount resolved, nothing reaches the console', async () => {
+  pages['wcsp.html'] = `<!doctype html><body><div class="jnext-widget" data-file="${BURL}/red.nex"></div><script src="jnext-${VERSION}.js"></script><script src="jnext-widget.js"></script></body>`;
+  pageHeaders['wcsp.html'] = { 'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src *; img-src 'self'; require-trusted-types-for 'script'" };
+  const page = await ctxPage(`${AURL}/wcsp.html`);
+  await waitClickable(page);
+  const r = await page.evaluate(() => {
+    const c = document.querySelector('.jw-tools .jnext-credit'), svg = c && c.querySelector('a svg'), b = svg && svg.getBoundingClientRect();
+    return { inTools: !!c, w: b && b.width, h: b && b.height, shapes: svg ? svg.querySelectorAll('path,polygon,rect').length : 0, img: c ? c.querySelectorAll('img').length : -1,
+             state: document.querySelector('.jnext-widget').jnextPlayer.state };
+  });
+  await page.context().close();
+  must(r.inTools && Math.abs(r.w - 18) < 0.5 && Math.abs(r.h - 18) < 0.5 && r.shapes > 3 && r.img === 0, 'icon ' + JSON.stringify(r));
+  must(page.msgs.length === 0, 'console/page errors: ' + page.msgs.join('; '));
 });
 
 let pass = 0, fail = 0;

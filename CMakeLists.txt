@@ -701,7 +701,7 @@ if(EMSCRIPTEN)
         "SHELL:--extern-post-js ${CMAKE_SOURCE_DIR}/web/jnext-image.js"
         "SHELL:--extern-post-js ${CMAKE_SOURCE_DIR}/web/jnext-touch-keyboard.js"
         "SHELL:--extern-post-js ${CMAKE_BINARY_DIR}/web/jnext_api.js")
-    # The attribution link mount() adds under every player (GH #563) shows the application icon,
+    # The attribution link mount() adds to every player (GH #563) shows the application icon,
     # inlined from the packaging SVG as a string the API turns into SVG DOM, so there is one source and no extra file.
     file(READ "${CMAKE_SOURCE_DIR}/packaging/assets/io.github.zxjogv.jnext.svg" JNEXT_ICON_SVG)
     string(REPLACE "\n" "" JNEXT_ICON_SVG "${JNEXT_ICON_SVG}")

@@ -73,7 +73,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |   103 |  103 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6700 | 6700 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6700**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6171**. Rows the 258 suites declared in `test/unit-tests.conf` run live: **18454**.
+Rows the sections above carry: **6700**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6171**. Rows the 258 suites declared in `test/unit-tests.conf` run live: **18467**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 205 suites (12367 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 205 suites (12380 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -109,9 +109,9 @@ These 205 suites (12367 live rows) have no VHDL-derived plan row to map, so they
 | `fatfs_glue_linux_test` | 2 | FatFs glue sector cache after a failed write (host tool, Linux-only: /dev/full, RLIMIT_FSIZE); the oracle is the image file read by an independent stream, no core counterpart |
 | `fat32_image_test` | 29 | FAT32 on-disk format (host image reader) |
 | `image_lock_any_test` | 5 | SD card image lock rows every target runs, WebAssembly included (GH #555); same oracle (host feature, no core counterpart) |
-| `sdcard_carry_test` | 57 | SD card comparison / carry-over engine and rescue verbs (GH #555): the design in the issue and its plan as oracle, the hand-rolled FAT32 reader as the foreign reader (host feature, no core counterpart) |
+| `sdcard_carry_test` | 64 | SD card comparison / carry-over engine and rescue verbs (GH #555): the design in the issue and its plan as oracle, the hand-rolled FAT32 reader as the foreign reader (host feature, no core counterpart) |
 | `sdcard_upgrade_test` | 35 | SD card upgrade flow (GH #555): the design in the issue and its plan as oracle, the hand-rolled FAT32 reader as the foreign reader (host feature, no core counterpart) |
-| `sdcard_backup_test` | 23 | SD card backup, go back, delete and the File-menu state (GH #555): the design in the issue as oracle (host feature, no core counterpart) |
+| `sdcard_backup_test` | 24 | SD card backup, go back, delete and the File-menu state (GH #555): the design in the issue as oracle (host feature, no core counterpart) |
 | `image_lock_test` | 10 | SD card image lock (GH #555): one jnext per card; the design in the issue as oracle (host feature, no core counterpart) |
 | `sdcard_swap_lock_test` | 6 | the live SD card change takes and drops the image lock (GH #555): the design in the issue as oracle (host feature, no core counterpart) |
 | `sdcard_file_extract_test` | 41 | FatFs R0.15b and the FAT specification as oracle, with the issue and its plan (GH #557): host copy OUT of an SD card image, a host feature with no core counterpart; the core never reads a filesystem, only SPI blocks, which `## SD Card` traces |
@@ -162,7 +162,7 @@ These 205 suites (12367 live rows) have no VHDL-derived plan row to map, so they
 | `host_key_latch_test` | 182 | host key latch/debounce compensation; guest matrix is `## Input` |
 | `sdl_app_tick_test` | 17 | SdlApp::tick() host frame-loop iteration (host UI, GH #462) |
 | `browser_policy_test` | 30 | browser page rAF callback gate and refusals (host UI, GH #463) |
-| `web_api_test` | 40 | browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465) |
+| `web_api_test` | 41 | browser JavaScript API: options table, argv, man page, load hook (host UI, GH #465) |
 | `sdl_pointer_release_test` | 11 | SDL pointer-release route (host UI, GH #365) |
 | `sdcard_upgrade_box_test` | 6 | SDL message box offering a newer NextZXOS image (host UI, GH #476) |
 | `sdl_window_title_test` | 3 | SDL window title carries the version (host GUI) |
@@ -250,7 +250,7 @@ These 205 suites (12367 live rows) have no VHDL-derived plan row to map, so they
 | `frame_timer_test` | 6 | host GUI frame-timer contract (Qt timer, not core timing) |
 | `esp_status_test` | 15 | host status-bar ESP indicator (GUI), no core counterpart |
 | `no_sdcard_ui_test` | 4 | --no-sdcard in the window: Insert / Eject SD Card disabled, "SD: none" (host GUI, GH #540) |
-| `sdcard_menu_test` | 18 | File menu card-set actions and their enablement (GH #555): the design in the issue as oracle (host UI, no core counterpart) |
+| `sdcard_menu_test` | 22 | File menu card-set actions and their enablement (GH #555): the design in the issue as oracle (host UI, no core counterpart) |
 | `sdcard_manager_window_test` | 53 | the issue and its decision comments (GH #558) as oracle: the SD card file manager window (two panes, read-only forcing, copy, move, rename, delete, New Folder, drops, what it opens on, the card pane following the card, the window staying modeless and inert during a card operation and the emulator winning), a host GUI feature with no core counterpart |
 | `bug_report_ui_test` | 6 | File > Save Bug Report... in the Qt window (host GUI, GH #492): the menu, the real dialog, the report written |
 | `nex_v13_dialog_test` | 4 | experimental NEX V1.3 warning dialog (GUI), no core counterpart |

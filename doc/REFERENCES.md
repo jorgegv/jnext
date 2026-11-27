@@ -18,7 +18,8 @@ code comments, so there is one place to check when a link rots or a spec moves.
 | Boot sequence (authoritative)                                                      | <https://wiki.specnext.dev/Boot_Sequence>                                   |
 | TBBlue firmware source (GPLv3) — `TBBLUE.FW` / `TBBLUE.TBU`, the IPL + boot module | <https://gitlab.com/thesmog358/tbblue/-/tree/master>                        |
 | TBBlue machine-config boot files (`config.ini` / `menu.ini` / `menu.def`)          | <https://gitlab.com/thesmog358/tbblue/-/blob/master/docs/config/config.txt> |
-| ZX Next FPGA core, branch `30204` (core 3.02.04: the Pi debug control); see [the analysis](analysis/FPGA-CORE-3.02.04-PI-DEBUG-CONTROL.md) | <https://gitlab.com/SpectrumNext/ZX_Spectrum_Next_FPGA/-/tree/30204> |
+| ZX Next FPGA core, branch `30204` (core 3.02.04: the Pi debug control); see [the analysis](analysis/FPGA-CORE-3.02.04-PI-DEBUG-CONTROL.md) and [the 3.02.04/3.02.05 changes](analysis/FPGA-CORE-3.02.04-3.02.05-CHANGES.md) | <https://gitlab.com/SpectrumNext/ZX_Spectrum_Next_FPGA/-/tree/30204> |
+| ZX Next FPGA core, branch `30205` (core 3.02.05, unreleased: HDMI v3, hotkey fix, versioned boot code in `src/rom/tbblue.zip`); see [the 3.02.04/3.02.05 changes](analysis/FPGA-CORE-3.02.04-3.02.05-CHANGES.md) | <https://gitlab.com/SpectrumNext/ZX_Spectrum_Next_FPGA/-/tree/30205> |
 
 ## File formats
 

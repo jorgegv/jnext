@@ -175,7 +175,10 @@ bool copy_kept_file(const sd_write_journal::Journal& from, sd_write_journal::Jou
 /// not why not (the first reason). It holds when: the raw exists, its .sha256 sidecar matches it,
 /// the card's .distro is the raw's, the card's .recipe is known (1..kFixedImageRecipe, none = 1),
 /// and for recipe 3 the card's volume serial is the one the raw's hash gives.
+/// The sha256 of the raw is skipped when <raw>.verified (digest, size, mtime of its last match) is valid.
 bool pristine_base_ok(const std::string& card_image, std::string& why);
+/// How many times pristine_base_ok has hashed the original (test instrument).
+uint64_t pristine_hash_count();
 
 /// Rebuild the card as made into `out_image`: a sparse copy of the card's raw, then the card's
 /// recipe. `raw` and `card_image` are the default location's pair.

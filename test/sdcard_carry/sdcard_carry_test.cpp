@@ -29,12 +29,14 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <set>
 #include <string>
@@ -1372,6 +1374,138 @@ int main() {
               fs_ == FileAddStatus::Ok && st == FileAddStatus::ImageFull && leftover == 0 && text(&f.at("/R.TXT")) == "new" &&
                   err.find("1 existing file(s) had already been replaced") != std::string::npos,
               fe + " | " + err + " leftover=" + std::to_string(leftover));
+    }
+
+    // =================== SDCARRY-18..22: the original's last verification (<raw>.verified) =========
+    // Oracle: the owner's decision on the issue (no hash when size and mtime still match the last
+    // verification) and the record grammar in the developer guide; digests from sha256_file (NIST-pinned).
+    {
+        using namespace std::chrono_literals;
+        // A small original with its matching sidecar and a card file beside it (no .distro, no .recipe:
+        // legacy recipe 1, no volume serial to read).
+        auto make_pair = [&](const std::string& stem) {
+            const std::string d = tmp(stem);
+            fs::create_directories(d);
+            const std::string raw = (fs::path(d) / sdcard::kImageFileName).string();
+            { std::ofstream f(raw, std::ios::binary); const std::string z(4096, 'q'); f.write(z.data(), static_cast<std::streamsize>(z.size())); }
+            std::ofstream(raw + ".sha256") << sdcard::sha256_file(raw) << "  " << sdcard::kImageFileName << "\n";
+            const std::string card = (fs::path(d) / sdcard::kFixedImageFileName).string();
+            { std::ofstream f(card, std::ios::binary); f << "card"; }
+            return card;
+        };
+        auto raw_of = [](const std::string& card) { return (fs::path(card).parent_path() / sdcard::kImageFileName).string(); };
+        // one check: the verdict, why, and how many times it hashed the original
+        struct R { bool ok; std::string why; uint64_t hashes; };
+        auto chk = [&](const std::string& card) {
+            R r;
+            const uint64_t h0 = carry::pristine_hash_count();
+            r.ok = carry::pristine_base_ok(card, r.why);
+            r.hashes = carry::pristine_hash_count() - h0;
+            return r;
+        };
+        auto slurp = [](const std::string& f) {
+            std::ifstream i(f, std::ios::binary);
+            return std::string((std::istreambuf_iterator<char>(i)), std::istreambuf_iterator<char>());
+        };
+        auto spit = [](const std::string& f, const std::string& s) { std::ofstream o(f, std::ios::binary | std::ios::trunc); o << s; };
+        auto dump = [](const R& r) { return std::string(r.ok ? "true" : "false") + "/" + std::to_string(r.hashes) + "/" + r.why; };
+
+        {   // SDCARRY-18
+            const std::string c = make_pair("v18");
+            const R a = chk(c);
+            const bool rec = fs::is_regular_file(raw_of(c) + ".verified");
+            const R b = chk(c);
+            check("SDCARRY-18", "an original that matches its sidecar is hashed once and a <raw>.verified record is written; the next check skips the hash",
+                  a.ok && a.hashes == 1 && rec && b.ok && b.hashes == 0, dump(a) + " | " + dump(b));
+        }
+        {   // SDCARRY-19
+            const std::string c = make_pair("v19");
+            const std::string raw = raw_of(c);
+            const R a = chk(c);
+            const auto t = fs::last_write_time(raw);
+            spit(raw, std::string(4096, 'r'));
+            fs::last_write_time(raw, t + 2s);
+            const R b = chk(c);
+            const R d = chk(c);
+            const std::string n = "does not match its .sha256";
+            check("SDCARRY-19", "an original rewritten (same size, other bytes, mtime moved) is hashed on every check and fails: a stale record is not served and no record is written for a mismatch",
+                  a.ok && !b.ok && b.hashes == 1 && b.why.find(n) != std::string::npos && !d.ok && d.hashes == 1 &&
+                      d.why.find(n) != std::string::npos,
+                  dump(a) + " | " + dump(b) + " | " + dump(d));
+        }
+        {   // SDCARRY-20
+            const std::string c = make_pair("v20");
+            const std::string raw = raw_of(c);
+            const R a = chk(c);
+            std::ofstream(raw + ".sha256") << std::string(64, 'a') << "  " << sdcard::kImageFileName << "\n";
+            const R b = chk(c);
+            check("SDCARRY-20", "a record made for another digest than the sidecar's is void: the original is hashed and fails",
+                  a.ok && !b.ok && b.hashes == 1 && b.why.find("does not match its .sha256") != std::string::npos, dump(a) + " | " + dump(b));
+        }
+        {   // SDCARRY-21
+            const std::string c = make_pair("v21");
+            const std::string raw = raw_of(c);
+            const R a = chk(c);
+            const auto t = fs::last_write_time(raw);
+            { std::ofstream f(raw, std::ios::binary | std::ios::app); const std::string z(512, 'x'); f.write(z.data(), 512); }
+            fs::last_write_time(raw, t);
+            const R b = chk(c);
+            check("SDCARRY-21", "an original grown with its mtime put back is hashed (the size moved) and fails",
+                  a.ok && !b.ok && b.hashes == 1 && b.why.find("does not match its .sha256") != std::string::npos, dump(a) + " | " + dump(b));
+        }
+        {   // SDCARRY-22A
+            const std::string c = make_pair("v22a");
+            const std::string rec = raw_of(c) + ".verified";
+            (void)chk(c);
+            std::string body = slurp(rec);
+            const bool endsnl = !body.empty() && body.back() == '\n';
+            if (!body.empty()) body.pop_back();
+            spit(rec, body);
+            const R a = chk(c);
+            const R b = chk(c);
+            check("SDCARRY-22A", "a record truncated by its final newline is ignored (hashed, verdict true) and rewritten whole: the next check skips",
+                  endsnl && a.ok && a.hashes == 1 && b.ok && b.hashes == 0, dump(a) + " | " + dump(b));
+        }
+        {   // SDCARRY-22B
+            const std::string c = make_pair("v22b");
+            const std::string rec = raw_of(c) + ".verified";
+            (void)chk(c);
+            const std::string good = slurp(rec);   // "<digest> <size> <mtime>\n"
+            const size_t a1 = good.find(' '), a2 = a1 == std::string::npos ? a1 : good.find(' ', a1 + 1);
+            bool all = a2 != std::string::npos;   // no record written: a clean FAIL below, never an abort
+            std::string det = all ? "" : " [no record was written]";
+            if (all) {
+                const std::string dg = good.substr(0, a1), sz = good.substr(a1 + 1, a2 - a1 - 1), mt = good.substr(a2 + 1);   // mt ends in \n
+                std::string up = dg;
+                for (char& ch : up) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+                std::vector<std::string> variants = {
+                    up + " " + sz + " " + mt,                                 // uppercase hex
+                    dg.substr(1) + " " + sz + " " + mt,                       // 63-digit digest
+                    dg + " " + sz + "\n",                                     // two fields
+                    dg + " 18446744073709555712 " + mt,                       // 2^64 + 4096: overflows uint64, would wrap to the real size
+                    good + "trailing\n",                                      // text after the line
+                };
+                // A negative tick written as its unsigned form (2^64 - n) is out of int64 range: not the record. Where ticks
+                // are positive (Windows) there is no such form, so no variant.
+                if (mt[0] == '-') variants.push_back(dg + " " + sz + " " + std::to_string(static_cast<uint64_t>(std::stoll(mt))) + "\n");
+                for (const std::string& v : variants) {
+                    spit(rec, v);
+                    const R r = chk(c);
+                    if (!(r.ok && r.hashes == 1)) { all = false; det += " [" + dump(r) + "]"; }
+                }
+            }
+            check("SDCARRY-22B", "records that are uppercase hex, a 63-digit digest, two fields, an overflowing size, an out-of-range mtime or have text after the line are ignored: each is hashed once and the verdict is true",
+                  all, det);
+        }
+        {   // SDCARRY-22C
+            const std::string c = make_pair("v22c");
+            const std::string rec = raw_of(c) + ".verified";
+            fs::create_directories(rec);
+            const R a = chk(c);
+            const R b = chk(c);
+            check("SDCARRY-22C", "a directory at <raw>.verified: each check hashes once, the verdict is true, and the directory is left alone",
+                  a.ok && a.hashes == 1 && b.ok && b.hashes == 1 && fs::is_directory(rec) && fs::is_empty(rec), dump(a) + " | " + dump(b));
+        }
     }
 
     std::error_code ec;
