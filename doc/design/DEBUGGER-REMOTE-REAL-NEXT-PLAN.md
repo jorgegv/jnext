@@ -43,7 +43,7 @@ are sub-issues of their own; R6 is one placeholder sub-issue, opened only if R5.
 
 #### Sub-issue 2: early hardware checkpoint on the KS2 (board issue 4, the Kickstarter 2 board) (owner)
 
-- [ ] **R0.5** Owner-run on the KS2 (board issue 4) over dezogif_ng's WiFi ROM: connect while stopped, CMD_INIT, registers, memory, NextREGs, then one unsupported command to confirm the silent reset (Q10); confirms §2.4 before R1-R4 build on it
+- [x] **R0.5** Owner-run on the KS2 (board issue 4) over dezogif_ng's WiFi ROM: connect while stopped, CMD_INIT, registers, memory, NextREGs, then one unsupported command to confirm the silent reset (Q10); confirms §2.4 before R1-R4 build on it (record: `doc/testing/REMOTE-TARGET-VALIDATION.md` §1; §2.4 confirmed; new: `CMD_INIT` rewrites the slots, and a session starts with no debuggee, D24)
 
 #### Sub-issue 3: the target seam and the capability model
 
@@ -276,7 +276,7 @@ nobody has measured are marked **(unmeasured)**.
 | Answers **DZRP 2.1.0**, machine 4, name **`"dezogif v2.2.1"`**: `PRG_VERSION` is upstream's version string, which the fork "has never moved" | `src/commands.asm:26-35`, `cmd_init.response`; `src/data_const.asm:11-19` |
 | Serves commands **1 to 23** only through its jump table, plus 40 (answers id 0 = refused) and 41 (acknowledged) | `commands.asm` `cmd_jump_table` (`:41-65`), `get_cmd_pointer.not_supported` (`:117-126`), `cmd_add_breakpoint` |
 | **No** 24 (`GET_SUPPORTED_COMMANDS`), 25/26 (bank memory), 27/28, 39, 42/43 (watchpoints), 50/51 (state) | same; `:74-77` "not supported, and silent" |
-| **An unsupported command ends the session**: `cmd_not_supported` sends no reply and jumps to `drain_main`, which falls into `main`, which "RE-INITIALISE[S] THE DEBUGGEE'S SAVED STATE" | `commands.asm` `cmd_not_supported`; `src/main.asm:117-147` |
+| **An unsupported command ends the session**: `cmd_not_supported` sends no reply and jumps to `drain_main`, which falls into `main`, which "RE-INITIALISE[S] THE DEBUGGEE'S SAVED STATE": only `prgm_state` (to `PRGM_IDLE`), the clock speed, the interrupt state, the layer 2 port and the slot 0 backup; PC, SP and the general registers are left as they were | `commands.asm` `cmd_not_supported`; `src/main.asm:117-147` |
 | Breakpoints are client-owned `RST 0` patches: CMD 13 sets a list and returns the original bytes, CMD 14 restores them (only where the byte is still 0xC7, spec) | `cmd_set_breakpoints`, `cmd_restore_mem`; `doc/DEZOG-BREAKPOINTS-DESIGN.md` §1, §3 |
 | CMD_CONTINUE takes up to two temporary breakpoints, patched by the stub | `cmd_continue` |
 | `CMD_PAUSE` only acknowledges; the stop itself comes from the Copper-NMI poll while running | `cmd_pause` banner |
@@ -285,6 +285,8 @@ nobody has measured are marked **(unmeasured)**.
 | Reserves 8K banks 91 (loopback), 92 (temp), 94 (MAIN, refused by CMD_WRITE_BANK); runs MAIN in slot 7 and uses slot 6 as a swap window while stopped | `src/constants.asm` `LOOPBACK_BANK`, `TMP_BANK`, `MAIN_BANK`, `MAIN_SLOT`, `SWAP_SLOT`; `cmd_write_bank` banner |
 | Reports slot 7 from its backup and slot 0 as ROM while stopped | `cmd_get_registers`; `SLOT_BACKUP` struct comment |
 | Patches the 48K ROM into the Alt ROM (bytes 0x0000-0x0007 and 0x0066-0x0073) so ROM code can be stepped | `src/altrom.asm` `copy_modify_altrom` |
+| **`CMD_INIT` writes the machine's slots** (confirmed on the KS2, R0.5): `slot_backup.slot0` = ROM, `slot_backup.slot7` = 1, and NR 0x51-0x56 = ROM, 10, 11, 4, 5, 0 (the ZX128 defaults), also on a re-attach to a live debuggee. The slots a client reads right after `CMD_INIT` are that table, not the interrupted program's mapping. The client-visible slot 7 (the one `CMD_READ_MEM` pages in for 0xE000-0xFFFF) is the backup value 1; NR 0x57 reads 0x5E (`MAIN_BANK`), the stub's own slot 7 | `commands.asm:150-166`, `:712-720`; `constants.asm:15,17`; `REMOTE-TARGET-VALIDATION.md` §1.2, §1.3 A |
+| **A session starts with no debuggee** (D24). Registers are saved only by an NMI over a RUNNING debuggee (`.break_into_debuggee` then `save_registers`) and by `dbg_enter` (an RST 0 breakpoint), and written by `CMD_SET_REGISTER`; with `prgm_state` `PRGM_IDLE` the NMI re-initialises the stub or returns at once. So the registers read after a FRESH entry from NextZXOS are the zero initialisers of `backup.*` (observed on the KS2), but after a previous session (`CMD_CLOSE`, an error through `drain_main`) they are that session's stale values: zero is not a property of every session, so "no debuggee" is a client-side per-session state, never inferred from register values. `CMD_INIT` sets `PRGM_LOADING`; a `CMD_CONTINUE` before SP and PC are set would resume whatever `backup.*` holds (source only, not tried on hardware) | `mf_rom.asm:386-423`; `mf.asm:105-112`; `breakpoints.asm:144-146`; `data.asm:68-91`; `main.asm:142-156`; `commands.asm` `cmd_init`, `cmd_continue`, `cmd_close`; `backup.asm:58-145`; `REMOTE-TARGET-VALIDATION.md` §1.3 B |
 | UART build: 921600 baud on the joy port, each message preceded by 0xA5 | `constants.asm` `BAUDRATE`; `transport_uart.asm` `TRANSPORT_MESSAGE_START` |
 | WiFi build: TCP server on port 11000 via the ESP-01, link up to 460800 baud, about 6.6 ms round trip and 20 KB/s | README (doc) |
 | PC Pause works over WiFi, and over the cable on joy port 2 only; the serial break "has not run on hardware" | README (doc); dezogif_ng #43 |
@@ -529,6 +531,12 @@ changes nothing a user sees.
   debuggee's bytes, and the one unsupported command (no reply, session reset, a fresh session
   served afterwards), whether the hardware agrees with §2.4. Any disagreement is folded into §2.4
   and the affected tasks before R1.1 starts.
+- **Result (2026-11-27, KS2, core 3.02.01, dezogif_ng build 00.26).** `doc/testing/REMOTE-TARGET-VALIDATION.md`
+  §1: the `CMD_INIT` answer, the slot reporting, the Alt ROM and 48K ROM reads and the silent
+  reset AGREE with §2.4; round trip median 7.4 to 7.5 ms. NOT checked: `CMD_READ_MEM` returning
+  a debuggee's bytes, because there was no debuggee (R4.6 checks it after an upload). New and
+  folded in (§2.4, §11, R1.2, R2.1, R2.5, R3.2, R4.1, R4.3, R4.5, R4.6, §12, §13 Q11, D24):
+  `CMD_INIT` rewrites the slots, and a session starts with no debuggee.
 - **Depends on.** R0.3, R0.4. Blocks R1.1 (by owner decision 2026-11-17).
 
 ---
@@ -569,6 +577,23 @@ knows how to grey out what a target cannot do.
 - **Acceptance.** No verb of a remote facade can silently succeed for a capability the target
   lacks.
 - **Depends on.** R1.1.
+- **No debuggee** (D24, from R0.5; a separate bullet, after Depends, so it does not rewrite the
+  Design sentence, which #513 words differently). A dezogif target is "no debuggee" from every
+  `CMD_INIT` until its client has set SP, PC and the program's slots in this session ("the
+  program's slots": every slot the client means the program to use, set by `CMD_SET_SLOT` after
+  this `CMD_INIT`; R4.3's upload sets those of the NEX's bank mapping). In Stage A's terms, with no
+  new `Capability` bit (`CAPABILITY_COUNT` unchanged): the target's capability set lacks `Run`,
+  `InstructionStep` and `RunToCursor` (all three need `CMD_CONTINUE` and valid registers, R2.4),
+  with `why_unavailable` of each = "no program loaded: upload one"; its `RegisterValidity` has
+  `Core` cleared, so `registers()` returns zeros marked invalid; the slots stay available (they
+  are true) and the MMU panel labels them "CMD_INIT defaults" until the state clears;
+  `set_mmu_slot`, memory and NextREG verbs are not gated by it. What #513 (Stage B) does for it:
+  the facade passes the target's validity mask through, and `capabilities()` stays the target's
+  set intersected with what the facade serves (#513's inventory); the panel's reason rule is
+  R1.3's. The state is the target's own and is never derived from register values.
+  `LocalTarget` and remote jnext never report it. Row for it, added to the Tests above: a fake
+  reporting "no debuggee" has `Run`, `InstructionStep` and `RunToCursor` unavailable with that
+  reason and `Core` invalid, and still serves memory, NextREG reads and `set_mmu_slot`.
 
 ### R1.3 Qt greying
 
@@ -577,7 +602,8 @@ knows how to grey out what a target cannot do.
   the capability it needs. `DebuggerWindow::apply_capabilities()` disables the actions (tooltip
   "Not available on <target>: <reason>") and shows a placeholder page in a panel that cannot be
   served (the reason, not an empty table). The CPU panel shows `?` for an invalid register;
-  the Call Stack panel marks a reconstructed stack (R3.4).
+  the Call Stack panel marks a reconstructed stack (R3.4). When `Core` is invalid the CPU panel
+  shows the reason of `why_unavailable(Capability::Run)` ("no program loaded: upload one", D24).
 - **Tests.** New Qt suite `debugger_capabilities_test` (`?`-gated `qt+dbg`), rows `RTQ-`: for
   each capability, a fake target lacking only it greys exactly the actions and panels the
   table says, and restoring it ungreys them.
@@ -613,7 +639,9 @@ CI proves it on loopback. This is also the PoC's client, minus the dezogif profi
   stop-time burst. Physical pages and ROM: `CMD_READ_BANK_MEM` / `CMD_WRITE_BANK_MEM`
   (25/26, ROM as bank 0xFF). Slots: `CMD_SET_SLOT`. NextREGs: `CMD_GET_TBBLUE_REG` per register
   (pipelined), writes by `CMD_SET_NEXTREGS` (27) when advertised. Sprites: 16-19. Paging ports
-  for the MMU panel from NextREGs where the Next exposes them. Snapshot cache per D3.
+  for the MMU panel from NextREGs where the Next exposes them. Snapshot cache per D3. On a
+  dezogif target in the "no debuggee" state (R1.2) the burst leaves out the registers (invalid
+  anyway) and fetches the slots as usual (they are `CMD_INIT`'s defaults, labelled so).
 - **Tests.** New suite `remote_target_test`, created here and extended by R2.2 to R2.4 and
   R2.7 (the in-process setup and wait hook of R2.7's design), rows `RTG-`: each primitive against `LocalTarget`
   on the same machine state; the snapshot burst is one pipelined write (row counts frames
@@ -675,7 +703,7 @@ CI proves it on loopback. This is also the PoC's client, minus the dezogif profi
 - **Design.** Debug > Remote Target... opens a dialog: link (TCP, later serial), host and port
   (or device and baud), connect timeout, response timeout; Connect, Disconnect. On connect the
   window retargets (R1.4) and pauses the remote (DeZog's convention; the jnext server's
-  `CMD_INIT` pauses already, dezogif_ng is stopped by construction). Errors are a status-bar
+  `CMD_INIT` pauses already, dezogif_ng is stopped by construction, but has no debuggee until its client sets one up, D24). Errors are a status-bar
   message plus the log line. A lost link freezes the panels with a banner and offers
   Reconnect; it never takes the local emulator down.
 - **Tests.** Qt suite rows over a `MemoryLinkPair`: connect, refuse (unknown remote), lose the
@@ -781,7 +809,7 @@ over plain DZRP.
 
 ### R3.2 Build-match check
 
-- **Design.** At connect and after an upload, compare the target's bytes with the program
+- **Design.** At connect and after an upload (on a "no debuggee" session, D24, only once that state has cleared, never against `CMD_INIT`'s default mapping), compare the target's bytes with the program
   file: for a NEX, its banks (through `NexLoader`, `src/core/nex_loader.h`) sampled at every
   source-mapped code range; for a bare binary with a map, the bytes the map's code ranges cover.
   A mismatch shows a banner ("the program on the target is not the build these sources
@@ -864,15 +892,25 @@ protocol path against the real stub running in jnext.
   bank memory, no state; sprite attributes and patterns unavailable (the stub returns zeros);
   pipelining window 1 until R4.6 measures more; reserved banks 91, 92 and 94 refused for writes
   and marked in the memory views; slot 7 reads come from the stub's backup and are correct for
-  the debuggee (`cmd_get_registers`); physical page and ROM image views greyed in the PoC (owner,
+  the debuggee (`cmd_get_registers`); **"no debuggee" (D24) from every `CMD_INIT`**: the profile
+  offers no Run and shows registers invalid (R1.2) until the client has set SP, PC (`CMD_SET_REGISTER`)
+  and the program's slots (`CMD_SET_SLOT`) in this session, and the gate refuses `CMD_CONTINUE`
+  before that (design change from the round-3 text); physical page and ROM image views greyed in the PoC (owner,
   Q7, 2026-11-18). Capabilities per §11.
 - **Tests.** `dzrp_client_test` rows with a scripted dezogif peer (the fake shim for the
-  hardware dialect): handshake, the gate refuses every command outside the set (a test that a
+  hardware dialect; its fresh connect state is R0.5's: zero registers, slots `FF FF 0A 0B 04 05
+  00 01`; rows: Run unavailable and `CMD_CONTINUE` refused before the client sets SP, PC and
+  slots, offered after): handshake, the gate refuses every command outside the set (a test that a
   stray 24 would be caught before it is sent, because the real stub would answer nothing and
   reset); the running-state rule; the peer emits `NTF_LOG` and the client logs it.
-- **Acceptance.** Against the scripted peer, a full session (connect, registers, memory, a
+- **Acceptance.** Against the scripted peer, a full session (connect, the client sets SP, PC and
+  slots by `CMD_SET_REGISTER` and `CMD_SET_SLOT`, which clears "no debuggee"; registers, memory, a
   breakpoint, continue, hit, step, Pause, disconnect) sends only commands of the profile's set,
   and nothing but command 7 while running; the capability set matches §11's dezogif_ng column.
+- **Scope of the "no debuggee" rule.** The dezogif_ng profile (observed on the KS2) and the
+  ambiguous serial profile (the same stub code). The dezogif 2.2 profile (labelled untested, D21)
+  is unverified: the upstream's `cmd_init` has the same slot writes (`71c7ad0`), but no such stub
+  was run; Q11 puts the consequence to the owner.
 - **Depends on.** R2.7.
 
 ### R4.2 Simple-mode breakpoints
@@ -905,7 +943,12 @@ protocol path against the real stub running in jnext.
 
 - **Design.** Load a NEX onto the target the way DeZog does: each bank by `CMD_WRITE_BANK`
   (dezogif) or `CMD_WRITE_BANK_MEM` (jnext), slots by `CMD_SET_SLOT`, SP and PC by
-  `CMD_SET_REGISTER`, then the session is stopped at the entry point. The NEX is parsed by
+  `CMD_SET_REGISTER`, then the session is stopped at the entry point. **Upload is how a dezogif_ng
+  session gets a debuggee** (D24): the NMI saves nothing from NextZXOS, so there is nothing to
+  attach to. The upload must set every register it relies on (the stub's values are zero or
+  another session's) and every slot of the program, because `CMD_INIT` has already overwritten
+  slots 1-6 with the ZX128 defaults. SP, PC and the slots set in this session is the event that
+  clears "no debuggee" (R1.2, R4.1), so the first `CMD_CONTINUE` follows it. The NEX is parsed by
   `NexLoader` (`src/core/nex_loader.h`). Refuses a NEX that needs bank 94 (MAIN) or 91/92 on
   dezogif. The same uploader serves a jnext target, so "Load program" works on both. Part of
   the PoC (owner, Q5, 2026-11-18). **On the dezogif 2.2 profile upload is greyed out**: that
@@ -918,7 +961,8 @@ protocol path against the real stub running in jnext.
   `--load` of the same NEX at its entry point; scripted-peer row for the dezogif command
   sequence.
 - **Acceptance.** After an upload the target stops at the NEX's entry point with its banks,
-  slots, SP and PC as a local `--load` of the same file sets them, and the build-match check
+  slots, SP and PC as a local `--load` of the same file sets them, `Run` is available and the
+  registers read valid on dezogif_ng, and the build-match check
   (R3.2) passes; a NEX touching banks 91, 92 or 94 is refused before any byte is sent to
   dezogif_ng.
 - **Depends on.** R4.1; R3.2 for the build-match part of the acceptance.
@@ -963,7 +1007,8 @@ protocol path against the real stub running in jnext.
   Only once R4.4 lands, a second row runs the UART ROM with `--joy-uart-pty` and the probe on
   the logged pty (`remote-dezogif-uart-func`, `os=linux`). The probe connects while the stub is
   stopped: a TCP connect while the program runs makes the ESP-01 print `CONNECT`, which the
-  async break takes as a break (§2.4). Scenario: connect, upload a demo NEX (R4.3), registers,
+  async break takes as a break (§2.4). Scenario: connect (fresh boot and delayed NMI: rows assert
+  R0.5's state: zero registers, slots `FF FF 0A 0B 04 05 00 01`, Run unavailable), upload a demo NEX (R4.3), registers,
   memory and slots, breakpoint, continue, hit, step, a breakpoint edit while running (absorbed
   pause, R4.2), pause of a running program, disconnect. The NextZXOS
   image is the one jnext provisions; no image is committed or uploaded, in any form.
@@ -976,7 +1021,10 @@ protocol path against the real stub running in jnext.
 
 - **Design.** A manual protocol in `doc/testing/REMOTE-TARGET-VALIDATION.md` (the shape of
   `DZRP-VALIDATION.md`, started by R0.5): the R4.5 scenario on the owner's **KS2, board issue 4**,
-  over WiFi (dezogif_ng's WiFi ROM on the ESP-01), with a C program and source stepping; record
+  over WiFi (dezogif_ng's WiFi ROM on the ESP-01), with a C program uploaded by R4.3 and source
+  stepping; first repeat R0.5's connect checks on a stub freshly entered from NextZXOS (NMI first:
+  after an earlier session the registers are stale, not zero) as the "before" of the upload, and
+  check that `CMD_READ_MEM` returns the uploaded program's bytes (R0.5 could not: no debuggee); record
   round-trip time, stop-refresh time, Step Over and line-step wall time, an absorbed-pause
   breakpoint edit, and the largest pipelining window that holds. Every record names the board
   (KS2, issue 4), the core version and the dezogif_ng build. Results set the dezogif_ng
@@ -1034,9 +1082,9 @@ tooltip, or the panel shows a placeholder with the reason (R1.3).
 
 | Capability | Local jnext | Remote jnext | Remote Next (dezogif_ng) | When unavailable |
 |---|---|---|---|---|
-| Run, Pause | yes | yes (CMD 6/7, NTF_PAUSE) | Run yes; Pause only with the async break: WiFi ROM yes, cable on joy port 2 yes but unverified on hardware, else the NMI button; not for a Copper-using program without the two instructions; never on the ambiguous serial profile unless `remote.stub=dezogif_ng` | Pause stays enabled; on timeout the status bar says "press the NMI button" |
-| Step Into / Over / Out (instruction) | exact (`debugger_step`) | by temporary breakpoints, one round trip per step; Out by return address or DeZog's loop | same; not in ROM, not at 0x0000-0x0007 / 0x0066-0x0073; RST 08 steps over | step actions disabled at a forbidden PC, with the reason |
-| Run to Cursor | yes | yes | yes, cursor in RAM only | disabled on a ROM or forbidden line |
+| Run, Pause | yes | yes (CMD 6/7, NTF_PAUSE) | Run yes, once the client has set SP, PC and slots ("no debuggee" before, D24); Pause only with the async break: WiFi ROM yes, cable on joy port 2 yes but unverified on hardware, else the NMI button; not for a Copper-using program without the two instructions; never on the ambiguous serial profile unless `remote.stub=dezogif_ng` | Pause stays enabled; on timeout the status bar says "press the NMI button" |
+| Step Into / Over / Out (instruction) | exact (`debugger_step`) | by temporary breakpoints, one round trip per step; Out by return address or DeZog's loop | same; not before the client has set SP, PC and slots (D24); not in ROM, not at 0x0000-0x0007 / 0x0066-0x0073; RST 08 steps over | step actions disabled at a forbidden PC, with the reason |
+| Run to Cursor | yes | yes | yes, cursor in RAM only, and not before the client has set SP, PC and slots (D24) | disabled on a ROM or forbidden line |
 | Run to end of frame / scanline, run to cycle | yes | no (no time in DZRP) | no | greyed: "cycle-exact: local only" |
 | Step Back, Frame Back, rewind slider, source Back, Reverse Continue | yes | no | no | Rewind menu and history actions greyed |
 | Execute breakpoints | anywhere | anywhere (CMD 40/41); page-qualified in RAM, a ROM breakpoint armed in every ROM bank | RAM only (RST 0 patches, CMD 13/14), patched only while running; an edit while running is an absorbed pause, or queued ("pending") without Pause (R4.2) | the gutter refuses the click with the reason |
@@ -1044,7 +1092,7 @@ tooltip, or the panel shows a placeholder with the reason (R1.3).
 | Conditions, log actions, `once`, hit counts | evaluated in the emulator | evaluated by the client at each hit, auto-continue (a round trip per hit) | same | enabled; tooltip states the cost |
 | Read / write watchpoints | yes | yes (CMD 42/43) | no | Watch-breakpoint actions greyed |
 | Port, NextREG-write, interrupt, frame, Copper, DMA events | yes | no | no | not offered (script-only today) |
-| Registers PC SP AF BC DE HL IX IY and shadows, I, R | yes | yes | yes | n/a |
+| Registers PC SP AF BC DE HL IX IY and shadows, I, R | yes | yes | yes once the client has set SP, PC and slots; invalid before ("no debuggee", D24) | CPU panel shows the reason of Run: "no program loaded: upload one" |
 | IM | yes | yes | unknown | CPU panel shows `?` |
 | IFF1, IFF2, HALT, MEMPTR | yes | unknown (not in DZRP) | unknown | CPU panel shows `?` |
 | Register write | yes | yes | yes | n/a |
@@ -1052,7 +1100,7 @@ tooltip, or the panel shows a placeholder with the reason (R1.3).
 | Memory read while running | yes (4 Hz refresh) | yes, at the target's next tick | no (the stub is not executing) | panels show the last stop, marked stale |
 | Physical page and ROM image views | yes | yes (CMD 25/26, ROM bank 0xFF) | no in the PoC (owner, Q7) | the Memory panel's page view greyed |
 | Overlays in the fetch identity (DivMMC, Multiface, Alt ROM, Layer 2 read map) | yes | no (DZRP sends the slot's bank only) | no; ROM slots show the stub's patched Alt ROM | source lookup uses the slot's page; Disassembly labels the identity "MMU only" |
-| MMU slots | yes | yes | yes (slot 7 from the stub's backup) | n/a |
+| MMU slots | yes | yes | yes (slot 7 from the stub's backup); right after `CMD_INIT` they are its ZX128 defaults, labelled so (§2.4) | n/a |
 | NextREG panel | yes | yes, one command per register, pipelined | yes, one round trip per register, refreshed on stop only | n/a |
 | Sprite attributes, patterns | yes | yes (CMD 18/19) | no (answered with zeros) | Sprites panel shows palette and clip only |
 | Sprite palette and clip | yes | yes | yes | n/a |
@@ -1091,6 +1139,7 @@ tooltip, or the panel shows a placeholder with the reason (R1.3).
 | Windows and macOS serial are not testable on this host | a platform-only failure (only if R4.4 is done) | compile in `unit-test-win`; hardware check by a tester |
 | The emulated ESP binds the guest's fixed port 11000 | parallel rows collide | the row is tagged `serial` |
 | The vendored dezogif_ng ROM fixtures drift from the stub the owner runs | the emulated rig tests a different build from the KS2 | the fixtures' README names the build; R4.6 records the KS2's build; a mismatch is updated as a deliberate fixture change (owner, Q4) |
+| A dezogif session has no debuggee until its client sets one up, and `CMD_INIT` rewrites slots 1-6 (R0.5) | zero or stale registers shown as a CPU state; a `CMD_CONTINUE` resuming `backup.*` | the "no debuggee" state (R1.2, D24): Run unavailable, registers invalid, no continue before SP, PC and slots are set (R4.1, R4.3); rows in R4.1 and R4.5 |
 | R0.5 sends one unsupported command on purpose | that session on the KS2 is lost | done last and once, by the owner's decision (Q10), with a reconnect afterwards; only the test probe can bypass the gate |
 | `CMD_INIT` cannot tell dezogif_ng from the upstream at the fork point (both 2.1.0 `"dezogif v2.2.1"`), and a Pause resets the old upstream's session (§2.4a) | a Pause destroys the session on an old upstream stub | the identity rule (§3, D19): TCP means dezogif_ng; on serial the conservative profile has no Pause unless the user declares the stub |
 | The upstream dezogif is already on DZRP 2.2.0 (`71c7ad0`), and dezogif_ng may follow | a fixed profile would be wrong for it | the dezogif 2.2 profile uses the bitfield, which 2.2.0 makes safe; kept, labelled untested until such a stub is on hand (owner, Q6) |
@@ -1136,6 +1185,14 @@ for R5. The owner later withdrew an idea of a dezogif_ng git submodule; the plan
 - **Q10. The silent reset on hardware. ANSWERED (owner, 2026-11-18): yes**, the early hardware
   checkpoint sends dezogif_ng ONE unsupported command, once, to confirm the silent session reset
   on the KS2 (R0.5).
+- **Q11. "No debuggee" on the dezogif 2.2 profile. OPEN (raised by R0.5).** D24 makes Run
+  unavailable from every `CMD_INIT` until the client has set SP, PC and slots. The upstream
+  `cmd_init` has the same slot writes, so the rule probably holds on that profile too; but D21
+  greys upload there, so it would have no Run at all until upload is ungreyed. Options: accept
+  that (the profile is untested anyway, Q6); or un-grey a `CMD_SET_SLOT` + `CMD_WRITE_MEM`
+  upload (designed blind, D21's rejected alternative); or let that profile offer Run on the
+  client's say-so. Not decided here; R4.1 applies D24 to dezogif_ng and the ambiguous serial
+  profile only.
 
 ---
 
@@ -1166,3 +1223,4 @@ for R5. The owner later withdrew an idea of a dezogif_ng git submodule; the plan
 | D21 | Upload is part of the PoC and is greyed on the dezogif 2.2 profile | owner, Q5; that stub advertises neither 5 nor 26, and a `CMD_SET_SLOT` + `CMD_WRITE_MEM` path would be designed blind against an untested stub | the `SET_SLOT` + `WRITE_MEM` fallback now (revisited when such a stub is on hand) |
 | D22 | R0.5 sends one unsupported command (24), last and once, through a test-only gate bypass in the probe | owner, Q10: confirm the silent reset on the KS2 at the cost of one session; the product client keeps no bypass | not exercising it (the round-2 plan) |
 | D23 | Tasks are grouped into 18 sub-issues: coupled or sequential tasks on the same files together, parallel ones apart; owner-run tasks and the gate on their own; R6 one placeholder | owner, 2026-11-18 ("group related tasks in the same subissue if possible, considering parallelization") | one sub-issue per task (36 issues, many tiny and strictly sequential) |
+| D24 | A dezogif session is "no debuggee" from every `CMD_INIT` until its client has set SP, PC and the program's slots (those the client means it to use): Run, instruction steps and Run to Cursor unavailable ("no program loaded: upload one"), registers invalid, slots available and labelled `CMD_INIT` defaults; client-side, never inferred from register values. Applies to the dezogif_ng and ambiguous serial profiles; the dezogif 2.2 profile is unverified (Q11) | R0.5 on the KS2 (`REMOTE-TARGET-VALIDATION.md` §1.3): `CMD_INIT` rewrites the slots, and registers are zero only after a fresh entry from NextZXOS (stale after an earlier session), so only the client can say a program is set up | showing zero or stale registers as the target's state; inferring the state from zeros; greying the slots (the slots are the mapping `CMD_READ_MEM` goes through and the upload needs `CMD_SET_SLOT`) |
