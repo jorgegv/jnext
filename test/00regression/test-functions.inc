@@ -337,12 +337,21 @@ sd_card_name() {
     [[ "$(grep -cE "$pat" "$src" 2>/dev/null)" == 1 ]] || return 1
     grep -E "$pat" "$src" | sed -E 's/^[^"]*"([^"]+)";$/\1/'
 }
-SD_CARD_NAME=$(sd_card_name) || { echo "FATAL: the default card's file name (kFixedImageFileName) cannot be read from src/core/sdcard_provisioner.cpp: it must stay one line, const char* const kFixedImageFileName = \"...\";" >&2; exit 2; }
-export SD_CARD_NAME
-# The name earlier trees (and the branches still on them) look for the master under: kLegacyFixedImageFileName.
-SD_CARD_LEGACY_NAME=$(sd_card_name "${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}/src/core/sdcard_provisioner.cpp" legacy) \
-    || { echo "FATAL: kLegacyFixedImageFileName cannot be read from src/core/sdcard_provisioner.cpp" >&2; exit 2; }
-export SD_CARD_LEGACY_NAME
+# A tree with no src/core/sdcard_provisioner.cpp at all is a harness-selftest fixture (no jnext can be built from it):
+# it gets the names as literals. A tree that HAS the file must define both on one line each, or this library refuses.
+_sd_src="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}/src/core/sdcard_provisioner.cpp"
+if [[ -f "$_sd_src" ]]; then
+    SD_CARD_NAME=$(sd_card_name "$_sd_src") \
+        || { echo "FATAL: the default card's file name (kFixedImageFileName) cannot be read from src/core/sdcard_provisioner.cpp: it must stay one line, const char* const kFixedImageFileName = \"...\";" >&2; exit 2; }
+    # The name earlier trees (and the branches still on them) look for the master under: kLegacyFixedImageFileName.
+    SD_CARD_LEGACY_NAME=$(sd_card_name "$_sd_src" legacy) \
+        || { echo "FATAL: kLegacyFixedImageFileName cannot be read from src/core/sdcard_provisioner.cpp" >&2; exit 2; }
+else
+    SD_CARD_NAME=jnext-sdcard.img
+    SD_CARD_LEGACY_NAME=cspect-next-1gb-fixed.img
+fi
+unset _sd_src
+export SD_CARD_NAME SD_CARD_LEGACY_NAME
 
 # sd_master_compat_links: jnext renames a legacy-named card it finds in the master's directory (GH #579), and
 # every tree that still looks for the master under the old name would then find none. So the master keeps its

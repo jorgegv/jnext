@@ -4397,7 +4397,7 @@ cp "$PROJECT_DIR/test/00regression/regression.sh" "$PROJECT_DIR/test/00regressio
    "$PROJECT_DIR/test/00regression/parallel-rows.inc" "$PROJECT_DIR/test/00regression/row-runner.sh" "$SQT/"
 cp "$PROJECT_DIR/test/00regression/scripts/01-sdcard-provision.sh" "$PROJECT_DIR/test/00regression/scripts/screenshots.sh" "$SQT/scripts/"
 cp "$PROJECT_DIR/test/regression-stamp.sh" "$SQ/test/"
-printf 'const int kFixedImageRecipe = 2;\nconst char* const kDistroUrl =\n    "https://www.specnext.com/distro/26.11/sn-emulator-26.11.zip";\n' > "$SQ/src/core/sdcard_provisioner.cpp"
+printf 'const char* const kFixedImageFileName = "jnext-sdcard.img";\nconst char* const kLegacyFixedImageFileName = "cspect-next-1gb-fixed.img";\nconst int kFixedImageRecipe = 2;\nconst char* const kDistroUrl =\n    "https://www.specnext.com/distro/26.11/sn-emulator-26.11.zip";\n' > "$SQ/src/core/sdcard_provisioner.cpp"
 printf '# expect: 3\nshot-x 48k BOOT 5\nshot-bf 48k BOOT @bf:400 --delayed-keypress-frames @bf:400 space\nshot-lit 48k BOOT 400 --delayed-keypress-frames 400 space\n' > "$SQT/regression_tests.conf"
 printf '# expect: 9\nok-func\nsdcard-provision-func\nbf-probe-func\nbfjds-func\nbfjds-bad-func\nbfkeys-func\nbfneg-func\nclone-probe-func\nclone-copy-func\n' > "$SQT/functional_tests.conf"
 printf 'if want bfneg-func; then begin_func bfneg-func; v=$(bf 150); pass_row " (bf=$v)"; fi\n' > "$SQT/scripts/bfneg-func.sh"
@@ -4723,7 +4723,7 @@ check "HS-177b" "the control: a healthy default master of the default distributi
 
 # HS-178: a tree whose kDistroUrl cannot be read is a FAIL, never a master re-derived on every run.
 cp "$SQ/src/core/sdcard_provisioner.cpp" "$T/sdprov.cpp.keep"
-printf 'const int kFixedImageRecipe = 2;\n' > "$SQ/src/core/sdcard_provisioner.cpp"
+printf 'const char* const kFixedImageFileName = "jnext-sdcard.img";\nconst char* const kLegacyFixedImageFileName = "cspect-next-1gb-fixed.img";\nconst int kFixedImageRecipe = 2;\n' > "$SQ/src/core/sdcard_provisioner.cpp"
 out=$(def_run -- ok-func); rc=$?
 cp "$T/sdprov.cpp.keep" "$SQ/src/core/sdcard_provisioner.cpp"
 check "HS-178" "sdcard-provision FAILS when kDistroUrl cannot be read from the provisioner source, naming it" 1 $rc "$out" \
@@ -4743,7 +4743,7 @@ out=$(run_preflight_sed_i blkok); rc=$?
 check "HS-184b" "the control: the fixed spelling p;} plus a \${var}p script, a brace in an s RE and a brace in an address RE PASS row 7" 0 $rc "$out" \
     "[lint-sed-i] scanned:" "Pass: 8"
 cp "$SQ/src/core/sdcard_provisioner.cpp" "$T/sdprov.cpp.keep"
-printf 'const int kFixedImageRecipe = 2;\n' > "$SQ/src/core/sdcard_provisioner.cpp"
+printf 'const char* const kFixedImageFileName = "jnext-sdcard.img";\nconst char* const kLegacyFixedImageFileName = "cspect-next-1gb-fixed.img";\nconst int kFixedImageRecipe = 2;\n' > "$SQ/src/core/sdcard_provisioner.cpp"
 out=$(def_run -- ok-func); rc=$?
 cp "$T/sdprov.cpp.keep" "$SQ/src/core/sdcard_provisioner.cpp"
 check "HS-184c" "with kDistroUrl unreadable the provision row also says the run's card carries no distribution sidecars" 1 $rc "$out" \
