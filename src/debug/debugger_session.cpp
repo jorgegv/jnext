@@ -117,6 +117,11 @@ void Debugger::Impl::clients_changed() {
     // raster walk and the render hint read it (`raster_live()`), and where
     // `Debugger::live_raster()` reads it back: one copy, not a cache on `Impl`
     // beside the machine's.
+    if (!emu) {
+        remote_live_raster = any_raster;
+        remote_attached    = live > 0;
+        return;
+    }
     ds().set_live_raster(any_raster);
     // SES-05 / §5 — the `attached` half of `armed()`. Its OWN bit on
     // `DebugState`: see `DebugState::clients_attached()` for why each armed()
@@ -128,6 +133,7 @@ void Debugger::Impl::clients_changed() {
 }
 
 void Debugger::Impl::sync_call_stack(bool force) {
+    if (!emu) return;
     bool asked = false;      // some live client asked for tracking
     bool driven = false;     // a live non-observer client is attached
     for (const auto& c : clients) {
@@ -147,14 +153,14 @@ void Debugger::Impl::sync_call_stack(bool force) {
     // from the map (no edge when a panel then asks), and its C frames derive from the tracker as it
     // always did.
     const bool edge_on = asked && !call_stack_derived && !force;
-    if ((force && on) || on != call_stack_derived) emu.call_stack().set_enabled(on);
+    if ((force && on) || on != call_stack_derived) emu->call_stack().set_enabled(on);
     // GH #498: tracking starts mid-run (a panel came on show, a client asked): rebuild the calls
     // already on the stack. Not on `force`, the re-application after a machine rebuild (a cold boot,
     // a program load): the tracker restarts empty there, and a rebuild would put heuristic frames
     // under a program that has only just started. Every client gets the rebuild.
     if (edge_on)
-        emu.call_stack().reconstruct(emu.cpu().get_registers().SP,
-                                     [this](uint16_t pc) { return emu.predict_fetch(pc); });
+        emu->call_stack().reconstruct(emu->cpu().get_registers().SP,
+                                     [this](uint16_t pc) { return emu->predict_fetch(pc); });
     call_stack_derived = on;
 }
 
@@ -408,6 +414,7 @@ PausedInfo Debugger::Impl::paused_info() const {
 // ---------------------------------------------------------------------------
 
 void Debugger::Impl::sync_notifications() {
+    if (!emu) return;   // Paused / Resumed / FrameEnded are the local machine's edges
     const bool     paused = ds().paused();
     const uint64_t gen    = ds().resume_generation();
     // The frame's START CYCLE, not the frame number. Not `frame_tag()`: the tag
@@ -419,7 +426,7 @@ void Debugger::Impl::sync_notifications() {
     // ends without the counter moving. `current_frame_cycle()` advances exactly
     // when a frame ends and goes back on a rewind. The PAYLOAD is still the tag,
     // the frame that ended.
-    const uint64_t frame  = emu.current_frame_cycle();
+    const uint64_t frame  = emu->current_frame_cycle();
     const uint64_t rev    = events.revision();
 
     if (!notif_primed) {
@@ -475,7 +482,7 @@ void Debugger::Impl::sync_notifications() {
     if (frame != last_frame_cycle) {
         const bool forward = frame > last_frame_cycle;
         last_frame_cycle   = frame;
-        if (forward) notify_frame_ended(frame_tag(emu));
+        if (forward) notify_frame_ended(frame_tag(*emu));
     }
 }
 
@@ -525,7 +532,7 @@ ServiceHint Debugger::pump(const PumpBudget& budget) {
             "pump() called from inside an event delivery - refused (section 5: a "
             "handler may not drive the machine)");
         hint.remote_attached = impl_->any_peer_connected();
-        hint.paused          = impl_->ds().paused();
+        hint.paused          = impl_->paused_now();
         return hint;
     }
 
@@ -573,7 +580,7 @@ ServiceHint Debugger::pump(const PumpBudget& budget) {
         // bounded by `budget_ms`. `budget_ms == 0` therefore means ONE command,
         // not "unbounded" — the zero form is the Qt/SDL "never block" budget and
         // must not become an unbounded drain by omission.
-        while (step == ServiceStep::Serviced && impl_->ds().paused() &&
+        while (step == ServiceStep::Serviced && impl_->paused_now() &&
                elapsed_ms() < budget.budget_ms)
             step = s->service_once(budget.drain_ms);
     }
@@ -592,7 +599,7 @@ ServiceHint Debugger::pump(const PumpBudget& budget) {
     if (impl_->events.has_tombstones()) impl_->events.compact();
 
     hint.remote_attached = impl_->any_peer_connected();
-    hint.paused          = impl_->ds().paused();
+    hint.paused          = impl_->paused_now();
     return hint;
 }
 
@@ -624,7 +631,9 @@ Result Debugger::set_live_raster(ClientId cid, bool enabled) {
 
 // The CLIENTS' OR. Since GH #278 WP4c retired `DebugState::active()` it is
 // also exactly `raster_live()`, which had that bit as a second term.
-bool Debugger::live_raster() const { return impl_->ds().live_raster(); }
+bool Debugger::live_raster() const {
+    return impl_->emu ? impl_->ds().live_raster() : impl_->remote_live_raster;
+}
 
 // §5's `attached`: is any ARMING client attached (an observer, REQ-qt-32, is
 // not counted — `clients_changed()`)?
@@ -638,7 +647,9 @@ bool Debugger::live_raster() const { return impl_->ds().live_raster(); }
 // (row SES-01-02). `armed() == attached() || persistent()` holds except while a
 // HOLD arms the machine (a rewind's replay, a magic stop), neither of which is
 // anyone driving it.
-bool Debugger::attached() const { return impl_->ds().attached(); }
+bool Debugger::attached() const {
+    return impl_->emu ? impl_->ds().attached() : impl_->remote_attached;
+}
 
 }  // namespace dbg
 }  // namespace jnext

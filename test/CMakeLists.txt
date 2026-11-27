@@ -1898,6 +1898,20 @@ target_compile_definitions(debugger_backend_test PRIVATE
     JNEXT_SJASMBREAK_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/sjasmbreak")
 add_test(NAME debugger_backend_tests COMMAND debugger_backend_test)
 
+# GH #513 (epic #486 R1.1): the target seam. TGT-LOC rows pin the local facade;
+# TGT-01..04 drive `Debugger(Target&)` over a fake target. Linked like
+# debugger_backend_test.
+add_executable(debug_target_test debug/debug_target_test.cpp)
+target_link_libraries(debug_target_test PRIVATE
+    jnext_platform
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(debug_target_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(debug_target_test PRIVATE
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
+add_test(NAME debug_target_tests COMMAND debug_target_test)
+
 # GH #529 - the debugger's audio introspection: the note helper (ANO), the
 # invisibility of the debugger's audio features to the Z80 (AIZ) and
 # Debugger::audio_state() (ADS). Drives a real machine, no ROM, no SD image.

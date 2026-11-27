@@ -27,6 +27,7 @@
 #include "debug/events.h"
 #include "debug/inspect.h"
 #include "debug/result.h"
+#include "debug/target.h"
 
 #include <cstddef>
 #include <tuple>
@@ -530,6 +531,108 @@ static_assert(std::is_same<Handler,
 // CLIENT_NONE / EVENT_NONE are the "no such thing" values every default member
 // initializer uses, so they must be zero.
 static_assert(CLIENT_NONE == 0 && EVENT_NONE == 0, "");
+
+// ---------------------------------------------------------------------------
+// target.h -- the target seam (epic #486 R0.1, TGT-01..TGT-04)
+// ---------------------------------------------------------------------------
+
+// The capability enum has two groups (what a remote may serve, then what is
+// local-only), each in an explicit order that is pinned value by value below, so
+// a reorder or an insertion is a deliberate act. 36 of them: adding or removing one without updating this pin (and the
+// inventory in the plan, section 15) is a deliberate act. The set is one
+// `uint64_t`, so it has room for 64.
+static_assert(CAPABILITY_COUNT == 36, "the capability list changed: update plan sections 11 and 15");
+static_assert(CAPABILITY_COUNT <= 64, "CapabilitySet is one uint64_t");
+static_assert(static_cast<size_t>(Capability::Run) == 0,
+              "Capability order is the section 11 order, Run first");
+static_assert(static_cast<size_t>(Capability::Memory) == 8 &&
+              static_cast<size_t>(Capability::SpritePaletteClip) == 15 &&
+              static_cast<size_t>(Capability::CycleExact) == 16 &&
+              static_cast<size_t>(Capability::PagingLatches) == 35,
+              "the remote-may-serve group is the first 16, the local-only group follows");
+
+constexpr bool capability_order_pinned() {
+    constexpr Capability order[] = {
+        Capability::Run, Capability::Pause, Capability::InstructionStep,
+        Capability::RunToCursor, Capability::ExecuteBreakpoints, Capability::Watchpoints,
+        Capability::CommandsWhileRunning, Capability::RegisterWrite, Capability::Memory,
+        Capability::MemoryWhileRunning, Capability::PhysicalMemory, Capability::MmuSlots,
+        Capability::NextRegs, Capability::Ports, Capability::SpriteData,
+        Capability::SpritePaletteClip,
+        Capability::CycleExact, Capability::Rewind, Capability::FetchOverlays,
+        Capability::MachineEvents, Capability::Copper, Capability::Video, Capability::Audio,
+        Capability::CtcDma, Capability::Trace, Capability::Coverage,
+        Capability::CallStackTracked, Capability::Scripts, Capability::MagicBreakpoint,
+        Capability::Load, Capability::Reset, Capability::MachineTime, Capability::Input,
+        Capability::Capture, Capability::MachineState, Capability::PagingLatches,
+    };
+    static_assert(sizeof(order) / sizeof(order[0]) == CAPABILITY_COUNT, "");
+    for (size_t i = 0; i < CAPABILITY_COUNT; ++i)
+        if (static_cast<size_t>(order[i]) != i) return false;
+    return true;
+}
+static_assert(capability_order_pinned(), "the Capability order changed: update plan section 11's note and section 15");
+
+constexpr unsigned popcount64(uint64_t v) {
+    unsigned n = 0;
+    for (; v != 0; v &= v - 1) ++n;
+    return n;
+}
+// `all()` is exactly the capabilities: no bit at or above `Count`.
+static_assert(popcount64(CapabilitySet::all().bits()) == CAPABILITY_COUNT, "");
+static_assert(CapabilitySet::all().has(Capability::PagingLatches) &&
+              !CapabilitySet::all().has(Capability::Count), "");
+static_assert(CapabilitySet{}.bits() == 0, "");
+static_assert((CapabilitySet().set(Capability::Run).set(Capability::Pause) &
+               CapabilitySet().set(Capability::Pause).set(Capability::Memory))
+                  == CapabilitySet().set(Capability::Pause), "");
+// `set(Count)` cannot smuggle a bit in.
+static_assert(CapabilitySet().set(Capability::Count) == CapabilitySet{}, "");
+// `set(c, false)` clears; `==` and `!=` discriminate (every `==` assert above
+// depends on `==` being able to say "different").
+static_assert(!CapabilitySet::all().set(Capability::Run, false).has(Capability::Run) &&
+              CapabilitySet::all().set(Capability::Run, false).has(Capability::Pause), "");
+static_assert(CapabilitySet().set(Capability::Run) != CapabilitySet{}, "");
+static_assert(!(CapabilitySet().set(Capability::Run) == CapabilitySet{}), "");
+static_assert(!(CapabilitySet().set(Capability::Run) != CapabilitySet().set(Capability::Run)), "");
+static_assert(CapabilitySet().set(Capability::Run) == CapabilitySet().set(Capability::Run), "");
+
+// Eight register fields, all valid in `all()`, none above `Count`.
+static_assert(static_cast<unsigned>(RegisterValidity::Field::Count) == 8,
+              "the register validity fields changed: update plan section 11");
+static_assert(popcount64(RegisterValidity::all().bits) == 8, "");
+static_assert(RegisterValidity::all().valid(RegisterValidity::Field::IncDecZ) &&
+              !RegisterValidity::all().valid(RegisterValidity::Field::Count), "");
+static_assert(RegisterValidity().bits == 0 &&
+              !RegisterValidity().valid(RegisterValidity::Field::Core), "");
+static_assert(RegisterValidity().set(RegisterValidity::Field::Count).bits == 0, "");
+// `set(f, false)` clears; `bits` is public, so `valid()` must itself refuse the
+// field `Count` and anything above it when a hostile `bits` has those bits set.
+static_assert(!RegisterValidity::all().set(RegisterValidity::Field::Core, false)
+                   .valid(RegisterValidity::Field::Core) &&
+              RegisterValidity::all().set(RegisterValidity::Field::Core, false)
+                  .valid(RegisterValidity::Field::IFF1), "");
+constexpr bool hostile_validity_refused() {
+    RegisterValidity v;
+    v.bits = 0xFFFFFFFFu;
+    return !v.valid(RegisterValidity::Field::Count) && v.valid(RegisterValidity::Field::IncDecZ);
+}
+static_assert(hostile_validity_refused(), "");
+
+// `Target` is an interface: a `LocalTarget` or a remote derives from it, a facade
+// never instantiates one. The value types are copied across the facade's
+// untrusted-answer boundary.
+static_assert(std::is_abstract<Target>::value, "Target is an interface");
+static_assert(std::has_virtual_destructor<Target>::value, "");
+static_assert(std::is_trivially_copyable<CapabilitySet>::value &&
+              std::is_trivially_copyable<RegisterValidity>::value, "");
+
+// The two constructors are explicit and distinct: a facade is local or it is not,
+// and neither converts implicitly from its machine.
+static_assert(std::is_constructible<Debugger, Emulator&>::value &&
+              std::is_constructible<Debugger, Target&>::value, "");
+static_assert(!std::is_convertible<Emulator&, Debugger>::value &&
+              !std::is_convertible<Target&, Debugger>::value, "");
 
 }  // namespace
 }  // namespace dbg

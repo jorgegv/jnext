@@ -53,7 +53,7 @@ code of its own: the store is attached with the map, dropped with it, made stale
 with it, cached and restored with it, and the copies share one object, so the
 cache costs nothing more.
 
-The facade is `Debugger::variables()` (`variables`, `src/debug/debugger_source.cpp:578`):
+The facade is `Debugger::variables()` (`variables`, `src/debug/debugger_source.cpp:594`):
 it runs `recheck()` first, like every reader, and returns the live source map's
 store, or null when there is no live map or it carries none (an SLD). A z88dk map
 with lines but no record carries an **empty** store, so "this program has no C

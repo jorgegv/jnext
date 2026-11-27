@@ -65,7 +65,7 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
     // 0x00 arms all eight slots, and one naming the page actually mapped arms
     // none. DZRP's `bank+1` watchpoints (REQ-dzrp-11) are built on this.
     for (int s = 0; s < 8; ++s)
-        impl_->ds().on_slot_remapped(s, impl_->emu.mmu().get_effective_page(s));
+        impl_->ds().on_slot_remapped(s, impl_->emu->mmu().get_effective_page(s));
 
     // GH #531/#532 -- gates_changed() also installs the audio write tap's sink, off until
     // a client asks for the log or a live AudioWrite subscription exists.
@@ -78,6 +78,12 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
     // would be a statement no row could tell from nothing. The sink is published
     // by `coverage_enable()` and re-published by the re-application.
 }
+
+// TGT-01 - a facade over a `Target` that is not an in-process machine. No hook is
+// installed anywhere: the event machinery, the loop driver and the local stop
+// state belong to the local machine, and every verb that needs them answers
+// `Unsupported` (or its empty value) on this facade.
+Debugger::Debugger(Target& target) : impl_(new Impl(target, *this)) {}
 
 // Out of line, and it must be: `Impl` is incomplete in the published header, so
 // `unique_ptr`'s deleter can only be instantiated here. B0 declared it this way
@@ -99,8 +105,10 @@ Debugger::Debugger(Emulator& emu) : impl_(new Impl(emu, *this)) {
 // header (cycle, frame, pc, vc, hc) was never stamped, until the next `init()`.
 // Row LIFE-06.
 Debugger::~Debugger() {
+    // A non-local facade published nothing to a machine, so retires nothing.
+    if (!impl_->emu) return;
     // GH #531 -- the sink points into `Impl`; nothing in the machine may keep it.
-    impl_->emu.set_audio_tap(nullptr, false);
+    impl_->emu->set_audio_tap(nullptr, false);
     impl_->ds().set_event_table(nullptr);
     impl_->ds().set_event_hooks(nullptr, nullptr);
     impl_->ds().set_machine_replaced_hook(nullptr);
@@ -116,8 +124,8 @@ Debugger::~Debugger() {
     // means, and a second writer of the same two bytes is how the two come to
     // disagree. The ORDER is therefore load-bearing.
     impl_->ds().refresh_event_gates();
-    impl_->emu.copper().set_events_armed(false, false, false);
-    impl_->emu.dma().set_events_armed(false, false, false);
+    impl_->emu->copper().set_events_armed(false, false, false);
+    impl_->emu->dma().set_events_armed(false, false, false);
     // GH #276 B4 — the coverage sink points INTO `Impl` (`Impl::coverage`), and
     // `step_one_instruction()` writes through it on every executed instruction:
     // left installed, the machine's next instruction writes into freed memory
@@ -125,7 +133,7 @@ Debugger::~Debugger() {
     // stays null.
     impl_->ds().set_coverage_sink(nullptr);
     // GH #536 - the source tap is `Impl`'s and the machine holds a raw pointer to it (LIFE rule).
-    impl_->emu.set_audio_scope_tap(nullptr);
+    impl_->emu->set_audio_scope_tap(nullptr);
     // GH #388 - and the memory-coverage sink, which points into `Impl` likewise.
     impl_->ds().set_mem_coverage_sink(nullptr);
     // GH #276 B4 — CAP-01. A capture still queued can never be taken now: say
@@ -272,7 +280,7 @@ Expected<int> Debugger::load_map(const std::string& path, MapFormat format, std:
         impl_->bump_revision();   // GH #428
         // A z88dk map's rule-4 symbols take the RAM page mapped now (and again
         // at the program load), the function `source_page()` answers with.
-        impl_->toolchain_symbols.bind([this](uint16_t a) { return impl_->emu.predict_fetch(a); });
+        impl_->toolchain_symbols.bind([this](uint16_t a) { return source_page(a); });
         impl_->recompose_names();
     }
     // Both loaders return -1 on a file that cannot be read or parsed. That is
@@ -336,27 +344,19 @@ const SymbolTable& Debugger::symbols() const {
 // ---------------------------------------------------------------------------
 
 RunState Debugger::state() const {
-    const DebugState& ds = impl_->ds();
-    const Z80Registers regs = impl_->emu.cpu().get_registers();
-
-    RunState st;
-    st.paused = ds.paused();
-    st.cycle  = impl_->emu.clock().get();
-    st.frame  = frame_tag(impl_->emu);
-    st.pc     = regs.PC;
-
-    // The published mirror of the internal enum. `debug_types_check.cpp` pins
-    // the two value by value, which is what makes this switch a relabelling
-    // rather than a mapping that could be wrong.
-    switch (ds.step_mode()) {
-        case ::StepMode::NONE:              st.step_mode = StepMode::None;           break;
-        case ::StepMode::INTO:              st.step_mode = StepMode::Into;           break;
-        case ::StepMode::OVER:              st.step_mode = StepMode::Over;           break;
-        case ::StepMode::OUT:               st.step_mode = StepMode::Out;            break;
-        case ::StepMode::RUN_TO_CYCLE:      st.step_mode = StepMode::RunToCycle;     break;
-        case ::StepMode::STEP_BACK:         st.step_mode = StepMode::StepBack;       break;
-        case ::StepMode::RUN_BACK_TO_CYCLE: st.step_mode = StepMode::RunBackToCycle; break;
+    // paused / step mode / cycle / frame / pc come from the target; the reason
+    // for a stop is composed here from what the facade and the local machine
+    // know, so a non-local facade (no stop evidence of its own) reports None.
+    RunState st = impl_->target.run_state();
+    st.pause_reason = PauseReason{};
+    // `cycle` and `frame` are meaningful exactly when the facade has `MachineTime`
+    // (D5); a value the client is told to ignore is not handed to it.
+    if (!impl_->serves(Capability::MachineTime)) {
+        st.cycle = 0;
+        st.frame = 0;
     }
+    if (!impl_->emu) return st;
+    const DebugState& ds = impl_->ds();
 
     if (!st.paused) {
         st.pause_reason.kind = PauseReason::Kind::None;
@@ -378,8 +378,8 @@ RunState Debugger::state() const {
     // CTL-11 makes an unacknowledged corruption the thing that REFUSES every
     // resume, so it is what the user has to be told. A failed `step_back` arms
     // `Step` and would otherwise report a step that did not happen.
-    if (impl_->guard.needs_confirmation(!impl_->emu.last_state_error().empty(),
-                                        impl_->emu.state_error_generation())) {
+    if (impl_->guard.needs_confirmation(!impl_->emu->last_state_error().empty(),
+                                        impl_->emu->state_error_generation())) {
         st.pause_reason.kind = PauseReason::Kind::Corrupt;
         // UNOWNED (Revision 6): the corruption is the machine's, not any
         // client's verb, so no client's detach may resume it.
@@ -468,14 +468,14 @@ RunState Debugger::state() const {
 // §4.6 — CAP-ST, state and rewind
 // ---------------------------------------------------------------------------
 
-bool Debugger::at_frame_boundary() const { return impl_->at_boundary(); }
+bool Debugger::at_frame_boundary() const { if (!impl_->emu) return false; return impl_->at_boundary(); }
 
 // NOT `!frame_in_progress()` alone (GH #276 B4): inside the frame edge's
 // closing window a `Frame` handler sees no frame in progress, but the edge's
 // auto-type tick and queued level changes have not run yet, and a snapshot
 // taken there would restore without them (`Emulator::frame_edge_open()`).
 bool Debugger::Impl::at_boundary() const {
-    return !emu.frame_in_progress() && !emu.frame_edge_open();
+    return !emu->frame_in_progress() && !emu->frame_edge_open();
 }
 
 // ST-01's frame-boundary rule, the ONE copy of it. Three verbs save the machine
@@ -496,10 +496,10 @@ Result Debugger::Impl::reach_frame_boundary(ClientId by, SaveStateMode mode,
         return nested;
     // GH #27 S6's advance: run the half-executed frame out with the debugger
     // suspended, so a pending Run to Here or step survives it.
-    const uint64_t before = emu.clock().get();
+    const uint64_t before = emu->clock().get();
     {
         DebugState::SuspendScope suspend(ds());
-        emu.advance_to_frame_boundary();
+        emu->advance_to_frame_boundary();
     }
     // GH #276 B4 — THE ADVANCE IS A MUTATION OF EMULATED TIME, observable to
     // every other attached client, so it gets §4.2a's `MUTATE … by <client>` line
@@ -507,7 +507,7 @@ Result Debugger::Impl::reach_frame_boundary(ClientId by, SaveStateMode mode,
     // here — a save that did not advance changed nothing and logs nothing.
     log_mutate(by, std::string("clock (") + verb + " advanced to the frame boundary)",
                static_cast<long long>(before),
-               static_cast<long long>(emu.clock().get()));
+               static_cast<long long>(emu->clock().get()));
     return Result::Ok;
 }
 
@@ -516,11 +516,11 @@ Result Debugger::Impl::reach_frame_boundary(ClientId by, SaveStateMode mode,
 // is exactly as long as the machine says it is. Empty on a size disagreement.
 std::vector<uint8_t> Debugger::Impl::serialise_machine() {
     StateWriter measure;
-    emu.save_state(measure);
+    emu->save_state(measure);
     std::vector<uint8_t> bytes(measure.position());
 
     StateWriter w(bytes.data(), bytes.size());
-    emu.save_state(w);
+    emu->save_state(w);
     if (w.overflow() || w.position() != bytes.size()) return {};
     return bytes;
 }
@@ -528,6 +528,7 @@ std::vector<uint8_t> Debugger::Impl::serialise_machine() {
 // ST-01. The frame boundary is not negotiable — only who waits for it is.
 Expected<std::vector<uint8_t>> Debugger::save_state_bytes(ClientId by,
                                                           SaveStateMode mode) {
+    if (!impl_->emu) return make_refused<std::vector<uint8_t>>(Result::Unsupported);
     const Result at = impl_->reach_frame_boundary(by, mode, "save_state_bytes");
     if (at != Result::Ok) return make_refused<std::vector<uint8_t>>(at);
 
@@ -540,38 +541,41 @@ Expected<std::vector<uint8_t>> Debugger::save_state_bytes(ClientId by,
 // the Emulator does that latching itself (`last_state_error()` +
 // `state_error_generation()`), which is why this verb only has to report it.
 Result Debugger::load_state_bytes(ClientId by, const uint8_t* data, size_t n) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("load_state_bytes");
         nested != Result::Ok)
         return nested;
     if (!data || n == 0) return Result::RefusedUnavailable;
-    if (impl_->emu.rzx_recorder().is_recording() ||
-        impl_->emu.rzx_player().is_playing())
+    if (impl_->emu->rzx_recorder().is_recording() ||
+        impl_->emu->rzx_player().is_playing())
         return Result::RefusedRzx;
 
     // GH #538: a .psg recording keeps the silent frames that played before the load.
-    if (impl_->psg) impl_->psg->note_time(frame_tag(impl_->emu));
+    if (impl_->psg) impl_->psg->note_time(frame_tag(*impl_->emu));
     StateReader r(data, n);
-    const bool ok_load = impl_->emu.load_state(r);
+    const bool ok_load = impl_->emu->load_state(r);
     impl_->log_mutate_range(by, "state", ok_load ? "loaded" : "load FAILED (machine corrupt)");
     if (ok_load) impl_->note_mutation();   // in place: the ring's history did not load it
     return ok_load ? Result::Ok : Result::RefusedCorrupt;
 }
 
-bool Debugger::rewind_enabled() const { return impl_->emu.rewind_enabled(); }
+bool Debugger::rewind_enabled() const { if (!impl_->emu) return false; return impl_->emu->rewind_enabled(); }
 
 Result Debugger::set_rewind_enabled(bool enabled) {
-    impl_->emu.set_rewind_enabled(enabled);
+    if (!impl_->emu) return Result::Unsupported;
+    impl_->emu->set_rewind_enabled(enabled);
     impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
 
 RewindRange Debugger::rewind_range() const {
+    if (!impl_->emu) return RewindRange{};
     RewindRange rr;
     // REQ-qt-09d (GH #278 WP3) — the machine's own flag, set by the two ring
     // restores and cleared when the frame begins or by any other load. Read
     // before the early returns: it describes the machine, not the ring.
-    rr.at_restored_frame_start = impl_->emu.at_restored_frame_start();
-    const RewindBuffer* rb = impl_->emu.rewind_buffer();
+    rr.at_restored_frame_start = impl_->emu->at_restored_frame_start();
+    const RewindBuffer* rb = impl_->emu->rewind_buffer();
     if (!rb) return rr;
     rr.depth          = rb->depth();
     rr.capacity       = rb->capacity();
@@ -590,6 +594,7 @@ RewindRange Debugger::rewind_range() const {
 // (no trace entry, a replay crossing a debugger change) is known only when the
 // verb runs.
 std::optional<Result> Debugger::rewind_blocked() const {
+    if (!impl_->emu) return Result::Unsupported;
     const Result r = impl_->rewind_refusal();
     if (r == Result::Ok) return std::nullopt;
     return r;
@@ -603,13 +608,110 @@ std::optional<Result> Debugger::rewind_blocked() const {
 // Qt adapter with no published way to free the ring. A later non-zero resize
 // creates a fresh one (ST-03-09).
 Result Debugger::resize_rewind_buffer(size_t frames) {
-    impl_->emu.resize_rewind_buffer(static_cast<int>(frames));
+    if (!impl_->emu) return Result::Unsupported;
+    impl_->emu->resize_rewind_buffer(static_cast<int>(frames));
     impl_->bump_revision();   // GH #428
     // GH #400: a ring implies the trace (Emulator::resize_rewind_buffer turns it
     // on); record that wish so the re-application after a machine rebuild does
     // not put back a stale "off" the client set before enabling rewind.
     if (frames > 0) impl_->want_trace = true;
     return Result::Ok;
+}
+
+// ---------------------------------------------------------------------------
+// TGT-02 / TGT-03 / TGT-04 - what the target can do, and what it is
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// What a facade over a `Target` serves in this build: the machine primitives of
+/// `Target` itself. Run control, breakpoints, watchpoints and instruction steps join
+/// it when a later sub-issue (R2.2, R2.3, R2.4) implements those verbs over a target.
+constexpr CapabilitySet make_non_local_served() {
+    CapabilitySet s;
+    s.set(Capability::RegisterWrite).set(Capability::Memory).set(Capability::PhysicalMemory)
+        .set(Capability::MmuSlots).set(Capability::NextRegs).set(Capability::Ports)
+        .set(Capability::SpriteData).set(Capability::SpritePaletteClip);
+    return s;
+}
+constexpr CapabilitySet kNonLocalServed = make_non_local_served();
+
+/// The first group of `Capability`: what a remote may serve. The target's own reason
+/// answers for these; the rest are local-only and the table below answers.
+constexpr bool remote_may_serve(Capability c) {
+    return static_cast<size_t>(c) <= static_cast<size_t>(Capability::SpritePaletteClip);
+}
+
+/// Plan section 11, "When unavailable", for a local-only capability.
+const char* local_only_reason(Capability c) {
+    switch (c) {
+        case Capability::CycleExact:       return "cycle-exact: local only";
+        case Capability::Rewind:           return "rewind: local only";
+        case Capability::FetchOverlays:    return "fetch overlays: local only (the target sends the slot's page only)";
+        case Capability::MachineEvents:    return "port, NextREG, interrupt, frame, Copper and DMA events: local only";
+        case Capability::Copper:           return "Copper: local only";
+        case Capability::Video:            return "video: local only";
+        case Capability::Audio:            return "audio: local only";
+        case Capability::CtcDma:           return "CTC and DMA state: local only";
+        case Capability::Trace:            return "trace: local only";
+        case Capability::Coverage:         return "coverage: local only";
+        case Capability::CallStackTracked: return "call stack: reconstructed on a remote target";
+        case Capability::Scripts:          return "scripts: local only";
+        case Capability::MagicBreakpoint:  return "magic breakpoint: local only";
+        case Capability::Load:             return "load program: upload only";
+        case Capability::Reset:            return "reset: local only";
+        case Capability::MachineTime:      return "machine time: local only";
+        case Capability::Input:            return "input injection: local only";
+        case Capability::Capture:          return "capture: local only";
+        case Capability::MachineState:     return "machine state: local only";
+        case Capability::PagingLatches:    return "paging ports and the NextREG select latch: local only";
+        // the first group and the sentinel have no entry here
+        case Capability::Run: case Capability::Pause: case Capability::InstructionStep:
+        case Capability::RunToCursor: case Capability::ExecuteBreakpoints:
+        case Capability::Watchpoints: case Capability::CommandsWhileRunning:
+        case Capability::RegisterWrite: case Capability::Memory:
+        case Capability::MemoryWhileRunning: case Capability::PhysicalMemory:
+        case Capability::MmuSlots: case Capability::NextRegs: case Capability::Ports:
+        case Capability::SpriteData: case Capability::SpritePaletteClip: case Capability::Count:
+            break;
+    }
+    return "not available on this target";
+}
+
+}  // namespace
+
+CapabilitySet Debugger::capabilities() const {
+    // The target's claim, cut down to what this facade serves: every bit locally, the
+    // eight of `kNonLocalServed` over a target, so a claimed bit the facade cannot
+    // serve is never true.
+    return impl_->target.capabilities() & (impl_->emu ? CapabilitySet::all() : kNonLocalServed);
+}
+
+std::string Debugger::why_unavailable(Capability c) const {
+    if (capabilities().has(c)) return std::string();
+    if (static_cast<size_t>(c) >= CAPABILITY_COUNT) return "not a capability";
+    if (!remote_may_serve(c)) return local_only_reason(c);
+    // A capability a remote may serve, missing here: either the target lacks it (its
+    // own reason, e.g. "no program loaded: upload one" for D24's no debuggee) or the
+    // target has it and this jnext does not serve it over a target yet.
+    if (!impl_->target.capabilities().has(c)) {
+        std::string why = impl_->target.why_unavailable(c);
+        return why.empty() ? std::string("not available on this target") : why;
+    }
+    return "not served over a remote target by this jnext";
+}
+
+TargetInfo Debugger::target_info() const { return impl_->target.info(); }
+
+RegisterValidity Debugger::register_validity() const {
+    // The target's mask, rebuilt field by field so bits above `Count` are dropped.
+    const RegisterValidity raw = impl_->target.register_validity();
+    RegisterValidity out;
+    for (unsigned f = 0; f < static_cast<unsigned>(RegisterValidity::Field::Count); ++f) {
+        const auto field = static_cast<RegisterValidity::Field>(f);
+        out.set(field, raw.valid(field));
+    }
+    return out;
 }
 
 }  // namespace dbg

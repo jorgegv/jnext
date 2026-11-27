@@ -42,6 +42,7 @@ namespace dbg {
 // ---------------------------------------------------------------------------
 
 void Debugger::Impl::gates_changed() {
+    if (!emu) return;   // the hot-path gates are the local machine's
     // The MMU slot masks, the port flag, and the `Execute` / `Cycle` arms.
     ds().refresh_event_gates();
 
@@ -55,12 +56,12 @@ void Debugger::Impl::gates_changed() {
     // paid ~16 `Move` ring entries per slot and `has_copper_sub_kind()` — written
     // for exactly this — had zero callers. The `Move` term keeps the
     // `NextRegWrite` half because one MOVE latch fans out to both kinds.
-    emu.copper().set_events_armed(
+    emu->copper().set_events_armed(
         /*move=*/events.has_copper_sub_kind(CopperEventKind::Move) ||
                  events.has_kind(EventKind::NextRegWrite),
         /*wait=*/events.has_copper_sub_kind(CopperEventKind::Wait),
         /*halt=*/events.has_copper_sub_kind(CopperEventKind::Halt));
-    emu.dma().set_events_armed(
+    emu->dma().set_events_armed(
         /*start=*/events.has_dma_sub_kind(DmaEventKind::Start),
         /*per_byte=*/events.has_dma_sub_kind(DmaEventKind::Byte),
         /*end=*/events.has_dma_sub_kind(DmaEventKind::End));
@@ -75,6 +76,7 @@ void Debugger::Impl::gates_changed() {
 // ---------------------------------------------------------------------------
 
 Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
+    if (!impl_->emu) return make_refused<EventId>(Result::Unsupported);
     // GH #276 B5 — a client that has DETACHED cannot own a subscription: its
     // `erase_client()` already ran, so one made now would stay armed for ever
     // with an owner no detach will ever sweep again — the "per-client state left
@@ -162,6 +164,7 @@ Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
 
 Expected<GroupId> Debugger::subscribe_source_line(ClientId by, const std::string& file_line,
                                                   const Subscription& like) {
+    if (!impl_->emu) return make_refused<GroupId>(Result::Unsupported);
     if (impl_->client_gone(by)) return make_refused<GroupId>(Result::RefusedUnavailable);
     if (like.kind != EventKind::Execute) return make_refused<GroupId>(Result::RefusedUnavailable);
     const SourceResolution r = source_map().resolve(file_line);
@@ -243,6 +246,7 @@ bool Debugger::master_enabled() const {
     // set_master_enabled() below AND across a cold boot by the re-application
     // (`reapply_after_machine_rebuild()`, GH #278 WP4c), so either one is the
     // answer; reported from BreakpointSet, as it always has been.
+    if (!impl_->emu) return impl_->events.master_enabled();
     return impl_->ds().breakpoints().master_enabled();
 }
 
@@ -253,7 +257,7 @@ Result Debugger::set_master_enabled(bool enabled) {
     // suspended only the subscriptions would leave it live. The re-application
     // after a cold boot mirrors the table's value into the rebuilt set
     // (`reapply_after_machine_rebuild()`), so the two cannot drift apart there.
-    impl_->ds().breakpoints().set_master_enabled(enabled);
+    if (impl_->emu) impl_->ds().breakpoints().set_master_enabled(enabled);
     impl_->events.set_master_enabled(enabled);
     impl_->gates_changed();
     impl_->bump_revision();   // GH #428
@@ -279,6 +283,7 @@ Result Debugger::set_client_enabled(ClientId cid, bool enabled) {
 // ---------------------------------------------------------------------------
 
 std::vector<EventId> Debugger::probe_execute(uint16_t pc) const {
+    if (!impl_->emu) return {};
     // A query that arms and fires nothing (a condition's `cvar()` may run `recheck()`, GH #436), and it must cover BOTH models: the GH #221 step-off arm
     // asks "what is there at the address I am standing on", and that may be a
     // legacy PC breakpoint (which has no id: an `EVENT_NONE` entry) or an
@@ -294,16 +299,16 @@ std::vector<EventId> Debugger::probe_execute(uint16_t pc) const {
     // The condition contract (`events.h` `Condition`): a predicate runs only
     // when `!replay_mode_`, and in replay nothing is delivered at all
     // (`execute_gate()`), so nothing would fire: empty, and no condition runs.
-    if (impl_->emu.replay_mode()) return out;
+    if (impl_->emu->replay_mode()) return out;
     if (impl_->ds().breakpoints().has_pc(pc)) out.push_back(EVENT_NONE);
 
     Event ev;
     ev.kind      = EventKind::Execute;
-    ev.cycle     = impl_->emu.clock().get();
-    ev.frame     = frame_tag(impl_->emu);
+    ev.cycle     = impl_->emu->clock().get();
+    ev.frame     = frame_tag(*impl_->emu);
     ev.pc        = pc;
-    ev.phys_page = impl_->emu.mmu().get_effective_page(pc >> 13);
-    ev.space     = impl_->emu.predict_fetch(pc);
+    ev.phys_page = impl_->emu->mmu().get_effective_page(pc >> 13);
+    ev.space     = impl_->emu->predict_fetch(pc);
 
     DebugState::InspectionScope scope(impl_->ds());
     for (const auto& e : impl_->events.entries()) {
@@ -327,7 +332,8 @@ std::vector<EventId> Debugger::probe_execute(uint16_t pc) const {
 Result Debugger::raise_host_event(ClientId by, const std::string& name) {
     if (name.size() > MAX_HOST_EVENT_NAME) return Result::Unsupported;
 
-    if (!impl_->events.has_kind(EventKind::Host)) return Result::Ok;
+    // Nothing is delivered without a local machine: no non-local subscribe is served.
+    if (!impl_->emu || !impl_->events.has_kind(EventKind::Host)) return Result::Ok;
 
     // NOT latched into the ring, and the reason is the ring's shape rather than
     // a shortcut: every ring entry is a fixed 48-byte POD with no room for a
@@ -336,9 +342,9 @@ Result Debugger::raise_host_event(ClientId by, const std::string& name) {
     // a drain exists to establish. So it is delivered directly.
     Event ev;
     ev.kind  = EventKind::Host;
-    ev.cycle = impl_->emu.clock().get();
-    ev.frame = frame_tag(impl_->emu);
-    ev.pc    = impl_->emu.cpu().get_registers().PC;
+    ev.cycle = impl_->emu->clock().get();
+    ev.frame = frame_tag(*impl_->emu);
+    ev.pc    = impl_->emu->cpu().get_registers().PC;
     std::memcpy(ev.host_name, name.c_str(), name.size());
 
     bool stop = false;
@@ -424,14 +430,14 @@ Event Debugger::Impl::build_event(const LatchEntry& le) const {
             // §4.3 — `source` is tagged AT THE DRAIN from the slot's DMA flag.
             // A slot is DMA *or* CPU, never both (emulator.cpp's arbitration),
             // which is what makes one flag per slot sufficient.
-            ev.source = emu.slot_ran_dma() ? EventSource::Dma : EventSource::Cpu;
+            ev.source = emu->slot_ran_dma() ? EventSource::Dma : EventSource::Cpu;
             break;
 
         case EventKind::Port:
             ev.port   = le.addr;
             ev.value  = le.value;
             ev.access = le.access;
-            ev.source = emu.slot_ran_dma() ? EventSource::Dma : EventSource::Cpu;
+            ev.source = emu->slot_ran_dma() ? EventSource::Dma : EventSource::Cpu;
             break;
 
         case EventKind::NextRegWrite:
@@ -656,7 +662,7 @@ bool Debugger::Impl::drain_boundary() {
     // fast-forwards with the gate live, and an `Execute` subscription inside the
     // replayed span would otherwise pause the replay short. The ring is still
     // cleared, so the replay does not hand its latches to the next real boundary.
-    if (emu.replay_mode()) {
+    if (emu->replay_mode()) {
         events.clear_ring();
         return false;
     }
@@ -709,9 +715,9 @@ bool Debugger::Impl::drain_boundary() {
     if (events.has_kind(EventKind::Cycle)) {
         Event ev;
         ev.kind  = EventKind::Cycle;
-        ev.cycle = emu.clock().get();
-        ev.frame = frame_tag(emu);
-        ev.pc    = emu.cpu().get_registers().PC;
+        ev.cycle = emu->clock().get();
+        ev.frame = frame_tag(*emu);
+        ev.pc    = emu->cpu().get_registers().PC;
         deliver_to_subscribers(ev, stop, CLIENT_NONE);
     }
 
@@ -722,16 +728,16 @@ bool Debugger::Impl::drain_boundary() {
 }
 
 bool Debugger::Impl::execute_gate(uint16_t pc) {
-    if (emu.replay_mode()) return false;
+    if (emu->replay_mode()) return false;
     if (!events.has_kind(EventKind::Execute)) return false;
 
     Event ev;
     ev.kind      = EventKind::Execute;
-    ev.cycle     = emu.clock().get();
-    ev.frame     = frame_tag(emu);
+    ev.cycle     = emu->clock().get();
+    ev.frame     = frame_tag(*emu);
     ev.pc        = pc;
-    ev.phys_page = emu.mmu().get_effective_page(pc >> 13);
-    ev.space     = emu.predict_fetch(pc);
+    ev.phys_page = emu->mmu().get_effective_page(pc >> 13);
+    ev.space     = emu->predict_fetch(pc);
 
     events.clear_hits();
     bool stop = false;

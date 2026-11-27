@@ -16,9 +16,10 @@
 // ── FIVE RULES THIS FILE IS THE STATEMENT OF ────────────────────────────────
 //
 //  1. NO `Emulator*` BELOW A FRONTEND. `Emulator` is forward-declared; nothing
-//     in the four published headers reaches `core/emulator.h`, `src/platform/`,
-//     Qt, SDL, `memory/mmu.h`, `video/renderer.h`, `video/palette.h`,
-//     `video/timing.h`, `debug/debug_state.h` or `debug/breakpoints.h`. That is
+//     in the four published headers, nor in `target.h`, reaches
+//     `core/emulator.h`, `src/platform/`, Qt, SDL, `memory/mmu.h`,
+//     `video/renderer.h`, `video/palette.h`, `video/timing.h`,
+//     `debug/debug_state.h` or `debug/breakpoints.h`. That is
 //     the epic, and it is GATED: `test/lint-debug-headers.sh` compiles a
 //     one-line translation unit per published header and asserts the forbidden
 //     set is absent from its `-M` dependency list (`-M`, not `-MM`: `-MM` omits
@@ -69,6 +70,7 @@
 #include "debug/result.h"
 #include "debug/source_map.h"
 #include "debug/symbol_table.h"
+#include "debug/target.h"
 #include "debug/user_annotations.h"
 
 class Emulator;
@@ -313,7 +315,7 @@ struct LoopDriver {
 /// `Emulator` precisely so the reconstruct cannot lose them (CTL-12, CTL-15).
 // ---------------------------------------------------------------------------
 // DIRECT-VALUE QUERIES — the complete exception to "every verb returns a
-// `Result`" (`result.h`'s banner). These 63 read live machine state that always
+// `Result`" (`result.h`'s banner). These 67 read live machine state that always
 // exists, so they have no refusal case by construction and return their value
 // directly. THE LIST IS THE AUDIT: a query not on it must return `Result` or
 // `Expected<T>`, and moving one onto it is a claim that it cannot fail. The
@@ -340,6 +342,8 @@ struct LoopDriver {
 //                     trace_enabled, coverage_enabled, coverage
 //   model/symbols (8): input_state, subscriptions, events_fired_since, symbols,
 //                     lookup, lookup_name, ula_screen_dump, bookmarks
+//   target (4):       capabilities, why_unavailable, target_info,
+//                     register_validity   (ADDED BY epic #486 R0.1)
 //
 // Four of those need a word, because "cannot refuse" is doing work:
 // `coverage()` returns an all-zero bit set while coverage is off (hence
@@ -367,6 +371,14 @@ struct LoopDriver {
 class Debugger {
 public:
     explicit Debugger(Emulator& emu);
+
+    /// TGT-01 - ADDED BY epic #486 R0.1 (owner decision Q1, 2026-11-18), with
+    /// the four queries after `state_revision()`: a facade over a machine that
+    /// is not an in-process `Emulator`. It is always NON-LOCAL: the verbs that
+    /// need the local machine (rewind, trace, coverage, the stop machinery) are
+    /// refused with `Result::Unsupported`, and `capabilities()` says which verbs
+    /// the facade serves. `target` must outlive the `Debugger`.
+    explicit Debugger(Target& target);
     ~Debugger();
 
     Debugger(const Debugger&)            = delete;
@@ -1673,6 +1685,30 @@ public:
     /// when something changed.
     uint64_t state_revision() const;
 
+    // =======================================================================
+    // The target seam - epic #486 R0.1 (owner decision Q1, 2026-11-18)
+    // =======================================================================
+
+    /// TGT-02 - ADDED BY epic #486 R0.1 (owner decision Q1, 2026-11-18). What
+    /// this facade can do over its target: every capability for a local
+    /// `Debugger(Emulator&)`; for a `Debugger(Target&)`, the target's set
+    /// intersected with what the facade serves over a target.
+    CapabilitySet capabilities() const;
+
+    /// TGT-02 - ADDED BY epic #486 R0.1. The reason `c` is missing, for a
+    /// tooltip or a status line; "" when `capabilities()` has it. Never "" for a
+    /// missing capability.
+    std::string why_unavailable(Capability c) const;
+
+    /// TGT-03 - ADDED BY epic #486 R0.1. Kind, name, version and link text of
+    /// the target (local: `{Local, "jnext", <version>, "local"}`).
+    TargetInfo target_info() const;
+
+    /// TGT-04 - ADDED BY epic #486 R0.1. Which fields of `registers()` the
+    /// target reports (all of them locally). A field not valid is zero in the
+    /// result and that zero is not a reading.
+    RegisterValidity register_validity() const;
+
 private:
     CWriteResult write_c_value_impl(ClientId by, size_t frame, std::string_view path, const CNewValue& value, bool rows);
     CChildRows c_children_impl(size_t frame, std::string_view path, size_t first, size_t max, bool rows) const;
@@ -1686,7 +1722,10 @@ private:
     // `b0-cap-traceability.md` (CAP-01) and in `backend.md` CAP-CAP-01. Package
     // D added `rom_select()`, by owner approval on 2026-09-29 — recorded at its
     // declaration, in `b0-cap-traceability.md` (INS-03) and in `backend.md`
-    // CAP-INS-03.)
+    // CAP-INS-03. Epic #486 R0.1 added `Debugger(Target&)`, `capabilities()`,
+    // `why_unavailable()`, `target_info()` and `register_validity()`, by the
+    // owner's decision Q1 of 2026-11-18 -- recorded at their declarations and in
+    // `b0-cap-traceability.md` (TGT-01..TGT-04).)
     //
     // B0 declared the constructor, an out-of-line destructor and deleted
     // copy/move, and no storage at all — the shape a pImpl is prepared for. B1

@@ -47,9 +47,9 @@ are sub-issues of their own; R6 is one placeholder sub-issue, opened only if R5.
 
 #### Sub-issue 3: the target seam and the capability model
 
-- [ ] **R0.1** Target-seam inventory: classify every `Debugger` verb (machine / host-side / local-only); write the owner-approved `debug/target.h` and facade additions (Q1)
-- [ ] **R1.1** `Target` interface and `LocalTarget`: the machine half of `Debugger::Impl` behind it, behaviour-neutral, bench A/B
-- [ ] **R1.2** Capability model: `Debugger::capabilities()`, a reason per missing capability, register and run-state validity
+- [x] **R0.1** Target-seam inventory: classify every `Debugger` verb (machine / host-side / local-only); write the owner-approved `debug/target.h` and facade additions (Q1)
+- [x] **R1.1** `Target` interface and `LocalTarget`: the machine half of `Debugger::Impl` behind it, behaviour-neutral, bench A/B
+- [x] **R1.2** Capability model: `Debugger::capabilities()`, a reason per missing capability, register and run-state validity
 
 #### Sub-issue 4: Qt greying and window retargeting
 
@@ -558,13 +558,33 @@ knows how to grey out what a target cannot do.
   the seam and the three method classes.
 - **Acceptance.** No test count changes except new rows; no behaviour change; bench within noise.
 - **Depends on.** R0.1 (owner-approved header); R0.5 (the hardware checkpoint, owner decision 2026-11-17).
+- **Measured (#513 Stage B).** The delivery path is unchanged by construction: `git diff` of
+  `src/core src/cpu src/memory src/video src/audio src/peripheral src/port src/platform src/gui
+  src/debugger src/remote` against the epic is empty, and `drain_boundary()`, `execute_gate()` and
+  `deliver_to_subscribers()` compile at `-O2` to the same instruction stream as before (base and
+  branch objects of `debugger_events.cpp` compared with `objdump`: the one difference is the
+  displacement of the `emu` load, which is no longer the first member of `Impl`, plus padding).
+  Wall-time, `build/gui-release-non-pgo` of the epic tip `81bb24f6b` against the branch, taken on a
+  quiet host (1-minute load 0.7-2.2 from start to end of every run; it was 1.4-1.7 at the first
+  pair): three sequential `make bench` pairs (the order of the pair swapped in the third) and one
+  interleaved `ab-hotlatch` run. Branch-minus-base medians, per workload, run 1 / 2 / 3 (percent
+  of T-states/s): boot-48k +1.5 / +1.3 / -1.2; boot-nextzxos +3.0 / +0.9 / +2.1; copper-demo -2.9 /
+  -4.5 / +2.8; beast -2.9 / -0.8 / +3.1; bifrost -1.7 / -1.3 / +13 (a 32% spread); halt-idle-35 -2.3 /
+  +0.2 / +5.8; halt-idle-28 -5.5 / -0.8 / +0.9; ctc-dac-28 -3.4 / -1.2 / +1.1. The sign changes from
+  run to run and with the order of the pair, and the interleaved run (`test/bench/hotlatch-55809a6f7.txt`)
+  gives U vs B +0.2% (boot-nextzxos), -1.7% (copper-demo), -3.4% (beast, spreads 6 to 12%),
+  +0.3% (boot-48k): no consistent cost beyond the noise. Not a clean pass of the letter of the rule: no
+  run of this host was free of VOID workloads (spread above 5%) in both trees. R1.1 is ticked on the
+  codegen evidence above plus this.
 
 ### R1.2 Capability model
 
-- **Design.** `enum class Capability` (published, in `target.h`) with one bit per row of §11's
-  table, `Debugger::capabilities()`, `Debugger::why_unavailable(Capability) -> std::string`,
-  and a `RegisterValidity` mask beside `registers()` (IFF1/IFF2, IM, HALT, MEMPTR/Q) and a
-  validity flag in `RunState` for `cycle` and `frame`. `LocalTarget` reports everything.
+- **Design.** `enum class Capability` (published, in `target.h`) with one bit per capability of §11
+  (two groups in an explicit order, not a row-for-row copy: see the note under section 11), `Debugger::capabilities()`, `Debugger::why_unavailable(Capability) -> std::string`,
+  and a `RegisterValidity` mask beside `registers()` (IFF1/IFF2, IM, HALT, MEMPTR/Q), with
+  `cycle` and `frame` of `RunState` valid exactly when the `MachineTime` capability is (D5 of
+  the #513 plan: `inspect.h` is frozen, so no `RunState` field is added). `LocalTarget` reports
+  everything.
 - **Tests.** Backend suite rows: local reports all; a fake target reporting none makes every
   machine verb return `Unsupported` (one row per verb class) and never touches memory.
 - **Acceptance.** No verb of a remote facade can silently succeed for a capability the target
@@ -580,10 +600,13 @@ knows how to grey out what a target cannot do.
   with `why_unavailable` of each = "no program loaded: upload one"; its `RegisterValidity` has
   `Core` cleared, so `registers()` returns zeros marked invalid; the slots stay available (they
   are true) and the MMU panel labels them "CMD_INIT defaults" until the state clears;
-  `set_mmu_slot`, memory and NextREG verbs are not gated by it. What #513 (Stage B) does for it:
-  the facade passes the target's validity mask through, and `capabilities()` stays the target's
-  set intersected with what the facade serves (#513's inventory); the panel's reason rule is
-  R1.3's. The state is the target's own and is never derived from register values.
+  `set_mmu_slot`, memory and NextREG verbs are not gated by it. What #513 does for it (Stage C, R1.2;
+  Stage B only built the seam and left `capabilities()` and the validity accessors undefined):
+  `register_validity()` passes the target's validity mask through (unknown bits dropped), and
+  `capabilities()` is the target's set intersected with what the facade serves (the served set of
+  #513's section 3, eight bits), so `why_unavailable(Run)` answers with the target's own reason;
+  the panel's reason rule is R1.3's. The reason texts are one per capability, from section 11's
+  "When unavailable" column (the #513 inventory's reason column is per verb), so R1.3 shows one text each. The state is the target's own and is never derived from register values.
   `LocalTarget` and remote jnext never report it. Row for it, added to the Tests above: a fake
   reporting "no debuggee" has `Run`, `InstructionStep` and `RunToCursor` unavailable with that
   reason and `Core` invalid, and still serves memory, NextREG reads and `set_mmu_slot`.
@@ -1077,6 +1100,26 @@ tooltip, or the panel shows a placeholder with the reason (R1.3).
 | Reset | yes | no (no reset in DZRP) | no | greyed |
 | Machine time (T-states, frame, raster position) | yes | no | no | status fields show `?` |
 | Build match against the program file | n/a | yes (R3.2) | yes (R3.2) | banner on mismatch |
+| Ports (`port_in`, `port_out`) | yes | yes (CMD 20/21) | yes (CMD 20/21, inside the served 1-23) | n/a |
+| Input injection (keys, joystick, NMI button) | yes | no | no | Input actions greyed |
+| Capture (screenshot, flush) | yes | no | no | Capture actions greyed |
+| Machine state (bookmarks, snapshots, state bytes) | yes | no (DZRP 50/51 are not used in R1) | no | Bookmark and snapshot actions greyed |
+| CTC and DMA state | yes | no | no | placeholder |
+| Paging ports and the NextREG select latch | yes | no | no | fields show `?` |
+
+The six rows from Ports down were added by the R0.1 inventory (section 15): verbs of `Debugger`
+that no earlier row covered. Notes on how the table maps onto `Capability` (`src/debug/target.h`):
+the enum is NOT a row-for-row copy of the table: it has two groups (what a remote may serve, then
+local-only), each in an explicit order fixed by `static_assert`s in `src/debug/debug_types_check.cpp`;
+"Run, Pause" is two bits (`Run`, `Pause`); other rows map to one bit or several (Step Back ... and
+"Run to end of frame ..." are `Rewind` and `CycleExact`). Rows with NO bit: the register rows
+("Registers PC SP AF BC DE HL IX IY and shadows, I, R", IM, IFF1/IFF2/HALT/MEMPTR) are
+`RegisterValidity` fields (Core, IM, IFF1, IFF2, Halted, Memptr), not capability bits; "Conditions,
+log actions, `once`, hit counts" is never greyed; "Source tab, line breakpoints, source Into / Over /
+Out", "C variables, read and write" and "Symbols, user labels and comments, map loading, skoolkit /
+ghidra export and import" are host-side and need only the capabilities of the primitives they call;
+"Build match" is a host-side check (R3.2). `RunState::cycle` and `RunState::frame`, like `time()`, are
+valid exactly when the `MachineTime` capability is.
 
 ---
 
@@ -1175,3 +1218,248 @@ for R5. The owner later withdrew an idea of a dezogif_ng git submodule; the plan
 | D22 | R0.5 sends one unsupported command (24), last and once, through a test-only gate bypass in the probe | owner, Q10: confirm the silent reset on the KS2 at the cost of one session; the product client keeps no bypass | not exercising it (the round-2 plan) |
 | D23 | Tasks are grouped into 18 sub-issues (16 withdrawn by D25): coupled or sequential tasks on the same files together, parallel ones apart; owner-run tasks and the gate on their own; R6 one placeholder | owner, 2026-11-18 ("group related tasks in the same subissue if possible, considering parallelization") | one sub-issue per task (36 issues, many tiny and strictly sequential) |
 | D24 | A dezogif session is "no debuggee" from every `CMD_INIT` until its client has set SP, PC and the program's slots (those the client means it to use): Run, instruction steps and Run to Cursor unavailable ("no program loaded: upload one"), registers invalid, slots available and labelled `CMD_INIT` defaults; client-side, never inferred from register values. Applies to the dezogif_ng profile, the only dezogif profile (D25) | R0.5 on the KS2 (`REMOTE-TARGET-VALIDATION.md` §1.3): `CMD_INIT` rewrites the slots, and registers are zero only after a fresh entry from NextZXOS (stale after an earlier session), so only the client can say a program is set up | showing zero or stale registers as the target's state; inferring the state from zeros; greying the slots (the slots are the mapping `CMD_READ_MEM` goes through and the upload needs `CMD_SET_SLOT`) |
+
+
+---
+
+## 15. Target-seam inventory (R0.1)
+
+Every public declaration of `jnext::dbg::Debugger` (`src/debug/debugger.h`), one row each
+(overloads included), classified for the target seam of §3 (decision D1):
+
+- **M, machine**: the facade keeps argument validation, the local-only guards (RZX, inside-delivery)
+  and the attribution (MUTATE line, `note_mutation()`); the machine action is a `Target` call.
+- **H, host-side**: unchanged; it reads the machine only through the facade (so through the target).
+  Internals that touch the local machine are guarded for a non-local facade.
+- **L, local-only**: stays on the local `Emulator`. On a non-local facade a refusing verb returns
+  `Result::Unsupported` and a direct-value query returns its empty value, without touching the target.
+
+"Gate" is the `Capability` the verb needs (or "local machine": no bit, local only). "Non-local
+answer in R1" is what a `Debugger(Target&)` returns in this epic's R1; "R2.x serves it" marks the
+verbs the later sub-issues widen. The set a non-local facade serves in R1 is `RegisterWrite`,
+`Memory`, `PhysicalMemory`, `MmuSlots`, `NextRegs`, `Ports`, `SpriteData`, `SpritePaletteClip`
+(`capabilities()` is the target's set intersected with it). The five rows marked ADDED are the
+additions the owner approved (Q1, 2026-11-18); the table has 209 rows for 205 names.
+
+Checked by a script that reads the header's public span and this table (exit 0 = every declaration
+once, nothing extra). Corrections found while reading the bodies are in the reason column:
+`probe_execute`, `raise_host_event`, `load_map`, `pump`, `live_raster` and `attached` are H but
+read the local machine or local `DebugState` (`ds()`) in their bodies, `effective_page` reads
+`emu.mmu()`, and `source_location()` (no argument) reads `emu.cpu()` for the PC; the
+`load_source_map` / `load_program_sidecars` family arms local verification hooks. Stage B guards
+each of those (the compiler lists `emu.` sites but only the definition of `ds()`, so this list is
+the guide for `ds()` callers).
+
+<!-- gh513-inventory-begin -->
+| Method | Class | Gate | Non-local answer in R1 | Reason |
+|---|---|---|---|---|
+| `Debugger` (Emulator&) | H | none | local facade; builds and owns a `LocalTarget` | `Debugger(Emulator&)`, signature unchanged; no caller changes |
+| `Debugger` (Target&) | H | none | non-local facade (`emu` null) | ADDED (Q1): `Debugger(Target&)`, TGT-01; the target outlives the facade |
+| `~Debugger` | H | none | local mirrors torn down only when local | unhooks the machine; the non-local teardown touches no machine |
+| `pause` | M | Pause | `Unsupported` (R2.2 serves it) | target primitive; the stop machinery is local `DebugState` |
+| `run` | M | Run | `Unsupported` (R2.2) | same |
+| `step_into` | M | InstructionStep | `Unsupported` (R2.4) | local path routes its one step through `Target::step_instruction` |
+| `step_over` | M | InstructionStep | `Unsupported` (R2.4) | remote: temporary breakpoints by the facade's strategy |
+| `step_out` | M | InstructionStep | `Unsupported` (R2.4) | same |
+| `run_to` | M | RunToCursor | `Unsupported` (R2.2) | temporary breakpoint plus run |
+| `run_to_source_line` | M | RunToCursor | `Unsupported` (R2.2) | resolves the line host-side, then `run_to` |
+| `run_to_cycle` | L | CycleExact | `Unsupported` | no time in DZRP |
+| `run_to_frame` | L | CycleExact | `Unsupported` | no time in DZRP |
+| `run_to_end_of_frame` | L | CycleExact | `Unsupported` | no time in DZRP |
+| `run_to_end_of_scanline` | L | CycleExact | `Unsupported` | no time in DZRP |
+| `step_back` | L | Rewind | `Unsupported` | rewind ring lives in the local `Emulator` |
+| `rewind_to_frame` | L | Rewind | `Unsupported` | same |
+| `resume_blocked_by_corruption` | L | local machine | `nullopt` | corruption latch is a local-machine state error |
+| `acknowledge_corruption` | L | local machine | `Unsupported` | same |
+| `reset` | L | Reset | `Unsupported` | no reset in DZRP; local path is the loop driver |
+| `state` | M | none (target run state) | `Target::run_state()`, `pause_reason` None | host composes the pause reason from local stop evidence; a remote stop is `NTF_PAUSE` |
+| `magic_breakpoint` | L | MagicBreakpoint | `false` | the target's own setting |
+| `set_magic_breakpoint` | L | MagicBreakpoint | `Unsupported` | same |
+| `load` | L | Load | `Unsupported` | goes through the local loop driver (upload is R4.3) |
+| `program_loads` | H | none | unchanged | host-side counter |
+| `note_program_replaced` | H | none | unchanged | host-side; drops source guards |
+| `armed` | L | local machine | `false` | arm bits drive local event hooks |
+| `set_persistent_breakpoints` | L | local machine | `Unsupported` | local hook policy |
+| `persistent_breakpoints` | L | local machine | `false` | local hook policy |
+| `registers` | M | none (validity: Core) | `Target::registers()` | CMD_GET_REGISTERS carries Core; the other fields are `RegisterValidity` |
+| `set_register` | M | RegisterWrite | dispatched | facade keeps the MUTATE line and argument checks |
+| `peek` | M | Memory (Cpu); PhysicalMemory (Page, Rom, DivMmcRam) | dispatched | facade refuses identity-only kinds; local keeps the F1 read-arbiter path |
+| `poke` | M | Memory (Cpu); PhysicalMemory (Page) | dispatched | facade keeps RZX and ROM-sentinel refusals and the MUTATE text |
+| `mmu_slots` | M | MmuSlots | dispatched | CMD_GET_SLOTS |
+| `set_mmu_slot` | M | MmuSlots | dispatched | CMD_SET_SLOT; slot range checked by the facade |
+| `paging_ports` | L | PagingLatches | empty value | port latches are not in DZRP |
+| `rom_select` | M | PhysicalMemory | dispatched; without the capability `MemSpace::cpu()` | DZRP ROM bank 0xFF names the image |
+| `nextreg_peek` | M | NextRegs | dispatched | CMD_GET_TBBLUE_REG, the read path |
+| `nextreg_write` | M | NextRegs | dispatched | facade keeps the MUTATE line |
+| `nextreg_selected` | L | PagingLatches | empty value | the NR select latch (port 0x243B) is not in DZRP |
+| `port_in` | M | Ports | dispatched | CMD_READ_PORT (remote jnext, dezogif_ng 1-23) |
+| `port_out` | M | Ports | dispatched | CMD_WRITE_PORT; the soft-reset delivery guard is local-only |
+| `raster` | L | Video | empty value | no raster position in DZRP |
+| `time` | L | MachineTime | empty value | no time in DZRP |
+| `time_epoch` | L | MachineTime | empty value | same |
+| `sprites` | M | SpriteData | dispatched; the facade pads to `SPRITE_COUNT` | CMD_GET_SPRITES (dezogif_ng answers zeros) |
+| `sprite_attr_raw` | M | SpriteData | dispatched | same |
+| `set_sprite_attr_raw` | M | SpriteData | dispatched | same |
+| `pattern_ram` | M | SpriteData | dispatched; empty view unless the size is `PATTERN_RAM_BYTES` | CMD_GET_SPRITE_PATTERNS |
+| `write_pattern_ram` | M | SpriteData | dispatched | CMD 19 family |
+| `sprite_palette_rgb333` | M | SpritePaletteClip | dispatched | DZRP serves the sprite palette only |
+| `sprite_clip` | M | SpritePaletteClip | dispatched | DZRP serves the sprite clip |
+| `copper` | L | Copper | empty value | no Copper command |
+| `ay_registers` | L | Audio | `Unsupported` | no audio command |
+| `turbosound_enabled` | L | Audio | empty value | no audio command |
+| `ay_mode` | L | Audio | empty value | no audio command |
+| `stereo_mode` | L | Audio | empty value | no audio command |
+| `audio_mute_mask` | L | Audio | empty value | no audio command |
+| `audio_state` | L | Audio | empty value | no audio command |
+| `audio_channel_mute_mask` | L | Audio | empty value | no audio command |
+| `audio_scope_enabled` | L | Audio | empty value | no audio command |
+| `audio_log_enabled` | L | Audio | empty value | no audio command |
+| `stems_recording` | L | Audio | empty value | no audio command |
+| `psg_recording` | L | Audio | empty value | no audio command |
+| `set_audio_mute_mask` | L | Audio | `Unsupported` | no audio command |
+| `set_audio_channel_mute_mask` | L | Audio | `Unsupported` | no audio command |
+| `clear_audio_drops` | L | Audio | `Unsupported` | no audio command |
+| `set_audio_scope_enabled` | L | Audio | `Unsupported` | no audio command |
+| `stems_record_start` | L | Audio | `Unsupported` | no audio command |
+| `stems_record_stop` | L | Audio | `Unsupported` | no audio command |
+| `set_audio_log_enabled` | L | Audio | `Unsupported` | no audio command |
+| `audio_log_clear` | L | Audio | `Unsupported` | no audio command |
+| `audio_log_resize` | L | Audio | `Unsupported` | no audio command |
+| `audio_log_export` | L | Audio | `Unsupported` | no audio command |
+| `psg_record_start` | L | Audio | `Unsupported` | no audio command |
+| `psg_record_stop` | L | Audio | `Unsupported` | no audio command |
+| `audio_scope_samples` | L | Audio | `Unsupported` | no audio command |
+| `audio_log_entries` | L | Audio | `Unsupported` | no audio command |
+| `ctc_state` | L | CtcDma | empty value | no CTC command |
+| `dma_state` | L | CtcDma | empty value | no DMA command |
+| `disassemble` | H | Memory (reads) | plain Cpu reads through the target | no fetch prediction without a local machine |
+| `instruction_length` | H | Memory (reads) | same | same |
+| `is_call_like` | H | Memory (reads) | same | same |
+| `memory_reader` | H | Memory (reads) | plain Cpu reads through the target | local keeps the PC-instruction prediction (FetchOverlays) |
+| `operand_reader` | H | Memory (reads) | same | local keeps `predict_data_reader` |
+| `call_stack` | L | CallStackTracked | empty value | a remote stack is rebuilt by walking (`c_frames`) |
+| `call_stack_enabled` | L | CallStackTracked | `false` | tracker lives in the local `Emulator` |
+| `set_call_stack_enabled` | L | CallStackTracked | `Unsupported` | same |
+| `trace_enabled` | L | Trace | `false` | no trace in DZRP |
+| `set_trace_enabled` | L | Trace | `Unsupported` | same |
+| `trace_clear` | L | Trace | `Unsupported` | same |
+| `trace_resize` | L | Trace | `Unsupported` | same |
+| `trace_entries` | L | Trace | `Unsupported` | same |
+| `trace_export` | L | Trace | `Unsupported` | same |
+| `framebuffer` | L | Video | empty value | no video in DZRP |
+| `render_layer` | L | Video | `Unsupported` | same |
+| `palette` | L | Video | empty value | DZRP has the sprite palette only |
+| `palette_priority` | L | Video | empty value | same |
+| `set_palette` | L | Video | `Unsupported` | same |
+| `active_ula_palette_bank` | L | Video | empty value | same |
+| `ula_screen_regs` | L | Video | empty value | no video in DZRP |
+| `clip_window` | L | Video | empty value | no video in DZRP |
+| `input_state` | L | Input | empty value | no input command |
+| `subscriptions` | H | none | unchanged | host-side event table; empty on a non-local facade |
+| `events_fired_since` | H | none | unchanged | host-side latch ring; empty on a non-local facade |
+| `set_border` | L | Video | `Unsupported` | CMD_SET_BORDER is removed in DZRP 2.2.0 |
+| `machine` | L | MachineTime | empty value | no machine info in DZRP |
+| `coverage_enable` | L | Coverage | `Unsupported` | no coverage in DZRP |
+| `coverage_enabled` | L | Coverage | `false` | no coverage in DZRP |
+| `coverage_clear` | L | Coverage | `Unsupported` | no coverage in DZRP |
+| `coverage` | L | Coverage | empty value | no coverage in DZRP |
+| `mem_coverage_enable` | L | Coverage | `Unsupported` | no coverage in DZRP |
+| `mem_coverage_enabled` | L | Coverage | `false` | no coverage in DZRP |
+| `mem_coverage_clear` | L | Coverage | `Unsupported` | no coverage in DZRP |
+| `mem_coverage` | L | Coverage | `Unsupported` | no coverage in DZRP |
+| `mem_coverage_fetch` | L | Coverage | empty value | no coverage in DZRP |
+| `mem_coverage_spaces` | L | Coverage | empty value | no coverage in DZRP |
+| `executed_source_lines` | L | Coverage | empty value | no coverage in DZRP |
+| `subscribe` | M | by kind: Execute -> ExecuteBreakpoints; Mem -> Watchpoints; Host -> none (host-side); every other kind -> MachineEvents | `Unsupported` for every kind (R2.2/R2.3 widen it) | remote breakpoints and watchpoints are R2; other kinds need machine hooks |
+| `unsubscribe` | H | none | unchanged | host-side event table |
+| `set_enabled` | H | none | unchanged | same |
+| `subscribe_source_line` | M | ExecuteBreakpoints | `Unsupported` (R2.2) | expands to execute subscriptions |
+| `unsubscribe_group` | H | none | unchanged | host-side event table |
+| `set_group_enabled` | H | none | unchanged | same |
+| `master_enabled` | H | none | unchanged | host-side switch; the local mirror into `DebugState` is guarded |
+| `set_master_enabled` | H | none | unchanged | same |
+| `client_enabled` | H | none | unchanged | host-side switch |
+| `set_client_enabled` | H | none | unchanged | same |
+| `probe_execute` | H | none | empty vector | host-side table query, but its body stamps the event from the local machine: guarded |
+| `raise_host_event` | H | none | `Ok`, nothing delivered | no Host subscriber can exist (`subscribe` refuses); the body reads the local clock: guarded |
+| `press_key` (name) | L | Input | `Unsupported` | no input command |
+| `press_key` (MatrixKey) | L | Input | `Unsupported` | no input command |
+| `set_key` | L | Input | `Unsupported` | no input command |
+| `set_extended_key` | L | Input | `Unsupported` | no input command |
+| `set_joystick` | L | Input | `Unsupported` | no input command |
+| `press_nmi` | L | Input | `Unsupported` | no input command |
+| `screenshot` | L | Capture | `Unsupported` | captures read the local renderer |
+| `flush_captures` | L | Capture | `Unsupported` | same |
+| `ula_screen_dump` | L | Video | empty value | reads local video memory |
+| `bookmark_save` | L | MachineState | `Unsupported` | state images are local (DZRP 50/51 unused in R1) |
+| `bookmark_restore` | L | MachineState | `Unsupported` | same |
+| `bookmarks` | L | MachineState | empty value | same |
+| `save_snapshot` | L | MachineState | `Unsupported` | same |
+| `at_frame_boundary` | L | MachineState | `false` | frame boundary is a local-machine notion |
+| `save_state_bytes` | L | MachineState | `Unsupported` | state images are local |
+| `load_state_bytes` | L | MachineState | `Unsupported` | same |
+| `rewind_enabled` | L | Rewind | `false` | rewind ring is local |
+| `set_rewind_enabled` | L | Rewind | `Unsupported` | same |
+| `rewind_range` | L | Rewind | empty value | same |
+| `rewind_blocked` | L | Rewind | `Result::Unsupported` inside the optional | same |
+| `resize_rewind_buffer` | L | Rewind | `Unsupported` | same |
+| `load_map` | H | none | unchanged | host-side symbol table; binds `emu.predict_fetch` into the toolchain symbols (`debugger.cpp:275`): guarded |
+| `clear_symbols` | H | none | unchanged | same |
+| `lookup` | H | none | unchanged | same |
+| `lookup_name` | H | none | unchanged | same |
+| `symbols` | H | none | unchanged | same |
+| `set_user_label` | H | none | unchanged | host-side annotations |
+| `remove_user_label` | H | none | unchanged | same |
+| `set_user_comment` | H | none | unchanged | same |
+| `annotations` | H | none | unchanged | same |
+| `annotations_revision` | H | none | unchanged | same |
+| `load_annotations` | H | none | unchanged | same |
+| `save_annotations` | H | none | unchanged | same |
+| `replace_annotations` | H | none | unchanged | same |
+| `toolchain_symbols` | H | none | unchanged | host-side symbol table |
+| `export_skoolkit` | H | none | unchanged | host-side export; coverage data omitted |
+| `export_ghidra` | H | none | unchanged | same |
+| `import_skoolkit` | H | none | unchanged | host-side import |
+| `import_ghidra` | H | none | unchanged | same |
+| `load_source_map` | H | none | unchanged | host-side; the local verify hooks it arms (`verify_at_first_execution`) are guarded |
+| `clear_source_map` | H | none | unchanged | host-side; local guard teardown guarded |
+| `source_map` | H | none | unchanged | host-side |
+| `source_map_status` | H | none | unchanged | host-side |
+| `variables` | H | none | unchanged | host-side variable store |
+| `c_frames` | H | CallStackTracked (tracked frames only) | existing no-tracker path | reads the local tracker when present (`debugger_cframes.cpp`) |
+| `c_locals` | H | Memory (reads and writes through the facade) | unchanged | reads through the facade |
+| `c_globals` | H | Memory (reads and writes through the facade) | unchanged | reads through the facade (same `Env` / `eval_var` path as `c_locals`) |
+| `read_c_value` | H | Memory (reads and writes through the facade) | unchanged | reads through the facade (same path) |
+| `write_c_value` | H | Memory (reads and writes through the facade) | unchanged | writes through `poke` |
+| `write_c_value_row` | H | Memory (reads and writes through the facade) | unchanged | writes through `poke` (same path as `write_c_value`) |
+| `c_variables_status` | H | none | unchanged | host-side |
+| `c_children` | H | Memory (reads and writes through the facade) | unchanged | reads through the facade |
+| `c_children_row` | H | Memory (reads and writes through the facade) | unchanged | reads through the facade (same path as `c_children`) |
+| `source_location` (addr) | H | none | unchanged | host-side lookup |
+| `source_location` (no argument) | H | none | unchanged | host-side; Stage B reads the PC through `registers()`, not `emu.cpu()` (`debugger_source.cpp:651`) |
+| `source_location` (space, addr) | H | none | unchanged | host-side lookup |
+| `effective_page` | H | MmuSlots | the slot's `effective_page` | local reads `emu.mmu().get_effective_page` (the slot's page, not the fetch prediction; `debugger_source.cpp:607`): guarded |
+| `source_page` | H | MmuSlots | the slot's `space`; without MmuSlots `cpu()` | local keeps `predict_fetch`; plan section 11 "Overlays in the fetch identity" |
+| `load_program_sidecars` | H | none | unchanged | host-side; arms local verification windows: guarded |
+| `source_step` | M | Into/Over/Out: InstructionStep; Back, ReverseContinue: Rewind (L) | `Unsupported` (R2.4 serves Into/Over/Out; Back and ReverseContinue stay local) | strategy is host-side; the single steps are target primitives |
+| `attach` | H | none | unchanged | host-side client list; the local arm bits mirror into `DebugState` guarded |
+| `detach` | H | none | unchanged | same |
+| `set_listener` | H | none | unchanged | host-side |
+| `add_service` | H | none | unchanged | host-side |
+| `remove_service` | H | none | unchanged | host-side |
+| `pump` | H | none | unchanged | drains services, compacts the event table; its hint and drain arm read local `DebugState` (`ds().paused()`, `debugger_session.cpp:528/576/595`): guarded |
+| `stop_policy` | H | none | unchanged | host-side |
+| `set_stop_policy` | H | none | unchanged | host-side |
+| `set_live_raster` | H | none | unchanged | host-side; the local mirror is guarded |
+| `live_raster` | H | none | unchanged | host-side flag, read from local `DebugState` (`ds().live_raster()`, `debugger_session.cpp:627`): guarded, a non-local facade keeps its own value in `Impl` |
+| `attached` | H | none | unchanged | host-side flag, read from local `DebugState` (`ds().attached()`, `debugger_session.cpp:641`): guarded, same |
+| `log` | H | none | unchanged | host-side listener fan-out |
+| `set_loop_driver` | L | local machine | `Unsupported` | the loop owner is a local construct |
+| `on_cold_boot_begin` | L | local machine | `Unsupported` | local cold-boot machinery |
+| `on_cold_boot_done` | L | local machine | `Unsupported` | same |
+| `state_revision` | H | none | unchanged | host-side counter |
+| `capabilities` | H | none | `kNonLocalServed` intersected with the target's set | ADDED (Q1), TGT-02; direct value |
+| `why_unavailable` | H | none | the section 11 reason for the capability; "" when available | ADDED (Q1), TGT-02 |
+| `target_info` | H | none | the target's `TargetInfo`, verbatim | ADDED (Q1), TGT-03 |
+| `register_validity` | H | none | the target's mask, bits above `Count` dropped | ADDED (Q1), TGT-04 (the register validity mask) |
+<!-- gh513-inventory-end -->

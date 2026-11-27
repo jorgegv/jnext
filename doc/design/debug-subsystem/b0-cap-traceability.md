@@ -200,6 +200,28 @@ Every write §4.2a enumerates, and the declaration that is it. All of them take
 
 ---
 
+## Epic #486: the target seam (TGT)
+
+Four CAP ids added by epic [#486](https://github.com/jorgegv/jnext/issues/486), task R0.1
+(owner decision Q1, 2026-11-18), for a `Debugger` over a machine that is not an in-process
+`Emulator`. Their declarations are the new published header `src/debug/target.h` and five
+additions to `debugger.h`, the only ones this epic makes to the frozen facade. The verb-by-verb
+classification behind the cut (machine, host-side, local-only) is section 15 of
+[DEBUGGER-REMOTE-REAL-NEXT-PLAN.md](../DEBUGGER-REMOTE-REAL-NEXT-PLAN.md).
+
+| CAP | Declaration |
+|---|---|
+| TGT-01 | `explicit Debugger(Target&)` (`debugger.h`); `class Target` (`target.h`): the machine primitives of the facade, `info()`, `capabilities()`, `why_unavailable()`, `register_validity()`, `run_state()`, `step_instruction()`, `registers()`, `set_register()`, `read()`, `write()`, `mmu_slots()`, `set_mmu_slot()`, `rom_select()`, `nextreg_read()`, `nextreg_write()`, `port_in()`, `port_out()`, and the seven sprite primitives |
+| TGT-02 | `CapabilitySet capabilities() const`, `std::string why_unavailable(Capability) const` (`debugger.h`); `enum class Capability` (36 values, the rows of plan section 11), `CAPABILITY_COUNT`, `class CapabilitySet` (`target.h`) |
+| TGT-03 | `TargetInfo target_info() const` (`debugger.h`); `struct TargetInfo{kind, name, version, link}`, `enum class TargetKind{Local, Remote}` (`target.h`) |
+| TGT-04 | `RegisterValidity register_validity() const` (`debugger.h`); `struct RegisterValidity` with `enum class Field` (eight fields) (`target.h`) |
+
+Stage A declares; the bodies arrive with R1.1 (`LocalTarget`, `Debugger(Target&)`) and R1.2
+(the capability queries). The four queries join the direct-value list of `debugger.h` as a
+`target (4)` bucket, which takes the list from 63 to 67.
+
+---
+
 ## Nothing is deliberately omitted
 
 Every CAP id of §4 has a row above. Two entries in §4 are deliberately served
@@ -219,8 +241,8 @@ properties nothing checked:
 
 | Gate | Where | What it proves |
 |---|---|---|
-| `src/debug/debug_types_check.cpp` | compiled in all four configurations by `src/debug/`'s `CONFIGURE_DEPENDS` glob | the headers compile; every mirrored enum still matches what it mirrors; every `Result` value is where the order says; the four enum counts catch an APPEND; each of `Listener`'s seven methods is individually pure; `MachineInfo`'s two clock domains keep `MachineTiming`'s names, types and 8x relation |
-| `test/lint-debug-headers.sh` | row 5 of the regression preflight; `make harness-selftest` HS-57a/b prove it stays wired and that its verdict reddens the row | no published header reaches `core/emulator.h`, `src/platform/`, Qt, SDL, `memory/mmu.h`, `video/renderer.h`, `video/palette.h`, `video/timing.h`, `debug/debug_state.h` or `debug/breakpoints.h` — transitively, via `-M` |
+| `src/debug/debug_types_check.cpp` | compiled in all four configurations by `src/debug/`'s `CONFIGURE_DEPENDS` glob | the headers compile (`target.h` included: 36 capabilities, 8 register fields, `Target` abstract); every mirrored enum still matches what it mirrors; every `Result` value is where the order says; the four enum counts catch an APPEND; each of `Listener`'s seven methods is individually pure; `MachineInfo`'s two clock domains keep `MachineTiming`'s names, types and 8x relation |
+| `test/lint-debug-headers.sh` | row 5 of the regression preflight; `make harness-selftest` HS-57a/b prove it stays wired and that its verdict reddens the row; `target.h` is in its `HEADERS` and HS-57d proves a poisoned copy fails it | no published header reaches `core/emulator.h`, `src/platform/`, Qt, SDL, `memory/mmu.h`, `video/renderer.h`, `video/palette.h`, `video/timing.h`, `debug/debug_state.h` or `debug/breakpoints.h` — transitively, via `-M` |
 
 ## What is declared but is NOT a §4 CAP row
 

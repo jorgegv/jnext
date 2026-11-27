@@ -271,6 +271,7 @@ BEGIN {
     M["reexport_test"]                 = "Source debugging (skoolkit/Ghidra export)"
     M["source_debug_posix_test"]       = "Source debugging (POSIX file types)"
     M["debugger_backend_test"]         = "Debugger Backend (GH #276)"
+    M["debug_target_test"]             = "Debugger target seam (epic #486)"
     M["persistent_bp_test"]            = "Debugger persistent BPs"
     M["io_watchpoint_test"]            = "Debugger I/O Watchpoints"
     M["bp_enable_test"]                = "Debugger BP Enable/Disable"

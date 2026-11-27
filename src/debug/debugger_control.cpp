@@ -38,19 +38,20 @@ namespace dbg {
 Result Debugger::Impl::execute_gate() const {
     // Task 60b/60e: a failed rewind or state load leaves a partially restored
     // machine. Executing against it is what the guard exists to stop.
-    const bool corrupt = !emu.last_state_error().empty();
-    if (guard.needs_confirmation(corrupt, emu.state_error_generation()))
+    const bool corrupt = !emu->last_state_error().empty();
+    if (guard.needs_confirmation(corrupt, emu->state_error_generation()))
         return Result::RefusedCorrupt;
     return Result::Ok;
 }
 
 Result Debugger::Impl::rewind_refusal() const {
+    if (!emu) return Result::Unsupported;
     // Order matters and is §4.1 CTL-09's: RZX first, because it is a refusal
     // about the RECORDING rather than about the buffer, and it must not be
     // reported as "nothing to rewind to".
-    if (emu.rzx_recorder().is_recording() || emu.rzx_player().is_playing())
+    if (emu->rzx_recorder().is_recording() || emu->rzx_player().is_playing())
         return Result::RefusedRzx;
-    const RewindBuffer* rb = emu.rewind_buffer();
+    const RewindBuffer* rb = emu->rewind_buffer();
     if (!rb || rb->empty()) return Result::RefusedUnavailable;
     return Result::Ok;
 }
@@ -60,6 +61,7 @@ Result Debugger::Impl::rewind_refusal() const {
 // ---------------------------------------------------------------------------
 
 Result Debugger::pause(ClientId by) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("pause"); nested != Result::Ok)
         return nested;
     // Idempotent (CTL-01): DebugState::pause() is, and re-pausing an already
@@ -81,6 +83,7 @@ Result Debugger::pause(ClientId by) {
 }
 
 Result Debugger::run(ClientId by) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("run"); nested != Result::Ok)
         return nested;
     return impl_->run_verb(by);
@@ -92,6 +95,7 @@ Result Debugger::run(ClientId by) {
 // `log()` reaches every listener), and SES-01's "a crashed DeZog must not leave
 // the machine hung" must not depend on where the detach came from.
 Result Debugger::Impl::run_verb(ClientId by) {
+    if (!emu) return Result::Unsupported;
     // GH #223 — Run on an already-running machine is a no-op that still returns
     // Ok, and it must return BEFORE the corruption gate: DebugState::resume()
     // clears the one-shot breakpoint, so reaching it here would silently throw
@@ -127,6 +131,7 @@ Result Debugger::Impl::run_verb(ClientId by) {
 // ---------------------------------------------------------------------------
 
 Result Debugger::step_into(ClientId by) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("step_into"); nested != Result::Ok)
         return nested;
     const Result gate = impl_->execute_gate();
@@ -160,7 +165,7 @@ Result Debugger::step_into(ClientId by) {
     // primitive: while the debugger holds the machine nothing else calls
     // run_frame(), so the Step has to turn frames over too, and a Step at a HALT
     // has to run the halt out (the CPU leaves it only on an accepted interrupt).
-    impl_->emu.debugger_step();
+    impl_->target.step_instruction();
     impl_->ds().pause();
 
     // The step's OWN stop, if it had one, is the reason: a subscription's
@@ -173,6 +178,7 @@ Result Debugger::step_into(ClientId by) {
 }
 
 Result Debugger::step_over(ClientId by) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("step_over"); nested != Result::Ok)
         return nested;
     const Result gate = impl_->execute_gate();
@@ -180,7 +186,7 @@ Result Debugger::step_over(ClientId by) {
 
     if (!impl_->ds().paused()) impl_->ds().pause();
 
-    const uint16_t pc = impl_->emu.cpu().get_registers().PC;
+    const uint16_t pc = impl_->emu->cpu().get_registers().PC;
     if (!::is_call_like(pc, memory_reader())) {
         // CTL-04: anything that is not CALL-like behaves as CTL-03, which
         // includes arming `Step` — so this is the whole of the else branch.
@@ -216,6 +222,7 @@ Result Debugger::step_over(ClientId by) {
 }
 
 Result Debugger::step_out(ClientId by) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("step_out"); nested != Result::Ok)
         return nested;
     const Result gate = impl_->execute_gate();
@@ -223,7 +230,7 @@ Result Debugger::step_out(ClientId by) {
 
     if (!impl_->ds().paused()) impl_->ds().pause();
 
-    impl_->ds().step_out(impl_->emu.cpu().get_registers().SP);
+    impl_->ds().step_out(impl_->emu->cpu().get_registers().SP);
     impl_->arm(PauseReason::Kind::Step, by);
     return Result::Ok;
 }
@@ -233,6 +240,7 @@ Result Debugger::step_out(ClientId by) {
 // ---------------------------------------------------------------------------
 
 Result Debugger::run_to(ClientId by, uint16_t addr, MemSpace space) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("run_to"); nested != Result::Ok)
         return nested;
     const Result gate = impl_->execute_gate();
@@ -257,6 +265,7 @@ Result Debugger::run_to(ClientId by, uint16_t addr, MemSpace space) {
 }
 
 Result Debugger::run_to_source_line(ClientId by, const std::string& file_line) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("run_to_source_line"); nested != Result::Ok)
         return nested;
     const Result gate = impl_->execute_gate();
@@ -280,6 +289,7 @@ Result Debugger::run_to_source_line(ClientId by, const std::string& file_line) {
 }
 
 Result Debugger::run_to_cycle(ClientId by, uint64_t master_cycle) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("run_to_cycle"); nested != Result::Ok)
         return nested;
     const Result gate = impl_->execute_gate();
@@ -294,6 +304,7 @@ Result Debugger::run_to_cycle(ClientId by, uint64_t master_cycle) {
 }
 
 Result Debugger::run_to_frame(ClientId by, uint32_t frame) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("run_to_frame"); nested != Result::Ok)
         return nested;
     // TIME-03, forward only. The frame's start cycle is derivable without the
@@ -326,7 +337,7 @@ Result Debugger::run_to_frame(ClientId by, uint32_t frame) {
     // is already counted, and `base = raw` sent run_to_frame(K+1) to the start
     // of K). `raw - 1` cannot underflow: a frame in progress, or a restored
     // one, means at least one `begin_new_frame()` has run.
-    const uint32_t now = frame_tag(impl_->emu);
+    const uint32_t now = frame_tag(*impl_->emu);
     if (frame <= now) return Result::RefusedUnavailable;   // forward only
 
     // ONE residual, stated rather than hidden: on a never-run machine the
@@ -336,17 +347,18 @@ Result Debugger::run_to_frame(ClientId by, uint32_t frame) {
     // ran nothing would look like the frame had begun. The same holds on a
     // restored start of K: its tag is K, so run_to_frame(K) is refused although
     // K has not begun again.
-    const uint32_t raw  = impl_->emu.frame_num();
-    const bool counted  = impl_->emu.frame_in_progress() ||
-                          impl_->emu.at_restored_frame_start();
+    const uint32_t raw  = impl_->emu->frame_num();
+    const bool counted  = impl_->emu->frame_in_progress() ||
+                          impl_->emu->at_restored_frame_start();
     const uint32_t base = (counted && raw > 0) ? raw - 1u : raw;
-    const MachineTiming& t = impl_->emu.timing();
-    const uint64_t target = impl_->emu.current_frame_cycle()
+    const MachineTiming& t = impl_->emu->timing();
+    const uint64_t target = impl_->emu->current_frame_cycle()
                           + static_cast<uint64_t>(frame - base) * t.master_cycles_per_frame;
     return run_to_cycle(by, target);
 }
 
 Result Debugger::run_to_end_of_frame(ClientId by) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("run_to_end_of_frame"); nested != Result::Ok)
         return nested;
     // Moved verbatim from DebuggerManager::on_run_to_eof(), comment included:
@@ -364,21 +376,22 @@ Result Debugger::run_to_end_of_frame(ClientId by) {
     // undrawn, so "Run to EOF" never actually reached the end of the frame.
     if (!impl_->ds().paused()) return Result::RefusedRunning;
 
-    const uint64_t frame_start = impl_->emu.current_frame_cycle();
-    const MachineTiming& t = impl_->emu.timing();
+    const uint64_t frame_start = impl_->emu->current_frame_cycle();
+    const MachineTiming& t = impl_->emu->timing();
     const uint64_t last_vis_vc =
         static_cast<uint64_t>(Renderer::FB_HEIGHT - 1
-                              + impl_->emu.video_timing().vblank_top());
+                              + impl_->emu->video_timing().vblank_top());
     const uint64_t last_vis_mid = last_vis_vc * t.master_cycles_per_line
                                   + t.master_cycles_per_line / 2;
     uint64_t target = frame_start + last_vis_mid;
-    if (impl_->emu.clock().get() >= target)
+    if (impl_->emu->clock().get() >= target)
         target += t.master_cycles_per_frame;
 
     return run_to_cycle(by, target);
 }
 
 Result Debugger::run_to_end_of_scanline(ClientId by) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("run_to_end_of_scanline"); nested != Result::Ok)
         return nested;
     // Moved verbatim from DebuggerManager::on_run_to_eosl(), comment included:
@@ -395,14 +408,14 @@ Result Debugger::run_to_end_of_scanline(ClientId by) {
     // visible rows. G164v2 / Task 13.
     if (!impl_->ds().paused()) return Result::RefusedRunning;
 
-    const uint64_t frame_start = impl_->emu.current_frame_cycle();
-    const uint64_t elapsed     = impl_->emu.clock().get() - frame_start;
-    const MachineTiming& t = impl_->emu.timing();
+    const uint64_t frame_start = impl_->emu->current_frame_cycle();
+    const uint64_t elapsed     = impl_->emu->clock().get() - frame_start;
+    const MachineTiming& t = impl_->emu->timing();
     const uint64_t next_line_start =
         ((elapsed / t.master_cycles_per_line) + 1) * t.master_cycles_per_line;
     const uint64_t next_line_vc = next_line_start / t.master_cycles_per_line;
     const int next_fb_row = static_cast<int>(next_line_vc)
-                          - impl_->emu.video_timing().vblank_top();
+                          - impl_->emu->video_timing().vblank_top();
     const uint64_t target = (next_fb_row >= Renderer::FB_HEIGHT)
                           ? frame_start + t.master_cycles_per_frame
                           : frame_start + next_line_start;
@@ -492,6 +505,7 @@ void Debugger::Impl::explain_rewind_refusal(ClientId by, const std::string& verb
 }
 
 Result Debugger::step_back(ClientId by, uint32_t n) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("step_back"); nested != Result::Ok)
         return nested;
     const Result refusal = impl_->rewind_refusal();
@@ -502,18 +516,18 @@ Result Debugger::step_back(ClientId by, uint32_t n) {
         // with the same words, as it always was (WP3 review item 1; row
         // CTL-09-06). NOT inside `rewind_refusal()`, which `rewind_blocked()`
         // also calls on every greying tick.
-        if (refusal == Result::RefusedRzx) impl_->emu.rzx_blocks_rewind("step_back");
+        if (refusal == Result::RefusedRzx) impl_->emu->rzx_blocks_rewind("step_back");
         impl_->explain_rewind_refusal(by, "Step Back",
-                                      rewind_refusal_reason(impl_->emu, std::nullopt));
+                                      rewind_refusal_reason(*impl_->emu, std::nullopt));
         return refusal;
     }
 
-    const uint64_t gen = impl_->emu.state_error_generation();
-    if (!impl_->emu.step_back(static_cast<int>(n == 0 ? 1 : n))) {
-        const Result r = rewind_failure(impl_->emu, gen);
+    const uint64_t gen = impl_->emu->state_error_generation();
+    if (!impl_->emu->step_back(static_cast<int>(n == 0 ? 1 : n))) {
+        const Result r = rewind_failure(*impl_->emu, gen);
         if (r != Result::RefusedCorrupt)
             impl_->explain_rewind_refusal(by, "Step Back",
-                                          rewind_refusal_reason(impl_->emu, std::nullopt));
+                                          rewind_refusal_reason(*impl_->emu, std::nullopt));
         return r;
     }
 
@@ -522,14 +536,15 @@ Result Debugger::step_back(ClientId by, uint32_t n) {
 }
 
 Result Debugger::rewind_to_frame(ClientId by, uint32_t frame) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("rewind_to_frame"); nested != Result::Ok)
         return nested;
     const Result refusal = impl_->rewind_refusal();
     if (refusal != Result::Ok) {
         // Refused, and said — as step_back() above (row CTL-10-09).
-        if (refusal == Result::RefusedRzx) impl_->emu.rzx_blocks_rewind("rewind_to_frame");
+        if (refusal == Result::RefusedRzx) impl_->emu->rzx_blocks_rewind("rewind_to_frame");
         impl_->explain_rewind_refusal(by, "Rewind to frame " + std::to_string(frame),
-                                      rewind_refusal_reason(impl_->emu, frame));
+                                      rewind_refusal_reason(*impl_->emu, frame));
         return refusal;
     }
 
@@ -538,19 +553,19 @@ Result Debugger::rewind_to_frame(ClientId by, uint32_t frame) {
     // without attempting a restore, which is the same false a torn restore
     // returns — so the range is checked HERE, where the two can still be told
     // apart.
-    const RewindBuffer* rb = impl_->emu.rewind_buffer();
+    const RewindBuffer* rb = impl_->emu->rewind_buffer();
     if (frame < rb->oldest_frame_num() || frame > rb->newest_frame_num()) {
         impl_->explain_rewind_refusal(by, "Rewind to frame " + std::to_string(frame),
-                                      rewind_refusal_reason(impl_->emu, frame));
+                                      rewind_refusal_reason(*impl_->emu, frame));
         return Result::RefusedUnavailable;
     }
 
-    const uint64_t gen = impl_->emu.state_error_generation();
-    if (!impl_->emu.rewind_to_frame(frame)) {
-        const Result r = rewind_failure(impl_->emu, gen);
+    const uint64_t gen = impl_->emu->state_error_generation();
+    if (!impl_->emu->rewind_to_frame(frame)) {
+        const Result r = rewind_failure(*impl_->emu, gen);
         if (r != Result::RefusedCorrupt)
             impl_->explain_rewind_refusal(by, "Rewind to frame " + std::to_string(frame),
-                                          rewind_refusal_reason(impl_->emu, frame));
+                                          rewind_refusal_reason(*impl_->emu, frame));
         return r;
     }
 
@@ -563,21 +578,23 @@ Result Debugger::rewind_to_frame(ClientId by, uint32_t frame) {
 // ---------------------------------------------------------------------------
 
 std::optional<CorruptionIncident> Debugger::resume_blocked_by_corruption() const {
-    const bool corrupt = !impl_->emu.last_state_error().empty();
-    const uint64_t gen = impl_->emu.state_error_generation();
+    if (!impl_->emu) return std::nullopt;
+    const bool corrupt = !impl_->emu->last_state_error().empty();
+    const uint64_t gen = impl_->emu->state_error_generation();
     if (!impl_->guard.needs_confirmation(corrupt, gen)) return std::nullopt;
     CorruptionIncident inc;
-    inc.subsystem  = impl_->emu.last_state_error();
+    inc.subsystem  = impl_->emu->last_state_error();
     inc.generation = gen;
     return inc;
 }
 
 Result Debugger::acknowledge_corruption(uint64_t generation) {
+    if (!impl_->emu) return Result::Unsupported;
     // Acking a generation that is not the live one is not an error — it is a
     // stale acknowledgment, and the guard's own rule (a later generation
     // re-blocks) already makes it harmless. Refused all the same, so a frontend
     // that acks the wrong incident finds out.
-    if (generation != impl_->emu.state_error_generation())
+    if (generation != impl_->emu->state_error_generation())
         return Result::RefusedUnavailable;
     impl_->guard.record_ack(generation);
     return Result::Ok;
@@ -599,6 +616,7 @@ Result Debugger::acknowledge_corruption(uint64_t generation) {
 // ---------------------------------------------------------------------------
 
 Result Debugger::reset(ClientId by, ResetKind kind) {
+    if (!impl_->emu) return Result::Unsupported;
     // A SWITCH WITH NO `default`, and that is the point rather than a style
     // choice. `ResetKind` has no trailing `Count` sentinel and nothing else in
     // the tree switches over it, so before this there was NOTHING that would
@@ -633,7 +651,7 @@ Result Debugger::reset(ClientId by, ResetKind kind) {
     const Result gate = impl_->execute_gate();
     if (gate != Result::Ok) return gate;
 
-    impl_->emu.soft_reset();
+    impl_->emu->soft_reset();
     impl_->log_mutate_range(by, "machine", "soft reset");
     impl_->note_mutation();   // as NR 0x02's soft reset through nextreg_write()
     // A soft reset does not pause a running machine and does not resume a paused
@@ -647,14 +665,16 @@ Result Debugger::reset(ClientId by, ResetKind kind) {
 // ---------------------------------------------------------------------------
 
 bool Debugger::magic_breakpoint() const {
+    if (!impl_->emu) return false;
     // `Emulator::set_magic_breakpoint()` records the arm in `config_` alongside
     // installing the CPU hook (GH #239), so the config IS the state — there is no
     // second flag to read and none to add.
-    return impl_->emu.config().magic_breakpoint;
+    return impl_->emu->config().magic_breakpoint;
 }
 
 Result Debugger::set_magic_breakpoint(bool enabled) {
-    impl_->emu.set_magic_breakpoint(enabled);
+    if (!impl_->emu) return Result::Unsupported;
+    impl_->emu->set_magic_breakpoint(enabled);
     impl_->bump_revision();   // GH #428
     return Result::Ok;
 }
@@ -671,9 +691,10 @@ Result Debugger::set_magic_breakpoint(bool enabled) {
 // disagree with the one the machine actually obeys.
 // ---------------------------------------------------------------------------
 
-bool Debugger::armed() const { return impl_->ds().armed(); }
+bool Debugger::armed() const { if (!impl_->emu) return false; return impl_->ds().armed(); }
 
 Result Debugger::set_persistent_breakpoints(bool enabled) {
+    if (!impl_->emu) return Result::Unsupported;
     impl_->ds().set_persistent_breakpoints(enabled);
     // GH #276 B3 — client intent, re-applied across a reconstruct
     // (`Impl::want_persistent`). Without it `init()` re-latches the CONFIG's
@@ -685,6 +706,7 @@ Result Debugger::set_persistent_breakpoints(bool enabled) {
 }
 
 bool Debugger::persistent_breakpoints() const {
+    if (!impl_->emu) return false;
     return impl_->ds().persistent_breakpoints();
 }
 

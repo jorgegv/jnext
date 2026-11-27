@@ -39,8 +39,9 @@ std::vector<Debugger::CFrame> Debugger::c_frames() const
     // program's stack holds words that look like calls), and these frames' bases must be exact: without them the entry
     // bytes of frame 0 and the saved frame pointers supply the bases, as for a debugger attached mid-run.
     std::vector<CallFrame> tracked;                            // oldest first
-    for (const CallFrame& cf : impl_->emu.call_stack().frames())
-        if (!cf.reconstructed) tracked.push_back(cf);
+    if (impl_->emu)   // a non-local facade tracks no frames: the no-tracker path below
+        for (const CallFrame& cf : impl_->emu->call_stack().frames())
+            if (!cf.reconstructed) tracked.push_back(cf);
     const size_t n = tracked.size();
     const Z80Registers regs = registers();
     const CFrameHelpers& helpers = store->helpers();

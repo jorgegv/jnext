@@ -27,13 +27,14 @@ static_assert(AudioSourceTap::SOURCES == AUDIO_SOURCE_COUNT,
               "the tap's source count is the published one");
 
 void Debugger::Impl::sync_audio_scope(bool force) {
+    if (!emu) return;
     bool asked = false;
     for (const auto& c : clients) {
         if (c.detached) continue;
         asked = asked || c.audio_scope;
     }
     // --silent skips the PSG and the mixer altogether (`Emulator::audio_off_`): nothing to tap.
-    const bool on = asked && !emu.config().silent;
+    const bool on = asked && !emu->config().silent;
     // GH #539: the tap is installed for a scope request or a stem recording (which `--silent` refuses to start).
     const bool recording = stems && stems->recording();
     const bool install = on || recording;
@@ -43,15 +44,16 @@ void Debugger::Impl::sync_audio_scope(bool force) {
     AudioSourceTap* const want = install ? scope_tap.get() : nullptr;
     AudioStemTap* const want_stems = recording ? &stems->tap : nullptr;
     if (scope_tap) scope_tap->stems = want_stems;
-    if (install != installed || force || emu.audio_scope_tap() != want ||
-        (want && emu.turbosound().hw_chip_latch() != (want_stems != nullptr)))
-        emu.set_audio_scope_tap(want);
+    if (install != installed || force || emu->audio_scope_tap() != want ||
+        (want && emu->turbosound().hw_chip_latch() != (want_stems != nullptr)))
+        emu->set_audio_scope_tap(want);
     audio_scope_derived = on;
 }
 
 Result Debugger::set_audio_scope_enabled(ClientId by, bool enabled) {
+    if (!impl_->emu) return Result::Unsupported;
     Impl::Client* c = impl_->find_client(by);
-    if (!c || impl_->emu.config().silent) return Result::RefusedUnavailable;
+    if (!c || impl_->emu->config().silent) return Result::RefusedUnavailable;
     c->audio_scope = enabled;
     impl_->sync_audio_scope();
     impl_->bump_revision();
@@ -63,9 +65,10 @@ bool Debugger::audio_scope_enabled() const {
 }
 
 Result Debugger::stems_record_start(ClientId by, const std::string& dir) {
+    if (!impl_->emu) return Result::Unsupported;
     (void)by;   // attribution only: a recording is not a view request
     Impl& im = *impl_;
-    if (im.emu.config().silent || (im.stems && im.stems->recording())) return Result::RefusedUnavailable;
+    if (im.emu->config().silent || (im.stems && im.stems->recording())) return Result::RefusedUnavailable;
     auto rec = std::make_unique<StemRecorder>();
     std::string why;
     if (!rec->start(dir, why)) {
@@ -79,6 +82,7 @@ Result Debugger::stems_record_start(ClientId by, const std::string& dir) {
 }
 
 Result Debugger::stems_record_stop(ClientId by) {
+    if (!impl_->emu) return Result::Unsupported;
     (void)by;
     Impl& im = *impl_;
     if (!im.stems || !im.stems->recording()) return Result::RefusedUnavailable;
@@ -97,6 +101,7 @@ bool Debugger::stems_recording() const {
 }
 
 Expected<AudioScopeBlock> Debugger::audio_scope_samples(size_t count) const {
+    if (!impl_->emu) return make_refused<AudioScopeBlock>(Result::Unsupported);
     const AudioSourceTap* tap = impl_->audio_scope_derived ? impl_->scope_tap.get() : nullptr;
     if (!tap) return make_refused<AudioScopeBlock>(Result::RefusedUnavailable);
 

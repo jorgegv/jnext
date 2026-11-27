@@ -83,6 +83,7 @@ HEADERS=(
     debug/events.h
     debug/inspect.h
     debug/debugger.h
+    debug/target.h
     debug/audio_math.h
     debug/audio_log_csv.h
     debug/audio_log_stream.h

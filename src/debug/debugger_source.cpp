@@ -131,7 +131,11 @@ std::string space_name(FetchSource s) {
 
 std::optional<bool> Debugger::Impl::verify_identity(const SourceMap& map) const {
     return map.verify_program(
-        [this](uint16_t addr) { return emu.mmu().peek(addr); },
+        [this](uint16_t addr) -> uint8_t {
+            uint8_t b = 0;
+            (void)self->peek(MemSpace::cpu(), addr, 1, &b);
+            return b;
+        },
         [this](FetchSource space, uint16_t addr) -> std::optional<uint8_t> {
             if (space.kind != MemSpace::Kind::Page) return std::nullopt;
             uint8_t b = 0;
@@ -144,7 +148,11 @@ std::optional<bool> Debugger::Impl::verify_identity_unit(const SourceMap& map,
                                                          FetchSource unit) const {
     return map.verify_unit(
         unit,
-        [this](uint16_t addr) { return emu.mmu().peek(addr); },
+        [this](uint16_t addr) -> uint8_t {
+            uint8_t b = 0;
+            (void)self->peek(MemSpace::cpu(), addr, 1, &b);
+            return b;
+        },
         [this](FetchSource space, uint16_t addr) -> std::optional<uint8_t> {
             if (space.kind != MemSpace::Kind::Page && space.kind != MemSpace::Kind::DivMmcRam)
                 return std::nullopt;
@@ -211,7 +219,8 @@ void Debugger::Impl::dot_match(DeferredCheck& c) {
 // replaces what the first run recorded from there on; at most kDotHistoryMax kept
 // (the oldest go: a landing older than the oldest reads pending).
 void Debugger::Impl::dot_record(DeferredCheck& c) {
-    const uint64_t cycle = emu.clock().get();
+    if (!emu) return;
+    const uint64_t cycle = emu->clock().get();
     const uint64_t gen   = ds().load_generation();
     c.history.erase(std::remove_if(c.history.begin(), c.history.end(),
                                    [&](const DeferredCheck::DotSnap& h) {
@@ -231,8 +240,9 @@ void Debugger::Impl::dot_record(DeferredCheck& c) {
 // before it in this generation (a verdict at cycle C applies to the instruction about to
 // run at C, which a landing at C has not run), else pending.
 void Debugger::Impl::dot_landing(bool fresh) {
+    if (!emu) return;
     const uint64_t gen   = ds().load_generation();
-    const uint64_t cycle = emu.clock().get();
+    const uint64_t cycle = emu->clock().get();
     for (auto& c : checks) {
         if (!c.dot || !c.user) continue;
         std::vector<DeferredCheck::DotSnap> keep;
@@ -254,10 +264,11 @@ void Debugger::Impl::dot_landing(bool fresh) {
 // A hand load of a dot map judges like a landing at this point: verified when the CPU is
 // fetching from the dot's bank and the bank holds this command.
 void Debugger::Impl::dot_adopt() {
+    if (!emu) return;
     for (auto& c : checks) {
         if (!c.dot || !c.user) continue;
-        const uint16_t pc = emu.cpu().get_registers().PC;
-        if (emu.predict_fetch(pc) == dot_entry_unit()) {
+        const uint16_t pc = emu->cpu().get_registers().PC;
+        if (emu->predict_fetch(pc) == dot_entry_unit()) {
             const std::optional<bool> id = verify_identity_unit(*c.map, dot_entry_unit());
             if (id && *id) dot_match(c);
         }
@@ -293,6 +304,7 @@ bool Debugger::Impl::sources_pending() const {
 }
 
 void Debugger::Impl::sync_verify_window() {
+    if (!emu) return;
     uint32_t lo = 0x10000, hi = 0;
     for (const auto& c : checks) {
         if (!c.guards_sources && !c.guards_symbols) continue;
@@ -313,8 +325,9 @@ void Debugger::Impl::sync_verify_window() {
 // judge the unit it runs in, NOW, while memory is exactly what is about to run. Only
 // records: the verdict is applied by recheck() (before any reader or stop sees it).
 void Debugger::Impl::verify_hook(uint16_t pc) {
-    if (emu.replay_mode()) return;   // a replay re-runs history, it does not load programs
-    const MemSpace here = emu.predict_fetch(pc);
+    if (!emu) return;
+    if (emu->replay_mode()) return;   // a replay re-runs history, it does not load programs
+    const MemSpace here = emu->predict_fetch(pc);
     bool any = false;
     for (auto& c : checks) {
         const bool   was_ok    = c.entry_ok;
@@ -475,7 +488,7 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
         parsed = load_sld(candidate, path, &labels);
     } else {
         parsed = load_z88dk_source_map(candidate, path, [this](uint16_t a) {
-            return impl_->emu.predict_fetch(a);
+            return source_page(a);
         }, Z88dkListings::Beside);
         for (const std::string& n : parsed.listing_notes)
             out.listing_note += (out.listing_note.empty() ? "" : "; ") + n;
@@ -513,7 +526,10 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
     impl_->drop_source_guards();
     impl_->source_map         = std::move(candidate);
     impl_->sources_owner      = Impl::StoreOwner::User;
-    impl_->user_sources_gen   = impl_->ds().load_generation();
+    // The load generation is the local machine's `DebugState` counter; a non-local
+    // facade has its own (`begin_generation()` advances it).
+    impl_->user_sources_gen   = impl_->emu ? impl_->ds().load_generation()
+                                           : impl_->generation_counter;
     impl_->user_sources_stale = false;
     impl_->pause_verify_user  = false;
     impl_->source_reason.clear();
@@ -605,11 +621,21 @@ Debugger::SourceMapStatus Debugger::source_map_status() const {
 }
 
 uint8_t Debugger::effective_page(uint16_t addr) const {
-    return impl_->emu.mmu().get_effective_page(addr >> 13);
+    // A non-local facade has no fetch prediction: the slot's page (plan section 11,
+    // "Overlays in the fetch identity": source lookup uses the slot's page).
+    if (!impl_->emu) {
+        if (!impl_->serves(Capability::MmuSlots)) return 0;
+        return impl_->target.mmu_slots()[addr >> 13].effective_page;
+    }
+    return impl_->emu->mmu().get_effective_page(addr >> 13);
 }
 
 MemSpace Debugger::source_page(uint16_t addr) const {
-    return impl_->emu.predict_fetch(addr);
+    if (!impl_->emu) {
+        if (!impl_->serves(Capability::MmuSlots)) return MemSpace::cpu();
+        return impl_->target.mmu_slots()[addr >> 13].space;
+    }
+    return impl_->emu->predict_fetch(addr);
 }
 
 const SourceLocation* Debugger::source_location(uint16_t addr) const {
@@ -648,7 +674,7 @@ std::vector<uint32_t> Debugger::executed_source_lines(const std::string& file) c
 }
 
 const SourceLocation* Debugger::source_location() const {
-    return source_location(impl_->emu.cpu().get_registers().PC);
+    return source_location(registers().PC);
 }
 
 Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program_path) {
@@ -717,7 +743,7 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     // The ONE function that places a rule-4 record or symbol (design 9.4, 10.4):
     // the RAM page the MMU maps at its address now, as `source_page()` answers.
     // A tape binds at the load call too (#344 D17).
-    const SymbolSpaceOf fetch_space = [this](uint16_t a) { return impl_->emu.predict_fetch(a); };
+    const SymbolSpaceOf fetch_space = [this](uint16_t a) { return source_page(a); };
     if (zpath) {
         zn = zsyms.load_z88dk_map(zpath->string());
         zsyms.bind(fetch_space);
@@ -897,8 +923,10 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
 
 uint64_t Debugger::Impl::begin_generation() {
     ++generation_counter;
-    ds().set_load_generation(generation_counter);
-    note_generation(generation_counter);
+    if (emu) {   // the published counter and the trace markers are the local machine's
+        ds().set_load_generation(generation_counter);
+        note_generation(generation_counter);
+    }
     return generation_counter;
 }
 
@@ -933,7 +961,7 @@ const Debugger::Impl::Attachment* Debugger::Impl::cache_find(uint64_t generation
 }
 
 void Debugger::Impl::note_generation(uint64_t generation) {
-    const TraceLog& t = emu.trace_log();
+    const TraceLog& t = emu->trace_log();
     const uint64_t rec = t.recorded();
     // A cold boot made a new TraceLog: the old sequence numbers mean nothing.
     if (!trace_gens.empty() && rec < trace_gens.back().first) trace_gens.clear();
@@ -974,6 +1002,7 @@ void Debugger::Impl::drop_sidecars(const std::string& why) {
 // The one place the lifetime rules run (design §6.5). Pending flags are
 // cleared before anything is logged: a listener may call a reader back.
 void Debugger::Impl::recheck() {
+    if (!emu) return;
     if (!landing_pending && !ring_pending && !pause_verify_sidecar && !pause_verify_user &&
         !verify_due)
         return;
@@ -1008,7 +1037,7 @@ void Debugger::Impl::recheck_pending() {
             source_reason.clear();
             if (carried_by_landing) {
                 pause_verify_user  = true;
-                pause_verify_clock = emu.clock().get();
+                pause_verify_clock = emu->clock().get();
             }
             return;
         }
@@ -1033,7 +1062,7 @@ void Debugger::Impl::recheck_pending() {
                     has_src ? identity() : std::optional<bool>{};
                 if (id && *id) {
                     pause_verify_sidecar = true;
-                    pause_verify_clock   = emu.clock().get();
+                    pause_verify_clock   = emu->clock().get();
                     drop_sidecar_checks();   // judged whole: nothing left to wait for
                 } else {
                     drop_sidecar_checks();
@@ -1111,7 +1140,7 @@ void Debugger::Impl::recheck_pending() {
     }
 
     if ((pause_verify_sidecar || pause_verify_user) && ds().paused() &&
-        emu.clock().get() != pause_verify_clock) {
+        emu->clock().get() != pause_verify_clock) {
         const bool sc = pause_verify_sidecar, us = pause_verify_user;
         pause_verify_sidecar = pause_verify_user = false;
         if (sc && sources_owner == StoreOwner::Sidecar) {
@@ -1182,6 +1211,7 @@ bool history_stop_at(const EventTable& events, const TraceEntry& te) {
 }  // namespace
 
 Result Debugger::source_step(ClientId by, SourceStep kind) {
+    if (!impl_->emu) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("source_step"); nested != Result::Ok)
         return nested;
     impl_->recheck();
@@ -1191,7 +1221,7 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
     if (kind == SourceStep::Back || kind == SourceStep::ReverseContinue) {
         const std::string verb =
             kind == SourceStep::Back ? "Source Step Back" : "Reverse Continue";
-        const TraceLog& trace = impl_->emu.trace_log();
+        const TraceLog& trace = impl_->emu->trace_log();
         if (!trace.enabled()) {
             impl_->explain_rewind_refusal(by, verb, "the instruction trace is off");
             return Result::RefusedUnavailable;
@@ -1201,7 +1231,7 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
         if (const SourceLocation* p = source_location()) here = *p;
         // After a Frame Back or a slider jump the trace still holds the
         // history the machine left: only what ran BEFORE now is "back".
-        const uint64_t now = impl_->emu.clock().get();
+        const uint64_t now = impl_->emu->clock().get();
         const size_t size = trace.size();
         // An entry from before a landing is another machine's history (a
         // different generation): Back never crosses it (design §6.5).
@@ -1282,18 +1312,18 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
     // A copy: a handler may load a map mid-step and invalidate the pointer.
     std::optional<SourceLocation> start;
     if (const SourceLocation* p = source_location()) start = *p;
-    const size_t start_depth = impl_->emu.call_stack().frames().size();
+    const size_t start_depth = impl_->emu->call_stack().frames().size();
     // No statement under the PC, or nowhere to step out to: one instruction,
     // which is where an unmapped stretch is left from.
     if (!start || (kind == SourceStep::Out && start_depth == 0)) {
-        impl_->emu.debugger_step();
+        impl_->target.step_instruction();
         return finish();
     }
 
     // Has the step reached its boundary, with the machine where it is now?
     auto reached = [&]() {
         const SourceLocation* now = source_location();
-        const size_t depth = impl_->emu.call_stack().frames().size();
+        const size_t depth = impl_->emu->call_stack().frames().size();
         const bool moved = now && !SourceMap::same_position(*start, *now);
         switch (kind) {
             case SourceStep::Into: return moved;
@@ -1305,11 +1335,11 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
         return false;
     };
 
-    const uint64_t start_cycle = impl_->emu.clock().get();
+    const uint64_t start_cycle = impl_->emu->clock().get();
     const uint64_t cycle_budget =
-        static_cast<uint64_t>(SOURCE_STEP_FRAME_LIMIT) * impl_->emu.timing().master_cycles_per_frame;
+        static_cast<uint64_t>(SOURCE_STEP_FRAME_LIMIT) * impl_->emu->timing().master_cycles_per_frame;
     for (int n = 0; n < SOURCE_STEP_LIMIT; ++n) {
-        impl_->emu.debugger_step();
+        impl_->target.step_instruction();
         impl_->ds().pause();
         if (stopped_by_event()) return finish();
 
@@ -1317,12 +1347,12 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
 
         // A HALT with interrupts disabled ends only on an NMI or a reset;
         // each Step at it would spend two frames finding that out.
-        if (impl_->emu.cpu().is_halted() && !impl_->emu.cpu().get_registers().IFF1) {
+        if (impl_->emu->cpu().is_halted() && !impl_->emu->cpu().get_registers().IFF1) {
             log(by, LogLevel::Warn,
                 "Source step stopped at a HALT with interrupts disabled");
             return finish();
         }
-        if (impl_->emu.clock().get() - start_cycle >= cycle_budget) {
+        if (impl_->emu->clock().get() - start_cycle >= cycle_budget) {
             log(by, LogLevel::Warn,
                 "Source step stopped after " + std::to_string(SOURCE_STEP_FRAME_LIMIT) +
                     " frames without reaching a source boundary");
@@ -1333,7 +1363,7 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
         // it runs: the legacy PC breakpoint, then the `Execute` subscriptions
         // through the backend's own gate — handlers run, a `Stop` stops with
         // its hit and `once` recorded (`run_frame()`'s order).
-        const uint16_t pc = impl_->emu.cpu().get_registers().PC;
+        const uint16_t pc = impl_->emu->cpu().get_registers().PC;
         if (impl_->ds().should_break(pc)) return finish();
         if (impl_->ds().execute_events_armed()) {
             DebugState::GuestExecutionScope guest(impl_->ds());
@@ -1343,7 +1373,7 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
         // A handler may have moved the PC (§4.2a). The new address got no
         // delivery of its own — as in a run, the redirect target simply runs
         // next — but it may already be the step's boundary.
-        if (impl_->emu.cpu().get_registers().PC != pc && reached()) return finish();
+        if (impl_->emu->cpu().get_registers().PC != pc && reached()) return finish();
     }
     log(by, LogLevel::Warn,
         "Source step stopped after " + std::to_string(SOURCE_STEP_LIMIT) +
