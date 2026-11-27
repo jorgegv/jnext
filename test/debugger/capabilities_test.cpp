@@ -1144,7 +1144,9 @@ void test_review_a1() {
         // a line at or after the program: the lines before it are NOPs and have no operand
         int line = 0;
         std::string detail;
-        for (; line < 16; ++line) {
+        d->show_address(PROG);   // the view starts at $0000 otherwise
+        QApplication::processEvents();
+        for (; line < 24; ++line) {
             press_text_line(d, line);
             detail += fmt_addr(d->selected_address());
             if (d->selected_address() >= PROG) break;
