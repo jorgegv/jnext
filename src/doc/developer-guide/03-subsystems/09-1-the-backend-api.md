@@ -483,8 +483,9 @@ over a target (`RegisterWrite`, `Memory`, `PhysicalMemory`, `MmuSlots`, `NextReg
 `SpriteData`, `SpritePaletteClip`); a target that claims more gets no more. Later work widens that
 set when it implements run control, breakpoints and watchpoints over a target.
 
-Every served machine verb checks its capability first, through one function, and refuses with
-`Unsupported` without calling the target when it is missing. A direct-value query without its
+Every served machine verb checks its capability through one function, after its argument
+checks, the RZX refusal and the read-only refusals (so a null buffer or `poke(Rom)` keeps its own
+answer), and refuses with `Unsupported` without calling the target when it is missing. A direct-value query without its
 capability returns its empty value instead: zeroed registers, default slots, `MemSpace::cpu()`
 from `rom_select()`, 0 from `nextreg_peek()`, a default sprite list, an empty pattern-RAM view.
 `peek()` and `poke()` need `Memory` for the CPU space and `PhysicalMemory` for pages, ROM images
@@ -501,7 +502,8 @@ asking the target when the `Core` field is not valid. A target with no debuggee 
 before its client has set SP, PC and the program's slots) shows this as a capability set without
 `Run`, `InstructionStep` and `RunToCursor` (reason "no program loaded: upload one") and a validity
 mask without `Core`; it adds no capability bit, and its memory, NextREG, port and slot verbs stay
-served. `RunState::cycle` and `frame` are meaningful exactly when `MachineTime` is.
+served. `RunState::cycle` and `frame` are meaningful exactly when `MachineTime` is: `state()` returns 0
+for both without it, as `registers()` returns zeros under an invalid `Core`.
 
 ## Behind the facade
 

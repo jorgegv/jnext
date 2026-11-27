@@ -519,8 +519,9 @@ static void tgt01_dispatch_rows() {
     {
         Remote m;
         const auto st = m.d.state();
-        check("TGT-01-13", "state() is the target's run_state() with pause_reason None",
-              st.paused && st.cycle == 1234 && st.frame == 7 && st.pc == 0x4321 &&
+        check("TGT-01-13", "state() is the target's run_state() with pause_reason None; cycle and frame are 0 "
+                           "because a facade over a target has no MachineTime",
+              st.paused && st.cycle == 0 && st.frame == 0 && st.pc == 0x4321 &&
                   st.pause_reason.kind == jnext::dbg::PauseReason::Kind::None);
     }
 }
@@ -1025,7 +1026,8 @@ static void tgt02_rows() {
         const ServedCalls r = run_served(m);
         check("TGT-02-10", "lacking only MmuSlots: mmu_slots() is the default, set_mmu_slot is refused and source_page falls back to cpu()",
               is_un(r.set_mmu_slot) && m.d.mmu_slots()[3].nr_page == jnext::dbg::SlotInfo{}.nr_page &&
-                  m.d.source_page(0x6000) == MemSpace::cpu() && !m.t.called("mmu_slots") &&
+                  m.d.source_page(0x6000) == MemSpace::cpu() && m.d.effective_page(0x6000) == 0 &&
+                  !m.t.called("mmu_slots") &&
                   !m.t.called("set_mmu_slot") && is_ok(r.nextreg_write));
     }
     {
@@ -1061,6 +1063,63 @@ static void tgt02_rows() {
         check("TGT-02-14", "lacking only SpritePaletteClip: sprite_palette_rgb333 is refused and sprite_clip is the default",
               is_un(r.palette) && m.d.sprite_clip().x2 == jnext::dbg::ClipWindow{}.x2 &&
                   !m.t.called("sprite_clip") && is_ok(r.attr_raw));
+    }
+
+    {
+        // The refusal order survives a missing capability: read-only refusals before the gate.
+        MemSpace alt;
+        alt.kind = MemSpace::Kind::AltRom;
+        const uint8_t v = 1;
+        bool ok = true;
+        std::string seen;
+        for (int variant = 0; variant < 2; ++variant) {
+            Remote m;
+            m.t.caps = variant == 0 ? CapabilitySet{} : all_but({Capability::PhysicalMemory});
+            const auto rom = m.d.poke(m.a, MemSpace::rom(0), 0, 1, &v).status;
+            const auto lo = m.d.poke(m.a, MemSpace::page(jnext::dbg::PAGE_SENTINEL_ROM_LO), 0, 1, &v).status;
+            const auto hi = m.d.poke(m.a, MemSpace::page(jnext::dbg::PAGE_SENTINEL_ROM_HI), 0, 1, &v).status;
+            const auto id = m.d.poke(m.a, alt, 0, 1, &v).status;
+            ok = ok && rom == Result::RefusedReadOnly && lo == Result::RefusedReadOnly &&
+                 hi == Result::RefusedReadOnly && id == Result::Unsupported && m.t.calls.empty();
+            seen += std::to_string(m.t.calls.size()) + " ";
+        }
+        check("TGT-02-17", "without a capability (none, or only PhysicalMemory) poke(Rom) and poke(Page 0xFE / 0xFF) are "
+                           "RefusedReadOnly and poke(AltRom) is Unsupported, before the gate, with zero target calls",
+              ok, seen);
+    }
+    {
+        // The non-local twin of TGT-LOC-07: argument faults are RefusedUnavailable, not Unsupported.
+        Remote m;
+        m.t.caps = CapabilitySet{};
+        uint8_t b[5] = {};
+        const uint8_t v[5] = {1, 2, 3, 4, 5};
+        const bool ok =
+            m.d.poke(m.a, MemSpace::cpu(), 0x9000, 1, nullptr).status == Result::RefusedUnavailable &&
+            m.d.peek(MemSpace::cpu(), 0x9000, 1, nullptr).status == Result::RefusedUnavailable &&
+            m.d.set_mmu_slot(m.a, 8, 0x30) == Result::RefusedUnavailable &&
+            m.d.set_sprite_attr_raw(m.a, 3, v, 4) == Result::RefusedUnavailable &&
+            m.d.set_sprite_attr_raw(m.a, static_cast<uint8_t>(jnext::dbg::SPRITE_COUNT), v, 5) ==
+                Result::RefusedUnavailable &&
+            m.d.sprite_attr_raw(static_cast<uint8_t>(jnext::dbg::SPRITE_COUNT)).status == Result::RefusedUnavailable &&
+            m.d.write_pattern_ram(m.a, 0, nullptr, 1) == Result::RefusedUnavailable &&
+            m.d.sprite_palette_rgb333(2, 0).status == Result::RefusedUnavailable;
+        (void)b;
+        check("TGT-02-18", "on a target with no capability, argument faults (null buffers, slot 8, a bad sprite index or "
+                           "size, palette bank 2) are RefusedUnavailable, not Unsupported, with zero target calls",
+              ok && m.t.calls.empty(), std::to_string(m.t.calls.size()) + " calls");
+    }
+    {
+        Remote m;
+        m.t.caps = all_but({Capability::Memory});
+        m.t.ram[0x8000] = 0x3E;
+        m.t.ram[0x8001] = 0x12;
+        const auto dis = m.d.disassemble(0x8000, 2, nullptr);
+        const int len = m.d.instruction_length(0x8000);
+        const bool call = m.d.is_call_like(0x8000);
+        check("TGT-02-19", "lacking only Memory: disassemble, instruction_length and is_call_like make no read call "
+                           "(the bytes are 0)",
+              !dis.empty() && dis[0].byte_count == 1 && len == 1 && !call && !m.t.called("read"),
+              std::to_string(m.t.count("read")) + " reads");
     }
     {
         // D24: a dezogif session with no debuggee. No new capability bit.

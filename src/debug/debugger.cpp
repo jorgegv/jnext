@@ -349,6 +349,12 @@ RunState Debugger::state() const {
     // know, so a non-local facade (no stop evidence of its own) reports None.
     RunState st = impl_->target.run_state();
     st.pause_reason = PauseReason{};
+    // `cycle` and `frame` are meaningful exactly when the facade has `MachineTime`
+    // (D5); a value the client is told to ignore is not handed to it.
+    if (!impl_->serves(Capability::MachineTime)) {
+        st.cycle = 0;
+        st.frame = 0;
+    }
     if (!impl_->emu) return st;
     const DebugState& ds = impl_->ds();
 

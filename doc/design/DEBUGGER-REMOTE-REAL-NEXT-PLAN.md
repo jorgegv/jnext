@@ -595,7 +595,8 @@ knows how to grey out what a target cannot do.
   `register_validity()` passes the target's validity mask through (unknown bits dropped), and
   `capabilities()` is the target's set intersected with what the facade serves (the served set of
   #513's section 3, eight bits), so `why_unavailable(Run)` answers with the target's own reason;
-  the panel's reason rule is R1.3's. The state is the target's own and is never derived from register values.
+  the panel's reason rule is R1.3's. The reason texts are one per capability, from section 11's
+  "When unavailable" column (the #513 inventory's reason column is per verb), so R1.3 shows one text each. The state is the target's own and is never derived from register values.
   `LocalTarget` and remote jnext never report it. Row for it, added to the Tests above: a fake
   reporting "no debuggee" has `Run`, `InstructionStep` and `RunToCursor` unavailable with that
   reason and `Core` invalid, and still serves memory, NextREG reads and `set_mmu_slot`.

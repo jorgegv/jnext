@@ -3959,8 +3959,9 @@ non-local facade has the target's set intersected with the eight capabilities th
 over a target (<code>RegisterWrite</code>, <code>Memory</code>, <code>PhysicalMemory</code>, <code>MmuSlots</code>, <code>NextRegs</code>, <code>Ports</code>,
 <code>SpriteData</code>, <code>SpritePaletteClip</code>); a target that claims more gets no more. Later work widens that
 set when it implements run control, breakpoints and watchpoints over a target.</p>
-<p>Every served machine verb checks its capability first, through one function, and refuses with
-<code>Unsupported</code> without calling the target when it is missing. A direct-value query without its
+<p>Every served machine verb checks its capability through one function, after its argument
+checks, the RZX refusal and the read-only refusals (so a null buffer or <code>poke(Rom)</code> keeps its own
+answer), and refuses with <code>Unsupported</code> without calling the target when it is missing. A direct-value query without its
 capability returns its empty value instead: zeroed registers, default slots, <code>MemSpace::cpu()</code>
 from <code>rom_select()</code>, 0 from <code>nextreg_peek()</code>, a default sprite list, an empty pattern-RAM view.
 <code>peek()</code> and <code>poke()</code> need <code>Memory</code> for the CPU space and <code>PhysicalMemory</code> for pages, ROM images
@@ -3975,7 +3976,8 @@ asking the target when the <code>Core</code> field is not valid. A target with n
 before its client has set SP, PC and the program's slots) shows this as a capability set without
 <code>Run</code>, <code>InstructionStep</code> and <code>RunToCursor</code> (reason "no program loaded: upload one") and a validity
 mask without <code>Core</code>; it adds no capability bit, and its memory, NextREG, port and slot verbs stay
-served. <code>RunState::cycle</code> and <code>frame</code> are meaningful exactly when <code>MachineTime</code> is.</p>
+served. <code>RunState::cycle</code> and <code>frame</code> are meaningful exactly when <code>MachineTime</code> is: <code>state()</code> returns 0
+for both without it, as <code>registers()</code> returns zeros under an invalid <code>Core</code>.</p>
 <h2 id="behind-the-facade">Behind the facade<a class="headerlink" href="#behind-the-facade" title="Permanent link">&para;</a></h2>
 <p><code>Debugger</code> holds one <code>unique_ptr&lt;Impl&gt;</code> and nothing else, so adding state never
 edits a header five frontends compile against. <code>Impl</code> is defined in the internal
