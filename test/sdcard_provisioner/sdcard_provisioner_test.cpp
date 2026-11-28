@@ -3331,6 +3331,7 @@ void test_name_rows() {
         b.mtime = static_cast<int64_t>(fs::last_write_time(pc, ec).time_since_epoch().count());
         std::string jwhy;
         const bool bound = sd_write_journal::bind(pc, wf, b, true, jwhy);
+        if (bound) { uint8_t sec[sd_write_journal::kSectorBytes]; std::memset(sec, 0x5A, sizeof sec); sd_write_journal::for_image(pc)->commit(9, sec); }
         sd_write_journal::forget_image(pc);
         check("SDNAME-13", "a writes file bound to the card of an old-named backup belongs to the backup; a file that does not exist does not",
               bound && sdcard::upgrade::file_belongs_to_backup(dir, wf) && !sdcard::upgrade::file_belongs_to_backup(dir, cfg + "/none.jsdw"), jwhy);
