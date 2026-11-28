@@ -704,11 +704,15 @@ int main(int argc, char** argv)
             fixture574();   // a sidecar and no verification record: a hash WOULD run
             const uint64_t h0 = carry::pristine_hash_count();
             Fixture f(card);
-            int opened = 0;
+            int opened = 0, top = 0;
+            std::vector<QMenu*> menus;   // every menu the menu bar reaches: the top-level ones and their submenus
+            std::function<void(QMenu*)> walk = [&](QMenu* m) {
+                menus.push_back(m);
+                for (QAction* sub : m->actions()) if (sub->menu()) walk(sub->menu());
+            };
+            for (QAction* a : f.win.menuBar()->actions()) if (QMenu* m = a->menu()) { ++top; walk(m); }
             auto stamp = fs::last_write_time(raw);
-            for (QAction* a : f.win.menuBar()->actions()) {
-                QMenu* m = a->menu();
-                if (!m) continue;
+            for (QMenu* m : menus) {
                 stamp += std::chrono::seconds(2);
                 fs::last_write_time(raw, stamp);
                 int shown = 0;
@@ -721,8 +725,9 @@ int main(int argc, char** argv)
                 ++opened;
             }
             const uint64_t hashes = carry::pristine_hash_count() - h0;
-            check("SDMENU-27", "opening every top-level menu of the menu bar (at least 8) hashes the original 0 times, with a fixture in which a hash would run",
-                  opened >= 8 && hashes == 0, std::to_string(opened) + " menus, " + std::to_string(hashes) + " hashes");
+            check("SDMENU-27", "opening every menu of the menu bar (at least 8 top-level, and their submenus) hashes the original 0 times, with a fixture in which a hash would run",
+                  top >= 8 && opened > top && hashes == 0,
+                  std::to_string(top) + " top-level, " + std::to_string(opened) + " menus, " + std::to_string(hashes) + " hashes");
         }
     }
 

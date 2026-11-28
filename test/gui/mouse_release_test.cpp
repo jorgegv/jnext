@@ -287,14 +287,16 @@ int main(int argc, char** argv)
             const bool t = taken(f);
             f.capture->trigger();
             check("MRQ-13a", "Capture Mouse on then off: the grab took (grabber, blank override, blank widget cursor) and the release leaves none of them",
-                  t && clean(f));
+                  t && clean(f),
+                  std::string("pre=") + (t ? "ok" : "BROKEN") + " post=" + (clean(f) ? "ok" : "BROKEN"));
         }
         {   // MRQ-13b
             Fixture f(RM::CtrlAlt, true);
             f.capture_now();
             const bool t = taken(f);
             f.key(Qt::Key_Alt, true, kCtrlAlt);
-            check("MRQ-13b", "default method: a captured Ctrl+Alt leaves no grab, override cursor or widget cursor", t && clean(f));
+            check("MRQ-13b", "default method: a captured Ctrl+Alt leaves no grab, override cursor or widget cursor", t && clean(f),
+                  std::string("pre=") + (t ? "ok" : "BROKEN") + " post=" + (clean(f) ? "ok" : "BROKEN"));
         }
         {   // MRQ-13c
             Fixture f(RM::Esc, true);
@@ -302,7 +304,8 @@ int main(int argc, char** argv)
             const bool t = taken(f);
             f.key(Qt::Key_Escape, true);
             f.key(Qt::Key_Escape, false);
-            check("MRQ-13c", "esc method: a captured Esc press and release leaves no grab, override cursor or widget cursor", t && clean(f));
+            check("MRQ-13c", "esc method: a captured Esc press and release leaves no grab, override cursor or widget cursor", t && clean(f),
+                  std::string("pre=") + (t ? "ok" : "BROKEN") + " post=" + (clean(f) ? "ok" : "BROKEN"));
         }
         {   // MRQ-13d
             Fixture f(RM::MiddleClick, true);
@@ -310,7 +313,8 @@ int main(int argc, char** argv)
             const bool t = taken(f);
             f.button(Qt::MiddleButton, true);
             f.button(Qt::MiddleButton, false);
-            check("MRQ-13d", "middle-click method: a captured middle press and release leaves no grab, override cursor or widget cursor", t && clean(f));
+            check("MRQ-13d", "middle-click method: a captured middle press and release leaves no grab, override cursor or widget cursor", t && clean(f),
+                  std::string("pre=") + (t ? "ok" : "BROKEN") + " post=" + (clean(f) ? "ok" : "BROKEN"));
         }
         {   // MRQ-13e
             Fixture f(RM::CtrlAlt, true);
@@ -322,6 +326,23 @@ int main(int argc, char** argv)
             for (int i = 0; i < 5; ++i) QApplication::processEvents();
             check("MRQ-13e", "activation loss: handing the focus to another window leaves no grab, override cursor or widget cursor",
                   t && !f.win.isActiveWindow() && clean(f), f.win.isActiveWindow() ? "window still active" : "");
+        }
+        {   // MRQ-14
+            // Oracle: set_mouse_captured(false) is a no-op for an uncaptured window. A focus loss while the mouse is
+            // not held must not show "Mouse released" or touch the title (the mouse dispatcher reset is not observable here).
+            Fixture f(RM::CtrlAlt, true);
+            f.win.statusBar()->showMessage(QStringLiteral("sentinel status"), 0);
+            f.win.setWindowTitle(QStringLiteral("sentinel title"));
+            QWidget other;
+            other.show();
+            other.activateWindow();
+            for (int i = 0; i < 5; ++i) QApplication::processEvents();
+            check("MRQ-14", "an activation loss while the mouse is NOT captured leaves the status message and the title untouched",
+                  !f.captured() && !f.win.isActiveWindow() &&
+                      f.win.statusBar()->currentMessage() == QStringLiteral("sentinel status") &&
+                      f.win.windowTitle() == QStringLiteral("sentinel title"),
+                  f.win.statusBar()->currentMessage().toStdString() + " | " + f.win.windowTitle().toStdString() +
+                      (f.win.isActiveWindow() ? " | still active" : ""));
         }
     }
 
