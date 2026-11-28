@@ -1738,6 +1738,21 @@ and none of the debugger protocols has any authentication.
 Refused unless a server port is given too: an address for servers that
 are all off would configure nothing.
 .TP
+\f[B]\-\-remote\-target\f[R] \f[I]URI\f[R]
+Open the debugger window on another jnext, at \f[I]URI\f[R] =
+\f[CR]tcp:\f[R]\f[I]HOST\f[R]\f[CR]:\f[R]\f[I]PORT\f[R] (\f[I]PORT\f[R]
+is that jnext\(cqs \f[B]\-\-dzrp\-port\f[R]; an IPv6 address is written
+in brackets, \f[CR]tcp:[::1]:11000\f[R]), connected and paused.
+It sets \f[CR]remote.host\f[R] and \f[CR]remote.port\f[R] for this run:
+the later of this option and a \f[B]\-\-set\f[R] of those keys wins, and
+nothing reaches the configuration file.
+A bad address is refused at startup with exit status 1, as is the option
+with \f[B]\-\-debugger\f[R] or \f[B]\-\-break\-at\f[R] (both choose what
+the window opens on: one target per window), with
+\f[B]\-\-headless\f[R], or in a build without the Qt debugger window.
+Only TCP links exist: \f[CR]serial:\f[R] is refused.
+The Qt window with the debugger.
+.TP
 \f[B]\-\-script\f[R] \f[I]FILE\f[R]
 Load a debugger script (\f[CR].jds\f[R]); see \f[B]SCRIPTING\f[R].
 Repeatable: the scripts load, and their rules run, in the order given.
@@ -2170,6 +2185,31 @@ The colour scheme of the debugger\(cqs Source tab, like the
 \f[B]Preferences\f[R] Debugger tab: \f[CR]auto\f[R] (the default) is
 light or dark after the application, \f[CR]borland\f[R] is Borland C++
 3.1 (yellow on blue).
+The Qt window with the debugger.
+.TP
+\f[CR]remote.host\f[R] \f[I]HOST\f[R]
+The host of the jnext the debugger connects to: a name, an IPv4 address
+or an IPv6 address without brackets (the same grammar as the host of
+\f[B]\-\-remote\-target\f[R]); surrounding blanks are removed.
+Default \f[CR]127.0.0.1\f[R].
+Read at the next connect.
+The Qt window with the debugger.
+.TP
+\f[CR]remote.port\f[R] \f[I]1..65535\f[R]
+The TCP port of that jnext\(cqs DZRP server (its
+\f[B]\-\-dzrp\-port\f[R]).
+Default \f[CR]11000\f[R].
+The Qt window with the debugger.
+.TP
+\f[CR]remote.connect_timeout_ms\f[R], \f[CR]remote.response_timeout_ms\f[R] \f[I]100..60000\f[R]
+Milliseconds to wait for the connection, and for each reply once
+connected.
+Defaults \f[CR]5000\f[R] and \f[CR]2000\f[R].
+The Qt window with the debugger.
+.TP
+\f[CR]remote.program\f[R] \f[I]FILE\f[R]
+The program of the remote jnext whose source map and symbols the
+debugger loads for the remote target; empty (the default) loads none.
 The Qt window with the debugger.
 .TP
 \f[CR]esp.enabled\f[R] \f[I]true|false\f[R]
@@ -5228,6 +5268,13 @@ The degradation policy is stored under \f[CR][startup]\f[R] as
 \f[CR]when_slow_prefer\f[R] (\f[CR]audio\f[R] or \f[CR]video\f[R], the
 persistent form of \f[B]\-\-when\-slow\-prefer\f[R]); an unrecognised
 value keeps the default rather than changing how the emulator degrades.
+The Remote target is stored under \f[CR][remote]\f[R], edited under
+\f[B]Settings > Preferences > Debugger\f[R]: \f[CR]host\f[R],
+\f[CR]port\f[R], \f[CR]connect_timeout_ms\f[R] and
+\f[CR]response_timeout_ms\f[R] and \f[CR]program\f[R], the persistent
+forms of \f[B]\-\-remote\-target\f[R] and the \f[CR]remote.*\f[R] set
+entries.
+A value that is not valid keeps its default.
 The emulated ESP\-01 is stored under \f[CR][esp]\f[R] as
 \f[CR]enabled\f[R] (\f[CR]true\f[R]/\f[CR]false\f[R], the persistent
 form of \f[B]\-\-esp\f[R]) and \f[CR]allowed_hosts\f[R] (a

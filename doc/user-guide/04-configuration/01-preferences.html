@@ -4701,6 +4701,12 @@ current-line bar (<a href="../06-debugger/panels/15-source.html">the Source tab<
 (the default), <strong>Light</strong>, <strong>Dark</strong> or <strong>Borland C++ 3.1</strong>. <code>--set source.colour_scheme=auto|light|dark|borland</code>
 gives it for one run (the file is not changed). The tab is only present in a build with the debugger
 compiled in.</p>
+<p>The same tab has a <strong>Remote target</strong> group: the <strong>Host</strong>, <strong>Port</strong>, <strong>Connect timeout</strong> and <strong>Reply timeout</strong> of
+another JNEXT whose debugger the window connects to (the <strong>Port</strong> is that JNEXT's <code>--dzrp-port</code>; the
+timeouts are in milliseconds), and the <strong>Program</strong> whose source map and symbols are loaded for it (empty: none). A host that is not a valid name or address is refused when you press OK or
+Apply. The values are read at the next connect; they change nothing in a session that is already open.
+<code>--remote-target tcp:HOST:PORT</code> and <code>--set remote.host</code>, <code>remote.port</code>, <code>remote.connect_timeout_ms</code>,
+<code>remote.response_timeout_ms</code>, <code>remote.program</code> give them for one run (the file is not changed).</p>
 <p><strong>Debugger Keys</strong> rebinds the debugger's own keys — see
 <a href="../06-debugger/functions/09-changing-the-keys.html">6.3.9</a>. The tab is only
 present in a build with the debugger compiled in.</p>

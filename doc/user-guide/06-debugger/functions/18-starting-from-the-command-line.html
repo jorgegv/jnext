@@ -3039,6 +3039,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#-remote-target-the-debugger-on-another-jnext" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        --remote-target: the debugger on another JNEXT
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#-break-at-stop-somewhere-else" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4710,6 +4721,17 @@ CPU, and <code>--delayed-automatic-exit</code> still ends the run on time.</p>
 instead of ending the run with exit code 3, as it does without <code>--debugger</code>:
 under <code>--script</code>, a <code>stop</code> or a failed <code>assert</code> pauses, while a script's own
 <code>exit</code> still exits.</p>
+<h2 id="-remote-target-the-debugger-on-another-jnext"><code>--remote-target</code>: the debugger on another JNEXT<a class="headerlink" href="#-remote-target-the-debugger-on-another-jnext" title="Permanent link">&para;</a></h2>
+<p><code>--remote-target tcp:HOST:PORT</code> opens the debugger window on another JNEXT, the one serving DZRP at that
+address (started with <code>--dzrp-port</code>). Only TCP is supported, and an IPv6 address is written in brackets:</p>
+<pre><code class="language-console">$ jnext --remote-target tcp:192.168.1.50:11000
+$ jnext --remote-target tcp:[::1]:11000
+</code></pre>
+<p>It sets the Remote target's host and port for that run (<code>remote.host</code> and <code>remote.port</code>, which
+<code>--set</code> also gives; the later of the two wins) and nothing is written to the configuration file.
+A bad address is refused at startup. So is the option together with <code>--debugger</code> or <code>--break-at</code>
+(each says what the window opens on, and a window has one target), with <code>--headless</code>, and in a
+build without the Qt debugger window.</p>
 <h2 id="-break-at-stop-somewhere-else"><code>--break-at</code>: stop somewhere else<a class="headerlink" href="#-break-at-stop-somewhere-else" title="Permanent link">&para;</a></h2>
 <p><code>--break-at ADDR|SYMBOL</code> runs to an address and stops there instead of at the
 default point. It implies <code>--debugger</code>.</p>

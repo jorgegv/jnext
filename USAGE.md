@@ -1497,6 +1497,18 @@ means only this machine can reach the debugger; a non-loopback address
 protocols has any authentication. Refused unless a server port is given
 too: an address for servers that are all off would configure nothing.
 
+**--remote-target** *URI*  
+Open the debugger window on another jnext, at *URI* =
+`tcp:`*HOST*`:`*PORT* (*PORT* is that jnext’s **--dzrp-port**; an IPv6
+address is written in brackets, `tcp:[::1]:11000`), connected and
+paused. It sets `remote.host` and `remote.port` for this run: the later
+of this option and a **--set** of those keys wins, and nothing reaches
+the configuration file. A bad address is refused at startup with exit
+status 1, as is the option with **--debugger** or **--break-at** (both
+choose what the window opens on: one target per window), with
+**--headless**, or in a build without the Qt debugger window. Only TCP
+links exist: `serial:` is refused. The Qt window with the debugger.
+
 **--script** *FILE*  
 Load a debugger script (`.jds`); see **SCRIPTING**. Repeatable: the
 scripts load, and their rules run, in the order given. A script that
@@ -1844,6 +1856,25 @@ The colour scheme of the debugger’s Source tab, like the **Preferences**
 Debugger tab: `auto` (the default) is light or dark after the
 application, `borland` is Borland C++ 3.1 (yellow on blue). The Qt
 window with the debugger.
+
+`remote.host` *HOST*  
+The host of the jnext the debugger connects to: a name, an IPv4 address
+or an IPv6 address without brackets (the same grammar as the host of
+**--remote-target**); surrounding blanks are removed. Default
+`127.0.0.1`. Read at the next connect. The Qt window with the debugger.
+
+`remote.port` *1..65535*  
+The TCP port of that jnext’s DZRP server (its **--dzrp-port**). Default
+`11000`. The Qt window with the debugger.
+
+`remote.connect_timeout_ms`, `remote.response_timeout_ms` *100..60000*  
+Milliseconds to wait for the connection, and for each reply once
+connected. Defaults `5000` and `2000`. The Qt window with the debugger.
+
+`remote.program` *FILE*  
+The program of the remote jnext whose source map and symbols the
+debugger loads for the remote target; empty (the default) loads none.
+The Qt window with the debugger.
 
 `esp.enabled` *true\|false*  
 The emulated ESP-01 WiFi module; **--esp** and **--no-esp**. All
@@ -4198,43 +4229,47 @@ Preferences**. Host gains are stored under `[audio]` as `gain_db`
 and `gain_dac_db`. The degradation policy is stored under `[startup]` as
 `when_slow_prefer` (`audio` or `video`, the persistent form of
 **--when-slow-prefer**); an unrecognised value keeps the default rather
-than changing how the emulator degrades. The emulated ESP-01 is stored
-under `[esp]` as `enabled` (`true`/`false`, the persistent form of
-**--esp**) and `allowed_hosts` (a comma-separated list, the persistent
-form of **--esp-allow**), both edited under **Settings \> Preferences \>
-Network**. Whenever `enabled` is set the status bar carries the ESP cell
-**NETWORKING** describes, so neither a config file nor that page can put
-the guest on the network without saying so. **--no-esp** overrides it
-for one run. NextPi is stored under `[nextpi]`, edited under **Settings
-\> Preferences \> NextPi**: `enabled` (`true`/`false`, the persistent
-form of **--nextpi**; **--no-nextpi** overrides it for one run), `dir`
-(the NextPi directory; empty means `~/.jnext/nextpi`), `release` (a
-NextPi release name on the mirror, or `latest` for the newest one listed
-there; empty means `1_93D`), `qemu_binary` (empty means
-`qemu-system-arm` on `PATH`) and `audio` (empty means the Next’s mixer,
-so NextREG 0xA2 controls it and `--record` captures it. `host` plays it
-on this computer’s default output, `coreaudio` on macOS, `dsound` on
-Windows and `pa` elsewhere; otherwise a QEMU `-audiodev` driver such as
-`coreaudio`, `pa` or `none` to play it straight to the host, or
-`wav:`*FILE* to record it on its own). Changing the release makes the
-next start offer to download it, replacing the installed one.
-`qemu_args` holds extra QEMU arguments (empty means none;
-**--nextpi-qemu-args** sets it for one run), added after jnext’s own
-when NextPi starts. It is split into arguments on spaces; `'...'` and
-`"..."` keep spaces in one argument; a backslash is an ordinary
-character; nothing is expanded and no shell is involved. An unterminated
-quote stops NextPi from starting, with a message. Set it in Preferences
-or with **--nextpi-qemu-args** rather than by hand: jnext writes the
-file value correctly itself. If you edit the file, remember that its INI
-reader (Qt’s) has its own rules, applied before the text above: write
-the whole value in double quotes, write each `\` as `\\` and each `"` as
-`\"`; otherwise a backslash is an escape (`C:\pi\x.img` reads as
-`C:i.img`), a bare `"` is swallowed, a `;` ends an unquoted value, and
-the spaces beside a comma are lost. The joystick ports are stored under
-`[input]`: `joy1_source` and `joy2_source` (`sdl`, `keys` or `none`),
-`joy1_device` and `joy2_device` (the controller’s id: 32 hex digits,
-optionally `#N`; empty means Automatic) and `joy1_device_name` and
-`joy2_device_name` (the name shown while that controller is not
+than changing how the emulator degrades. The Remote target is stored
+under `[remote]`, edited under **Settings \> Preferences \> Debugger**:
+`host`, `port`, `connect_timeout_ms` and `response_timeout_ms` and
+`program`, the persistent forms of **--remote-target** and the
+`remote.*` set entries. A value that is not valid keeps its default. The
+emulated ESP-01 is stored under `[esp]` as `enabled` (`true`/`false`,
+the persistent form of **--esp**) and `allowed_hosts` (a comma-separated
+list, the persistent form of **--esp-allow**), both edited under
+**Settings \> Preferences \> Network**. Whenever `enabled` is set the
+status bar carries the ESP cell **NETWORKING** describes, so neither a
+config file nor that page can put the guest on the network without
+saying so. **--no-esp** overrides it for one run. NextPi is stored under
+`[nextpi]`, edited under **Settings \> Preferences \> NextPi**:
+`enabled` (`true`/`false`, the persistent form of **--nextpi**;
+**--no-nextpi** overrides it for one run), `dir` (the NextPi directory;
+empty means `~/.jnext/nextpi`), `release` (a NextPi release name on the
+mirror, or `latest` for the newest one listed there; empty means
+`1_93D`), `qemu_binary` (empty means `qemu-system-arm` on `PATH`) and
+`audio` (empty means the Next’s mixer, so NextREG 0xA2 controls it and
+`--record` captures it. `host` plays it on this computer’s default
+output, `coreaudio` on macOS, `dsound` on Windows and `pa` elsewhere;
+otherwise a QEMU `-audiodev` driver such as `coreaudio`, `pa` or `none`
+to play it straight to the host, or `wav:`*FILE* to record it on its
+own). Changing the release makes the next start offer to download it,
+replacing the installed one. `qemu_args` holds extra QEMU arguments
+(empty means none; **--nextpi-qemu-args** sets it for one run), added
+after jnext’s own when NextPi starts. It is split into arguments on
+spaces; `'...'` and `"..."` keep spaces in one argument; a backslash is
+an ordinary character; nothing is expanded and no shell is involved. An
+unterminated quote stops NextPi from starting, with a message. Set it in
+Preferences or with **--nextpi-qemu-args** rather than by hand: jnext
+writes the file value correctly itself. If you edit the file, remember
+that its INI reader (Qt’s) has its own rules, applied before the text
+above: write the whole value in double quotes, write each `\` as `\\`
+and each `"` as `\"`; otherwise a backslash is an escape (`C:\pi\x.img`
+reads as `C:i.img`), a bare `"` is swallowed, a `;` ends an unquoted
+value, and the spaces beside a comma are lost. The joystick ports are
+stored under `[input]`: `joy1_source` and `joy2_source` (`sdl`, `keys`
+or `none`), `joy1_device` and `joy2_device` (the controller’s id: 32 hex
+digits, optionally `#N`; empty means Automatic) and `joy1_device_name`
+and `joy2_device_name` (the name shown while that controller is not
 connected). **--joy1-device** and **--joy2-device** override the ids for
 one run. An id that is not valid is ignored, with its name. Also under
 `[input]`, `mouse_release` (`ctrl-alt`, `middle-click` or `esc`;

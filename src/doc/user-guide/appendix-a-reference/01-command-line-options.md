@@ -1482,6 +1482,19 @@ with status 1.
     unless a server port is given too: an address for servers that are
     all off would configure nothing.
 
+**--remote-target** *URI*
+:   Open the debugger window on another jnext, at *URI* =
+    `tcp:`*HOST*`:`*PORT* (*PORT* is that jnext’s **--dzrp-port**; an
+    IPv6 address is written in brackets, `tcp:[::1]:11000`), connected
+    and paused. It sets `remote.host` and `remote.port` for this run:
+    the later of this option and a **--set** of those keys wins, and
+    nothing reaches the configuration file. A bad address is refused at
+    startup with exit status 1, as is the option with **--debugger** or
+    **--break-at** (both choose what the window opens on: one target per
+    window), with **--headless**, or in a build without the Qt debugger
+    window. Only TCP links exist: `serial:` is refused. The Qt window
+    with the debugger.
+
 **--script** *FILE*
 :   Load a debugger script (`.jds`); see [Debugger
     scripting](../06-debugger/scripting/index.md). Repeatable: the
@@ -1845,6 +1858,27 @@ use the key: the Qt window, the SDL-only build (both interactive) or
     **Preferences** Debugger tab: `auto` (the default) is light or dark
     after the application, `borland` is Borland C++ 3.1 (yellow on
     blue). The Qt window with the debugger.
+
+`remote.host` *HOST*
+:   The host of the jnext the debugger connects to: a name, an IPv4
+    address or an IPv6 address without brackets (the same grammar as the
+    host of **--remote-target**); surrounding blanks are removed.
+    Default `127.0.0.1`. Read at the next connect. The Qt window with
+    the debugger.
+
+`remote.port` *1..65535*
+:   The TCP port of that jnext’s DZRP server (its **--dzrp-port**).
+    Default `11000`. The Qt window with the debugger.
+
+`remote.connect_timeout_ms`, `remote.response_timeout_ms` *100..60000*
+:   Milliseconds to wait for the connection, and for each reply once
+    connected. Defaults `5000` and `2000`. The Qt window with the
+    debugger.
+
+`remote.program` *FILE*
+:   The program of the remote jnext whose source map and symbols the
+    debugger loads for the remote target; empty (the default) loads
+    none. The Qt window with the debugger.
 
 `esp.enabled` *true\|false*
 :   The emulated ESP-01 WiFi module; **--esp** and **--no-esp**. All

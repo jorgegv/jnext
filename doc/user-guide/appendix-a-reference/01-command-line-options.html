@@ -5975,6 +5975,18 @@ non-loopback address (<code>0.0.0.0</code>) exposes it to your network, and
 none of the debugger protocols has any authentication. Refused
 unless a server port is given too: an address for servers that are
 all off would configure nothing.</dd>
+<dt><strong>--remote-target</strong> <em>URI</em></dt>
+<dd>Open the debugger window on another jnext, at <em>URI</em> =
+<code>tcp:</code><em>HOST</em><code>:</code><em>PORT</em> (<em>PORT</em> is that jnext’s <strong>--dzrp-port</strong>; an
+IPv6 address is written in brackets, <code>tcp:[::1]:11000</code>), connected
+and paused. It sets <code>remote.host</code> and <code>remote.port</code> for this run:
+the later of this option and a <strong>--set</strong> of those keys wins, and
+nothing reaches the configuration file. A bad address is refused at
+startup with exit status 1, as is the option with <strong>--debugger</strong> or
+<strong>--break-at</strong> (both choose what the window opens on: one target per
+window), with <strong>--headless</strong>, or in a build without the Qt debugger
+window. Only TCP links exist: <code>serial:</code> is refused. The Qt window
+with the debugger.</dd>
 <dt><strong>--script</strong> <em>FILE</em></dt>
 <dd>Load a debugger script (<code>.jds</code>); see <a href="../06-debugger/scripting/index.html">Debugger
 scripting</a>. Repeatable: the
@@ -6290,6 +6302,23 @@ status 1 before the window opens. The Qt window with the debugger.</dd>
 <strong>Preferences</strong> Debugger tab: <code>auto</code> (the default) is light or dark
 after the application, <code>borland</code> is Borland C++ 3.1 (yellow on
 blue). The Qt window with the debugger.</dd>
+<dt><code>remote.host</code> <em>HOST</em></dt>
+<dd>The host of the jnext the debugger connects to: a name, an IPv4
+address or an IPv6 address without brackets (the same grammar as the
+host of <strong>--remote-target</strong>); surrounding blanks are removed.
+Default <code>127.0.0.1</code>. Read at the next connect. The Qt window with
+the debugger.</dd>
+<dt><code>remote.port</code> <em>1..65535</em></dt>
+<dd>The TCP port of that jnext’s DZRP server (its <strong>--dzrp-port</strong>).
+Default <code>11000</code>. The Qt window with the debugger.</dd>
+<dt><code>remote.connect_timeout_ms</code>, <code>remote.response_timeout_ms</code> <em>100..60000</em></dt>
+<dd>Milliseconds to wait for the connection, and for each reply once
+connected. Defaults <code>5000</code> and <code>2000</code>. The Qt window with the
+debugger.</dd>
+<dt><code>remote.program</code> <em>FILE</em></dt>
+<dd>The program of the remote jnext whose source map and symbols the
+debugger loads for the remote target; empty (the default) loads
+none. The Qt window with the debugger.</dd>
 <dt><code>esp.enabled</code> <em>true|false</em></dt>
 <dd>The emulated ESP-01 WiFi module; <strong>--esp</strong> and <strong>--no-esp</strong>. All
 frontends.</dd>
