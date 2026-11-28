@@ -3297,7 +3297,7 @@ A <code>.tzx</code> or <code>.wav</code> save also samples the tape-out level
 (<code>Emulator::tape_out_level()</code>) at port 0xFE writes, while a tape plays, and at the
 end of the frame; see
 <a href="../03-subsystems/08-media-and-loaders.html">3.8</a>.</p>
-<p><strong>Then <code>step_one_instruction()</code></strong> (<code>src/core/emulator.cpp:11632</code>), the one shared per-instruction
+<p><strong>Then <code>step_one_instruction()</code></strong> (<code>src/core/emulator.cpp:11638</code>), the one shared per-instruction
 body. It picks exactly one of four things to do:</p>
 <ul>
 <li>If the DMA genuinely holds the bus, run a burst of up to 16 bytes and charge
@@ -3445,7 +3445,7 @@ write) are delivered at the next boundary instead. See
 drain returned a stop). The early return still ticks the IM2 fabric for the
 slot (<code>finish_slot_interrupts()</code>), since the device cluster that normally does
 so is skipped.</p>
-<p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>src/core/emulator.cpp:12336</code>), the
+<p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>src/core/emulator.cpp:12346</code>), the
 shared post-instruction cluster. Its order matters:</p>
 <p><img alt="The post-instruction device cluster, in order" src="../img/frame-device-cluster.svg" /></p>
 <ol>
@@ -3492,7 +3492,7 @@ the interrupt-status NextREGs, the tape EAR bit — first brings them up to the
 edge its bus cycle latches or commits on (<code>Emulator::sync_io_devices_to()</code>),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.</p>
-<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:14703</code>) renders nothing at all. What it does is
+<p><code>Emulator::on_scanline(line)</code> (<code>src/core/emulator.cpp:14713</code>) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 <code>snapshot_row_render_state()</code> — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

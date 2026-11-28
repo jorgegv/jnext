@@ -206,7 +206,7 @@ last M1 leaves behind.
 ## Prefix runs
 
 On the T80N a DD or FD is an instruction of one M-cycle, 4 T-states, that only
-sets the prefix state (`t80n_mcode.vhd:231-235`, `:1384-1387`); R and PC advance
+sets the prefix state (`t80n_mcode.vhd:231-235`, `t80n_mcode.vhd:1384-1387`); R and PC advance
 once per M1 (`t80n.vhd:490-498`). The next M1 overwrites the IX/IY choice (DD/FD)
 or clears it (ED), so only the LAST byte of a run matters and every earlier one is
 a bare 4 T M1. FUSE chains through such a run inside one call with no bound, which
@@ -227,7 +227,7 @@ A longer run is cut right after a prefix M1. The slot ends there with
 the instruction: the pending prefix is index 0 of the M1 buffer at PC - 1 (not
 fetched again, no hook), the byte at PC is its next M1, and `fuse_z80_resume_prefix()`
 makes FUSE enter its DD/FD case directly. While a prefix is pending the slot
-accepts neither INT nor NMI (`t80n.vhd:1765`, `:1768`: only at `Prefix = "00"`; an
+accepts neither INT nor NMI (`t80n.vhd:1765`, `t80n.vhd:1768`: only at `Prefix = "00"`; an
 NMI edge stays latched until the run ends, an INT pulse that ends meanwhile is
 missed) and runs no esxdos stand-in. The debugger treats a slot that starts inside
 an instruction as no instruction start: PC breakpoints, `Execute` subscriptions,
