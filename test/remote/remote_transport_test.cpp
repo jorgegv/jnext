@@ -1334,9 +1334,15 @@ static void link_rows() {
             const bool u = jnext::remote::parse_link_uri(uri_of(h), sp, e);
             if (v || r.empty() || (u && h != "[::1]")) { all = false; why += " bad[" + h.substr(0, 12) + "]"; }
         }
+        {
+            std::string r;
+            jnext::remote::valid_link_host("[::1]", r);
+            if (r.find("without brackets") == std::string::npos) { all = false; why += " bracket-reason[" + r + "]"; }
+        }
         check("RLK-URI-03", "valid_link_host agrees with parse_link_uri: a name, an IPv4 and unbracketed IPv6 "
                             "are accepted; empty, a blank, brackets, 254 characters, an empty label, a "
-                            "non-ASCII byte, a port in a name, a zone id and a NUL are refused with a reason",
+                            "non-ASCII byte, a port in a name, a zone id and a NUL are refused with a reason, "
+                            "and brackets say to write the address without them",
               all, why);
     }
     {
