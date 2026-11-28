@@ -3290,6 +3290,7 @@ void test_name_rows() {
     // it and uses the restored OLD-named card: it makes no new-named card, asks for no download, offers nothing
     {
         wipe(); card_set(newn, "THE-NEW-CARD");
+        fs::create_directories(dir + "/previous");
         put(dir + "/previous/" + oldn, old_bytes);
         put(dir + "/previous/" + oldn + ".distro", "sn-emulator-23.01.zip\n");
         sdcard::backup::g_fail_step_for_test = 2;
@@ -3307,6 +3308,7 @@ void test_name_rows() {
     // the cards swap under their own names and the distribution just left is declined under the current name
     {
         wipe(); card_set(oldn, "CURRENT-OLD");
+        fs::create_directories(dir + "/previous");
         put(dir + "/" + oldn + ".distro", "sn-emulator-99.98.zip\n");
         put(dir + "/previous/" + oldn, "BACKUP-OLD");
         put(dir + "/previous/" + oldn + ".distro", "sn-emulator-23.01.zip\n");
@@ -3321,6 +3323,7 @@ void test_name_rows() {
     // 13: a writes file bound to the card in an OLD-named backup belongs to the backup (the --sdcard-writes refusal says "go back")
     {
         wipe(); card_set(newn, "THE-NEW-CARD");
+        fs::create_directories(dir + "/previous");
         put(dir + "/previous/" + oldn, std::string(4096, 'x'));
         const std::string pc = dir + "/previous/" + oldn, wf = cfg + "/user.jsdw";
         sd_write_journal::Binding b; std::error_code ec;

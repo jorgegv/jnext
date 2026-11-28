@@ -271,7 +271,7 @@ int main(int argc, char** argv)
         Live L;
         live_run(f.win.go_back_sd_action(), f, L);
         const std::string old_card = dir + "/" + sdcard::kLegacyFixedImageFileName;
-        check("SDMENU-13", "go back to an old-named backup, live: the old-named card is the one inserted (not the vanished new-named path), nothing is left unanswered, the machine is hard-reset",
+        check("SDMENU-26", "go back to an old-named backup, live: the old-named card is the one inserted (not the vanished new-named path), nothing is left unanswered, the machine is hard-reset",
               L.dialogs == 0 && L.mounted_at_end && L.mounted_path == old_card && L.reset_same_tick && L.ran_a_frame &&
                   fs::exists(old_card) && fs::exists(dir + "/previous/" + sdcard::kFixedImageFileName), L.mounted_path);
     }
@@ -294,7 +294,7 @@ int main(int argc, char** argv)
             return true;
         };
         live_run(f.win.upgrade_sd_action(), f, L);
-        check("SDMENU-14", "upgrade of an old-named card, live: the work moves it into previous/ and installs the new name, and the NEW card is the one inserted",
+        check("SDMENU-27", "upgrade of an old-named card, live: the work moves it into previous/ and installs the new name, and the NEW card is the one inserted",
               L.dialogs == 0 && L.mounted_at_end && L.mounted_path == card && L.reset_same_tick && L.ran_a_frame &&
                   fs::exists(dir + "/previous/" + sdcard::kLegacyFixedImageFileName) && !fs::exists(old_card), L.mounted_path);
     }
