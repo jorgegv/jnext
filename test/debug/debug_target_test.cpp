@@ -1941,7 +1941,7 @@ static void tgt07_rows() {
         t7_copy_dir(fix + "sccz80-debug", dir, /*bins=*/true);
         fs::rename(dir + "/prog.nex", dir + "/prog.nex.keep");
         write_file(dir + "/prog.tap", "x");
-        jnext::NexLoader nex;
+        NexLoader nex;
         const bool loaded = nex.load(dir + "/prog.nex.keep");
         for (int b = 0; b < 112; ++b)
             if (const uint8_t* d = loaded ? nex.bank_data(b) : nullptr) {
