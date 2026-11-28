@@ -1728,6 +1728,11 @@ The entries say which frontends use the key: the Qt window, the SDL-only build
 :   Milliseconds to wait for the connection, and for each reply once connected.
     Defaults `5000` and `2000`. The Qt window with the debugger.
 
+`remote.program` *FILE*
+:   The program of the remote jnext whose source map and symbols the debugger
+    loads for the remote target; empty (the default) loads none. The Qt window
+    with the debugger.
+
 `esp.enabled` *true|false*
 :   The emulated ESP-01 WiFi module; **\--esp** and **\--no-esp**. All
     frontends.
@@ -3881,7 +3886,7 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     degrades.
     The Remote target is stored under `[remote]`, edited under **Settings >
     Preferences > Debugger**: `host`, `port`, `connect_timeout_ms` and
-    `response_timeout_ms`, the persistent forms of **\--remote-target** and the
+    `response_timeout_ms` and `program`, the persistent forms of **\--remote-target** and the
     `remote.*` set entries. A value that is not valid keeps its default.
     The emulated ESP-01 is stored under `[esp]` as `enabled` (`true`/`false`,
     the persistent form of **\--esp**) and `allowed_hosts` (a comma-separated

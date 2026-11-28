@@ -43,7 +43,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
       source_dirs_saved_(current.source_dirs),
       source_scheme_(current.source_scheme),
       remote_saved_{current.remote_host, current.remote_port, current.remote_connect_timeout_ms,
-                    current.remote_response_timeout_ms},
+                    current.remote_response_timeout_ms, current.remote_program},
       debug_keys_(current.debug_keys),
       recent_files_(current.recent_files),
       crt_filter_saved_(current.crt_filter),
@@ -138,6 +138,7 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
         remote_port_spin_->setValue(current.remote_port);
         remote_connect_timeout_spin_->setValue(current.remote_connect_timeout_ms);
         remote_response_timeout_spin_->setValue(current.remote_response_timeout_ms);
+        remote_program_edit_->setText(current.remote_program);
     }
     quick_screenshot_dir_edit_->setText(current.quick_screenshot_dir);
     quick_screenshot_fmt_combo_->setCurrentIndex(
@@ -804,6 +805,7 @@ AppConfigData PreferencesDialog::collect() const {
                                                                  : remote_saved_.connect_timeout_ms;
     cfg.remote_response_timeout_ms = remote_response_timeout_spin_ ? remote_response_timeout_spin_->value()
                                                                    : remote_saved_.response_timeout_ms;
+    cfg.remote_program = remote_program_edit_ ? remote_program_edit_->text() : remote_saved_.program;
     cfg.recent_files = recent_files_;   // GH #406 - kept by File > Recent Files, no control here
     cfg.debug_keys = debug_keys_;   // GH #1 — including the preserved unknowns
     cfg.quick_screenshot_dir = quick_screenshot_dir_edit_->text();
@@ -862,6 +864,12 @@ QWidget* PreferencesDialog::build_debugger_tab() {
     remote_response_timeout_spin_ = spin("remoteResponseTimeoutSpin", config_keys::KeyId::RemoteResponseTimeoutMs,
                                          tr(" ms"), tr("How long to wait for each reply."));
     remote_form->addRow(tr("Reply timeout:"), remote_response_timeout_spin_);
+    remote_program_edit_ = new QLineEdit(remote);
+    remote_program_edit_->setObjectName(QStringLiteral("remoteProgramEdit"));
+    remote_program_edit_->setToolTip(
+        tr("The program on the remote whose source map and symbols are loaded for it (empty = none). "
+           "Read at the next connect. --set remote.program=FILE sets it for one run."));
+    remote_form->addRow(tr("Program:"), remote_program_edit_);
     form->addRow(remote);
     return tab;
 }

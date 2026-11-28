@@ -74,10 +74,10 @@ compiled in.
 
 The same tab has a **Remote target** group: the **Host**, **Port**, **Connect timeout** and **Reply timeout** of
 another JNEXT whose debugger the window connects to (the **Port** is that JNEXT's `--dzrp-port`; the
-timeouts are in milliseconds). A host that is not a valid name or address is refused when you press OK or
+timeouts are in milliseconds), and the **Program** whose source map and symbols are loaded for it (empty: none). A host that is not a valid name or address is refused when you press OK or
 Apply. The values are read at the next connect; they change nothing in a session that is already open.
 `--remote-target tcp:HOST:PORT` and `--set remote.host`, `remote.port`, `remote.connect_timeout_ms`,
-`remote.response_timeout_ms` give them for one run (the file is not changed).
+`remote.response_timeout_ms`, `remote.program` give them for one run (the file is not changed).
 
 **Debugger Keys** rebinds the debugger's own keys — see
 [6.3.9](../06-debugger/functions/09-changing-the-keys.md). The tab is only

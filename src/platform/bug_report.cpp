@@ -395,6 +395,7 @@ ValueRule config_value_rule(config_keys::KeyId id)
         case K::InputJoy2DeviceName:
         case K::EspAllowedHosts:
         case K::RemoteHost:         // names a machine
+        case K::RemoteProgram:      // a path
         case K::NextpiDir:
         case K::NextpiQemuBinary:
         case K::NextpiAudio:        // empty, a mode, or `wav:FILE`

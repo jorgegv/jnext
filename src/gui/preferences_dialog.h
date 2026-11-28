@@ -143,9 +143,11 @@ private:
     QSpinBox*  remote_port_spin_ = nullptr;
     QSpinBox*  remote_connect_timeout_spin_ = nullptr;
     QSpinBox*  remote_response_timeout_spin_ = nullptr;
+    QLineEdit* remote_program_edit_ = nullptr;
     struct RemoteValues {
         std::string host;
         int port = 0, connect_timeout_ms = 0, response_timeout_ms = 0;
+        QString program;
     } remote_saved_;
 
     QLineEdit* quick_screenshot_dir_edit_  = nullptr;   // GH #19

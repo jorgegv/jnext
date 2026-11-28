@@ -668,6 +668,7 @@ static int run_main(int argc, char* argv[]) {
         case KeyId::RemotePort:
         case KeyId::RemoteConnectTimeoutMs:
         case KeyId::RemoteResponseTimeoutMs:
+        case KeyId::RemoteProgram:
             qt_assignments.push_back(a);   // merged into the Qt session's copy (merge_cli_assignments)
             break;
         case KeyId::StartupSilent:

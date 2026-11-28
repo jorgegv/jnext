@@ -113,6 +113,7 @@ struct AppConfigData {
         static_cast<int>(jnext::remote::TcpLinkOptions{}.connect_timeout.count());
     int         remote_response_timeout_ms =
         static_cast<int>(jnext::remote::ClientConfig{}.response_timeout.count());
+    QString     remote_program;   // program whose sidecars (source map, symbols) load for the remote; "" = none
 
     // NextPi under QEMU on UART 1 (`--nextpi`, core/pi_qemu.h).
     // Off by default: enabling it downloads ~6 GB on first use. Persisted in

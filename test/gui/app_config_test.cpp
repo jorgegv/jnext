@@ -1831,18 +1831,21 @@ static void test_remote_keys(QTemporaryDir& dir) {
                               def.remote_connect_timeout_ms == 5000 && def.remote_response_timeout_ms == 2000 &&
                               none.data().remote_host == "127.0.0.1" && none.data().remote_port == 11000 &&
                               none.data().remote_connect_timeout_ms == 5000 &&
-                              none.data().remote_response_timeout_ms == 2000;
+                              none.data().remote_response_timeout_ms == 2000 &&
+                              def.remote_program.isEmpty() && none.data().remote_program.isEmpty();
         bool trips = true;
-        struct Case { const char* host; int port, ct, rt; };
+        struct Case { const char* host; int port, ct, rt; const char* prog; };
         int n = 0;
-        for (const Case& c : {Case{"::1", 1, 100, 60000}, Case{"my-next.local", 65535, 60000, 100}}) {
+        for (const Case& c : {Case{"::1", 1, 100, 60000, "/a b/prog, x.nex"}, Case{"my-next.local", 65535, 60000, 100, ""}}) {
             const QString p = fresh_ini_path(dir, ("remote-trip-" + std::to_string(++n)).c_str());
             { AppConfig w(p); w.load(); w.data().remote_host = c.host; w.data().remote_port = c.port;
-              w.data().remote_connect_timeout_ms = c.ct; w.data().remote_response_timeout_ms = c.rt; w.save(); }
+              w.data().remote_connect_timeout_ms = c.ct; w.data().remote_response_timeout_ms = c.rt;
+              w.data().remote_program = c.prog; w.save(); }
             AppConfig r(p);
             r.load();
             trips = trips && r.data().remote_host == c.host && r.data().remote_port == c.port &&
-                    r.data().remote_connect_timeout_ms == c.ct && r.data().remote_response_timeout_ms == c.rt;
+                    r.data().remote_connect_timeout_ms == c.ct && r.data().remote_response_timeout_ms == c.rt &&
+                    r.data().remote_program == QString::fromUtf8(c.prog);
         }
         check("AC-107", "the remote settings default to 127.0.0.1, 11000, 5000 and 2000 (a fresh struct and a load with no "
                         "file) and round-trip through save/load at both ends of each range",

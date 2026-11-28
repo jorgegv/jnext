@@ -140,6 +140,7 @@ void merge_cli_assignments(AppConfigData& d, const std::vector<config_keys::Assi
         case KeyId::ScreenshotQuickDir:     d.quick_screenshot_dir = text; break;
         case KeyId::PathsSourceDirs:        d.source_dirs = source_dirs_from_text(text); break;
         case KeyId::RemoteHost:             d.remote_host = a.text; break;
+        case KeyId::RemoteProgram:          d.remote_program = text; break;
         case KeyId::RemotePort:             d.remote_port = text.toInt(); break;
         case KeyId::RemoteConnectTimeoutMs: d.remote_connect_timeout_ms = text.toInt(); break;
         case KeyId::RemoteResponseTimeoutMs: d.remote_response_timeout_ms = text.toInt(); break;
@@ -456,6 +457,7 @@ void AppConfig::load() {
         number(KeyId::RemotePort, data_.remote_port);
         number(KeyId::RemoteConnectTimeoutMs, data_.remote_connect_timeout_ms);
         number(KeyId::RemoteResponseTimeoutMs, data_.remote_response_timeout_ms);
+        data_.remote_program = ini_text(settings_.value(N(KeyId::RemoteProgram), data_.remote_program));
     }
     settings_.endGroup();
 
@@ -592,6 +594,7 @@ void AppConfig::save() const {
     settings_.setValue(N(KeyId::RemotePort), data_.remote_port);
     settings_.setValue(N(KeyId::RemoteConnectTimeoutMs), data_.remote_connect_timeout_ms);
     settings_.setValue(N(KeyId::RemoteResponseTimeoutMs), data_.remote_response_timeout_ms);
+    settings_.setValue(N(KeyId::RemoteProgram), data_.remote_program);
     settings_.endGroup();
 
     settings_.beginGroup(S(KeyId::NextpiEnabled));

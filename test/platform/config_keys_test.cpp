@@ -573,7 +573,7 @@ int main() {
               bad.empty(), bad);
     }
 
-    // SETK-25 (GH #517): the four remote.* rows, as the plan's table gives them.
+    // SETK-25 (GH #517): the five remote.* rows, as the plan's table gives them.
     {
         struct Want { KeyId id; const char* name; Type type; double lo, hi; };
         const Want want[] = {
@@ -581,6 +581,7 @@ int main() {
             { KeyId::RemotePort, "port", Type::Int, 1, 65535 },
             { KeyId::RemoteConnectTimeoutMs, "connect_timeout_ms", Type::Int, 100, 60000 },
             { KeyId::RemoteResponseTimeoutMs, "response_timeout_ms", Type::Int, 100, 60000 },
+            { KeyId::RemoteProgram, "program", Type::Path, 0, 0 },
         };
         std::string bad;
         int in_section = 0;
@@ -594,9 +595,9 @@ int main() {
             if (k.owner != config_keys::Owner::AppConfig || k.flag != nullptr || k.not_setting) bad += n + "owner/flag/setting ";
             if (!k.help || !*k.help || !k.values || !*k.values) bad += n + "help ";
         }
-        check("SETK-25", "the four remote.* rows (host, port, connect_timeout_ms, response_timeout_ms) have the planned "
+        check("SETK-25", "the five remote.* rows (host, port, connect_timeout_ms, response_timeout_ms, program) have the planned "
                          "types and bounds, the Qt debugger only, AppConfig-owned, settable, no dedicated flag, with help",
-              bad.empty() && in_section == 4, bad + " in_section=" + std::to_string(in_section));
+              bad.empty() && in_section == 5, bad + " in_section=" + std::to_string(in_section));
     }
 
     // SETK-26 (GH #517): the Host type is trimmed and held to remote::valid_link_host.
