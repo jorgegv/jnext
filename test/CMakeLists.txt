@@ -2043,11 +2043,14 @@ add_test(NAME dzrp_client_tests COMMAND dzrp_client_test)
 # configuration, WebAssembly under node included.
 add_executable(remote_target_test remote/remote_target_test.cpp)
 target_link_libraries(remote_target_test PRIVATE
+    jnext_platform
     jnext_remote
     jnext_core jnext_cpu jnext_memory jnext_video
     jnext_audio jnext_port jnext_peripheral jnext_input
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(remote_target_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(remote_target_test PRIVATE
+    JNEXT_Z88DK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/test/fixtures/z88dk")
 add_test(NAME remote_target_tests COMMAND remote_target_test)
 # dzrp_client_probe - test-support BINARY (GH #511), the R0.5 checkpoint tool a human runs against a
 # real Next: not an add_test(), invisible to test/unit-tests.conf (the sdfile_tool pattern). It is not

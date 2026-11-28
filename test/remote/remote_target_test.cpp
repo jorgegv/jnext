@@ -33,6 +33,7 @@
 #include "core/emulator_config.h"
 #include "core/log.h"
 #include "debug/debugger.h"
+#include "platform/emulator_boot.h"
 #include "memory/mmu.h"
 #include "port/nextreg.h"
 #include "video/sprites.h"
@@ -45,10 +46,13 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include <unistd.h>
 
 #include "../row_id.h"
 
@@ -228,17 +232,22 @@ struct CountingLink final : ClientLink {
     std::vector<std::pair<std::uint8_t, Bytes>>   frames;   // id, payload
     std::size_t                                   mark_at = 0;
     long                                          first_reply_at = -1;
+    std::size_t                                   rounds = 0;       // writes with no read since the last write
+    bool                                          wrote_since_read = false;
     explicit CountingLink(std::unique_ptr<ClientLink> l) : in(std::move(l)) {}
     bool open() override { return in->open(); }
     void poll(int w) override { in->poll(w); }
     jnext::remote::LinkState state() const override { return in->state(); }
     std::size_t read(std::uint8_t* b, std::size_t cap) override {
         const std::size_t n = in->read(b, cap);
+        if (n > 0) wrote_since_read = false;
         if (n > 0 && first_reply_at < 0) first_reply_at = static_cast<long>(frames.size() - mark_at);
         return n;
     }
     bool write(const std::uint8_t* p, std::size_t n) override {
         if (n >= COMMAND_HEADER_BYTES) frames.push_back({p[5], Bytes(p + COMMAND_HEADER_BYTES, p + n)});
+        if (!wrote_since_read) ++rounds;   // a burst: the frames written between two reads
+        wrote_since_read = true;
         return in->write(p, n);
     }
     void close() override { in->close(); }
@@ -246,7 +255,7 @@ struct CountingLink final : ClientLink {
     std::string describe() const override { return in->describe(); }
     const std::string& last_error() const override { return in->last_error(); }
 
-    void mark() { mark_at = frames.size(); first_reply_at = -1; }
+    void mark() { mark_at = frames.size(); first_reply_at = -1; rounds = 0; }
     std::size_t since() const { return frames.size() - mark_at; }
     int count(int id) const {
         int n = 0;
@@ -1636,6 +1645,302 @@ static void wp_rows() {
     }
 }
 
+// ==============================================================================================
+// RSRC - a program's sources over the wire (GH #519)
+//
+// Oracle: the reference machine's LOCAL facade on the same z88dk fixture, and the fixture values
+// source_debug_test pins (SRCDBG-Z88-01: master/sccz80-debug has 19 symbols, 46 lines, main.c:19
+// at $8CB8, main at $8C92; SRCSTEP-02: master/sdcc-banked-run has banked.c:5 at $C000 in page 20).
+// ==============================================================================================
+
+namespace {
+
+namespace fs = std::filesystem;
+
+std::string fixture_dir() { return std::string(JNEXT_Z88DK_FIXTURE_DIR) + "/master/"; }
+
+/// A copy of a fixture directory (without its section binaries when `bins` is false), the program
+/// loaded in a reference and a served machine, `pre_both` applied to both and `pre_srv` to the
+/// served one, then the remote connected.
+struct Fx {
+    std::string dir;
+    std::string nex;
+    Pair        p;
+    static std::string copy(const char* name, bool bins) {
+        std::string d = (fs::temp_directory_path() / ("jnext_rsrc_" + std::string(name) + "_" +
+                                                       std::to_string(::getpid()) + "_" + std::to_string(counter()++)))
+                            .string();
+        fs::remove_all(d);
+        fs::create_directories(d);
+        for (const auto& e : fs::directory_iterator(fixture_dir() + name)) {
+            if (!bins && e.path().extension() == ".bin") continue;
+            fs::copy_file(e.path(), fs::path(d) / e.path().filename());
+        }
+        return d;
+    }
+    static int& counter() { static int c = 0; return c; }
+    Fx(const char* name, bool bins = true, const std::function<void(Emulator&)>& pre_both = {},
+       const std::function<void(Emulator&)>& pre_srv = {})
+        : dir(copy(name, bins)), nex(dir + "/prog.nex"), p(prog_loop(0x9000), false) {
+        emulator_apply_load(p.ref.emu, nex, false);
+        emulator_apply_load(p.srv.emu, nex, false);
+        if (pre_both) { pre_both(p.ref.emu); pre_both(p.srv.emu); }
+        if (pre_srv) pre_srv(p.srv.emu);
+        p.connect_remote();
+    }
+    ~Fx() { std::error_code ec; fs::remove_all(dir, ec); }
+};
+
+void map_page20(Emulator& e) {
+    e.nextreg().write(0x56, 20);
+    e.nextreg().write(0x57, 21);
+}
+
+std::string where(const Debugger& d, uint16_t addr) {
+    const auto* l = d.source_location(addr);
+    return l ? l->file + ":" + std::to_string(l->line) : std::string("-");
+}
+
+std::string where_in(const Debugger& d, MemSpace s, uint16_t addr) {
+    const auto* l = d.source_location(s, addr);
+    return l ? l->file + ":" + std::to_string(l->line) : std::string("-");
+}
+
+size_t page_count(const std::vector<SourceMap::CodeSpan>& spans) {
+    std::vector<uint16_t> pages;
+    for (const auto& c : spans)
+        if (c.space.kind == MemSpace::Kind::Page &&
+            std::find(pages.begin(), pages.end(), c.space.index) == pages.end())
+            pages.push_back(c.space.index);
+    return pages.size();
+}
+
+}  // namespace
+
+static void rsrc_rows_a() {
+    {
+        Fx f("sccz80-debug");
+        const auto rr = f.p.ref.dbg->load_program_sidecars(f.nex);
+        const auto r  = f.p.remote->load_program_sidecars(f.nex);
+        bool same = r.sources == rr.sources && r.symbols == rr.symbols;
+        const SourceMap& rm = f.p.ref.dbg->source_map();
+        size_t ranges = 0;
+        for (const std::string& file : rm.files())
+            for (const auto& fr : rm.file_ranges(file)) {
+                ++ranges;
+                for (const uint16_t a : {static_cast<uint16_t>(fr.lo), static_cast<uint16_t>(fr.hi_excl - 1)}) {
+                    same = same && where_in(*f.p.remote, fr.space, a) == where_in(*f.p.ref.dbg, fr.space, a);
+                    same = same && where(*f.p.remote, a) == where(*f.p.ref.dbg, a);
+                }
+            }
+        bool sym = f.p.remote->symbols().size() == f.p.ref.dbg->symbols().size();
+        sym = sym && f.p.remote->lookup(0x8C92) == f.p.ref.dbg->lookup(0x8C92) &&
+              f.p.remote->lookup(0x8C92) == std::string("main");
+        check("RSRC-01", "master/sccz80-debug: the sidecars on the remote are the reference's (19 symbols, 46 lines, attached) "
+                         "and every line range resolves, by space and by address, as in the local session",
+              r.symbols == 19 && r.sources == 46 && same && ranges > 0 && sym &&
+                  f.p.remote->source_map_status().state == Debugger::SourceMapStatus::State::Attached &&
+                  where(*f.p.remote, 0x8CB8) == "main.c:19",
+              r.problem);
+    }
+    {
+        Fx f("sdcc-banked-run", true, map_page20);
+        const auto rr = f.p.ref.dbg->load_program_sidecars(f.nex);
+        const auto r  = f.p.remote->load_program_sidecars(f.nex);
+        const bool at = where(*f.p.remote, 0xC000) == "banked.c:5" && where(*f.p.ref.dbg, 0xC000) == "banked.c:5" &&
+                        f.p.remote->source_page(0xC000) == MemSpace::page(20) &&
+                        f.p.ref.dbg->source_page(0xC000) == MemSpace::page(20);
+        Fx g("sdcc-banked-run", true, [](Emulator& e) { e.nextreg().write(0x56, 0); });
+        (void)g.p.ref.dbg->load_program_sidecars(g.nex);
+        (void)g.p.remote->load_program_sidecars(g.nex);
+        const bool off = where(*g.p.remote, 0xC000) == where(*g.p.ref.dbg, 0xC000) &&
+                         where(*g.p.remote, 0xC000) != "banked.c:5";
+        check("RSRC-02", "master/sdcc-banked-run: with page 20 in slot 6 both resolve $C000 to banked.c:5 in Page{20}; with "
+                         "slot 6 on page 0 both give the same (other) answer",
+              rr.sources > 0 && r.sources == rr.sources && at && off, where(*f.p.remote, 0xC000));
+    }
+    {
+        Fx f("sccz80-debug");
+        bool ram_eq = true, saw_rom = false, saw_ram = false, rom_ok = true;
+        const auto rs = f.p.remote->mmu_slots();
+        for (int s = 0; s < 8; ++s) {
+            const uint16_t a = static_cast<uint16_t>(s << 13);
+            if (rs[static_cast<size_t>(s)].is_rom) {
+                saw_rom = true;
+                rom_ok = rom_ok && f.p.remote->source_page(a) == MemSpace::cpu() &&
+                         f.p.ref.dbg->source_page(a).kind == MemSpace::Kind::Rom;
+            } else {
+                saw_ram = true;
+                ram_eq = ram_eq && f.p.remote->source_page(a) == f.p.ref.dbg->source_page(a) &&
+                         f.p.remote->effective_page(a) == f.p.ref.dbg->effective_page(a);
+            }
+        }
+        check("RSRC-03", "every slot: a RAM slot's source_page and effective_page equal the reference's; a ROM slot is cpu() on the "
+                         "remote and Rom{k} locally; FetchOverlays is unavailable on the remote and served locally",
+              saw_ram && saw_rom && ram_eq && rom_ok &&
+                  !f.p.remote->why_unavailable(Capability::FetchOverlays).empty() &&
+                  f.p.ref.dbg->why_unavailable(Capability::FetchOverlays).empty());
+    }
+    {
+        Fx f("sccz80-debug", true, [](Emulator& e) { e.port().out(0x00E3, 0x80); });
+        const MemSpace local = f.p.ref.dbg->source_page(0x0000);
+        check("RSRC-04", "DivMMC mapped (port 0xE3 bit 7): the local source_page($0000) is the DivMMC identity, the remote's is "
+                         "cpu() (the documented divergence: the target sends the slot's page only)",
+              local.kind != MemSpace::Kind::Rom && local.kind != MemSpace::Kind::Cpu &&
+                  f.p.remote->source_page(0x0000) == MemSpace::cpu(),
+              std::to_string(static_cast<int>(local.kind)));
+    }
+}
+
+static void rsrc_rows_b() {
+    const auto line_stop = [](Fx& f, const char* expr, const uint8_t want_bank1, bool& same_pc, uint16_t& pc,
+                              bool& cmd_ok) {
+        (void)f.p.ref.dbg->load_program_sidecars(f.nex);
+        (void)f.p.remote->load_program_sidecars(f.nex);
+        jnext::dbg::Subscription like;
+        like.kind = EventKind::Execute;
+        f.p.link->mark();
+        const auto g  = f.p.remote->subscribe_source_line(f.p.ra, expr, like);
+        const auto gr = f.p.ref.dbg->subscribe_source_line(f.p.rc, expr, like);
+        const Bytes* pl = f.p.link->last_payload(CMD_ADD_BREAKPOINT);
+        cmd_ok = g.status == Result::Ok && gr.status == Result::Ok && pl && pl->size() > 2 &&
+                 (*pl)[2] == want_bank1 && f.p.link->count_since(CMD_ADD_BREAKPOINT) == 1;
+        const bool a = f.p.remote_run_to_stop();
+        const bool b = f.p.ref_run_to_stop();
+        pc      = f.p.remote->registers().PC;
+        same_pc = a && b && pc == f.p.ref.dbg->registers().PC &&
+                  f.p.remote->state().pause_reason.kind == PauseReason::Kind::Breakpoint &&
+                  f.p.ref.dbg->state().pause_reason.kind == PauseReason::Kind::Breakpoint;
+    };
+    {
+        Fx f("sccz80-debug");
+        bool same = false, cmd = false;
+        uint16_t pc = 0;
+        line_stop(f, "main.c:19", 5, same, pc, cmd);   // page 4: DZRP's bank+1 is 5
+        check("RSRC-05", "a line breakpoint main.c:19 goes out page-qualified (CMD_ADD_BREAKPOINT bank+1 = the start's page + 1) and "
+                         "both machines stop at the same address with a Breakpoint",
+              cmd && same && where(*f.p.remote, pc) == "main.c:19", "pc=" + std::to_string(pc));
+    }
+    {
+        Fx f("sdcc-banked-run", true, map_page20);
+        bool same = false, cmd = false;
+        uint16_t pc = 0;
+        line_stop(f, "banked.c:5", 21, same, pc, cmd);
+        check("RSRC-06", "a line breakpoint banked.c:5 (page 20) goes out as bank+1 21 and both machines stop at $C000 with page "
+                         "20 mapped",
+              cmd && same && pc == 0xC000 && f.p.remote->effective_page(0xC000) == 20 &&
+                  f.p.ref.dbg->effective_page(0xC000) == 20,
+              "pc=" + std::to_string(pc));
+    }
+    {
+        Fx f("sdcc-banked-run", true, map_page20);
+        const size_t want_pages = [&] {
+            (void)f.p.ref.dbg->load_program_sidecars(f.nex);
+            return page_count(f.p.ref.dbg->source_map().code_spans());
+        }();
+        LogTap tap;
+        f.p.link->mark();
+        const auto r = f.p.remote->load_program_sidecars(f.nex);
+        check("RSRC-10", "master/sdcc-banked-run with its section binaries: attached, the log says the target's code matches, and "
+                         "it costs at most one round trip per page holding code on top of the connect burst",
+              r.sources > 0 && r.problem.empty() && tap.count("the target's code matches") == 1 && want_pages >= 2 &&
+                  f.p.link->rounds <= 1 + want_pages,
+              std::to_string(f.p.link->rounds) + " rounds, " + std::to_string(want_pages) + " pages | " + r.problem);
+    }
+    {
+        Fx f("sdcc-banked-run", false, map_page20, [](Emulator& e) {
+            e.mmu().write(0xC000, static_cast<uint8_t>(e.mmu().read(0xC000) ^ 0xFF));
+        });
+        const auto r = f.p.remote->load_program_sidecars(f.nex);
+        check("RSRC-11", "without section binaries the NEX alone judges: the first byte of banked.c:5 changed on the target refuses "
+                         "the sources and symbols, names P14+$0000 with both bytes, and no line shows at $C000",
+              r.sources == -1 && r.symbols == -1 && r.problem.find("P14+$0000") != std::string::npos &&
+                  r.problem.find("target $") != std::string::npos && where(*f.p.remote, 0xC000) == "-",
+              r.problem);
+    }
+}
+
+static void rsrc_rows_c() {
+    {
+        // Every code range of sccz80-debug: its last byte flipped on the served machine is a mismatch.
+        std::vector<SourceMap::CodeSpan> spans;
+        {
+            Fx f("sccz80-debug", false);
+            (void)f.p.ref.dbg->load_program_sidecars(f.nex);
+            spans = f.p.ref.dbg->source_map().code_spans();
+        }
+        size_t refused = 0;
+        for (const auto& c : spans) {
+            const uint16_t last = static_cast<uint16_t>(std::min<uint32_t>(c.hi_excl, (c.lo & 0xE000u) + 0x2000u) - 1);
+            Fx f("sccz80-debug", false, {}, [last](Emulator& e) {
+                e.mmu().write(last, static_cast<uint8_t>(e.mmu().read(last) ^ 0xFF));
+            });
+            const auto r = f.p.remote->load_program_sidecars(f.nex);
+            refused += r.sources == -1 && r.problem.find("is not the build these sources describe") != std::string::npos;
+        }
+        check("RSRC-12", "every code range of master/sccz80-debug: its last byte flipped on the target is a mismatch each time",
+              !spans.empty() && refused == spans.size(), std::to_string(refused) + "/" + std::to_string(spans.size()));
+    }
+    {
+        // A byte in a data or bss line range (outside every code span) is not a mismatch.
+        uint16_t data_at = 0;
+        bool found = false;
+        {
+            Fx f("sccz80-debug", false);
+            (void)f.p.ref.dbg->load_program_sidecars(f.nex);
+            const SourceMap& m = f.p.ref.dbg->source_map();
+            const auto spans = m.code_spans();
+            for (const std::string& file : m.files())
+                for (const auto& fr : m.file_ranges(file)) {
+                    bool in_code = false;
+                    for (const auto& c : spans)
+                        in_code = in_code || (c.space == fr.space && fr.lo >= c.lo && fr.lo < c.hi_excl);
+                    if (!in_code && !found) { data_at = fr.lo; found = true; }
+                }
+        }
+        Fx f("sccz80-debug", false, {}, [data_at](Emulator& e) {
+            e.mmu().write(data_at, static_cast<uint8_t>(e.mmu().read(data_at) ^ 0xFF));
+        });
+        const auto r = f.p.remote->load_program_sidecars(f.nex);
+        check("RSRC-13", "a byte of a data or bss line range changed on the target is not a mismatch (a running program writes "
+                         "it): the map attaches",
+              found && r.sources == 46, "data_at=" + std::to_string(data_at) + " | " + r.problem);
+    }
+    {
+        Fx f("sdcc-banked-run", false, map_page20, [](Emulator& e) {
+            uint8_t* from = e.ram().page_ptr(20);
+            std::memcpy(e.ram().page_ptr(22), from, 8192);
+            std::memset(from, 0, 8192);
+        });
+        const auto r = f.p.remote->load_program_sidecars(f.nex);
+        check("RSRC-14", "page 20's bytes moved to page 22 and page 20 cleared on the target: a mismatch naming P14",
+              r.sources == -1 && r.problem.find("P14+") != std::string::npos, r.problem);
+    }
+    {
+        Fx f("sdcc-banked-run", true, [](Emulator& e) { e.nextreg().write(0x56, 0); });
+        const auto rr = f.p.ref.dbg->load_program_sidecars(f.nex);
+        const auto r  = f.p.remote->load_program_sidecars(f.nex);
+        check("RSRC-15", "slot 6 remapped to page 0 with page 20's bytes intact is not a mismatch (the match reads the page, not "
+                         "the slot) and no line shows at $C000 on either machine",
+              rr.sources > 0 && r.sources == rr.sources && where(*f.p.remote, 0xC000) == "-" &&
+                  where(*f.p.ref.dbg, 0xC000) == "-",
+              r.problem);
+    }
+    {
+        Fx f("sdcc-banked-run", true, map_page20, [](Emulator& e) {
+            e.mmu().write(0xC000, static_cast<uint8_t>(e.mmu().read(0xC000) ^ 0xFF));
+        });
+        const auto side = f.p.remote->load_program_sidecars(f.nex);
+        const auto no   = f.p.remote->load_source_map(f.dir + "/prog.map", false, false, false);
+        const auto yes  = f.p.remote->load_source_map(f.dir + "/prog.map", true, false, false);
+        check("RSRC-16", "the confirm path over the wire: the sidecar load is refused, the hand load is refused with identity false, "
+                         "and accepting it attaches and banked.c:5 resolves",
+              side.sources == -1 && no.count < 0 && no.identity.has_value() && !*no.identity && yes.count > 0 &&
+                  where(*f.p.remote, 0xC000) == "banked.c:5",
+              no.error + " | " + yes.error);
+    }
+}
+
 int main() {
     std::printf("remote_target_test - a Debugger over a remote jnext (GH #515)\n");
     ins_rows_a();
@@ -1645,6 +1950,9 @@ int main() {
     run_rows_c();
     run_rows_d();
     wp_rows();
+    rsrc_rows_a();
+    rsrc_rows_b();
+    rsrc_rows_c();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);
