@@ -36,12 +36,16 @@
 # against stub suites and asserts the refusal. Run it via `make harness-selftest`
 # (and the regression suite runs it as `harness-selftest-func`).
 #
-# Usage: bash test/run-unit-tests.sh [--only s1,s2,...] [build_dir]      (default: build)
+# Usage: bash test/run-unit-tests.sh [--only s1,s2,... [--check]] [build_dir]      (default: build)
 #   --only  (GH #547, `make test-affected`) runs just the named suites. EVERY check above still
-#           runs on the WHOLE manifest (registry, gates, OS, duplicates, build, sources); a name
+#           runs on the WHOLE manifest (registry, gates, OS, duplicates, sources); "built" is
+#           required of the NAMED suites only (GH #585, `make mutant-test`); a name
 #           the manifest does not declare is a refusal (exit 2); a declared suite this build's
 #           gate/OS excludes is a NOTICE, as in a full run. The summary says `subset run: K of
 #           N suites -- not a gate`, so it can never be mistaken for the full run.
+#   --check (only straight after --only <list>) makes every check, needs no binary, treats a named
+#           suite this configuration gates out as a refusal (exit 2, not the NOTICE), prints
+#           `check OK: K suite(s) declared and registered`, exits 0 before the SD clone and any run.
 # Env:   JNEXT_UNIT_TEST_CONF   override the manifest path (the self-test uses this)
 #        JNEXT_TEST_RUNNER      a program prefixed to every suite (the Windows
 #                               suites run under wine: test/wine-run.sh; the
@@ -173,10 +177,14 @@ sd_clone_for_run() {
     return 0
 }
 
-ONLY=(); SUBSET=0
+ONLY=(); SUBSET=0; CHECK=0
 if [[ "${1:-}" == --only ]]; then
     [[ $# -ge 2 ]] || { printf 'run-unit-tests: --only needs a comma-separated suite list\n' >&2; exit 2; }
     SUBSET=1; IFS=, read -r -a ONLY <<<"$2"; shift 2
+    if [[ "${1:-}" == --check ]]; then CHECK=1; shift; fi
+fi
+if [[ "${1:-}" == --check ]]; then
+    printf 'run-unit-tests: --check is valid only straight after --only <list>\n' >&2; exit 2
 fi
 BUILD="${1:-build}"
 CONF="${JNEXT_UNIT_TEST_CONF:-test/unit-tests.conf}"
@@ -455,6 +463,11 @@ for name in "${REGISTERED[@]}"; do IS_REGISTERED["$name"]=1; done
 # and one whose gate it does not must be absent. "Not registered" is therefore
 # never an excuse on its own — it is expected only where the manifest said so.
 errors=(); GATED_OUT=(); RUNNABLE=()
+# A subset run needs only the NAMED suites built (GH #585: a mutant run builds just its killers); an owed
+# suite outside the subset is taken as runnable here and dropped by the subset filter below. --check
+# needs no binary at all. Every other check of this loop stays whole-manifest.
+declare -A WANT_BUILT=()
+for name in ${ONLY[@]+"${ONLY[@]}"}; do WANT_BUILT["$name"]=1; done
 for name in "${DECLARED[@]}"; do
     # A suite is owed here only where BOTH its gate (configuration) and its
     # `# os:` (target OS) say so.
@@ -471,6 +484,10 @@ for name in "${DECLARED[@]}"; do
     fi
     if [[ -z "${IS_REGISTERED[$name]:-}" ]]; then
         errors+=("declared in $CONF under '${BOLD}# gate: ${GATE[$name]}  # os: ${OSREQ[$name]}${RESET}', which this build satisfies ($CONFIG_DESC), but NOT registered by CMake: ${BOLD}$name${RESET}")
+        continue
+    fi
+    if (( CHECK )) || { (( SUBSET )) && [[ -z "${WANT_BUILT[$name]:-}" ]]; }; then
+        RUNNABLE+=("$name")
         continue
     fi
     suite_exe="$BUILD/test/$name"
@@ -578,10 +595,18 @@ if (( SUBSET )); then
     done
     SUBSET_SKIPPED=$(( SUBSET_ALL - ${#kept[@]} ))
     RUNNABLE=(${kept[@]+"${kept[@]}"})
+    if (( CHECK && ${#gated_asked[@]} )); then
+        die "--check: asked for, but gated out by this configuration / target OS: ${BOLD}${gated_asked[*]}${RESET}" \
+            "A run of it would test nothing, which reads as a survivor."
+    fi
     if (( ${#gated_asked[@]} )); then
         printf "${BADGE_SKIP} NOTICE ${RESET} %b\n" "asked for, but gated out by this configuration, NOT RUN: ${gated_asked[*]}"
     fi
     printf "${BADGE_SKIP} SUBSET ${RESET} subset run: %d of %d suites -- not a gate\n" "${#RUNNABLE[@]}" "${#DECLARED[@]}"
+    if (( CHECK )); then
+        printf "check OK: %d suite(s) declared and registered\n" "${#RUNNABLE[@]}"
+        exit 0
+    fi
 fi
 
 EXE_SUFFIX=""

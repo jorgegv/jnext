@@ -11,14 +11,14 @@
 # remote lane, long or short, and runs here only when every lane is busy) and COMMON-RULES "REMOTE RUNS"
 # (an agent pushes only its own issue branch, never force). No VHDL: this is tooling.
 #
-# Rows SLOT-01 .. SLOT-78. A missing tool FAILS every row (no SKIP path).
+# Rows SLOT-01 .. SLOT-80. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 # shellcheck source=/dev/null
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SLOT=$ROOT/.claude/skills/autonomous-run/slot.sh
-EXPECTED_ROWS=78
+EXPECTED_ROWS=80
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -933,6 +933,26 @@ out=$(STUB_MOVE_REF="$WT refs/remotes/origin/gh900-demo $(git -C "$WT" rev-parse
 git -C "$WT" update-ref refs/remotes/origin/gh900-demo "$MSHA"
 row SLOT-78 "$([[ $rc -eq 0 && "$(rr_calls)" == *"--patch "* && ! -e "$STATE/make-calls" ]] && ! grep -qE '(^| )push( |$)' "$STATE/git-calls" && echo 1 || echo 0)" \
     "--patch with the tracking ref moved during the probe: the run still goes to the driver and nothing is pushed (rc=$rc)"
+
+# SLOT-79 (GH #585): make mutant-test is a heavy target: a --patch mutant run of it goes to the driver with the target word and its
+# SUITES variable, nothing runs here, nothing is pushed
+fresh; mkmut mut79
+: > "$STATE/git-calls"
+out=$(slot --patch env LANG=C make -C "$MUT" mutant-test SUITES=a,b JNEXT_SUITE_VMEM_KB=3145728 2>&1); rc=$?
+row SLOT-79 "$([[ $rc -eq 0 && "$(rr_calls)" == *"--patch "*"gh900-demo $MSHA mutant-test SUITES=a,b JNEXT_SUITE_VMEM_KB=3145728"* && ! -e "$STATE/make-calls" \
+    && "$out" != *"is not a heavy target"* ]] && ! grep -qE '(^| )push( |$)' "$STATE/git-calls" && echo 1 || echo 0)" \
+    "--patch make mutant-test SUITES=a,b goes to the driver as the target word with the variables, no local make, no push (rc=$rc)"
+
+# SLOT-80 (GH #585): a ROWS value with a space travels as one quoted sh: target (the container's bash -c undoes the quoting once); without
+# --patch a clean pushed issue branch sends mutant-test too
+fresh; mkmut mut80
+out=$(slot --patch env LANG=C make -C "$MUT" mutant-test SUITES=a,b 'ROWS=r1 r2' JNEXT_SUITE_VMEM_KB=3145728 2>&1); rc=$?
+c80=$(rr_calls)
+fresh
+out2=$(slot env LANG=C make -C "$WT" mutant-test SUITES=a 2>&1); rc2=$?
+row SLOT-80 "$([[ $rc -eq 0 && "$c80" == *"gh900-demo $MSHA sh:make mutant-test SUITES=a\\,b ROWS=r1\\ r2 JNEXT_SUITE_VMEM_KB=3145728"* && ! -e "$STATE/make-calls" \
+    && $rc2 -eq 0 && "$(rr_calls)" == *" gh900-demo "*" mutant-test SUITES=a"* && "$out2" != *"is not a heavy target"* ]] && echo 1 || echo 0)" \
+    "a spaced ROWS value is one quoted sh: target; a clean pushed issue branch is eligible for mutant-test without --patch (rc=$rc/$rc2)"
 
 # SLOT-32: the contract does not depend on the caller's environment: this whole test, run again with the
 # driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green and

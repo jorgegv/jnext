@@ -3192,6 +3192,26 @@ falls back to the full <code>make unit-test</code> when a changed file is in no 
 rule (it names the file). <code>make regression-rows ROWS="a-func b-func"</code> builds the
 binaries and runs just those rows, on the non-PGO Release build unless
 <code>ROWS_PGO=1</code>. <a href="../04-testing/01-the-test-triplet.html">4.1</a> says where each fits.</p>
+<p>A third runs a mutant. <code>make mutant-test SUITES=a,b [ROWS="row-x row-y"]</code> builds only the
+named suites (<code>cmake --build build --target ...</code>; with ROWS also the whole <code>build/</code>
+tree, the SDL binary and the tools, because rows execute an open set of helper
+programs) and runs only them, then the rows against <code>build/jnext</code>. Every name is
+checked first, with <code>run-unit-tests.sh --only &lt;list&gt; --check</code>, which makes the
+manifest's registry, gate, OS, duplicate and source checks without needing a
+binary: a typo, a suite the configuration gates out and a row no manifest declares
+are refused before anything is built. It runs no documentation, CLI or smoke
+checks. The last line says the verdict: <code>mutant-test: SURVIVED</code> (exit 0),
+<code>mutant-test: KILLED</code> (it stops at the first kill) or <code>mutant-test: NO VERDICT</code>
+after the harness's <code>TEST HARNESS REFUSES TO RUN</code> banner (a bad name, or a
+configure or build failure: a mutant that does not compile proves nothing). The
+script's statuses are 0, 1 and 2, but <code>make</code> reports any failed recipe as 2, so
+read the last line, not the status. A harness that is refused at run time or
+dies of a signal or a timeout is also <code>NO VERDICT</code>: it says nothing about the
+mutant. The rows run against <code>build/jnext</code> (RelWithDebInfo), not the Release
+build <code>make regression-rows</code> uses, so pair a killer row that is paced in real
+time with a no-op mutant as an anchor. <code>make unit-test-configure</code>
+configures or verifies <code>build/</code> without building it; <code>make unit-test-build</code> runs it
+first.</p>
 <p>Two more targets run the SDL-only suites on other operating systems.
 <code>make unit-test-sdl</code> also works on macOS, where the test harness needs Homebrew's
 <code>bash</code>, <code>coreutils</code> and <code>grep</code> (<code>brew install bash coreutils grep</code>; the target
