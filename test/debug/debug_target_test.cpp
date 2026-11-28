@@ -1572,7 +1572,8 @@ static void tgt05_rows() {
 static std::vector<uint8_t> t7_bank(int bank) {
     std::vector<uint8_t> v(16384);
     for (size_t i = 0; i < v.size(); ++i)
-        v[i] = static_cast<uint8_t>((i * 7u + static_cast<unsigned>(bank) * 13u + 1u) & 0xFF);
+        // The two 8 KB halves differ (i >> 13), so a half taken from the wrong place cannot match.
+        v[i] = static_cast<uint8_t>((i * 7u + (i >> 8) * 3u + (i >> 13) * 29u + static_cast<unsigned>(bank) * 13u + 1u) & 0xFF);
     return v;
 }
 
