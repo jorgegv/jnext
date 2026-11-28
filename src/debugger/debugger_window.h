@@ -200,6 +200,10 @@ private:
     void refresh_capabilities();
     bool placeholdered_(const QWidget* panel) const;
     void refresh_panels_content_();
+    /// Epic #486 R1.4: a window over a remote target names it in its title and a permanent status label (every
+    /// field through display_text()); a local window is left as it always was.
+    void update_target_banner_();
+    QLabel* target_label_ = nullptr;
     std::vector<Gated> gated_;
     jnext::dbggate::CapabilityView view_;
     bool view_applied_ = false;

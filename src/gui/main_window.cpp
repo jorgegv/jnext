@@ -519,7 +519,7 @@ void MainWindow::toggle_pause() {
     if (debugger_) {
         const bool paused = debugger_->state().paused;
 #ifdef ENABLE_DEBUGGER
-        if (debugger_mgr_ && debugger_mgr_->is_enabled()) {
+        if (debugger_mgr_ && debugger_mgr_->is_enabled() && !debugger_mgr_->showing_remote()) {
             // The window is open: the same verbs as its F5 / F9 keys, so the
             // corruption modal, the step-off and the pause-edge presentation
             // all apply.
@@ -3665,7 +3665,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         // Modifiers are matched EXACTLY now; this block used to switch on the
         // key alone, so Shift+F7 in this window triggered Step Over. It no
         // longer does, which is what lets Shift+F7 mean Step Back.
-        if (debugger_mgr_ && debugger_mgr_->is_enabled()) {
+        if (debugger_mgr_ && debugger_mgr_->is_enabled() && !debugger_mgr_->showing_remote()) {
             using namespace jnext::dbgkeys;
             const Combo pressed = combo_from_event(key, modifiers);
             const Keymap& km = debug_keys_;
@@ -3910,7 +3910,7 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
 #ifdef ENABLE_DEBUGGER
             // When the debugger is active F5/F6/F7/F8 belong to it — fall
             // through so the debugger's own release handling can run.
-            if (!(debugger_mgr_ && debugger_mgr_->is_enabled() &&
+            if (!(debugger_mgr_ && debugger_mgr_->is_enabled() && !debugger_mgr_->showing_remote() &&
                   (key == Qt::Key_F5 || key == Qt::Key_F6 ||
                    key == Qt::Key_F7 || key == Qt::Key_F8))) {
                 event->accept();
@@ -3922,7 +3922,7 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
 #endif
         }
 #ifdef ENABLE_DEBUGGER
-        if (debugger_mgr_ && debugger_mgr_->is_enabled()) {
+        if (debugger_mgr_ && debugger_mgr_->is_enabled() && !debugger_mgr_->showing_remote()) {
             if (key == Qt::Key_F5 || key == Qt::Key_F6 || key == Qt::Key_F7 ||
                 key == Qt::Key_F8 || key == Qt::Key_F9) {
                 event->accept();

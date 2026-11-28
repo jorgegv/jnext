@@ -38,4 +38,4 @@ struct MenuOperands {
 /// Memory, each with the target's reason as its tooltip (a refused subscription would do nothing).
 void add_operand_actions(QMenu& menu, QObject* ctx, const MenuOperands& ops,
                          WatchPanel* watches, BreakpointModel* bps,
-                         const jnext::dbggate::CapabilityView& caps = jnext::dbggate::CapabilityView());
+                         const jnext::dbggate::CapabilityView& caps);

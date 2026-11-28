@@ -30,6 +30,8 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/saveable.h"
+#include "gui/main_window.h"
 #include "debug/debug_keymap.h"
 #include "debug/debug_state.h"
 #include "debug/debugger.h"
@@ -69,8 +71,10 @@
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QPushButton>
 #include <QSlider>
 #include <QStandardItemModel>
@@ -176,11 +180,14 @@ struct LocalFix {
     DebuggerManager* mgr = nullptr;
     bool ok = false;
 
-    LocalFix() {
+    explicit LocalFix(bool open_debugger = true) {
         EmulatorConfig cfg;
         cfg.type = MachineType::ZX48K;
         if (!emu.init(cfg)) return;
         for (uint16_t i = 0; i < 64; ++i) emu.mmu().write(static_cast<uint16_t>(PROG + i), 0x7E);   // LD A,(HL): one byte like a NOP, and an operand for the menus
+        emu.mmu().write(PROG + 64, 0xC3);   // JP PROG: a loop, so a running machine passes every address again
+        emu.mmu().write(PROG + 65, 0x00);
+        emu.mmu().write(PROG + 66, 0x80);
         Z80Registers r = emu.cpu().get_registers();
         r.PC = PROG; r.SP = 0xFF00; r.IFF1 = r.IFF2 = 0;
         emu.cpu().set_registers(r);
@@ -196,11 +203,13 @@ struct LocalFix {
         for (int i = 1; i <= 13; ++i) main_bas += "REM line " + std::to_string(i) + "\n";
         write_text(dir + "/main.bas", main_bas);
         backend->load_source_map(dir + "/prog.sld", false);
-        mgr->set_enabled(true);
-        QApplication::processEvents();
-        win_().show();
-        mgr->refresh_panels();
-        QApplication::processEvents();
+        if (open_debugger) {
+            mgr->set_enabled(true);
+            QApplication::processEvents();
+            win_().show();
+            mgr->refresh_panels();
+            QApplication::processEvents();
+        }
         backend_ptr = backend.get();
         ok = true;
     }
@@ -1256,6 +1265,427 @@ void test_review_a1() {
     (void)sp;
 }
 
+/// The named-symbol entry "Watch '<sym>' ($addr)": a symbol at the line's address, a real right-click, both views.
+void test_named_symbol() {
+    LocalFix fx;
+    if (!fx.ok) {
+        check("RTQ-76", "named Watch entry, Disassembly", false, "fixture failed");
+        check("RTQ-77", "named Watch entry, Source", false, "fixture failed");
+        return;
+    }
+    DebuggerWindow* w = fx.dbg();
+    DisasmPanel* d = w->disasm_panel();
+    // "line" is a word of the Source tab's text ("REM line 10"), so it is the symbol under the cursor there too
+    fx.backend->set_user_label(jnext::dbg::MemSpace::page(fx.backend->effective_page(PROG)), PROG, "line");
+    show_source(fx);
+    auto named = [&](const Popup& p, bool enabled, const QString& tip) {
+        const auto v = p.with_prefix(QStringLiteral("Watch 'line'"));
+        if (v.empty()) return false;
+        for (const auto* e : v)
+            if (e->enabled != enabled || (!enabled && e->tip != tip)) return false;
+        return true;
+    };
+    auto rows = [&](const std::function<Popup()>& open, std::string& detail) {
+        w->set_capability_view_for_test(std::nullopt);
+        const Popup full = open();
+        w->set_capability_view_for_test(view_without(Capability::Memory));
+        const Popup no_memory = open();
+        w->set_capability_view_for_test(view_without(Capability::Watchpoints));
+        const Popup no_watch = open();
+        w->set_capability_view_for_test(std::nullopt);
+        const bool ok = full.seen && no_memory.seen && no_watch.seen && named(full, true, QString()) &&
+                        named(no_memory, false, tip_of(Capability::Memory)) && named(no_watch, true, QString());
+        if (!ok)
+            for (const Popup* p : {&full, &no_memory})
+                for (const auto& e : p->items) detail += s(e.text) + (e.enabled ? "+" : "-") + ";";
+        return ok;
+    };
+    {
+        d->show_address(PROG);
+        QApplication::processEvents();
+        int line = 0;
+        for (; line < 24; ++line) {
+            press_text_line(d, line);
+            if (d->selected_address() == PROG) break;
+        }
+        std::string detail;
+        const bool ok = rows([&]() { return right_click(d, QPoint(d->breakpoint_x() + 120, y_of(line))); }, detail);
+        check("RTQ-76", "Disassembly: the named Watch '<sym>' entry is greyed by Memory with the reason and enabled "
+                        "with the full view",
+              ok, detail);
+    }
+    {
+        QPlainTextEdit* ed = source_editor(w);
+        QTextBlock b = ed->document()->findBlockByNumber(9);
+        QTextCursor c(b);
+        c.setPosition(b.position() + 5);   // inside "line"
+        const QRect r = ed->cursorRect(c);
+        std::string detail;
+        const bool ok = rows([&]() { return right_click(ed->viewport(), QPoint(r.x(), r.center().y())); }, detail);
+        check("RTQ-77", "Source: the named Watch '<sym>' entry is greyed by Memory with the reason and enabled "
+                        "with the full view",
+              ok, detail);
+    }
+}
+
+// ── Stage B: retargeting (R1.4) ───────────────────────────────────────────
+
+/// A local machine, a fake target, and the manager that switches between them. The fake is declared first, so
+/// it is destroyed after the manager (and with it any session) goes.
+struct RFix {
+    jnext::dbg::FakeTarget fake;
+    LocalFix lf;
+    bool released = false;
+    bool window_gone_at_release = false;
+    QPointer<DebuggerWindow> remote_window;
+    explicit RFix(bool open_debugger = true) : lf(open_debugger) {
+        if (!lf.ok) return;
+        QObject::connect(lf.mgr, &DebuggerManager::remote_released, [this]() {
+            released = true;
+            window_gone_at_release = remote_window.isNull();
+        });
+    }
+    bool ok() const { return lf.ok; }
+    DebuggerWindow* rw() const {
+        return lf.mgr->remote_manager() ? lf.mgr->remote_manager()->debugger_window_ptr() : nullptr;
+    }
+    /// Let the deferred delete of a session run and its release be announced.
+    void settle() {
+        for (int i = 0; i < 50 && !(released && !lf.mgr->showing_remote()); ++i) {
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            QApplication::processEvents();
+        }
+    }
+    bool show() {
+        const bool r = lf.mgr->show_remote(fake);
+        if (r) remote_window = rw();
+        QApplication::processEvents();
+        return r;
+    }
+    /// Ticks, every gated verb, a full refresh of the local window: the "no access" check of the retarget.
+    int touches_after(int ticks) {
+        fake.clear();
+        fake.queries = 0;
+        for (int i = 0; i < ticks; ++i) {
+            lf.mgr->refresh_panels();
+            lf.mgr->check_breakpoint_hit();
+            QApplication::processEvents();
+        }
+        lf.mgr->on_run();
+        lf.mgr->on_pause();
+        lf.mgr->on_step_into();
+        lf.dbg()->refresh_panels();
+        return static_cast<int>(fake.calls.size()) + fake.queries;
+    }
+};
+
+/// Run `act` while a QMessageBox is answered with `button`; true when one was shown.
+bool with_message_box(QMessageBox::StandardButton button, const std::function<void()>& act) {
+    bool seen = false;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&]() {
+        auto* mb = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+        if (!mb) return;
+        seen = true;
+        if (QAbstractButton* b = mb->button(button)) b->click(); else mb->done(button);
+    });
+    timer.start(1);
+    act();
+    timer.stop();
+    return seen;
+}
+
+void test_retarget() {
+    // RTQ-100 / RTQ-101 / RTQ-102 / RTQ-105 / RTQ-106: the switch
+    {
+        RFix fx;
+        if (!fx.ok()) {
+            for (const char* id : {"RTQ-100", "RTQ-101", "RTQ-102", "RTQ-105", "RTQ-106"})
+                check(id, "retarget", false, "fixture failed");
+        } else {
+            DebuggerWindow* lw = fx.lf.dbg();
+            fx.lf.mgr->breakpoints().add(BreakpointModel::Execute, PROG + 5);
+            const bool was_paused = fx.lf.emu.debug_state().paused();
+            const uint16_t pc0 = fx.lf.emu.cpu().get_registers().PC;
+            const bool shown = fx.show();
+            DebuggerWindow* rw = fx.rw();
+            fx.fake.clear();
+            rw ? rw->refresh_panels() : void();
+            QApplication::processEvents();
+            QLabel* label = rw ? rw->findChild<QLabel*>(QStringLiteral("target_label")) : nullptr;
+            check("RTQ-100", "show_remote(): the remote window is shown with its title and status label, the local "
+                             "window hidden, the local machine's registers untouched by the refreshes",
+                  shown && rw && rw->isVisible() && !lw->isVisible() && fx.lf.mgr->showing_remote() &&
+                      rw->windowTitle() == QLatin1String("JNEXT Debugger - Remote: fake at test") && label &&
+                      label->text() == QLatin1String("Remote: fake 0 at test") &&
+                      fx.lf.emu.cpu().get_registers().PC == pc0,
+                  rw ? s(rw->windowTitle()) : std::string("no window"));
+            check("RTQ-101", "the remote window's panels read the fake target: registers, memory, MMU slots, "
+                             "NextREGs and sprites are asked of it",
+                  fx.fake.called("registers") && fx.fake.called("read") && fx.fake.called("mmu_slots") &&
+                      fx.fake.called("nextreg_read") && fx.fake.called("sprites"),
+                  "calls=" + std::to_string(fx.fake.calls.size()));
+            check("RTQ-102", "each window answers for its own facade: the remote window's view is of a Remote "
+                             "target, the hidden local window's is of the Local one",
+                  rw && rw->capability_view().info.kind == jnext::dbg::TargetKind::Remote &&
+                      lw->capability_view().info.kind == jnext::dbg::TargetKind::Local);
+            check("RTQ-105", "breakpoints are per target: the remote window's model is its own and starts empty "
+                             "while the local one keeps its breakpoint",
+                  fx.lf.mgr->remote_manager() &&
+                      &fx.lf.mgr->remote_manager()->breakpoints() != &fx.lf.mgr->breakpoints() &&
+                      fx.lf.mgr->remote_manager()->breakpoints().rows().empty() &&
+                      fx.lf.mgr->breakpoints().pc_exists(PROG + 5));
+            check("RTQ-106", "switching to a remote resumes a local machine the window had paused",
+                  was_paused && !fx.lf.emu.debug_state().paused());
+            fx.lf.mgr->show_local();
+            fx.settle();
+        }
+    }
+    // RTQ-103 / RTQ-104 / RTQ-112: back to the local window
+    {
+        RFix fx;
+        if (!fx.ok()) {
+            for (const char* id : {"RTQ-103", "RTQ-104", "RTQ-112"}) check(id, "retarget back", false, "fixture failed");
+        } else {
+            DebuggerWindow* lw = fx.lf.dbg();
+            lw->watch_panel()->add_watch(0x9000, "w1");
+            lw->disasm_panel()->show_address(0x8010);
+            QApplication::processEvents();
+            const uint16_t disasm_at = lw->disasm_panel()->selected_address();
+            put_on_show(lw, lw->callstack_panel());
+            fx.lf.tick();
+            const bool tracked_before = fx.lf.backend->call_stack_enabled();
+            fx.lf.mgr->breakpoints().add(BreakpointModel::Execute, PROG + 5);
+            fx.show();
+            const bool released_tracking = !fx.lf.backend->call_stack_enabled();
+            // the local machine runs during the remote session: it moves where no stamp has seen it
+            Z80Registers r = fx.lf.emu.cpu().get_registers();
+            r.PC = 0x8030;
+            fx.lf.emu.cpu().set_registers(r);
+            fx.lf.mgr->show_local();
+            fx.settle();
+            const bool back = lw->isVisible() && !fx.lf.mgr->showing_remote();
+            check("RTQ-112", "caches reset on the switch back: the local CPU panel shows the PC the machine has "
+                             "now, and the Call Stack request is made again",
+                  back && tracked_before && released_tracking && fx.lf.backend->call_stack_enabled() &&
+                      after(lw->cpu_panel(), QStringLiteral("PC: ")) == QLatin1String("8030"),
+                  "PC=" + s(after(lw->cpu_panel(), QStringLiteral("PC: "))));
+            check("RTQ-103", "show_local(): the local window is back with its own state (a watch, the "
+                             "Disassembly address) and the target sees nothing at all after remote_released()",
+                  back && fx.released && fx.window_gone_at_release && lw->watch_panel()->watch_count() == 1 &&
+                      lw->disasm_panel()->selected_address() == disasm_at && fx.touches_after(20) == 0,
+                  "touches=" + std::to_string(fx.touches_after(1)));
+            // RTQ-104: the local breakpoint stops the local machine again
+            fx.lf.emu.debug_state().resume();
+            Z80Registers r2 = fx.lf.emu.cpu().get_registers();
+            r2.PC = PROG;
+            fx.lf.emu.cpu().set_registers(r2);
+            for (int i = 0; i < 6 && !fx.lf.emu.debug_state().paused(); ++i) {
+                fx.lf.emu.run_frame();
+                fx.lf.mgr->check_breakpoint_hit();
+            }
+            check("RTQ-104", "a local breakpoint set before the remote session survives it and stops the local "
+                             "machine after the switch back",
+                  fx.lf.emu.debug_state().paused() && fx.lf.emu.cpu().get_registers().PC == PROG + 5,
+                  "PC=" + std::to_string(fx.lf.emu.cpu().get_registers().PC));
+        }
+    }
+    // RTQ-107: a corrupt local machine and a declined resume refuse the switch
+    {
+        RFix fx;
+        if (!fx.ok()) {
+            check("RTQ-107", "declined resume", false, "fixture failed");
+        } else {
+            const uint8_t garbage[4] = {0, 0, 0, 0};
+            StateReader rd(garbage, sizeof(garbage));
+            fx.lf.emu.load_state(rd);
+            const bool corrupt = !fx.lf.emu.last_state_error().empty();
+            fx.fake.clear();
+            bool switched = true;
+            const bool asked = with_message_box(QMessageBox::No, [&]() { switched = fx.show(); });
+            check("RTQ-107", "a corrupt local machine and a declined resume: show_remote() is refused, nothing is "
+                             "switched, the target is not touched",
+                  corrupt && asked && !switched && !fx.lf.mgr->showing_remote() && fx.lf.dbg()->isVisible() &&
+                      fx.fake.calls.empty(),
+                  "corrupt=" + std::to_string(corrupt) + " asked=" + std::to_string(asked));
+        }
+    }
+    // RTQ-108: closing the remote window
+    {
+        RFix fx;
+        if (!fx.ok()) {
+            check("RTQ-108", "closing the remote window", false, "fixture failed");
+        } else {
+            fx.show();
+            DebuggerWindow* rw = fx.rw();
+            if (rw) rw->close();
+            QApplication::processEvents();
+            fx.settle();
+            check("RTQ-108", "closing the remote window returns to local and closes the debugger; "
+                             "remote_released() comes after the window is gone and the target is not touched again",
+                  !fx.lf.mgr->showing_remote() && !fx.lf.mgr->is_enabled() && fx.released &&
+                      fx.window_gone_at_release && !fx.lf.dbg()->isVisible() && fx.touches_after(10) == 0);
+        }
+    }
+    // RTQ-109 / RTQ-110: show_local() from a remote-window action's own slot; a second show_remote()
+    {
+        RFix fx;
+        if (!fx.ok()) {
+            check("RTQ-109", "show_local from a slot", false, "fixture failed");
+            check("RTQ-110", "second show_remote", false, "fixture failed");
+        } else {
+            fx.show();
+            DebuggerManager* first = fx.lf.mgr->remote_manager();
+            const bool again = fx.lf.mgr->show_remote(fx.fake);
+            check("RTQ-110", "show_remote() while a remote is shown returns false and changes nothing",
+                  !again && fx.lf.mgr->remote_manager() == first && fx.lf.mgr->showing_remote());
+            QAction* act = fx.rw() ? fx.rw()->script_key_action(0) : nullptr;
+            if (act) QObject::connect(act, &QAction::triggered, [&]() { fx.lf.mgr->show_local(); });
+            if (act) act->trigger();   // show_local() runs inside the window's own action
+            QApplication::processEvents();
+            fx.settle();
+            check("RTQ-109", "show_local() from a remote-window action's own slot: no crash, the local window is "
+                             "shown, the session is released",
+                  act && !fx.lf.mgr->showing_remote() && fx.lf.dbg()->isVisible() && fx.released &&
+                      fx.touches_after(10) == 0);
+        }
+    }
+    // RTQ-111: with the debugger closed, show_remote() opens it on the remote
+    {
+        RFix fx(/*open_debugger=*/false);
+        if (!fx.ok()) {
+            check("RTQ-111", "closed debugger", false, "fixture failed");
+        } else {
+            const bool was_open = fx.lf.mgr->is_enabled();
+            const bool shown = fx.show();
+            check("RTQ-111", "show_remote() with the debugger closed opens it on the remote",
+                  !was_open && shown && fx.lf.mgr->is_enabled() && fx.rw() && fx.rw()->isVisible());
+            fx.lf.mgr->show_local();
+            fx.settle();
+        }
+    }
+    // RTQ-113: annotations of either session are asked about
+    {
+        RFix fx;
+        if (!fx.ok()) {
+            check("RTQ-113", "annotations", false, "fixture failed");
+        } else {
+            fx.show();
+            const bool clean = !fx.lf.mgr->annotations_unsaved();
+            fx.lf.backend->set_user_label(jnext::dbg::MemSpace::page(fx.lf.backend->effective_page(PROG)), PROG, "loc");
+            const bool local_unsaved = fx.lf.mgr->annotations_unsaved();
+            bool asked_local = false, cancelled_local = true;
+            asked_local = with_message_box(QMessageBox::Cancel, [&]() { cancelled_local = !fx.lf.mgr->confirm_discard_annotations(); });
+            fx.lf.backend->remove_user_label(jnext::dbg::MemSpace::page(fx.lf.backend->effective_page(PROG)), PROG);
+            DebuggerManager* rm = fx.lf.mgr->remote_manager();
+            const bool remote_labelled =
+                rm && rm->backend().set_user_label(jnext::dbg::MemSpace::page(0x20), 0x4000, "rloc") == jnext::dbg::Result::Ok;
+            const bool remote_unsaved = fx.lf.mgr->annotations_unsaved();
+            bool asked_remote = false, cancelled_remote = false;
+            asked_remote = with_message_box(QMessageBox::Cancel, [&]() { cancelled_remote = !fx.lf.mgr->confirm_discard_annotations(); });
+            check("RTQ-113", "unsaved local annotations, or unsaved ones of the remote session, are asked about by the "
+                             "quit question",
+                  clean && local_unsaved && asked_local && cancelled_local && remote_labelled && remote_unsaved &&
+                      asked_remote && cancelled_remote,
+                  "local=" + std::to_string(local_unsaved) + std::to_string(asked_local) + " remote=" +
+                      std::to_string(remote_labelled) + std::to_string(remote_unsaved) + std::to_string(asked_remote));
+        }
+    }
+    // RTQ-115: a hostile target name, link and version in the title and the status label
+    {
+        RFix fx;
+        if (!fx.ok()) {
+            check("RTQ-115", "hostile banner", false, "fixture failed");
+        } else {
+            fx.show();
+            DebuggerWindow* rw = fx.rw();
+            CapabilityView v;
+            v.info.kind = jnext::dbg::TargetKind::Remote;
+            v.info.name = std::string("<b>x\x01\n") + "\xe2\x80\xae" + "y" + std::string(10000, 'n');
+            v.info.version = "9\r\n9";
+            v.info.link = std::string(10000, 'l');
+            rw->set_capability_view_for_test(v);
+            const QString title = rw->windowTitle();
+            QLabel* label = rw->findChild<QLabel*>(QStringLiteral("target_label"));
+            auto clean_text = [](const QString& t) {
+                for (QChar c : t)
+                    if (c.unicode() < 0x20 || c.unicode() == 0x7F || c.unicode() == 0x202E) return false;
+                return true;
+            };
+            bool ok = label && label->textFormat() == Qt::PlainText && clean_text(title) && clean_text(label->text()) &&
+                      title.size() < 200 && label->text().size() < 200 && title.contains(QChar(0x2026));
+            CapabilityView e;
+            e.info.kind = jnext::dbg::TargetKind::Remote;
+            rw->set_capability_view_for_test(e);
+            ok = ok && rw->windowTitle() == QLatin1String("JNEXT Debugger - Remote: remote target") &&
+                 label->text() == QLatin1String("Remote: remote target");
+            rw->set_capability_view_for_test(std::nullopt);
+            check("RTQ-115", "a hostile target name, version and link are sanitised and capped in the title and the "
+                             "plain-text status label; empty ones fall back to words",
+                  ok, s(title));
+        }
+    }
+    // RTQ-114: the emulator window's Pause control and debugger keys with a remote shown
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        bool built = emu.init(cfg);
+        std::unique_ptr<jnext::dbg::Debugger> backend;
+        if (built) backend = std::make_unique<jnext::dbg::Debugger>(emu);
+        jnext::dbg::FakeTarget fake;
+        MainWindow win;
+        if (built) {
+            win.set_debugger(backend.get());
+            win.set_emulator(&emu);
+            QApplication::processEvents();
+        }
+        DebuggerManager* mgr = built ? win.debugger_manager() : nullptr;
+        if (!mgr) {
+            check("RTQ-114", "emulator window with a remote shown", false, "fixture failed");
+        } else {
+            mgr->set_enabled(true);
+            emu.debug_state().resume();
+            win.activateWindow();
+            const bool shown = mgr->show_remote(fake);
+            fake.clear();
+            auto key = [&](int k, bool down) {
+                QKeyEvent ev(down ? QEvent::KeyPress : QEvent::KeyRelease, k, Qt::NoModifier);
+                QApplication::sendEvent(&win, &ev);
+            };
+            // F5 (Run) and F7 (a step) belong to a debugger that is not the local one: neither reaches a verb
+            emu.debug_state().pause();
+            key(Qt::Key_F5, true);
+            key(Qt::Key_F5, false);
+            key(Qt::Key_F7, true);
+            key(Qt::Key_F7, false);
+            const bool still_paused = emu.debug_state().paused();
+            // the Pause key: the window's own pause client acts on the LOCAL machine
+            emu.debug_state().resume();
+            key(Qt::Key_Pause, true);
+            key(Qt::Key_Pause, false);
+            QApplication::processEvents();
+            const bool paused_locally = emu.debug_state().paused();
+            const int fake_calls = static_cast<int>(fake.calls.size());
+            mgr->show_local();
+            for (int i = 0; i < 50 && mgr->showing_remote(); ++i) QApplication::processEvents();
+            for (int i = 0; i < 20; ++i) {
+                QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+                QApplication::processEvents();
+            }
+            emu.debug_state().resume();
+            key(Qt::Key_Pause, true);
+            key(Qt::Key_Pause, false);
+            check("RTQ-114", "with a remote shown the emulator window's F5/F7 reach no verb and its Pause control "
+                             "pauses the local machine, the target untouched",
+                  shown && still_paused && paused_locally && fake_calls == 0 && !mgr->showing_remote(),
+                  "shown=" + std::to_string(shown) + " still=" + std::to_string(still_paused) +
+                      " paused=" + std::to_string(paused_locally) + " calls=" + std::to_string(fake_calls));
+        }
+        if (mgr) mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+    }
+}
+
 void test_dialogs() {
     LocalFix fx;
     if (!fx.ok) {
@@ -1662,6 +2092,8 @@ int main(int argc, char** argv) {
     test_parity();
     test_dialogs();
     test_review_a1();
+    test_named_symbol();
+    test_retarget();
     test_placeholders();
     test_compose();
     test_paths();

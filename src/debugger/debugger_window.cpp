@@ -2591,6 +2591,25 @@ void DebuggerWindow::refresh_capabilities() {
     if (memory_panel_) memory_panel_->set_capabilities(view_);
     if (breakpoint_panel_) breakpoint_panel_->set_capabilities(view_);
     if (callstack_panel_) callstack_panel_->set_capabilities(view_);
+    update_target_banner_();
     if (revealed) refresh_panels_content_();
     if (changed) emit panels_on_show_changed();   // the manager re-derives the data it asks for
+}
+
+void DebuggerWindow::update_target_banner_() {
+    const jnext::dbg::TargetInfo& info = view_.info;
+    if (info.kind != jnext::dbg::TargetKind::Remote) return;
+    QString name = jnext::dbggate::display_text(info.name, jnext::dbggate::kNameChars);
+    if (name.isEmpty()) name = QStringLiteral("remote target");
+    const QString version = jnext::dbggate::display_text(info.version, jnext::dbggate::kNameChars);
+    const QString link = jnext::dbggate::display_text(info.link, jnext::dbggate::kNameChars);
+    const QString at = link.isEmpty() ? QString() : QStringLiteral(" at ") + link;
+    setWindowTitle(QStringLiteral("JNEXT Debugger - Remote: ") + name + at);
+    if (!target_label_) {
+        target_label_ = new QLabel(this);
+        target_label_->setObjectName(QStringLiteral("target_label"));
+        target_label_->setTextFormat(Qt::PlainText);
+        statusBar()->addPermanentWidget(target_label_);
+    }
+    target_label_->setText(QStringLiteral("Remote: ") + name + (version.isEmpty() ? QString() : QStringLiteral(" ") + version) + at);
 }

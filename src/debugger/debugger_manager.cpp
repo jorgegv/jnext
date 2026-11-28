@@ -41,11 +41,12 @@ QString load_failure_reason(const std::string& why) {
 }  // namespace
 
 DebuggerManager::DebuggerManager(QMainWindow* main_window, jnext::dbg::Debugger& dbg,
-                                 QObject* parent)
+                                 QObject* parent, Role role)
     : QObject(parent)
     , main_window_(main_window)
     , dbg_(dbg)
 {
+    role_ = role;
     // Start with debugger DISABLED — no performance impact: no ARMING client
     // is attached until the window opens (attach_backend()). The breakpoints'
     // owner is attached now, for the manager's lifetime, and arms nothing
@@ -55,9 +56,11 @@ DebuggerManager::DebuggerManager(QMainWindow* main_window, jnext::dbg::Debugger&
     // Watch main window move/resize to keep debugger sticky.
     main_window_->installEventFilter(this);
 
-    // Find the "Debugger" action in the View menu (created by MainWindow).
+    // Find the "Debugger" action in the View menu (created by MainWindow). A session manager leaves it,
+    // and the toolbar, to the primary one.
     QMenuBar* bar = main_window_->menuBar();
     for (QAction* menu_action : bar->actions()) {
+        if (role_ == Role::Session) break;
         if (menu_action->menu()) {
             for (QAction* a : menu_action->menu()->actions()) {
                 if (a->text().contains("Debugger", Qt::CaseInsensitive) && a->isCheckable()) {
@@ -75,7 +78,7 @@ DebuggerManager::DebuggerManager(QMainWindow* main_window, jnext::dbg::Debugger&
         });
     }
 
-    create_debug_toolbar();
+    if (role_ == Role::Primary) create_debug_toolbar();
 }
 
 DebuggerManager::~DebuggerManager() {
@@ -232,43 +235,53 @@ void DebuggerManager::reposition_debugger_window() {
 // Enable / Disable
 // ---------------------------------------------------------------------------
 
+void DebuggerManager::open_window_() {
+    // Activate debug checks in the hot loop.
+    attach_backend();
+
+    // Create the debugger window lazily.
+    ensure_window();
+    // The listener is not installed while the window is closed, so a cold
+    // boot then was never pushed: counting starts when the window opens.
+    restart_tstate_count();
+    debugger_window_->show();
+    debugger_window_->raise();
+    debugger_window_->activateWindow();
+    apply_data_needs();   // GH #498: the window is on show now
+
+    // Position after show - some window managers ignore move() before show().
+    // Use a short timer to let the WM finish placing the window first.
+    debugger_window_->position_next_to(main_window_);
+    QTimer::singleShot(50, this, [this]() {
+        if (debugger_window_ && debugger_window_->isVisible())
+            debugger_window_->position_next_to(main_window_);
+    });
+
+    // Seed the panel paused state from the machine's. Deliberately NOT
+    // apply_pause_state(): a pause already in force gets the full
+    // pause-edge sequence from the next check_breakpoint_hit(), exactly as
+    // before (shown_paused_ is false while the window is closed).
+    set_panels_paused(dbg_.state().paused);
+
+    // Refresh panels immediately.
+    last_stamp_valid_ = false;
+    refresh_window();
+    qApp->installEventFilter(this);   // GH #428: the input epoch
+}
+
 bool DebuggerManager::set_enabled(bool enabled, bool prompt_on_corrupt) {
     if (enabled_ == enabled)
         return true;   // already in the requested state
 
+    // Epic #486 R1.4: closing (or quitting with) a remote shown ends its session first; the local debugger
+    // is then disabled as below. Opening while a remote is shown shows it again.
+    if (!enabled && remote_mgr_) end_remote_(false, /*disable_local=*/false);
+    if (enabled && remote_mgr_) return true;
+
     enabled_ = enabled;
 
     if (enabled) {
-        // Activate debug checks in the hot loop.
-        attach_backend();
-
-        // Create the debugger window lazily.
-        ensure_window();
-        // The listener is not installed while the window is closed, so a cold
-        // boot then was never pushed: counting starts when the window opens.
-        restart_tstate_count();
-        debugger_window_->show();
-        debugger_window_->raise();
-        debugger_window_->activateWindow();
-        apply_data_needs();   // GH #498: the window is on show now
-
-        // Position after show — some window managers ignore move() before show().
-        // Use a short timer to let the WM finish placing the window first.
-        debugger_window_->position_next_to(main_window_);
-        QTimer::singleShot(50, this, [this]() {
-            if (debugger_window_ && debugger_window_->isVisible())
-                debugger_window_->position_next_to(main_window_);
-        });
-
-        // Seed the panel paused state from the machine's. Deliberately NOT
-        // apply_pause_state(): a pause already in force gets the full
-        // pause-edge sequence from the next check_breakpoint_hit(), exactly as
-        // before (shown_paused_ is false while the window is closed).
-        set_panels_paused(dbg_.state().paused);
-
-        // Refresh panels immediately.
-        refresh_window();
-        qApp->installEventFilter(this);   // GH #428: the input epoch
+        open_window_();
     } else {
         // Resume if paused, then deactivate.
         if (dbg_.state().paused) {
@@ -334,6 +347,7 @@ bool DebuggerManager::set_enabled(bool enabled, bool prompt_on_corrupt) {
 
 void DebuggerManager::set_keymap(const jnext::dbgkeys::Keymap& km) {
     keymap_ = km;
+    if (remote_mgr_) remote_mgr_->set_keymap(km);
     if (debugger_window_)
         debugger_window_->set_keymap(km);
 }
@@ -363,11 +377,13 @@ void DebuggerManager::push_source_dirs(bool log) {
 void DebuggerManager::set_source_dirs(const QStringList& configured) {
     const QStringList before = source_dirs();
     configured_source_dirs_ = configured;
+    if (remote_mgr_) remote_mgr_->set_source_dirs(configured);
     if (source_dirs() != before) push_source_dirs(true);
 }
 
 void DebuggerManager::set_source_scheme(SourceScheme scheme) {
     source_scheme_ = scheme;
+    if (remote_mgr_) remote_mgr_->set_source_scheme(scheme);
     if (debugger_window_ && debugger_window_->source_panel())
         debugger_window_->source_panel()->set_colour_scheme(scheme);
 }
@@ -376,6 +392,116 @@ void DebuggerManager::on_source_dir_located(const QString& dir) {
     if (dir.isEmpty() || located_source_dirs_.contains(dir)) return;
     located_source_dirs_ << dir;
     push_source_dirs(true);
+}
+
+// ---------------------------------------------------------------------------
+// Epic #486 R1.4: one session per facade, one window per session, one shown
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// Everything a remote session holds, destroyed in the order that keeps each user of the facade ahead of
+/// it: the window, then the manager (its breakpoint model), then the facade. It is deleted with
+/// deleteLater(), so ending a session from the window's own slot is safe, and it announces
+/// remote_released() last, when nothing can reach the target any more.
+class RemoteSession : public QObject {
+public:
+    RemoteSession(DebuggerManager* owner, jnext::dbg::Target& target, QMainWindow* main_window)
+        : QObject(owner), owner_(owner), facade_(std::make_unique<jnext::dbg::Debugger>(target)) {
+        mgr_ = new DebuggerManager(main_window, *facade_, this, DebuggerManager::Role::Session);
+    }
+    ~RemoteSession() override {
+        if (mgr_) {
+            delete mgr_->debugger_window_ptr();   // before the manager that owns its model, and the facade
+            delete mgr_;
+        }
+        facade_.reset();
+        if (owner_) emit owner_->remote_released();
+    }
+    DebuggerManager* manager() const { return mgr_; }
+
+private:
+    QPointer<DebuggerManager> owner_;
+    std::unique_ptr<jnext::dbg::Debugger> facade_;
+    DebuggerManager* mgr_ = nullptr;
+};
+
+}  // namespace
+
+bool DebuggerManager::show_remote(jnext::dbg::Target& target) {
+    if (remote_mgr_ || switching_ || role_ != Role::Primary) return false;
+    switching_ = true;
+    struct Done { bool& f; ~Done() { f = false; } } done{switching_};
+
+    // The local machine is released: closing the local session, but for the window state it keeps.
+    const bool local_open = enabled_ && client_ != jnext::dbg::CLIENT_NONE;
+    if (local_open && dbg_.state().paused) {
+        if (!confirm_resume_if_corrupt()) return false;   // declined: nothing changes
+        dbg_.run(client_);
+        shown_paused_ = false;
+        emit resumed();
+    }
+
+    auto* session = new RemoteSession(this, target, main_window_);
+    DebuggerManager* mgr = session->manager();
+    mgr->set_keymap(keymap_);
+    mgr->set_source_dirs(configured_source_dirs_);
+    mgr->set_source_scheme(source_scheme_);
+    if (attach_override_) mgr->set_attach_override(*attach_override_);
+    if (physical_override_) mgr->set_physical_override(*physical_override_);
+    remote_session_ = session;
+    remote_mgr_ = mgr;
+    // Closing the remote window ends the session (queued: the window is inside its own closeEvent).
+    connect(mgr, &DebuggerManager::enabled_changed, this, [this, mgr](bool on) {
+        if (on || remote_mgr_ != mgr || switching_) return;
+        QTimer::singleShot(0, this, [this, mgr]() {
+            if (remote_mgr_ == mgr) end_remote_(false);
+        });
+    });
+
+    if (local_open) {
+        // the local window goes away, kept as it is (watches, history, Source tab file)
+        detach_backend();
+        if (debugger_window_) {
+            debugger_window_->save_position();
+            debugger_window_->hide();
+        }
+    }
+    if (!enabled_) {   // the debugger was closed: it opens, on the remote
+        enabled_ = true;
+        if (enable_action_) enable_action_->setChecked(true);
+        emit enabled_changed(true);
+    }
+    mgr->set_enabled(true);
+    emit target_changed(true);
+    return true;
+}
+
+void DebuggerManager::show_local() {
+    if (remote_mgr_) end_remote_(true);
+}
+
+void DebuggerManager::end_remote_(bool show_local_window, bool disable_local) {
+    if (!remote_mgr_ || switching_) return;
+    switching_ = true;
+    struct Done { bool& f; ~Done() { f = false; } } done{switching_};
+
+    DebuggerManager* mgr = remote_mgr_;
+    QObject* session = remote_session_;
+    remote_mgr_ = nullptr;     // the tick and every guard see the local machine from here on
+    remote_session_ = nullptr;
+    mgr->set_enabled(false, /*prompt_on_corrupt=*/false);   // detaches, hides its window
+    session->deleteLater();    // window, manager, facade, then remote_released()
+    emit target_changed(false);
+
+    if (show_local_window) {
+        // as set_enabled(true) opens the window: attach, show, seed, refresh the panels from the machine now
+        open_window_();
+        update_actions();
+    } else if (disable_local) {
+        // the remote window was closed: the debugger closes with it
+        set_enabled(false);
+    }
 }
 
 void DebuggerManager::ensure_window() {
@@ -918,7 +1044,9 @@ void DebuggerManager::on_load_breakpoints_script()
 
 bool DebuggerManager::confirm_discard_annotations()
 {
-    if (!annotations_unsaved()) return true;
+    // R1.4: the remote session's annotations are asked about too (its own file, its own Save)
+    if (remote_mgr_ && !remote_mgr_->confirm_discard_annotations()) return false;
+    if (dbg_.annotations_revision() == saved_revision_) return true;
     QMessageBox box(QMessageBox::Warning, QObject::tr("Unsaved Annotations"),
                     QObject::tr("The labels and comments have changed since they were last saved."),
                     QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, main_window_);
@@ -1137,6 +1265,10 @@ DebuggerManager::PausedStamp DebuggerManager::paused_stamp() const {
 }
 
 void DebuggerManager::refresh_panels() {
+    if (remote_mgr_) {   // R1.4: the tick belongs to the shown target
+        remote_mgr_->refresh_panels();
+        return;
+    }
     if (!enabled_ || !debugger_window_)
         return;
 
@@ -1183,6 +1315,10 @@ void DebuggerManager::refresh_panels() {
 }
 
 void DebuggerManager::check_breakpoint_hit() {
+    if (remote_mgr_) {   // R1.4: the local machine is released and unarmed while a remote is shown
+        remote_mgr_->check_breakpoint_hit();
+        return;
+    }
     // GH #278 WP4c — another client's breakpoint change, pushed in the pump
     // that just ran, reaches the Breakpoints panel and the gutter now: the
     // model's listener only recorded it (REQ-qt-15b).

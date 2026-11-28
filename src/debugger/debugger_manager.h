@@ -58,8 +58,11 @@ public:
     /// `Debugger` of that machine; the adapter never constructs its own, and
     /// reaches the machine through nothing else (GH #278 WP7). It must outlive
     /// the manager.
+    /// `Role::Session` is a second manager over a facade of another target (show_remote()): it makes no
+    /// toolbar and does not wire the View > Debugger action, which stay the primary manager's.
+    enum class Role { Primary, Session };
     DebuggerManager(QMainWindow* main_window, jnext::dbg::Debugger& dbg,
-                    QObject* parent = nullptr);
+                    QObject* parent = nullptr, Role role = Role::Primary);
     ~DebuggerManager() override;
 
     /// Is the debugger currently enabled (window visible, breakpoint checks active)?
@@ -138,7 +141,9 @@ public:
     void set_annotations_file(const QString& path);
     QString annotations_file() const { return annotations_file_; }
     /// The user's labels and comments differ from the file last opened or saved (D11).
-    bool annotations_unsaved() const { return dbg_.annotations_revision() != saved_revision_; }
+    bool annotations_unsaved() const {
+        return dbg_.annotations_revision() != saved_revision_ || (remote_mgr_ && remote_mgr_->annotations_unsaved());
+    }
     /// With unsaved annotations, ask Save / Discard / Cancel. True: go on (nothing unsaved, saved, or
     /// discarded); false: cancelled, or the save failed.
     bool confirm_discard_annotations();
@@ -168,6 +173,20 @@ public:
     /// own controls (rewind toolbar and menu, trace menu, action greying),
     /// which read it rather than the Emulator.
     jnext::dbg::Debugger& backend() const { return dbg_; }
+
+    /// Epic #486 R1.4 - show the debugger on another target: a session of its own (a facade over `target`, its
+    /// breakpoint model, its manager and window; nothing of the local window is rebound), the local
+    /// window hidden. The local machine is released first: a paused one is resumed through the corruption
+    /// gate (a declined resume refuses the switch) and the local client detaches, so it runs unarmed. False,
+    /// nothing changed, when a remote is already shown or a switch is under way. `target` must outlive the
+    /// session (until remote_released()). Opens the debugger when it was closed.
+    bool show_remote(jnext::dbg::Target& target);
+    /// End the remote session (its window is destroyed with deleteLater(), safe from its own slot) and show
+    /// the local window again, as set_enabled(true) does. A no-op without a remote.
+    void show_local();
+    bool showing_remote() const { return remote_mgr_ != nullptr; }
+    /// The remote session's manager (null without one), for the window and its rows.
+    DebuggerManager* remote_manager() const { return remote_mgr_; }
 
     /// GH #278 WP4c — the GUI's breakpoints, as backend subscriptions owned by
     /// the observer client. The Breakpoints panel, the disassembly and the
@@ -245,6 +264,10 @@ public slots:
     void reposition_debugger_window();
 
 signals:
+    /// The shown target changed: true = a remote, false = the local machine.
+    void target_changed(bool remote);
+    /// The remote session is gone (its window, manager and facade destroyed): its target may be freed.
+    void remote_released();
     /// The user answered Yes to saving a directory Locate File... added (GH #420);
     /// MainWindow appends it to the saved list.
     void source_dir_save_requested(const QString& dir);
@@ -259,6 +282,19 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
+    // Epic #486 R1.4: the one remote session, if any. `remote_session_` owns the facade, the session manager
+    // and its window; `remote_mgr_` is that manager.
+    QPointer<QObject> remote_session_;
+    QPointer<DebuggerManager> remote_mgr_;
+    bool switching_ = false;   ///< show_remote() / the end of a session is running: no re-entry
+    Role role_ = Role::Primary;
+    /// Leave the remote session. `show_local_window`: re-open the local window (show_local()); else the local
+    /// debugger is disabled as well (the remote window was closed) unless `disable_local` is false (the caller
+    /// is set_enabled(false) itself, which goes on to disable it).
+    void end_remote_(bool show_local_window, bool disable_local = true);
+    /// What set_enabled(true) does to open the window: attach, create, show, seed, refresh.
+    void open_window_();
+
     /// GH #389: the bodies of Map > Import / Export (`skoolkit` selects the format).
     void import_re_files(bool skoolkit);
     void export_re_files(bool skoolkit);
