@@ -1886,6 +1886,8 @@ static void tgt07_rows() {
         cfg.rewind_buffer_frames = 0;
         emu.init(cfg);
         const bool loaded = emulator_apply_load(emu, dir + "/prog.nex", false);
+        // A code byte changed first: with no section binaries nothing on the local machine looks at the NEX.
+        emu.mmu().write(0x8C92, static_cast<uint8_t>(emu.mmu().read(0x8C92) ^ 0xFF));
         bool attached = false;
         std::string no_bins_problem;
         {
@@ -1894,7 +1896,6 @@ static void tgt07_rows() {
             attached = no_bins.sources > 0 && no_bins.problem.empty();
             no_bins_problem = no_bins.problem;
         }
-        emu.mmu().write(0x8C92, static_cast<uint8_t>(emu.mmu().read(0x8C92) ^ 0xFF));
         Debugger d2(emu);
         const auto bins = d2.load_program_sidecars(src + "/prog.nex");
         fs::remove_all(dir);
