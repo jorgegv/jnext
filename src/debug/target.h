@@ -27,6 +27,12 @@
 // they implement them. Rule 1 of `debugger.h`'s banner holds here too: no
 // `Emulator`, so a remote `Target` can exist in a build that has none.
 //
+// CHEAP READS (epic #486, R2.1): `info()`, `capabilities()`, `why_unavailable()`,
+// `register_validity()`, `run_state()` and `take_stop()` are cheap, non-blocking reads
+// of state the target already holds: NO I/O. `Debugger::pump()` calls `run_state()` once
+// per serviced command, and a UI reads the identity queries on every repaint. Everything
+// else may talk to the machine (a remote target's reads and writes are round trips).
+//
 // The facade, not the target, owns argument validation, the local-only guards
 // and the attribution of every mutation; a target answers the machine action.
 // Every answer is untrusted input (a target may be a network peer): the facade
@@ -211,6 +217,27 @@ struct RegisterValidity {
 };
 
 // ---------------------------------------------------------------------------
+// TGT-05 - a stop a target reports
+// ---------------------------------------------------------------------------
+
+/// TGT-05 - a stop the target reports on its own (a remote's `NTF_PAUSE`), consumed by
+/// the facade's `pump()`. The target says WHAT stopped; the facade decides what it means
+/// (conditions, handlers, `once`, whether to resume at once).
+struct TargetStop {
+    enum class Why : uint8_t {
+        Manual = 0,   ///< the stop this facade's own `pause()` asked for
+        Breakpoint,   ///< an execute breakpoint, at `addr`
+        WatchRead,    ///< a watchpoint on a read; `addr` is the ACCESS address
+        WatchWrite,   ///< a watchpoint on a write; `addr` is the ACCESS address
+        Other         ///< anything else; `text` is the remote's own words
+    };
+    Why         why  = Why::Other;
+    uint16_t    addr = 0;           ///< the PC, or the ACCESS address of a watch stop
+    uint16_t    page = PAGE_ANY;    ///< the RAM page behind `addr`; PAGE_ANY = not known (a ROM slot)
+    std::string text;               ///< Other: the remote's own words
+};
+
+// ---------------------------------------------------------------------------
 // TGT-01 - the machine half of the facade
 // ---------------------------------------------------------------------------
 
@@ -269,6 +296,25 @@ public:
     virtual Result                  write_pattern_ram(uint16_t addr, const uint8_t* src, size_t n) = 0;
     virtual Expected<uint16_t>      sprite_palette_rgb333(int bank, uint8_t index) const = 0;
     virtual ClipWindow              sprite_clip() const = 0;
+
+    // ---- run control, breakpoints, watchpoints (TGT-05, epic #486 R2.2/R2.3) ----
+    // The local facade never calls these (its stop machinery is `DebugState`'s);
+    // `LocalTarget` answers `Unsupported` / false. A remote target maps them to its
+    // protocol's continue, pause and breakpoint commands.
+    /// Run the machine; no temporaries (a later sub-issue adds them).
+    virtual Result resume() = 0;
+    /// Ask a running machine to stop; its `TargetStop` arrives through `take_stop()`.
+    virtual Result pause() = 0;
+    /// The next pending stop, non-blocking and I/O free; false = none.
+    virtual bool   take_stop(TargetStop& out) = 0;
+    /// An execute breakpoint at `addr`, in RAM page `page` (`PAGE_ANY`: whatever is
+    /// mapped there). The handle names it for `remove_breakpoint()`.
+    virtual Expected<uint32_t> add_breakpoint(uint16_t addr, uint16_t page) = 0;
+    virtual Result             remove_breakpoint(uint32_t handle) = 0;
+    /// A watchpoint on `lo..hi` (inclusive), in RAM page `page` or `PAGE_ANY`.
+    virtual Expected<uint32_t> add_watchpoint(uint16_t lo, uint16_t hi, uint16_t page,
+                                              Access access) = 0;
+    virtual Result             remove_watchpoint(uint32_t handle) = 0;
 };
 
 }  // namespace dbg

@@ -4,6 +4,7 @@
 #include <cctype>
 
 #include "core/log.h"
+#include "remote/dzrp/dzrp_registers.h"
 #include "remote/dzrp/dzrp_session.h"
 #include "version.h"
 
@@ -57,34 +58,6 @@ void put16(std::vector<std::uint8_t>& out, std::uint16_t v) {
     out.push_back(static_cast<std::uint8_t>(v & 0xFF));
     out.push_back(static_cast<std::uint8_t>(v >> 8));
 }
-
-/// `CMD_SET_REGISTER`'s register numbers (spec: "0=PC, 1=SP, 2=AF, 3=BC, 4=DE,
-/// 5=HL, 6=IX, 7=IY, 8=AF', 9=BC', 10=DE', 11=HL', 13=IM, 14=F, 15=A, 16=C,
-/// 17=B, 18=E, 19=D, 20=L, 21=H, 22=IXL, 23=IXH, 24=IYL, 25=IYH, 26=F', 27=A',
-/// 28=C', 29=B', 30=E', 31=D', 32=L', 33=H', 34=R, 35=I") → the backend's
-/// `RegId`. VERIFIED equal to DeZog's own `Z80_REG` enum (`z80registers.ts:14-25`,
-/// 3.7.4 and upstream 3.8.0-rc7 alike), which is what DeZog sends. The one
-/// difference: DeZog names 12 `IR` (I<<8 | R) where the spec says 12 is unused;
-/// DeZog's register panes never offer IR for editing, so only the raw debug
-/// console (`-dbg cmd_set_register 12 …`) can send it, and it is refused as the
-/// spec's "unused" (design §2 row 4: unknown index → warn).
-constexpr int kNoReg = -1;
-constexpr int kRegMap[] = {
-    static_cast<int>(RegId::PC),  static_cast<int>(RegId::SP),  static_cast<int>(RegId::AF),
-    static_cast<int>(RegId::BC),  static_cast<int>(RegId::DE),  static_cast<int>(RegId::HL),
-    static_cast<int>(RegId::IX),  static_cast<int>(RegId::IY),  static_cast<int>(RegId::AF2),
-    static_cast<int>(RegId::BC2), static_cast<int>(RegId::DE2), static_cast<int>(RegId::HL2),
-    kNoReg,                       static_cast<int>(RegId::IM),  static_cast<int>(RegId::F),
-    static_cast<int>(RegId::A),   static_cast<int>(RegId::C),   static_cast<int>(RegId::B),
-    static_cast<int>(RegId::E),   static_cast<int>(RegId::D),   static_cast<int>(RegId::L),
-    static_cast<int>(RegId::H),   static_cast<int>(RegId::IXL), static_cast<int>(RegId::IXH),
-    static_cast<int>(RegId::IYL), static_cast<int>(RegId::IYH), static_cast<int>(RegId::F2),
-    static_cast<int>(RegId::A2),  static_cast<int>(RegId::C2),  static_cast<int>(RegId::B2),
-    static_cast<int>(RegId::E2),  static_cast<int>(RegId::D2),  static_cast<int>(RegId::L2),
-    static_cast<int>(RegId::H2),  static_cast<int>(RegId::R),   static_cast<int>(RegId::I),
-};
-constexpr std::size_t kRegMapSize = sizeof(kRegMap) / sizeof(kRegMap[0]);
-static_assert(kRegMapSize == 36, "DZRP register numbers run 0..35");
 
 /// Why a command the table does not serve is unsupported, where the design
 /// says more than "unsupported" (§2 rows 13, 14, 22).
@@ -573,8 +546,8 @@ void DzrpServer::cmd_get_registers(const Command& cmd) {
 void DzrpServer::cmd_set_register(const Command& cmd) {
     const std::uint8_t  index = cmd.payload[0];
     const std::uint16_t value = le16(cmd.payload, 1);
-    const int           reg   = index < kRegMapSize ? kRegMap[index] : kNoReg;
-    if (reg == kNoReg) {
+    const int           reg   = dzrp_reg_of(index);
+    if (reg == kDzrpNoReg) {
         Log::debugger()->warn("dzrp: CMD_SET_REGISTER with unknown register number {} - ignored",
                               index);
     } else if (const Result r = dbg_.set_register(cid_, static_cast<RegId>(reg), value);
