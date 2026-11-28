@@ -1894,7 +1894,7 @@ static void rsrc_rows_c() {
             (void)f.p.ref.dbg->load_program_sidecars(f.nex);
             mapped = f.p.ref.dbg->source_location(MemSpace::page(4), data_at) != nullptr;
         }
-        Fx f("sccz80-debug", false, {}, [data_at](Emulator& e) {
+        Fx f("sccz80-debug", false, {}, [](Emulator& e) {
             e.mmu().write(data_at, static_cast<uint8_t>(e.mmu().read(data_at) ^ 0xFF));
         });
         const auto r = f.p.remote->load_program_sidecars(f.nex);
