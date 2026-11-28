@@ -1685,7 +1685,11 @@ void test_retarget() {
                 if (a->text() == QStringLiteral("P&ause")) pause_action = a;
             if (pause_action) pause_action->trigger();
             QApplication::processEvents();
-            const bool paused_locally = emu.debug_state().paused();
+            // by the emulator window's OWN pause client: the debugger manager's path (a detached client) names none
+            const auto reason = backend->state().pause_reason;
+            const bool paused_locally = emu.debug_state().paused() &&
+                                        reason.kind == jnext::dbg::PauseReason::Kind::User &&
+                                        reason.by != jnext::dbg::CLIENT_NONE;
             const int fake_calls = fake.count("step_instruction") + fake.count("set_register") + fake.count("write");
             mgr->show_local();
             for (int i = 0; i < 50 && mgr->showing_remote(); ++i) QApplication::processEvents();
