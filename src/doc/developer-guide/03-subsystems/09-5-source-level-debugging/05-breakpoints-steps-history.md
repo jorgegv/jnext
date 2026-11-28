@@ -43,13 +43,13 @@ at the next stop that the backend caused (`Impl::apply_stop()`).
 
 ### On a target
 
-A facade over a target has no fetch prediction, so a start is armed only when it lives in a RAM
-page: the group member's `filter.space` is that `Page{p}` and the target holds the breakpoint
-under page `p` (DZRP's `bank+1`). A start in ROM or any other space is skipped, and a line with
-none left is `RefusedUnavailable`. The target's breakpoint stop carries the MMU page it found,
-which the facade turns into `Event::space = Page{page}`, so the same `Execute` predicate decides
-the match; a stop in another page, or with no known page, matches no page-qualified member and
-the machine is resumed.
+A facade over a target takes a line's starts as they are: every start is a `Page{p}` (a loader
+puts nothing else into a map there), so the group member's `filter.space` is that page and the
+target holds the breakpoint under page `p` (DZRP's `bank+1`). A target that refuses every member
+refuses the verb, and the group leaves nothing behind; one without execute breakpoints answers
+`Unsupported`. The target's breakpoint stop carries the MMU page it found, which the facade turns
+into `Event::space = Page{page}`, so the same `Execute` predicate decides the match; a stop in
+another page, or with no known page, matches no page-qualified member and the machine is resumed.
 
 ### One predicate
 

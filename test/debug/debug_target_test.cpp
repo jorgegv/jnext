@@ -32,7 +32,6 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <map>
 #include <string>
 #include <vector>
@@ -1855,29 +1854,26 @@ static void tgt07_rows() {
         like.kind = jnext::dbg::EventKind::Execute;
         const auto g = m.d.subscribe_source_line(m.a, "x.asm:5", like);
         const bool both = g.status == Result::Ok && m.t.count("add_breakpoint") == 2 &&
-                          m.t.calls[0] == "add_breakpoint(32768,36)" && m.t.calls[1] == "add_breakpoint(40976,37)";
-        // A map whose only start is in page 240 (a page no target can name): refused, no call.
-        std::string map;
-        {
-            std::ifstream in(fix + "sdcc-banked-run/prog.map");
-            std::string line;
-            while (std::getline(in, line)) {
-                for (size_t at; (at = line.find("PAGE_20")) != std::string::npos;) line.replace(at, 7, "PAGE_240");
-                map += line + "\n";
-            }
-        }
-        write_file(dir + "/z.map", map);
-        std::filesystem::copy_file(fix + "sdcc-banked-run/banked.c.lis", dir + "/banked.c.lis");
-        Remote z;
-        const auto lz = z.d.load_source_map(dir + "/z.map", true, false, false);
-        z.t.clear();
-        const auto g2 = z.d.subscribe_source_line(z.a, "banked.c:5", like);
+                          m.t.calls[0] == "add_breakpoint(32768,36)" && m.t.calls[1] == "add_breakpoint(40976,37)" &&
+                          m.d.subscriptions(true).size() == 2;
+        // The target refuses every breakpoint: the group is refused whole and nothing is left in the table.
+        Remote r;
+        (void)r.d.load_source_map(dir + "/a.sld", true, false, false);
+        r.t.add_bp_status = Result::RefusedUnavailable;
+        const auto g2 = r.d.subscribe_source_line(r.a, "x.asm:5", like);
+        // A target with no execute breakpoints: Unsupported, no call.
+        Remote u;
+        (void)u.d.load_source_map(dir + "/a.sld", true, false, false);
+        u.t.caps = all_but({jnext::dbg::Capability::ExecuteBreakpoints});
+        u.t.clear();
+        const auto g3 = u.d.subscribe_source_line(u.a, "x.asm:5", like);
         fs::remove_all(dir);
-        check("TGT-07-12", "a source line on a target arms each start in a RAM page, page-qualified; a line whose only start is in "
-                           "a page no target can name (240) is RefusedUnavailable with no call",
-              la.count == 2 && both && lz.count > 0 && g2.status == Result::RefusedUnavailable && z.t.calls.empty(),
-              "la=" + std::to_string(la.count) + " calls=" + std::to_string(m.t.calls.size()) + " lz=" +
-                  std::to_string(lz.count) + " " + lz.error + " g2=" + std::to_string(static_cast<int>(g2.status)));
+        check("TGT-07-12", "a source line on a target arms each start, page-qualified; a target that refuses them refuses the group "
+                           "whole and leaves no entry; one with no execute breakpoints is Unsupported with no call",
+              la.count == 2 && both && g2.status == Result::RefusedUnavailable && r.d.subscriptions(true).empty() &&
+                  g3.status == Result::Unsupported && u.t.calls.empty(),
+              "la=" + std::to_string(la.count) + " calls=" + std::to_string(m.t.calls.size()) + " g2=" +
+                  std::to_string(static_cast<int>(g2.status)) + " g3=" + std::to_string(static_cast<int>(g3.status)));
     }
     {   // TGT-07-13
         namespace dbgns = jnext::dbg;

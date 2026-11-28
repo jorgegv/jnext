@@ -491,9 +491,9 @@ RAM have no DZRP name), `Mem` page sets, a page outside 0 to 223, an inverted ra
 stop in a known page carries `Page{page}` as the event's space, so a page-qualified filter
 matches it.
 
-`subscribe_source_line()` works on a target the same way: each start in a RAM page becomes a
-page-qualified `Execute`; a start anywhere else (a ROM line) is skipped, and a line with no start
-left, or none the target accepts, is `RefusedUnavailable` with no entry left behind.
+`subscribe_source_line()` works on a target the same way: each start becomes a page-qualified
+`Execute`, and a group the target refuses whole (every member) is `RefusedUnavailable` with no
+entry left behind.
 
 `load_program_sidecars()` and `load_source_map()` run on a non-local facade too, with one more
 rule: the program on the target is judged against the sources (see

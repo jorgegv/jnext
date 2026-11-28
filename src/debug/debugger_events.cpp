@@ -241,16 +241,8 @@ Expected<GroupId> Debugger::subscribe_source_line(ClientId by, const std::string
     const SourceResolution r = source_map().resolve(file_line);
     if (r.starts.empty()) return make_refused<GroupId>(Result::RefusedUnavailable);
 
-    // A target holds a breakpoint in a RAM page or at a CPU address; a start in ROM (or any
-    // other space) has neither identity there, so it is not armed. Nothing left: refused.
-    std::vector<SourceAddress> starts;
-    for (const SourceAddress& s : r.starts)
-        if (impl_->emu || (s.space.kind == MemSpace::Kind::Page && s.space.index <= 223))
-            starts.push_back(s);
-    if (starts.empty()) return make_refused<GroupId>(Result::RefusedUnavailable);
-
     const GroupId group = impl_->next_group_id++;
-    for (const SourceAddress& s : starts) {
+    for (const SourceAddress& s : r.starts) {
         Subscription m = like;
         m.filter.lo = m.filter.hi = s.address;
         m.filter.page  = PAGE_ANY;
@@ -260,7 +252,8 @@ Expected<GroupId> Debugger::subscribe_source_line(ClientId by, const std::string
     impl_->remote_last_fail = Result::Ok;
     impl_->gates_changed();
     if (!impl_->emu) {
-        // No member the target holds: the group is refused whole, as `subscribe()` does.
+        // No member the target holds (a space DZRP cannot name, a refusal): the group is
+        // refused whole and leaves nothing behind, as `subscribe()` does.
         bool armed = false;
         for (const auto& e : impl_->events.entries())
             if (!e.removed && e.group == group && e.live &&
