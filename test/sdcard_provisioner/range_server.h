@@ -124,8 +124,6 @@ public:
         }
     }
 
-    std::atomic<int> diag_accepted{0}, diag_req_eof{0};   // diag: GH #577b (connections accepted; client closed before its request)
-
 private:
     static void sleep_ms(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 
@@ -162,7 +160,6 @@ private:
                 continue;
             }
             conn_gen_ = release_gen_.load();
-            ++diag_accepted;   // diag: GH #577b
             serve(c);
             esp::net::close(c);
             deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
@@ -215,7 +212,6 @@ private:
             std::string err;
             const std::size_t n = esp::net::recv(c, buf, sizeof(buf), true, eof, failed, reset, err);
             req.append(reinterpret_cast<char*>(buf), n);
-            if (eof || failed) ++diag_req_eof;   // diag: GH #577b
             if (eof || failed || std::chrono::steady_clock::now() > deadline) return;
             if (n == 0) sleep_ms(1);
         }
