@@ -4019,9 +4019,19 @@ clear, a detach). The target holds one breakpoint or watchpoint per distinct key
 page, or range, page and access), however many subscriptions share it, and holds none for a
 disabled entry. A full 64 KB <code>Mem</code> watch is two target watches under one key, a remote
 watch size being 16 bits. <code>subscribe()</code> refuses what a target cannot hold before any
-target call: an <code>Execute</code> range or space, <code>Mem</code> page sets, a page outside 0 to 223, an
-inverted range (<code>RefusedUnavailable</code>), and an entry the target then refuses is never left in the
-table.</p>
+target call: an <code>Execute</code> range or a space that is not <code>cpu()</code> or a RAM <code>Page{p}</code> (ROM and DivMMC
+RAM have no DZRP name), <code>Mem</code> page sets, a page outside 0 to 223, an inverted range
+(<code>RefusedUnavailable</code>), and an entry the target then refuses is never left in the table. An
+<code>Execute</code> entry in <code>Page{p}</code> is held under page <code>p</code> (DZRP's <code>bank+1</code>), and a reported breakpoint
+stop in a known page carries <code>Page{page}</code> as the event's space, so a page-qualified filter
+matches it.</p>
+<p><code>subscribe_source_line()</code> works on a target the same way: each start becomes a page-qualified
+<code>Execute</code>, and a group the target refuses whole (every member) is <code>RefusedUnavailable</code> with no
+entry left behind.</p>
+<p><code>load_program_sidecars()</code> and <code>load_source_map()</code> run on a non-local facade too, with one more
+rule: the program on the target is judged against the sources (see
+<a href="09-5-source-level-debugging/06-lifetime.html">3.9.5.6</a>), never pending, and a target with no
+registers (no program loaded, a lost link) gets nothing loaded and nothing read.</p>
 <p>A stop the target reports (<code>TargetStop</code>: manual, breakpoint, watch read or write, other with
 the remote's text) goes through <code>deliver_to_subscribers()</code>, the code a local stop uses, so
 conditions, handlers, <code>once</code>, <code>Log</code> and the hit list are the same. The remote has already

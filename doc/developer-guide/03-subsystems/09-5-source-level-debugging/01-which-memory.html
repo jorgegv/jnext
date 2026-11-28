@@ -1450,6 +1450,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#on-a-target-there-is-no-prediction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        On a target there is no prediction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-kinds" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3148,6 +3159,12 @@ the role.</p>
 instruction and goes into the trace and the call frames; the prediction is
 asked before one and feeds every lookup. The Execute filter has one predicate,
 used in three places.</em></p>
+<h2 id="on-a-target-there-is-no-prediction">On a target there is no prediction<a class="headerlink" href="#on-a-target-there-is-no-prediction" title="Permanent link">&para;</a></h2>
+<p>A facade over a remote target shows only the MMU: <code>source_page(addr)</code> is the slot's <code>Page{p}</code> for a
+RAM slot and <code>cpu()</code> for a ROM slot, and <code>effective_page()</code> is the slot's page. Overlays (DivMMC,
+Multiface, Layer 2, the alternate ROM) are invisible, so with one mapped the lookup uses the page
+or ROM underneath, and <code>why_unavailable(FetchOverlays)</code> says so. The Disassembly's identity label
+is therefore the MMU's.</p>
 <h2 id="the-kinds">The kinds<a class="headerlink" href="#the-kinds" title="Permanent link">&para;</a></h2>
 <p>A <code>MemSpace</code> is a <code>Kind</code> and a 16-bit <code>index</code>. Equality is by <strong>decode path</strong>,
 not by physical store: <code>Layer2{p}</code> and <code>Page{p}</code> share external SRAM for every

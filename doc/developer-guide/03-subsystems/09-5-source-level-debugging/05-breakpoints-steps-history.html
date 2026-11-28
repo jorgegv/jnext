@@ -1843,6 +1843,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#on-a-target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        On a target
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#one-predicate" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3189,6 +3200,14 @@ anything, so a refusal leaves a running machine running; then it builds a
 <code>run_to_subscribed()</code> and <code>arm_target(RunTo, by, starts.front().address, ...)</code>,
 remembering every start in <code>armed_targets</code>. A transient subscription is removed
 at the next stop that the backend caused (<code>Impl::apply_stop()</code>).</p>
+<h3 id="on-a-target">On a target<a class="headerlink" href="#on-a-target" title="Permanent link">&para;</a></h3>
+<p>A facade over a target takes a line's starts as they are: every start is a <code>Page{p}</code> (a loader
+puts nothing else into a map there), so the group member's <code>filter.space</code> is that page and the
+target holds the breakpoint under page <code>p</code> (DZRP's <code>bank+1</code>). A target that refuses every member
+refuses the verb, and the group leaves nothing behind; one without execute breakpoints answers
+<code>Unsupported</code>. The target's breakpoint stop carries the MMU page it found, which the facade turns
+into <code>Event::space = Page{page}</code>, so the same <code>Execute</code> predicate decides the match; a stop in
+another page, or with no known page, matches no page-qualified member and the machine is resumed.</p>
 <h3 id="one-predicate">One predicate<a class="headerlink" href="#one-predicate" title="Permanent link">&para;</a></h3>
 <p>All of this relies on a single decision about whether an <code>Execute</code> event matches
 a filter, <code>EventFilter::matches(ev)</code> (<code>event_table.cpp</code>: kind, range, legacy

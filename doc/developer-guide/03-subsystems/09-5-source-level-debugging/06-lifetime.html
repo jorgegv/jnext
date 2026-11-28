@@ -1925,6 +1925,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#on-a-target-the-build-match" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        On a target: the build match
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-the-backend-cannot-see" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3366,6 +3377,31 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
 <li><strong>Where it shows.</strong> <code>SourceMapStatus::dot</code> (<code>debugger.h:1336</code>, set at <code>SourceMapStatus::dot</code>, <code>debugger_source.cpp:619</code>) tells the Source tab to word its pending note
   <em>...when the dot command runs</em> (<a href="07-frontends.html">3.9.5.7</a>).</li>
 </ul>
+<h2 id="on-a-target-the-build-match">On a target: the build match<a class="headerlink" href="#on-a-target-the-build-match" title="Permanent link">&para;</a></h2>
+<p>A facade over a target has no landings and no first execution to wait for, so
+<code>load_program_sidecars()</code> and <code>load_source_map()</code> judge the program where it stands, at the call
+(<code>Impl::remote_identity()</code>, reached through <code>verify_identity()</code>), and a tape program or a
+<code>verify_at_first_execution</code> map is never pending. A dot command's map is refused: it runs from
+DivMMC RAM, which a target does not show.</p>
+<ul>
+<li><strong>No registers, no judgement.</strong> When the target reports no <code>Core</code> registers (no program loaded, a
+  lost link) both calls load nothing, read nothing and say why (<code>SidecarLoad::problem</code>,
+  <code>SourceMapLoad::error</code>): the slots then are not the program's. The caller loads again once there
+  is state; an upload does.</li>
+<li><strong>What is compared.</strong> The program file named by the last sidecar load when it is a NEX, read
+  afresh at every judgement, and the map's own binary identity (section binaries, SHA-256). Of the
+  map only its <strong>code</strong> ranges count (<code>SourceMap::code_spans()</code>: z88dk data, bss and smc sections are
+  skipped, a running program writes them), clipped at their 8 KB slot. NEX bank <code>b</code> holds pages
+  <code>2b</code> and <code>2b+1</code> (<code>NexLoader::bank_data()</code>).</li>
+<li><strong>How it is read.</strong> With <code>PhysicalMemory</code>, each page holding code is read once, whatever the
+  slots map. Without it, a page is read through the CPU view in the first slot that shows it, and a
+  page mapped nowhere is not read (a page is never paged in to be read).</li>
+<li><strong>The verdict.</strong> A byte read and different is a mismatch; a page the file lacks, a read that failed
+  or a space that is not a page is <em>not compared</em>, with a note. Any mismatch refuses the map whole,
+  symbols included, naming the first difference (<code>P14+$0000: target $xx, prog.nex $yy</code>); a user's
+  map is made stale the same way. Confirming is the hand load with <code>accept_identity_mismatch</code>. A
+  program that loads other code after the call is not judged again.</li>
+</ul>
 <h2 id="what-the-backend-cannot-see">What the backend cannot see<a class="headerlink" href="#what-the-backend-cannot-see" title="Permanent link">&para;</a></h2>
 <p>Only landings it is told about and loads that go through it. A program the guest
 loads itself (<code>LOAD ""</code>, the NextZXOS browser) is invisible, which is why its
@@ -3377,7 +3413,9 @@ known mismatch (<code>accept_identity_mismatch</code>).</p>
 <p><code>source_debug_test</code>: <code>SRCLIFE-*</code> (ring restores, the attachment cache and its
 eviction, state and snapshot landings, RZX start, the stale user map, rewind past a
 load, a rebuild), <code>SRCDBG-TAPE-*</code> (the verify window and the deferred checks, per
-memory) and <code>SRCDBG-OWN-*</code> (ownership). <code>source_debug_posix_test</code> holds the
+memory) and <code>SRCDBG-OWN-*</code> (ownership). <code>debug_target_test</code> (<code>TGT-07-*</code>, the build match over a fake target) and <code>remote_target_test</code>
+(<code>RSRC-*</code>, the fixtures over the wire against the local facade) cover a target's side.
+<code>source_debug_posix_test</code> holds the
 rows whose sidecars are POSIX file types (a looping link, a FIFO), which wine cannot
 create.</p>
 
