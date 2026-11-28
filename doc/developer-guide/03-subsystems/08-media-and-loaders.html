@@ -5109,7 +5109,7 @@ wakes every 10 ms and records each wake more than 20 ms late, and the rows subtr
 spans from each gap. A process frozen by the host delays every thread alike and is excused;
 a long wait the backend makes by itself does not delay the sentinel and is still caught.
 <code>PROV-STALL-12</code> pins the sentinel's arithmetic and <code>PROV-STALL-13</code> the server's hold
-counter and <code>release()</code>, <code>PROV-STALL-14</code> the server's observation of the client's close (the server sees only the close of a connection it is holding, so the row gives up only once the hold has begun, <code>holds_begun()</code>) and <code>PROV-STALL-15</code> that <code>download_step</code> decides without settling.</p>
+counter and <code>release()</code>, <code>PROV-STALL-14</code> the server's observation of the client's close (the server sees only the close of a connection it is holding, so the row gives up only once the hold has begun, <code>holds_begun()</code>, which the row also checks against a raw client that withholds the end of its request) and <code>PROV-STALL-15</code> that <code>download_step</code> decides without settling.</p>
 <p>What a failed fetch says is the callers' business, once. Every failure of
 a fetch is built by <code>sdcard::fetch_failure(what, url, reason, next)</code>: <code>&lt;what&gt;:
 &lt;reason&gt;</code>, then <code>URL: &lt;url&gt;</code> (exactly the string handed to the <code>DownloadFn</code>, one
