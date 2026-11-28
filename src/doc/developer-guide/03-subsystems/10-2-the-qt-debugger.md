@@ -222,9 +222,9 @@ moved; the greying of a paged label whose page is not what `source_page()` repor
 refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label (Show in Disassembly, Memory and Source are all disabled for one): the Disassembly and the
 Source tab show the CPU's map. Rows: `QSYML-*`.
 
-**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:1267`)
+**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:1273`)
 redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:460`: ~4 Hz). Paused, it
-redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:1256`; `PausedStamp`,
+redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:1262`; `PausedStamp`,
 `debugger_manager.h:315`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The Audio panel is the one
@@ -259,7 +259,7 @@ The stamp is:
 - a flag, `source_file_changed`: whether the loaded source file's modification time differs from the one
   loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:610`), so an edit on disk still shows.
 
-`refresh_window()` (`debugger_manager.cpp:1247`) takes the stamp after the redraw, because a panel may itself touch the backend and
+`refresh_window()` (`debugger_manager.cpp:1253`) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, `follow_pc()`) repaints the tab itself. `take_panel_refresh_count()` counts the
 redraws; the `ticks:` line reports it as `panel-refreshes=`. The emulator window's half of the same issue,
@@ -687,9 +687,12 @@ The debugger can be shown on a second target without rebinding anything. `Debugg
 `BreakpointModel` and its own `DebuggerWindow`. So every panel of a window holds the facade of its own
 target for the window's whole life, a window is never rebound, and breakpoints, annotations, the paused stamp
 and the attached client are per target by construction. The local window is hidden, not rebuilt: its watches,
-history and Source tab file are there when it comes back. Global settings (the keymap, the source search path
-and scheme, the attach and address overrides) are copied into a session when it starts and forwarded while it
-lasts; the script host and the emulator window's Reload Last File stay with the local manager.
+history and Source tab file are there when it comes back. Global settings are copied into a session when it starts: the keymap, the source search path and scheme are also
+forwarded while it lasts, the attach and address overrides (which MainWindow sets once, at start-up) are only copied. A
+directory the session's Source tab locates is handed back to the local manager, and the answer "keep it" reaches the
+same save as in the local window, so the search path survives the session. The script host and the emulator window's
+Reload Last File stay with the local manager. While a remote is shown, the manager's per-tick counters
+(`take_panel_refresh_count()` and the two audio ones) report the session's.
 
 Switching is the local debugger's close, for the machine: a paused local machine is resumed through the same
 corruption gate as closing the debugger (a declined resume refuses the switch, nothing changes) and the local client

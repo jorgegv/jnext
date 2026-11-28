@@ -473,6 +473,12 @@ bool DebuggerManager::show_remote(jnext::dbg::Target& target) {
         emit enabled_changed(true);
     }
     mgr->set_enabled(true);
+    // What the session's Source tab finds belongs to the user's global search path: a located directory is handed
+    // back to this manager (it outlives the session), and "keep it" reaches MainWindow's save through ours.
+    if (DebuggerWindow* rw = mgr->debugger_window_ptr())
+        if (SourcePanel* sp = rw->source_panel())
+            connect(sp, &SourcePanel::source_dir_located, this, &DebuggerManager::on_source_dir_located);
+    connect(mgr, &DebuggerManager::source_dir_save_requested, this, &DebuggerManager::source_dir_save_requested);
     emit target_changed(true);
     return true;
 }

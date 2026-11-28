@@ -92,7 +92,7 @@ public:
     /// (whatever the reason) since the last take. The `ticks:` debug line
     /// reports it; the paused-idle rows pin it at 0 for an idle machine.
     uint64_t take_panel_refresh_count() {
-        const uint64_t n = panel_refresh_count_;
+        const uint64_t n = panel_refresh_count_ + (remote_mgr_ ? remote_mgr_->take_panel_refresh_count() : 0);   // a shown session's ticks are the shown ones
         panel_refresh_count_ = 0;
         return n;
     }
@@ -101,7 +101,7 @@ public:
     /// last take: the Audio panel's per-frame refresh, counted apart from
     /// take_panel_refresh_count() (it is not a refresh_window() call).
     uint64_t take_audio_live_refresh_count() {
-        const uint64_t n = audio_live_refresh_count_;
+        const uint64_t n = audio_live_refresh_count_ + (remote_mgr_ ? remote_mgr_->take_audio_live_refresh_count() : 0);   // a shown session's ticks are the shown ones
         audio_live_refresh_count_ = 0;
         return n;
     }
@@ -109,7 +109,7 @@ public:
     /// GH #536 - calls of AudioPanel::refresh_scopes() made by refresh_panels() since the last take:
     /// the Scopes sub-tab's per-frame refresh, counted apart from the Chips one above.
     uint64_t take_audio_scope_refresh_count() {
-        const uint64_t n = audio_scope_refresh_count_;
+        const uint64_t n = audio_scope_refresh_count_ + (remote_mgr_ ? remote_mgr_->take_audio_scope_refresh_count() : 0);   // a shown session's ticks are the shown ones
         audio_scope_refresh_count_ = 0;
         return n;
     }

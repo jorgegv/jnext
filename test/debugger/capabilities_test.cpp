@@ -1712,6 +1712,121 @@ void test_retarget() {
     }
 }
 
+// ── Stage B round B2: the tick, the globals, the counters, the search path ───
+
+void test_retarget_b2() {
+    // RTQ-116: the primary's check_breakpoint_hit() reaches the session: a pause edge of the target is shown
+    {
+        RFix fx;
+        if (!fx.ok()) {
+            check("RTQ-116", "pause edge through the primary's tick", false, "fixture failed");
+        } else {
+            fx.fake.run.paused = false;
+            fx.show();
+            DebuggerWindow* rw = fx.rw();
+            const bool local_paused = fx.lf.emu.debug_state().paused();
+            const QString before = rw ? after(rw->cpu_panel(), QStringLiteral("PC: ")) : QString();
+            fx.fake.run.paused = true;
+            fx.fake.run.pc = 0x2222;
+            fx.fake.regs.PC = 0x2222;
+            fx.lf.mgr->check_breakpoint_hit();
+            QApplication::processEvents();
+            const QString shown = rw ? after(rw->cpu_panel(), QStringLiteral("PC: ")) : QString();
+            check("RTQ-116", "with a remote shown the primary's check_breakpoint_hit() reaches the session: the "
+                             "target's pause is shown in the remote window, the local window and machine untouched",
+                  rw && before != QLatin1String("2222") && shown == QLatin1String("2222") && !fx.lf.dbg()->isVisible() &&
+                      fx.lf.emu.debug_state().paused() == local_paused,
+                  "before=" + s(before) + " after=" + s(shown));
+            fx.lf.mgr->show_local();
+            fx.settle();
+        }
+    }
+    // RTQ-117 .. RTQ-122: each global handed to the session, copied in and forwarded live, one row per edit
+    {
+        jnext::dbgkeys::Keymap km;
+        jnext::dbgkeys::Combo c;
+        std::string why;
+        jnext::dbgkeys::parse_combo("F9", c, why);
+        km.set(jnext::dbgkeys::Action::StepBack, c);
+        jnext::dbgkeys::Keymap km2;
+        jnext::dbgkeys::parse_combo("F10", c, why);
+        km2.set(jnext::dbgkeys::Action::StepBack, c);
+        const QStringList dirs{QStringLiteral("/jnext-b2-a")};
+        const QStringList dirs2{QStringLiteral("/jnext-b2-a"), QStringLiteral("/jnext-b2-b")};
+        {   // copied in at show_remote()
+            RFix fx;
+            if (!fx.ok()) {
+                for (const char* id : {"RTQ-117", "RTQ-119", "RTQ-121"}) check(id, "global copied in", false, "fixture failed");
+            } else {
+                fx.lf.mgr->set_keymap(km);
+                fx.lf.mgr->set_source_dirs(dirs);
+                fx.lf.mgr->set_source_scheme(SourceScheme::Borland);
+                fx.show();
+                DebuggerManager* rm = fx.lf.mgr->remote_manager();
+                DebuggerWindow* rw = fx.rw();
+                check("RTQ-117", "the user's keymap set before show_remote() is the remote window's",
+                      rw && rw->keymap() == km);
+                check("RTQ-119", "the configured source directories set before show_remote() are the session's",
+                      rm && rm->source_dirs() == dirs, rm ? s(rm->source_dirs().join(",")) : std::string("none"));
+                check("RTQ-121", "the colour scheme set before show_remote() is the session's",
+                      rm && rm->source_scheme() == SourceScheme::Borland);
+                // forwarded while it lasts
+                fx.lf.mgr->set_keymap(km2);
+                fx.lf.mgr->set_source_dirs(dirs2);
+                fx.lf.mgr->set_source_scheme(SourceScheme::Dark);
+                check("RTQ-118", "a keymap rebind while the remote is shown reaches the remote window",
+                      rw && rw->keymap() == km2);
+                check("RTQ-120", "a change of the configured source directories while the remote is shown reaches the session",
+                      rm && rm->source_dirs() == dirs2, rm ? s(rm->source_dirs().join(",")) : std::string("none"));
+                check("RTQ-122", "a change of the colour scheme while the remote is shown reaches the session",
+                      rm && rm->source_scheme() == SourceScheme::Dark);
+                fx.lf.mgr->show_local();
+                fx.settle();
+            }
+        }
+    }
+    // RTQ-123: the per-tick counters follow the shown session
+    {
+        RFix fx;
+        if (!fx.ok()) {
+            check("RTQ-123", "ticks diagnostic", false, "fixture failed");
+        } else {
+            fx.show();
+            (void)fx.lf.mgr->take_panel_refresh_count();
+            fx.fake.regs.PC = 0x3333;
+            fx.lf.mgr->refresh_panels();
+            const uint64_t n = fx.lf.mgr->take_panel_refresh_count();
+            check("RTQ-123", "with a remote shown the primary's take_panel_refresh_count() counts the session's "
+                             "refreshes (the `ticks:` line keeps counting)",
+                  n > 0, "n=" + std::to_string(n));
+            fx.lf.mgr->show_local();
+            fx.settle();
+        }
+    }
+    // RTQ-124: a directory the remote window's Source tab locates reaches the primary, with its save
+    {
+        RFix fx;
+        if (!fx.ok()) {
+            check("RTQ-124", "located directory", false, "fixture failed");
+        } else {
+            fx.show();
+            DebuggerWindow* rw = fx.rw();
+            QString saved;
+            QObject::connect(fx.lf.mgr, &DebuggerManager::source_dir_save_requested, [&](const QString& d) { saved = d; });
+            const QString dir = QStringLiteral("/jnext-b2-located");
+            if (rw && rw->source_panel()) {
+                emit rw->source_panel()->source_dir_located(dir);
+                emit rw->source_panel()->source_dir_save_requested(dir);   // "Yes, keep it"
+            }
+            fx.lf.mgr->show_local();
+            fx.settle();
+            check("RTQ-124", "Locate File... in the remote window: the directory reaches the primary manager's save "
+                             "request and is still in its search path after show_local()",
+                  saved == dir && fx.lf.mgr->source_dirs().contains(dir), s(saved) + " | " + s(fx.lf.mgr->source_dirs().join(",")));
+        }
+    }
+}
+
 void test_dialogs() {
     LocalFix fx;
     if (!fx.ok) {
@@ -2120,6 +2235,7 @@ int main(int argc, char** argv) {
     test_review_a1();
     test_named_symbol();
     test_retarget();
+    test_retarget_b2();
     test_placeholders();
     test_compose();
     test_paths();

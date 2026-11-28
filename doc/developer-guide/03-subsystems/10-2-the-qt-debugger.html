@@ -3524,9 +3524,9 @@ bindable actions (<code>follow</code>, <code>go_back</code>, <code>go_forward</c
 moved; the greying of a paged label whose page is not what <code>source_page()</code> reports at its address is redone on every
 refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label (Show in Disassembly, Memory and Source are all disabled for one): the Disassembly and the
 Source tab show the CPU's map. Rows: <code>QSYML-*</code>.</p>
-<p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:1267</code>)
+<p><strong>Refresh cadence.</strong> Running, <code>DebuggerManager::refresh_panels()</code> (<code>debugger_manager.cpp:1273</code>)
 redraws the window on every <code>REFRESH_INTERVAL</code>-th tick (12, <code>REFRESH_INTERVAL</code>, <code>debugger_manager.h:460</code>: ~4 Hz). Paused, it
-redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:1256</code>; <code>PausedStamp</code>,
+redraws only when a <em>stamp</em> changed since the last redraw (<code>paused_stamp()</code>, <code>debugger_manager.cpp:1262</code>; <code>PausedStamp</code>,
 <code>debugger_manager.h:315</code>), and calls <code>update_actions()</code> on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The Audio panel is the one
@@ -3561,7 +3561,7 @@ The stamp is:</p>
 <li>a flag, <code>source_file_changed</code>: whether the loaded source file's modification time differs from the one
   loaded (<code>SourcePanel::file_changed_on_disk()</code>, <code>source_panel.cpp:610</code>), so an edit on disk still shows.</li>
 </ul>
-<p><code>refresh_window()</code> (<code>debugger_manager.cpp:1247</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
+<p><code>refresh_window()</code> (<code>debugger_manager.cpp:1253</code>) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, <code>follow_pc()</code>) repaints the tab itself. <code>take_panel_refresh_count()</code> counts the
 redraws; the <code>ticks:</code> line reports it as <code>panel-refreshes=</code>. The emulator window's half of the same issue,
@@ -3941,9 +3941,12 @@ of them; <code>debugger_capabilities_test</code> takes capabilities away through
 <code>BreakpointModel</code> and its own <code>DebuggerWindow</code>. So every panel of a window holds the facade of its own
 target for the window's whole life, a window is never rebound, and breakpoints, annotations, the paused stamp
 and the attached client are per target by construction. The local window is hidden, not rebuilt: its watches,
-history and Source tab file are there when it comes back. Global settings (the keymap, the source search path
-and scheme, the attach and address overrides) are copied into a session when it starts and forwarded while it
-lasts; the script host and the emulator window's Reload Last File stay with the local manager.</p>
+history and Source tab file are there when it comes back. Global settings are copied into a session when it starts: the keymap, the source search path and scheme are also
+forwarded while it lasts, the attach and address overrides (which MainWindow sets once, at start-up) are only copied. A
+directory the session's Source tab locates is handed back to the local manager, and the answer "keep it" reaches the
+same save as in the local window, so the search path survives the session. The script host and the emulator window's
+Reload Last File stay with the local manager. While a remote is shown, the manager's per-tick counters
+(<code>take_panel_refresh_count()</code> and the two audio ones) report the session's.</p>
 <p>Switching is the local debugger's close, for the machine: a paused local machine is resumed through the same
 corruption gate as closing the debugger (a declined resume refuses the switch, nothing changes) and the local client
 detaches, so the machine runs unarmed. Its breakpoints stay in its model and arm again when the local window
