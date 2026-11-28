@@ -16,8 +16,7 @@
 - TZX tapes with 1 ms pauses or stop blocks load in real time (no tape loading error, no skipped parts)
 
 ### Internal JNEXT Development
-- Remote builds: mutation test runs go to the remote hosts as a patch on the pushed commit
-- Mutation runs build and run only the suites and rows that should kill the mutant (make mutant-test)
+- Mutation test runs go to the remote hosts as a patch and build only the suites and rows that should kill the mutant (make mutant-test)
 - Download stall tests no longer fail on a loaded host
 - Claude Code mods for contributors: a Logs pane for unrequested messages and a live Run status pane
 

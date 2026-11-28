@@ -1330,7 +1330,7 @@ traceability-selftest:
 	@perl test/traceability-citations-selftest.pl
 
 # Mutant run (GH #585): build and run only SUITES=a,b [ROWS="r ..."]; last line says SURVIVED, KILLED or NO VERDICT
-mutant-test: sdcard-image
+mutant-test:
 	@MT_MAKE="$(MAKE)" MT_JOBS=$(JOBS) MT_SUITES="$(SUITES)" MT_ROWS="$(ROWS)" bash test/mutant-test.sh
 
 # Branch-round tests: only what the change reaches, plus the smoke set (GH #547; NOT a gate)

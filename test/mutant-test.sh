@@ -7,7 +7,8 @@
 # Exit status of this script, with a last line that says it (`make` itself exits 2 for ANY failed recipe, a
 # kill included, so a make-driven run is read by that last line, and remote-run by the banner rule below):
 #   0  `mutant-test: SURVIVED`   every named suite and row passed
-#   1  `mutant-test: KILLED`     a named suite or row failed (FAIL row, Failed > 0, crash, no Total:)
+#   1  `mutant-test: KILLED`     a named suite or row failed (FAIL row, Failed > 0, crash, no Total:, a suite
+#                                timeout); a harness that itself dies of a signal or timeout is NO VERDICT
 #   2  `mutant-test: NO VERDICT: <reason>`, after the banner line `TEST HARNESS REFUSES TO RUN` alone on
 #      its line (the line test/remote-run.sh reads to report PATCH REFUSED instead of a kill): empty
 #      SUITES and ROWS, an empty item, an unknown or gated-out suite, an unknown row, a configure or
@@ -67,10 +68,21 @@ if (( ${#SUITES[@]} )); then
     list=$(IFS=,; printf '%s' "${SUITES[*]}")
     $UNIT --only "$list" --check build; rc=$?
     (( rc == 0 )) || { (( rc == 2 )) && refused_by_harness "run-unit-tests.sh --check refused (see above)"; refuse "run-unit-tests.sh --check exited $rc"; }
+fi
+
+# Provisioned here, after the names are checked and before the first build: as a make prerequisite it could
+# build the whole SDL tree (with the mutant in it) first and fail with no verdict line.
+$M --no-print-directory sdcard-image || refuse "provisioning the SD master failed"
+
+if (( ${#SUITES[@]} )); then
     $CM --build build -j"$JOBS" --target "${SUITES[@]}" || refuse "the build failed"
     $UNIT --only "$list" build; rc=$?
+    # Only 0 (pass) and 1 (a suite failed) say something about the mutant. A refusal (2) or any other status
+    # (124, 130, 137, 143: a timeout, a signal, an OOM kill) says nothing; a hanging suite is already a FAIL
+    # (exit 1) through the harness's own per-suite timeout.
+    if (( rc == 1 )); then printf 'mutant-test: KILLED by the suites; rows not run\n'; exit 1; fi
     if (( rc == 2 )); then refused_by_harness "run-unit-tests.sh refused to run (see above)"; fi
-    if (( rc != 0 )); then printf 'mutant-test: KILLED by the suites; rows not run\n'; exit 1; fi
+    if (( rc != 0 )); then refuse "run-unit-tests.sh died with status $rc (a signal or a timeout says nothing about the mutant)"; fi
 fi
 
 if (( ${#ROWS[@]} )); then
@@ -79,8 +91,9 @@ if (( ${#ROWS[@]} )); then
     # Built only now: a suite that killed the mutant has saved this build.
     $M --no-print-directory unit-test-build sdl-release z88dk-gdb skoolkit ghidra || refuse "the build failed"
     JNEXT=$PWD/build/jnext $REG "${ROWS[@]}"; rc=$?
+    if (( rc == 1 )); then printf 'mutant-test: KILLED by the rows\n'; exit 1; fi
     if (( rc == 2 )); then refuse "the regression harness faulted (exit 2)"; fi
-    if (( rc != 0 )); then printf 'mutant-test: KILLED by the rows\n'; exit 1; fi
+    if (( rc != 0 )); then refuse "regression.sh died with status $rc (a signal or a timeout says nothing about the mutant)"; fi
 fi
 
 printf 'mutant-test: SURVIVED\n'

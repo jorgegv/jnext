@@ -104,7 +104,11 @@ checks. The last line says the verdict: `mutant-test: SURVIVED` (exit 0),
 after the harness's `TEST HARNESS REFUSES TO RUN` banner (a bad name, or a
 configure or build failure: a mutant that does not compile proves nothing). The
 script's statuses are 0, 1 and 2, but `make` reports any failed recipe as 2, so
-read the last line, not the status. `make unit-test-configure`
+read the last line, not the status. A harness that is refused at run time or
+dies of a signal or a timeout is also `NO VERDICT`: it says nothing about the
+mutant. The rows run against `build/jnext` (RelWithDebInfo), not the Release
+build `make regression-rows` uses, so pair a killer row that is paced in real
+time with a no-op mutant as an anchor. `make unit-test-configure`
 configures or verifies `build/` without building it; `make unit-test-build` runs it
 first.
 
