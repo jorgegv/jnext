@@ -54,6 +54,7 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QDialog>
 #include <QTimer>
 #include <QMenu>
@@ -2023,6 +2024,50 @@ void test_remote_target_passthrough()
           "kept=" + std::to_string(kept) + " edited=" + std::to_string(edited) + " host=" + got.remote_host);
 }
 
+// PA-42: GH #517 - an invalid Remote target host is refused on OK and on Apply, with a message naming
+// the host and the reason; nothing is emitted and the dialog stays open. Where the control does not
+// exist (a build without the Debugger tab) there is nothing to refuse and the row holds trivially.
+// Oracle: remote::valid_link_host's grammar (RLK-URI-03); the modal is closed by a timer through
+// QApplication::activeModalWidget(), as PA-35 does for the Preferences dialog itself.
+void test_remote_host_refused()
+{
+    AppConfigData initial;
+    PreferencesDialog dlg(initial);
+    dlg.show();
+    auto* host = dlg.findChild<QLineEdit*>(QStringLiteral("remoteHostEdit"));
+    bool ok = true;
+    std::string why;
+    if (host) {
+        int emitted = 0;
+        QObject::connect(&dlg, &PreferencesDialog::apply_requested, [&](const AppConfigData&) { ++emitted; });
+        auto* buttons = dlg.findChild<QDialogButtonBox*>();
+        for (QDialogButtonBox::StandardButton b : {QDialogButtonBox::Apply, QDialogButtonBox::Ok}) {
+            host->setText(QStringLiteral("a b"));
+            QString text;
+            QTimer::singleShot(200, [&]() {
+                if (auto* m = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                    text = m->text();
+                    m->close();
+                }
+            });
+            buttons->button(b)->click();
+            if (emitted != 0 || !text.contains(QLatin1String("a b")) ||
+                !text.contains(QLatin1String("invalid character")) || !dlg.isVisible()) {
+                ok = false;
+                why += " refused-case" + std::to_string(static_cast<int>(b)) + " emitted=" +
+                       std::to_string(emitted) + " text=" + text.toStdString();
+            }
+        }
+        // A valid host goes through on Apply.
+        host->setText(QStringLiteral("my-next.local"));
+        buttons->button(QDialogButtonBox::Apply)->click();
+        if (emitted != 1) { ok = false; why += " valid-not-emitted"; }
+    }
+    check("PA-42", "an invalid Remote target host is refused on Apply and on OK with a message naming it and the reason, "
+                   "nothing is emitted and the dialog stays open; a valid host is emitted",
+          ok, why);
+}
+
 int main(int argc, char** argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -2063,6 +2108,7 @@ int main(int argc, char** argv)
     test_cpu_speed_saved_non_default();
     test_fast_boot_hide_control();
     test_remote_target_passthrough();
+    test_remote_host_refused();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
