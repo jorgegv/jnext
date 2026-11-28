@@ -329,19 +329,25 @@ int main(int argc, char** argv)
         }
         {   // MRQ-14
             // Oracle: set_mouse_captured(false) is a no-op for an uncaptured window. A focus loss while the mouse is
-            // not held must not show "Mouse released" or touch the title (the mouse dispatcher reset is not observable here).
+            // not held must not show "Mouse released", touch the title, or zero the Kempston mouse state the guest reads
+            // at port 0xFADF (which can be non-zero while uncaptured: a rewind or snapshot load restores it).
             Fixture f(RM::CtrlAlt, true);
             f.win.statusBar()->showMessage(QStringLiteral("sentinel status"), 0);
             f.win.setWindowTitle(QStringLiteral("sentinel title"));
+            f.emu.mouse().set_buttons(0x2);
+            f.emu.mouse().set_wheel(5);
+            f.win.resync_input_dispatchers();
             QWidget other;
             other.show();
             other.activateWindow();
             for (int i = 0; i < 5; ++i) QApplication::processEvents();
-            check("MRQ-14", "an activation loss while the mouse is NOT captured leaves the status message and the title untouched",
+            check("MRQ-14", "an activation loss while the mouse is NOT captured leaves the status message, the title and the Kempston mouse buttons and wheel untouched",
                   !f.captured() && !f.win.isActiveWindow() &&
                       f.win.statusBar()->currentMessage() == QStringLiteral("sentinel status") &&
-                      f.win.windowTitle() == QStringLiteral("sentinel title"),
+                      f.win.windowTitle() == QStringLiteral("sentinel title") &&
+                      f.emu.mouse().buttons() == 0x2 && f.emu.mouse().wheel() == 5,
                   f.win.statusBar()->currentMessage().toStdString() + " | " + f.win.windowTitle().toStdString() +
+                      " | buttons=" + std::to_string(f.emu.mouse().buttons()) + " wheel=" + std::to_string(f.emu.mouse().wheel()) +
                       (f.win.isActiveWindow() ? " | still active" : ""));
         }
     }
