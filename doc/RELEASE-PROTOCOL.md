@@ -532,11 +532,11 @@ sources. With versions for Linux, Windows and MacOS (Apple Silicon and Intel).
 
 New features since last release (vA.B.C):
 
-**For users**
+**For users:**
 
 - <one line per feature>
 
-**For developers**
+**For developers:**
 
 - <one line per feature>
 
@@ -555,12 +555,12 @@ JNEXT is a ZX Spectrum Next emulator written against the official FPGA VHDL sour
 
 New features since last release (vA.B.C):
 
-[b]For users[/b]
+[b]For users:[/b]
 [list]
 [*]<one line per feature>
 [/list]
 
-[b]For developers[/b]
+[b]For developers:[/b]
 [list]
 [*]<one line per feature>
 [/list]
