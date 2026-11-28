@@ -1420,11 +1420,17 @@ void test_retarget() {
                       label->text() == QLatin1String("Remote: fake 0 at test") &&
                       fx.lf.emu.cpu().get_registers().PC == pc0,
                   rw ? s(rw->windowTitle()) : std::string("no window"));
+            // the manager's own tick belongs to the shown target: a change on it reaches its window through the tick
+            fx.fake.regs.PC = 0x1234;
+            fx.fake.run.pc = 0x1234;
+            fx.lf.mgr->refresh_panels();
+            QApplication::processEvents();
+            const QString ticked_pc = rw ? after(rw->cpu_panel(), QStringLiteral("PC: ")) : QString();
             check("RTQ-101", "the remote window's panels read the fake target: registers, memory, MMU slots, "
-                             "NextREGs and sprites are asked of it",
+                             "NextREGs and sprites are asked of it, and the manager's tick drives the remote window",
                   fx.fake.called("registers") && fx.fake.called("read") && fx.fake.called("mmu_slots") &&
-                      fx.fake.called("nextreg_read") && fx.fake.called("sprites"),
-                  "calls=" + std::to_string(fx.fake.calls.size()));
+                      fx.fake.called("nextreg_read") && fx.fake.called("sprites") && ticked_pc == QLatin1String("1234"),
+                  "calls=" + std::to_string(fx.fake.calls.size()) + " pc=" + s(ticked_pc));
             check("RTQ-102", "each window answers for its own facade: the remote window's view is of a Remote "
                              "target, the hidden local window's is of the Local one",
                   rw && rw->capability_view().info.kind == jnext::dbg::TargetKind::Remote &&
