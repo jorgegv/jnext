@@ -39,7 +39,7 @@
 #     5. `git status --porcelain` there is empty, untracked files included: the remote runs only
 #        committed state, so an edit-and-test cycle stays local (a mutant is a --patch run: see PATCH RUNS).
 #   An eligible command (any heavy target: the full unit-test targets, wasm-browser-test, the full
-#   regression, regression-win/-wasm, regression-rows, test-affected) is sent to a remote lane FIRST, whenever
+#   regression, regression-win/-wasm, regression-rows, test-affected, mutant-test) is sent to a remote lane FIRST, whenever
 #   one is free right now, and runs here only when every lane of every host is busy or unusable (then it
 #   waits for a local slot, as below). A command that is not eligible stays local exactly as before.
 #   "Unless needed" (the owner's words): a run that needs THIS host sets JNEXT_SLOT_NO_OVERFLOW=1: uncommitted state
@@ -105,7 +105,7 @@ DIR=${JNEXT_SLOT_DIR:-}
 
 # Targets worth sending (the remote-run skill's D14 list, plus the full regression, regression-rows and test-affected,
 # plus every target whose prerequisites include the PGO build gui-release: SLOT-68 derives that set from the Makefile).
-HEAVY_TARGETS=" unit-test unit-test-sdl unit-test-win unit-test-wasm wasm-browser-test regression regression-win regression-wasm regression-rows test-affected harness-selftest regression-confirm fuse-pgo gui-release gui-release-run "
+HEAVY_TARGETS=" mutant-test unit-test unit-test-sdl unit-test-win unit-test-wasm wasm-browser-test regression regression-win regression-wasm regression-rows test-affected harness-selftest regression-confirm fuse-pgo gui-release gui-release-run "
 
 usage() { echo "usage: slot.sh --dir <slots dir> [--limit N] [--patch] <command> [args...]" >&2; exit 2; }
 PATCH=0
