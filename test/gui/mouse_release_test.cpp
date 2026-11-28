@@ -27,6 +27,7 @@
 #include <QFocusEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QGuiApplication>
 #include <QPushButton>
 #include <QStatusBar>
 #include <QTemporaryDir>
@@ -40,6 +41,7 @@
 #include "core/emulator_config.h"
 #include "debug/debugger.h"
 #include "gui/app_config.h"
+#include "gui/emulator_widget.h"
 #include "gui/main_window.h"
 #include "gui/preferences_dialog.h"
 #include "../row_id.h"
@@ -73,7 +75,7 @@ struct Fixture {
     std::vector<KeyEv> keys;
     QAction* capture = nullptr;
 
-    explicit Fixture(RM method = RM::CtrlAlt)
+    explicit Fixture(RM method = RM::CtrlAlt, bool shown = false)
     {
         EmulatorConfig cfg;
         cfg.type = MachineType::ZX48K;
@@ -89,6 +91,11 @@ struct Fixture {
         }
         for (QAction* a : win.findChildren<QAction*>())
             if (a->text() == QStringLiteral("Capture &Mouse")) capture = a;
+        if (shown) {   // grabMouse() pushes its override cursor only for a widget that has a QWindow
+            win.show();
+            win.activateWindow();
+            QApplication::processEvents();
+        }
     }
 
     bool captured() const { return capture && capture->isChecked(); }
@@ -259,6 +266,90 @@ int main(int argc, char** argv)
         buttons->button(QDialogButtonBox::Apply)->click();
         check("MRQ-12c", "selecting middle click makes collect() return MiddleClick",
               emitted && collected.mouse_release == RM::MiddleClick);
+    }
+    // MRQ-13a..e (GH #571): every release path leaves no Qt mouse grab, no override cursor and no widget
+    // cursor behind. Oracle: the Qt 6.12 contract (qwidget.cpp grabMouseForWidget pushes ONE override cursor
+    // for a widget with a QWindow, releaseMouseGrabOfWidget pops it; unsetCursor clears WA_SetCursor).
+    // Each row checks first that the capture really took, so a window that never showed cannot pass.
+    {
+        auto taken = [](Fixture& f) {
+            const QCursor* oc = QGuiApplication::overrideCursor();
+            return f.captured() && QWidget::mouseGrabber() == &f.win && oc && oc->shape() == Qt::BlankCursor &&
+                   f.win.emulator_widget()->cursor().shape() == Qt::BlankCursor;
+        };
+        auto clean = [](Fixture& f) {
+            return !f.captured() && QWidget::mouseGrabber() == nullptr && QGuiApplication::overrideCursor() == nullptr &&
+                   !f.win.emulator_widget()->testAttribute(Qt::WA_SetCursor);
+        };
+        {   // MRQ-13a
+            Fixture f(RM::CtrlAlt, true);
+            f.capture_now();
+            const bool t = taken(f);
+            f.capture->trigger();
+            check("MRQ-13a", "Capture Mouse on then off: the grab took (grabber, blank override, blank widget cursor) and the release leaves none of them",
+                  t && clean(f),
+                  std::string("pre=") + (t ? "ok" : "BROKEN") + " post=" + (clean(f) ? "ok" : "BROKEN"));
+        }
+        {   // MRQ-13b
+            Fixture f(RM::CtrlAlt, true);
+            f.capture_now();
+            const bool t = taken(f);
+            f.key(Qt::Key_Alt, true, kCtrlAlt);
+            check("MRQ-13b", "default method: a captured Ctrl+Alt leaves no grab, override cursor or widget cursor", t && clean(f),
+                  std::string("pre=") + (t ? "ok" : "BROKEN") + " post=" + (clean(f) ? "ok" : "BROKEN"));
+        }
+        {   // MRQ-13c
+            Fixture f(RM::Esc, true);
+            f.capture_now();
+            const bool t = taken(f);
+            f.key(Qt::Key_Escape, true);
+            f.key(Qt::Key_Escape, false);
+            check("MRQ-13c", "esc method: a captured Esc press and release leaves no grab, override cursor or widget cursor", t && clean(f),
+                  std::string("pre=") + (t ? "ok" : "BROKEN") + " post=" + (clean(f) ? "ok" : "BROKEN"));
+        }
+        {   // MRQ-13d
+            Fixture f(RM::MiddleClick, true);
+            f.capture_now();
+            const bool t = taken(f);
+            f.button(Qt::MiddleButton, true);
+            f.button(Qt::MiddleButton, false);
+            check("MRQ-13d", "middle-click method: a captured middle press and release leaves no grab, override cursor or widget cursor", t && clean(f),
+                  std::string("pre=") + (t ? "ok" : "BROKEN") + " post=" + (clean(f) ? "ok" : "BROKEN"));
+        }
+        {   // MRQ-13e
+            Fixture f(RM::CtrlAlt, true);
+            f.capture_now();
+            const bool t = taken(f);
+            QWidget other;
+            other.show();
+            other.activateWindow();
+            for (int i = 0; i < 5; ++i) QApplication::processEvents();
+            check("MRQ-13e", "activation loss: handing the focus to another window leaves no grab, override cursor or widget cursor",
+                  t && !f.win.isActiveWindow() && clean(f), f.win.isActiveWindow() ? "window still active" : "");
+        }
+        {   // MRQ-14
+            // Oracle: set_mouse_captured(false) is a no-op for an uncaptured window. A focus loss while the mouse is
+            // not held must not show "Mouse released", touch the title, or zero the Kempston mouse state the guest reads
+            // at port 0xFADF (which can be non-zero while uncaptured: a rewind or snapshot load restores it).
+            Fixture f(RM::CtrlAlt, true);
+            f.win.statusBar()->showMessage(QStringLiteral("sentinel status"), 0);
+            f.win.setWindowTitle(QStringLiteral("sentinel title"));
+            f.emu.mouse().set_buttons(0x2);
+            f.emu.mouse().set_wheel(5);
+            f.win.resync_input_dispatchers();
+            QWidget other;
+            other.show();
+            other.activateWindow();
+            for (int i = 0; i < 5; ++i) QApplication::processEvents();
+            check("MRQ-14", "an activation loss while the mouse is NOT captured leaves the status message, the title and the Kempston mouse buttons and wheel untouched",
+                  !f.captured() && !f.win.isActiveWindow() &&
+                      f.win.statusBar()->currentMessage() == QStringLiteral("sentinel status") &&
+                      f.win.windowTitle() == QStringLiteral("sentinel title") &&
+                      f.emu.mouse().buttons() == 0x2 && f.emu.mouse().wheel() == 5,
+                  f.win.statusBar()->currentMessage().toStdString() + " | " + f.win.windowTitle().toStdString() +
+                      " | buttons=" + std::to_string(f.emu.mouse().buttons()) + " wheel=" + std::to_string(f.emu.mouse().wheel()) +
+                      (f.win.isActiveWindow() ? " | still active" : ""));
+        }
     }
 
     std::printf("\n==============================================\n");
