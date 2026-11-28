@@ -259,4 +259,12 @@
 |         |      | music and sound panels; #562 #564. v1.3.68->1.3.75                                                     |
 | 25/11   |      | #563 JNext link on web players (janko-jj); #558 SD card file manager; #504 #559 guide audits           |
 |         |      | v1.3.76->1.3.82; v1.4.0 PUBLIC RELEASE                                                                 |
+| 26/11   |      | #572 stripped release binaries; #574 File menu opens instantly; knowledge consolidation.               |
+|         |      | v1.4.1->1.4.3                                                                                          |
+| 27/11   |      | #569 web JNext link in the controls bar; #570 DD 01 no longer a magic BP; #568 ZRCP sd-file-add, SD    |
+|         |      | commands on card 2; #567 TZX pauses and stop blocks; #565 remote mutants; #578 #582 #583.              |
+|         |      | v1.4.4->1.4.15                                                                                         |
+| 28/11   |      | #577 #580 CI fixes; #573 NEX Layer 2 loading screen banks; #585 mutant-test; #571 no card hash on      |
+|         |      | menu open; #584 DD/FD prefix runs; #579 jnext-sdcard.img, .mmc. v1.4.16->1.4.21                        |
+|         |      | vX.Y.Z PUBLIC RELEASE                                                                                  |
 | TOTAL:  | 666h |                                                                                                        |
