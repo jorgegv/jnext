@@ -5,6 +5,7 @@
 ### User Features
 - Browser player: the JNext link sits at the end of the controls bar, not on a row of its own
 - `--sdcard-file-add` copies onto the card of a running JNEXT; SD card commands work on the second card (`--sdcard2`)
+- New SD cards are stored as jnext-sdcard.img (existing cards keep their name); .mmc images are accepted like .img
 
 ### Developer Features
 - ZRCP `sd-file-add` command
