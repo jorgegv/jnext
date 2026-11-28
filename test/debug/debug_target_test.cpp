@@ -1865,7 +1865,9 @@ static void tgt07_rows() {
         fs::remove_all(dir);
         check("TGT-07-12", "a source line on a target arms the starts in a RAM page (page-qualified) and skips the rest; a line "
                            "with none left is RefusedUnavailable with no call",
-              one && g2.status == Result::RefusedUnavailable && m.t.calls.empty());
+              one && g2.status == Result::RefusedUnavailable && m.t.calls.empty(),
+              "g=" + std::to_string(static_cast<int>(g.status)) + " calls=" + std::to_string(m.t.calls.size()) +
+                  " g2=" + std::to_string(static_cast<int>(g2.status)));
     }
     {   // TGT-07-13
         namespace dbgns = jnext::dbg;

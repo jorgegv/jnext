@@ -2092,7 +2092,9 @@ void test_bank_data() {
     }
     check("NEXB-DATA-01", "bank_data(b) returns each present bank's 16 KB at its place in the spec's bank order (5, 2, 0, 3, 111), "
                           "and the same bytes apply() writes to pages 2b and 2b+1",
-          loaded && each && same_as_apply && null_before, "banks off:" + bad);
+          loaded && each && same_as_apply && null_before,
+          "banks off:" + bad + " loaded=" + std::to_string(loaded) + " apply=" + std::to_string(same_as_apply) +
+              " nullbefore=" + std::to_string(null_before));
     check("NEXB-DATA-02", "bank_data() is null for a bank the header does not list, for 112 and for -1, and before load()",
           loaded && loader.bank_data(1) == nullptr && loader.bank_data(4) == nullptr &&
               loader.bank_data(110) == nullptr && loader.bank_data(112) == nullptr &&

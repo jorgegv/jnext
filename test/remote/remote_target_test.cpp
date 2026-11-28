@@ -1741,7 +1741,10 @@ static void rsrc_rows_a() {
               r.symbols == 19 && r.sources == 46 && same && ranges > 0 && sym &&
                   f.p.remote->source_map_status().state == Debugger::SourceMapStatus::State::Attached &&
                   where(*f.p.remote, 0x8CB8) == "main.c:19",
-              r.problem);
+              "sym=" + std::to_string(r.symbols) + " src=" + std::to_string(r.sources) + " ref " +
+                  std::to_string(rr.symbols) + "/" + std::to_string(rr.sources) + " same=" + std::to_string(same) +
+                  " ranges=" + std::to_string(ranges) + " symeq=" + std::to_string(sym) + " at=" +
+                  where(*f.p.remote, 0x8CB8) + " | " + r.problem);
     }
     {
         Fx f("sdcc-banked-run", true, map_page20);
@@ -1904,7 +1907,8 @@ static void rsrc_rows_c() {
         const auto r = f.p.remote->load_program_sidecars(f.nex);
         check("RSRC-13", "a byte of a data or bss line range changed on the target is not a mismatch (a running program writes "
                          "it): the map attaches",
-              found && r.sources == 46, "data_at=" + std::to_string(data_at) + " | " + r.problem);
+              found && r.sources == 46, "data_at=" + std::to_string(data_at) + " src=" + std::to_string(r.sources) +
+                                           " | " + r.problem);
     }
     {
         Fx f("sdcc-banked-run", false, map_page20, [](Emulator& e) {
@@ -1914,7 +1918,8 @@ static void rsrc_rows_c() {
         });
         const auto r = f.p.remote->load_program_sidecars(f.nex);
         check("RSRC-14", "page 20's bytes moved to page 22 and page 20 cleared on the target: a mismatch naming P14",
-              r.sources == -1 && r.problem.find("P14+") != std::string::npos, r.problem);
+              r.sources == -1 && r.problem.find("P14+") != std::string::npos,
+              "src=" + std::to_string(r.sources) + " | " + r.problem);
     }
     {
         Fx f("sdcc-banked-run", true, [](Emulator& e) { e.nextreg().write(0x56, 0); });
