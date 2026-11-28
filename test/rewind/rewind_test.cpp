@@ -7961,6 +7961,7 @@ static int test_gh402_tape_reattach()
             auto b = make();
             StateReader rd(full.data(), full.size());
             const bool l = b->load_state(rd);
+            const bool latch_clear = l && !b->cpu().stackless_retn_active();   // before the slot runs: it would drop a latch
             const bool carried = l && b->cpu().prefix_pending() == 0xDD && finishes_as_ix(*b);
             // The pending prefix is two bits of the stackless-latch byte, so the stream keeps its length:
             // the same machine with the prefix cleared differs from it in exactly that byte.
@@ -7985,7 +7986,6 @@ static int test_gh402_tape_reattach()
                 refused = refused && !d->load_state(rd3);
             }
             // The latch and the prefix are decoded apart: value 2 leaves the stackless latch clear, 3 sets both.
-            const bool latch_clear = l && !b->cpu().stackless_retn_active();
             Bytes both = full;
             both[at] = 3;
             auto e3 = make();
