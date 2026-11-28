@@ -2044,6 +2044,18 @@ target_link_libraries(dzrp_client_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(dzrp_client_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME dzrp_client_tests COMMAND dzrp_client_test)
+# GH #515 (epic #486) - DzrpTarget: a Debugger over a remote jnext, end to end over a memory link against
+# the shipped DzrpServer on a real machine (and a scripted peer for the hostile rows), each scenario also
+# run on a reference machine through the local facade. No socket anywhere, so it runs in every
+# configuration, WebAssembly under node included.
+add_executable(remote_target_test remote/remote_target_test.cpp)
+target_link_libraries(remote_target_test PRIVATE
+    jnext_remote
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(remote_target_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME remote_target_tests COMMAND remote_target_test)
 # dzrp_client_probe - test-support BINARY (GH #511), the R0.5 checkpoint tool a human runs against a
 # real Next: not an add_test(), invisible to test/unit-tests.conf (the sdfile_tool pattern). It is not
 # packaged and not built for WebAssembly.

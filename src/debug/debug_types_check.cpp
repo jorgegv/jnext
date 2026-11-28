@@ -627,6 +627,15 @@ static_assert(std::has_virtual_destructor<Target>::value, "");
 static_assert(std::is_trivially_copyable<CapabilitySet>::value &&
               std::is_trivially_copyable<RegisterValidity>::value, "");
 
+// TGT-05: the stop kinds a target reports are ordered (a remote maps its NTF_PAUSE
+// reasons onto them by name, and the facade switches on them).
+static_assert(static_cast<int>(TargetStop::Why::Manual)     == 0 &&
+              static_cast<int>(TargetStop::Why::Breakpoint) == 1 &&
+              static_cast<int>(TargetStop::Why::WatchRead)  == 2 &&
+              static_cast<int>(TargetStop::Why::WatchWrite) == 3 &&
+              static_cast<int>(TargetStop::Why::Other)      == 4,
+              "TargetStop::Why moved: the set is ordered");
+
 // The two constructors are explicit and distinct: a facade is local or it is not,
 // and neither converts implicitly from its machine.
 static_assert(std::is_constructible<Debugger, Emulator&>::value &&

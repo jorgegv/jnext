@@ -1277,6 +1277,7 @@ my %NO_MATRIX_SECTION = (
     # the backend facade it goes through in `debugger_backend_test`.
     'dzrp_adapter_test'         => 'DZRP remote-debugger adapter (GH #12; DeZog protocol spec, jnext-internal); the T80N core has no debugger',
     'dzrp_client_test'          => 'DZRP remote-debugger client (epic #486; DeZog protocol spec, cross-checked against jnext\'s own DzrpServer; jnext-internal); the T80N core has no debugger',
+    'remote_target_test'        => 'DzrpTarget, a debugger over a remote jnext (epic #486; the same scenarios on a reference jnext through its local facade, and DeZog\'s DZRP protocol as jnext\'s own DzrpServer implements it; jnext-internal); the T80N core has no debugger',
     # GH #281 — the GDB RSP adapter. Its oracle is the GDB remote protocol and
     # the z88dk-gdb client's source, not the FPGA; the hardware each packet
     # reads or writes is traced in its own section.

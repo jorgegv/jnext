@@ -337,7 +337,14 @@ PartialDownload::PartialDownload(const std::string& url, const std::string& dest
     }
 }
 
-PartialDownload::~PartialDownload() { close_file(); }
+PartialDownload::~PartialDownload() {
+    // Safety net, never reached by the in-tree backends (both call settle_stop() themselves, so the "(after N of M
+    // bytes)" text reaches the caller): a pending stop is still settled, so the partial is kept or removed by the
+    // rule. fail() can allocate, which is why it is not part of the normal path in a destructor. Pinned by PROV-STALL-15.
+    std::string ignored;
+    settle_stop(ignored);
+    close_file();
+}
 
 void PartialDownload::close_file() {
     if (f_) { std::fclose(f_); f_ = nullptr; }
@@ -448,6 +455,13 @@ void PartialDownload::cancelled() {
     discard_partial(dest_);
 }
 
+void PartialDownload::settle_stop(std::string& err) {
+    const Stop why = stop_;
+    stop_ = Stop::None;
+    if (why == Stop::Stalled) fail(err, false);
+    else if (why == Stop::Cancelled) cancelled();
+}
+
 void PartialDownload::fail(std::string& err, bool clean_eof) {
     close_file();
     if (begun_ && total_ > 0) {
@@ -491,13 +505,13 @@ std::string stall_note(uint64_t idle_ms) {
 bool download_step(PartialDownload& part, const ProgressFn& progress, uint64_t got,
                    StallWatch& watch, const DownloadTimings& timings, std::string& err) {
     if (!part.report(progress, got)) {
-        part.cancelled();
+        part.stop(PartialDownload::Stop::Cancelled);
         err = "cancelled by user";
         return false;
     }
     if (watch.idle_ms(got, StallWatch::Clock::now()) >= static_cast<uint64_t>(timings.stall_timeout_ms)) {
         err = stall_reason(timings.stall_timeout_ms);
-        part.fail(err, false);
+        part.stop(PartialDownload::Stop::Stalled);
         return false;
     }
     return true;

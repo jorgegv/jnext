@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.15</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.18</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.15</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.18</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3629,7 +3629,7 @@ a run override like <code>debugger.attached</code>).</p>
 <code>Debugger::memory_reader()</code> (<code>debugger_inspect.cpp:833</code>) takes the bytes of that one instruction
 (at most four) from <code>Emulator::predict_instruction_bytes()</code> and every other address from
 <code>Mmu::peek()</code>; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
-other bytes than the ones that execute. The Disassembly, <code>step_over()</code> (<code>debugger_control.cpp:181</code>: <code>is_call_like()</code> at <code>:191</code> and <code>step_successors()</code> at <code>:200</code>
+other bytes than the ones that execute. The Disassembly, <code>step_over()</code> (<code>debugger_control.cpp:201</code>: <code>is_call_like()</code> at <code>:211</code> and <code>step_successors()</code> at <code>:220</code>
 read through it) and ZRCP <code>cpu-step-over</code>
 (<code>ZrcpServer::cmd_cpu_step_over</code>) all use it (rows <code>LADDR-17</code> to <code>LADDR-20</code>).</p>
 <h2 id="gdb-zrcp-dzrp-scripts">GDB, ZRCP, DZRP, scripts<a class="headerlink" href="#gdb-zrcp-dzrp-scripts" title="Permanent link">&para;</a></h2>
@@ -3676,7 +3676,7 @@ mapping. On the other machines segment 0 is <code>DIV</code> while DivMMC is pag
 the SLD or the map itself and evaluates its own breakpoint conditions (jnext arms a conditional DZRP breakpoint
 unconditionally). So a DeZog user gets no C variables from jnext. What DZRP shares with this section is the legacy <code>bank+1</code> qualifier
 (<a href="01-which-memory.html">3.9.5.1</a>). <code>CMD_GET_REGISTERS</code> reports <code>0xFF</code> for every ROM slot
-(<code>is_rom</code>, <code>dzrp_server.cpp:564-568</code>), because DeZog has no bank for the ROM values
+(<code>is_rom</code>, <code>dzrp_server.cpp:537-540</code>), because DeZog has no bank for the ROM values
 <code>0xE0</code>-<code>0xFE</code>.</p>
 <p><strong>Scripts.</strong> <code>on execute FILE:LINE</code> resolves through <code>source_map().resolve()</code> at load time (<code>source_map().resolve()</code>, <code>script_engine.cpp:332</code>) and
 subscribes one <code>Execute</code> per start, each with the <code>space</code> its place was compiled for

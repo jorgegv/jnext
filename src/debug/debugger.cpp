@@ -346,7 +346,8 @@ const SymbolTable& Debugger::symbols() const {
 RunState Debugger::state() const {
     // paused / step mode / cycle / frame / pc come from the target; the reason
     // for a stop is composed here from what the facade and the local machine
-    // know, so a non-local facade (no stop evidence of its own) reports None.
+    // know. A non-local facade composes it from its own armed verb and the stops
+    // the target reported (below); it has no local evidence to read.
     RunState st = impl_->target.run_state();
     st.pause_reason = PauseReason{};
     // `cycle` and `frame` are meaningful exactly when the facade has `MachineTime`
@@ -355,7 +356,32 @@ RunState Debugger::state() const {
         st.cycle = 0;
         st.frame = 0;
     }
-    if (!impl_->emu) return st;
+    if (!impl_->emu) {
+        if (!st.paused) {
+            st.pause_reason.kind = PauseReason::Kind::None;
+            return st;
+        }
+        // The armed verb first (a `pause()` is the reason until something resumes),
+        // as locally; then the event-stop latch, which knows its own id, address and
+        // access; then a stop that is nobody's verb of mine, with the remote's own
+        // words. A connect-time pause explains itself with none of those: the local
+        // fallback "stopped and nothing explains it", never `None` while paused.
+        if (impl_->armed_reason == PauseReason::Kind::User ||
+            impl_->armed_reason == PauseReason::Kind::Step) {
+            st.pause_reason.kind = impl_->armed_reason;
+            st.pause_reason.by   = impl_->armed_by;
+            return st;
+        }
+        if (impl_->event_stop_latched && impl_->event_stop_gen == impl_->remote_resume_gen) {
+            st.pause_reason = impl_->event_stop;
+            return st;
+        }
+        st.pause_reason.kind = PauseReason::Kind::User;
+        st.pause_reason.by   = CLIENT_NONE;
+        if (impl_->remote_other_stop && impl_->remote_other_gen == impl_->remote_resume_gen)
+            st.pause_reason.text = impl_->remote_stop_text;
+        return st;
+    }
     const DebugState& ds = impl_->ds();
 
     if (!st.paused) {
@@ -625,11 +651,15 @@ Result Debugger::resize_rewind_buffer(size_t frames) {
 namespace {
 
 /// What a facade over a `Target` serves in this build: the machine primitives of
-/// `Target` itself. Run control, breakpoints, watchpoints and instruction steps join
-/// it when a later sub-issue (R2.2, R2.3, R2.4) implements those verbs over a target.
+/// `Target` itself, run control, execute breakpoints and watchpoints (TGT-05). The
+/// instruction steps and run-to-cursor join it when a later sub-issue (R2.4)
+/// implements those verbs over a target.
 constexpr CapabilitySet make_non_local_served() {
     CapabilitySet s;
-    s.set(Capability::RegisterWrite).set(Capability::Memory).set(Capability::PhysicalMemory)
+    s.set(Capability::Run).set(Capability::Pause).set(Capability::ExecuteBreakpoints)
+        .set(Capability::Watchpoints).set(Capability::CommandsWhileRunning)
+        .set(Capability::RegisterWrite).set(Capability::Memory)
+        .set(Capability::MemoryWhileRunning).set(Capability::PhysicalMemory)
         .set(Capability::MmuSlots).set(Capability::NextRegs).set(Capability::Ports)
         .set(Capability::SpriteData).set(Capability::SpritePaletteClip);
     return s;
@@ -682,7 +712,7 @@ const char* local_only_reason(Capability c) {
 
 CapabilitySet Debugger::capabilities() const {
     // The target's claim, cut down to what this facade serves: every bit locally, the
-    // eight of `kNonLocalServed` over a target, so a claimed bit the facade cannot
+    // fourteen of `kNonLocalServed` over a target, so a claimed bit the facade cannot
     // serve is never true.
     return impl_->target.capabilities() & (impl_->emu ? CapabilitySet::all() : kNonLocalServed);
 }

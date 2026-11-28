@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.15</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.18</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.15</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.18</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1407,6 +1407,34 @@
     <span class="md-ellipsis">
       
         The target seam
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The target seam">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#run-control-breakpoints-and-watchpoints-over-a-target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run control, breakpoints and watchpoints over a target
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-remote-jnext-target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The remote jnext target
       
     </span>
   </a>
@@ -3971,10 +3999,75 @@ machine in place.</p>
   verb that can refuse returns <code>Unsupported</code>; a query returns its empty value.</li>
 </ul>
 <p>A non-local facade installs no hook anywhere: its <code>pump()</code> runs the registered
-services and compacts the event table, and the control verbs and every <code>subscribe()</code>
-kind are <code>Unsupported</code>. <code>state()</code> is the target's <code>run_state()</code> with no pause reason,
-and <code>source_page()</code> and <code>effective_page()</code> come from the target's slots, there being
-no fetch prediction.</p>
+services, hands the target's reported stops to the event delivery and compacts the
+event table. <code>pause()</code> and <code>run()</code> reach the target, <code>subscribe()</code> accepts <code>Execute</code> and
+<code>Mem</code> (any other kind is <code>Unsupported</code>), and the steps and the run-to family stay
+<code>Unsupported</code>. <code>state()</code> is the target's <code>run_state()</code> with a pause reason composed from
+the armed verb and the reported stop (below), and <code>source_page()</code> and <code>effective_page()</code>
+come from the target's slots, there being no fetch prediction.</p>
+<h3 id="run-control-breakpoints-and-watchpoints-over-a-target">Run control, breakpoints and watchpoints over a target<a class="headerlink" href="#run-control-breakpoints-and-watchpoints-over-a-target" title="Permanent link">&para;</a></h3>
+<p><code>Target</code> carries seven primitives for this: <code>resume()</code>, <code>pause()</code>, <code>take_stop()</code>,
+<code>add_breakpoint()</code> / <code>remove_breakpoint()</code> and <code>add_watchpoint()</code> / <code>remove_watchpoint()</code>.
+<code>LocalTarget</code> answers <code>Unsupported</code> (or false): the local facade has its own stop machinery
+and never calls them. <code>info()</code>, <code>capabilities()</code>, <code>why_unavailable()</code>, <code>register_validity()</code>,
+<code>run_state()</code> and <code>take_stop()</code> are cheap reads of state the target already holds, with no I/O:
+<code>pump()</code> calls <code>run_state()</code> once per serviced command.</p>
+<p>The subscription table is mirrored into the target by one function, <code>reconcile_remote()</code>,
+called from <code>gates_changed()</code>, which every table change already ends with (subscribe,
+unsubscribe, enable and disable, the master and client switches, <code>once</code>, a stop's transient
+clear, a detach). The target holds one breakpoint or watchpoint per distinct key (address and
+page, or range, page and access), however many subscriptions share it, and holds none for a
+disabled entry. A full 64 KB <code>Mem</code> watch is two target watches under one key, a remote
+watch size being 16 bits. <code>subscribe()</code> refuses what a target cannot hold before any
+target call: an <code>Execute</code> range or space, <code>Mem</code> page sets, a page outside 0 to 223, an
+inverted range (<code>RefusedUnavailable</code>), and an entry the target then refuses is never left in the
+table.</p>
+<p>A stop the target reports (<code>TargetStop</code>: manual, breakpoint, watch read or write, other with
+the remote's text) goes through <code>deliver_to_subscribers()</code>, the code a local stop uses, so
+conditions, handlers, <code>once</code>, <code>Log</code> and the hit list are the same. The remote has already
+stopped, so a hit nothing claims (a false condition, a <code>Continue</code> or <code>Log</code> verdict) is
+resumed at once, one round trip per hit, unless a <code>pause()</code> was made since the last resume:
+the last verb wins. <code>state()</code> reports the armed <code>User</code> verb first, then the stop a
+subscription made, then a stop that is nobody's verb as <code>User</code> with no owner (and the remote's
+words), so no client's detach resumes it.</p>
+<h2 id="the-remote-jnext-target">The remote jnext target<a class="headerlink" href="#the-remote-jnext-target" title="Permanent link">&para;</a></h2>
+<p><code>DzrpTarget</code> (<code>src/remote/dzrp/dzrp_target.cpp</code>) is the <code>Target</code> for another jnext reached
+over DZRP. Its owner builds a ready <code>DzrpClient</code>, installs the client's wait hook (the local
+facade's <code>pump()</code>) and registers the target as a service of the remote facade; the target
+connects nothing itself.</p>
+<ul>
+<li><strong>Capabilities</strong> come from the commands the remote advertises: each needs every command
+  of its row present (<code>CMD_ADD_BREAKPOINT</code> and <code>CMD_REMOVE_BREAKPOINT</code> for execute
+  breakpoints, and so on), else the capability is absent with "the remote does not serve
+  CMD_x". <code>CommandsWhileRunning</code> and <code>MemoryWhileRunning</code> are a property of the jnext profile.
+  Another profile (the dezogif_ng stub) has an empty set for now. The registers' validity is
+  <code>Core</code> and <code>IM</code>: the wire carries no flags, <code>HALT</code>, <code>MEMPTR</code>, <code>Q</code> or <code>IncDecZ</code>.</li>
+<li><strong>The cache</strong> keeps CPU memory and pages in 256-byte lines, NextREGs in lines of 16, and
+  the sprites, patterns, palettes and clip window whole. It is dropped at every resume,
+  at every <code>service_once()</code> while the target runs, and after a NextREG or port access or
+  a slot write, which can move memory. The first read after a stop sends the registers and
+  the memory around PC and SP in one round trip; a miss fetches every missing line of the
+  request in one burst. A memory write is pipelined with the re-read of the lines it touched in
+  the same view, so the next read shows what the remote holds (a byte dropped on ROM) and needs no
+  fetch; it also drops every cached line of the other view (a Cpu write drops the Page lines and
+  every other Cpu line, which another slot mapping the same page would otherwise serve stale; a
+  Page write drops the Cpu lines). A NextREG or port access drops the whole cache.</li>
+<li><strong>Slots</strong>: a RAM slot is <code>Page{n}</code> with the NextREG value; a ROM slot is named through the
+  CPU view (<code>MemSpace::cpu()</code> plus the slot's offset), because the wire says "ROM" without the
+  ROM's index. <code>rom_select()</code> is <code>cpu()</code>, and <code>Rom{i}</code> and <code>DivMmcRam{b}</code> reads are
+  <code>Unsupported</code>.</li>
+<li><strong>Not writable remotely</strong>: <code>IFF1</code> and <code>IFF2</code> (the one command sets both) and sprite
+  attributes and patterns (no command writes them); all <code>Unsupported</code> with nothing sent.</li>
+<li><strong>Stops</strong>: <code>NTF_PAUSE</code> is read in <code>service_once()</code>; one stop is owed per <code>CMD_CONTINUE</code> and
+  one per <code>CMD_PAUSE</code> sent to a target believed paused (the remote's own client may have resumed it
+  behind this one's back, and the pause then stops it), and a notification beyond that, or with
+  nothing owed, is dropped with a warning. Each accepted stop drops the cache.
+  <code>CMD_CONTINUE</code> carries eleven bytes, all zero.</li>
+<li><strong>Failure</strong>: a timeout, a lost link or a reply of the wrong length (a protocol error) ends the
+  session. The target is then lost: its capabilities are empty with "link lost: ...", every
+  verb is <code>Unsupported</code> (not <code>RefusedUnavailable</code>, under which the facade would log a <code>MUTATE</code>
+  for a short page write), and <code>connected()</code> and <code>lost_reason()</code> say so.</li>
+</ul>
 <p>A target's answers are untrusted, since a remote target feeds them from a network.
 The facade clamps every byte count to the request, returns exactly <code>SPRITE_COUNT</code>
 sprites whatever the target sent, treats a pattern-RAM view that is not exactly
@@ -3985,10 +4078,11 @@ status, with no <code>MUTATE</code> line and no revision bump.</p>
 <h2 id="the-capability-model">The capability model<a class="headerlink" href="#the-capability-model" title="Permanent link">&para;</a></h2>
 <p><code>Debugger::capabilities()</code> says which verbs a facade serves. A local facade has every
 <code>Capability</code> (36 bits, in two groups: what a remote may serve, then what is local-only). A
-non-local facade has the target's set intersected with the eight capabilities the facade serves
-over a target (<code>RegisterWrite</code>, <code>Memory</code>, <code>PhysicalMemory</code>, <code>MmuSlots</code>, <code>NextRegs</code>, <code>Ports</code>,
-<code>SpriteData</code>, <code>SpritePaletteClip</code>); a target that claims more gets no more. Later work widens that
-set when it implements run control, breakpoints and watchpoints over a target.</p>
+non-local facade has the target's set intersected with the fourteen capabilities the facade serves
+over a target (<code>Run</code>, <code>Pause</code>, <code>ExecuteBreakpoints</code>, <code>Watchpoints</code>, <code>CommandsWhileRunning</code>,
+<code>RegisterWrite</code>, <code>Memory</code>, <code>MemoryWhileRunning</code>, <code>PhysicalMemory</code>, <code>MmuSlots</code>, <code>NextRegs</code>, <code>Ports</code>,
+<code>SpriteData</code>, <code>SpritePaletteClip</code>); a target that claims more gets no more. Instruction steps and
+run-to-cursor are not served over a target yet.</p>
 <p>Every served machine verb checks its capability through one function, after its argument
 checks, the RZX refusal and the read-only refusals (so a null buffer or <code>poke(Rom)</code> keeps its own
 answer), and refuses with <code>Unsupported</code> without calling the target when it is missing. A direct-value query without its

@@ -35,7 +35,7 @@
 //                  discarded; a 206 with a wrong total is distrusted; a kept
 //                  partial survives a failed resumed attempt; an empty 200 body;
 //                  the SD prompt's continuation note; header-name case.
-//   PROV-STALL-01..11  GH #358 point 2 - a dropped network, through the REAL backend
+//   PROV-STALL-01..15  GH #358 point 2 - a dropped network, through the REAL backend
 //                  (libcurl; WinHTTP under wine) against a loopback server that goes
 //                  silent mid-transfer (range_server.h: stall_after, silent, stall_ms).
 //                  Oracle: the tick / stall / cancel contract in sdcard_provisioner.h
@@ -58,6 +58,15 @@
 //                  GH #415: Cancel works while the server has not answered yet (11; wine >= 11.7
 //                  completes WinHttpReceiveResponse in its caller, so the call must not be made
 //                  on the thread that ticks).
+//                  GH #577: the rows time the backend's DECISION (its last ProgressFn call), never its return:
+//                  settling the partial on disk and closing handles after it are host work no contract
+//                  bounds (on a host whose file close can block for seconds under I/O load they took up to a
+//                  minute). That nothing waited on the network is checked at the server: its hold had not run
+//                  out (rs::Server::holds_run_out()). Tick gaps are net of the process's own stalls, measured
+//                  by a sentinel thread (host_stalls.h). 12 pins the sentinel's arithmetic, 13 the server's
+//                  hold counter and release(). The backends close the transfer BEFORE they settle the
+//                  partial on disk, so the server sees the client's close within 1 s of the decision
+//                  (01..04/08/11 above; 14 pins that observation, 15 that download_step only decides).
 //                  The NextPi twin is PIT-43, the GUI side SDD-01..04
 //                  (test/gui/sdcard_dialog_test.cpp).
 //   PROV-CONF-01   No image + declined confirm → Declined; no download.
@@ -145,6 +154,7 @@
 #include "core/sdcard_provisioner.h"
 #include "core/sdcard_backup.h"
 #include "range_server.h"
+#include "host_stalls.h"
 
 #include <zlib.h>
 #ifndef _WIN32
@@ -155,6 +165,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -987,17 +998,41 @@ struct Seen {
         for (const Call& c : calls) n += (c.d == d && c.t == t);
         return n;
     }
-    // The longest silence from the first call at (d, t) to `end` (the return).
-    double max_gap_from(uint64_t d, uint64_t t, double end) const {
+    // When the backend DECIDED to stop: its last ProgressFn call. A stall is decided in the step that reports
+    // and then tests the clock, a cancel in the step whose call returned false. What comes after (settling the
+    // partial on disk, closing handles) is host work no contract bounds; -1 when there was no call.
+    double decided_at() const { return calls.empty() ? -1.0 : calls.back().at; }
+    // The longest silence between consecutive calls from the first call at (d, t) to the last one (the
+    // decision), net of the host's own stalls over each gap (host_stalls.h; `stalls` was made with this t0).
+    // 1e9 when no call was made at (d, t).
+    double max_net_gap_from(uint64_t d, uint64_t t, const hs::HostStalls& stalls) const {
         double prev = -1, gap = 0;
         for (const Call& c : calls) {
             if (prev < 0 && !(c.d == d && c.t == t)) continue;
-            if (prev >= 0) gap = std::max(gap, c.at - prev);
+            if (prev >= 0) gap = std::max(gap, stalls.net_gap(prev, c.at));
             prev = c.at;
         }
-        return prev < 0 ? 1e9 : std::max(gap, end - prev);
+        return prev < 0 ? 1e9 : gap;
     }
 };
+
+// Seconds from the backend's decision (its last ProgressFn call) to the loopback server seeing the CLIENT close the
+// held connection, net of the process's own stalls (the server thread's observation is delayed by them too); -1 when
+// the server never saw the client close within 10 s. The backend closes the transfer BEFORE it settles the partial on
+// disk, so this is what a host that blocks in the file work cannot stretch. Under WinHTTP (wine) an abandoned request
+// keeps its socket until the server closes it, so there the close is not observable: 0 (the hold-not-run-out check at
+// each row still stands).
+static double close_after_decision(const rs::Server& srv, const Seen& seen, const hs::HostStalls& stalls) {
+#ifdef _WIN32
+    (void)srv; (void)seen; (void)stalls;
+    return 0.0;
+#else
+    Clk::time_point at;
+    if (!srv.wait_client_close(at, 10000)) return -1.0;
+    const double closed = std::chrono::duration<double>(at - seen.t0).count();
+    return std::max(0.0, stalls.net_gap(seen.decided_at(), closed));
+#endif
+}
 
 void test_stall_rows() {
     namespace fs = std::filesystem;
@@ -1017,8 +1052,9 @@ void test_stall_rows() {
     };
     auto exists = [](const std::string& p) { std::error_code ec; return fs::exists(p, ec); };
     auto num = [](double v) { char b[32]; std::snprintf(b, sizeof b, "%.2f", v); return std::string(b); };
-    // 100000 of 300000 bytes, then silence for `stall_ms`.
-    auto stalling = [&](int stall_ms = 8000) {
+    // 100000 of 300000 bytes, then silence for `stall_ms`: 60 s, so a row that waits for the server (a hold that
+    // runs out, srv.holds_run_out()) is told apart from one that does not, whatever the host does in between.
+    auto stalling = [&](int stall_ms = 60000) {
         rs::Opts o;
         o.body = body;
         o.etag = "\"v1\"";
@@ -1031,7 +1067,7 @@ void test_stall_rows() {
 
     // PROV-STALL-08 (see its row below): launched first so its 30 s of waiting overlaps the rest of the suite.
     {
-        const rs::Opts o8 = stalling(40000);
+        const rs::Opts o8 = stalling(120000);
         const std::string dest8 = dest_in("h");
         auto fut = std::make_shared<std::future<std::pair<bool, std::string>>>(std::async(
             std::launch::async, [o8, dest8, slurp, num]() -> std::pair<bool, std::string> {
@@ -1039,20 +1075,24 @@ void test_stall_rows() {
                 if (!srv.ok()) return {false, "NOSRV:cannot listen on 127.0.0.1"};
                 srv.set(o8);
                 Seen seen;
+                hs::HostStalls stalls(seen.t0);
                 std::string err;
-                const Clk::time_point t0 = Clk::now();
                 const bool ok = sdcard::default_http_download(srv.url(), dest8, seen.fn(), err);
-                const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
-                const double gap = seen.max_gap_from(100000, 300000, seen.now());
+                const double secs = seen.decided_at();
+                const int run_out = srv.holds_run_out();
+                const double closed = close_after_decision(srv, seen, stalls);
+                const double gap = seen.max_net_gap_from(100000, 300000, stalls);
                 sdcard::ResumeInfo ri;
-                const bool cond = !ok && secs >= 29.5 && secs <= 34.0 &&
+                const bool cond = !ok && secs >= 29.5 && secs <= 34.0 && closed >= 0 && closed <= 1.0 &&
                                   err.rfind("stalled: no data received for 30 s", 0) == 0 &&
-                                  seen.count_at(100000, 300000) >= 100 && gap <= 0.8 &&
+                                  seen.count_at(100000, 300000) >= 100 && gap <= 1.2 && run_out == 0 &&
                                   slurp(sdcard::partial_path(dest8)).size() == 100000 &&
                                   sdcard::read_resume_info(dest8, ri);
-                return {cond, "ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" + err +
+                return {cond, "ok=" + std::to_string(ok) + " decided_at=" + num(secs) + "s err='" + err +
                                   "' calls_at_stall=" + std::to_string(seen.count_at(100000, 300000)) +
-                                  " max_gap=" + num(gap) + "s part=" +
+                                  " max_net_gap=" + num(gap) + "s host_stalls=" +
+                                  num(hs::stall_overlap(stalls.spans(), 0, 1e9)) + "s holds_run_out=" +
+                                  std::to_string(run_out) + " close_after_decision=" + num(closed) + "s part=" +
                                   std::to_string(slurp(sdcard::partial_path(dest8)).size())};
             }));
         g_deferred.push_back([fut] {
@@ -1063,9 +1103,12 @@ void test_stall_rows() {
             }
             check("PROV-STALL-08",
                   "default_http_download (the production numbers) gives up on a silent connection at 30 s, not "
-                  "120: it returns in 29.5-34 s with 'stalled: no data received for 30 s', called the ProgressFn "
-                  "at least 100 times at (100000, 300000) with no gap over 800 ms, and kept the 100000-byte "
-                  ".part and its record",
+                  "120: it decides (its last ProgressFn call) at 29.5-34 s and returns 'stalled: no data received "
+                  "for 30 s', called the ProgressFn at least 100 times at (100000, 300000) with no gap over 1200 ms "
+                  "net of the process's own stalls (sentinel thread; the 30 s row allows more than the 2 s rows' 800 ms), the server's 120 s hold had not run out when "
+                  "it returned (it did not wait for the network), the server saw the client close the "
+                  "connection within 1.0 s of the decision (net of the process's stalls; not observable under "
+                  "WinHTTP), and kept the 100000-byte .part and its record",
                   r.first, r.second);
         });
     }
@@ -1078,18 +1121,21 @@ void test_stall_rows() {
         } else {
             srv.set(stalling());
             Seen seen;
+            hs::HostStalls stalls(seen.t0);
             std::string err;
             const bool ok = sdcard::http_download(srv.url(), dest_in("a"), seen.fn(), err, fast);
-            const double end = seen.now();
+            const int run_out = srv.holds_run_out();
             const int n = seen.count_at(100000, 300000);
-            const double gap = seen.max_gap_from(100000, 300000, end);
+            const double gap = seen.max_net_gap_from(100000, 300000, stalls);
             check("PROV-STALL-01",
                   "a transfer that goes silent after 100000 of 300000 bytes keeps calling the ProgressFn: at least "
-                  "6 calls at (100000, 300000) and no gap over 800 ms from the first of them to the return "
-                  "(tick 200 ms; a window stays alive through a dropped network)",
-                  !ok && n >= 6 && gap <= 0.8,
-                  "ok=" + std::to_string(ok) + " calls_at_stall=" + std::to_string(n) + " max_gap=" + num(gap) +
-                      "s err='" + err + "'");
+                  "6 calls at (100000, 300000) and no gap over 800 ms between consecutive calls from the first of "
+                  "them to the decision, net of the process's own stalls (tick 200 ms; a window stays alive "
+                  "through a dropped network), and the server's 60 s hold had not run out at the return",
+                  !ok && n >= 6 && gap <= 0.8 && run_out == 0,
+                  "ok=" + std::to_string(ok) + " calls_at_stall=" + std::to_string(n) + " max_net_gap=" + num(gap) +
+                      "s host_stalls=" + num(hs::stall_overlap(stalls.spans(), 0, 1e9)) + "s holds_run_out=" +
+                      std::to_string(run_out) + " err='" + err + "'");
         }
     }
 
@@ -1103,12 +1149,15 @@ void test_stall_rows() {
             const std::string url = srv.url();
             srv.set(stalling());
             std::string err;
-            const Clk::time_point t0 = Clk::now();
-            const bool ok = sdcard::http_download(url, dest, {}, err, fast);
-            const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
+            Seen seen;
+            hs::HostStalls stalls(seen.t0);
+            const bool ok = sdcard::http_download(url, dest, seen.fn(), err, fast);
+            const double secs = seen.decided_at();
+            const int run_out = srv.holds_run_out();
+            const double closed = close_after_decision(srv, seen, stalls);
             sdcard::ResumeInfo ri;
             const bool rec = sdcard::read_resume_info(dest, ri);
-            const bool stopped = !ok && secs >= 1.9 && secs <= 5.0 &&
+            const bool stopped = !ok && secs >= 1.9 && secs <= 5.0 && run_out == 0 && closed >= 0 && closed <= 1.0 &&
                                  err.rfind("stalled: no data received for 2 s", 0) == 0 &&
                                  err.find("(after 100000 of 300000 bytes)") != std::string::npos && !exists(dest) &&
                                  slurp(sdcard::partial_path(dest)) == body.substr(0, 100000) && rec && ri.url == url &&
@@ -1120,19 +1169,25 @@ void test_stall_rows() {
             healthy.etag = kEtag;
             srv.set(healthy);
             srv.clear_requests();
+            srv.release();   // the dead connection is gone (WinHTTP under wine keeps its socket until the server closes it)
             std::string err2;
+            const Clk::time_point t2_0 = Clk::now();
             const bool ok2 = sdcard::default_http_download(url, dest, {}, err2);
+            const double t2 = std::chrono::duration<double>(Clk::now() - t2_0).count();
             const auto reqs = srv.requests();
             const bool resumed = ok2 && reqs.size() == 1 && reqs[0].range == "bytes=100000-" &&
                                  reqs[0].if_range == kEtag && slurp(dest) == body &&
                                  !exists(sdcard::partial_path(dest)) && !exists(sdcard::resume_record_path(dest));
             check("PROV-STALL-02",
-                  "no byte for the stall timeout ends the attempt in 1.9-5.0 s with 'stalled: no data received for "
-                  "2 s (after 100000 of 300000 bytes)', dest absent, the .part exactly the 100000 bytes that "
+                  "no byte for the stall timeout ends the attempt, decided (its last ProgressFn call) at 1.9-5.0 s, "
+                  "with 'stalled: no data received for 2 s (after 100000 of 300000 bytes)', the server's 60 s "
+                  "hold not run out at the return and the close seen within 1.0 s of the decision (not observable under "
+                  "WinHTTP), dest absent, the .part exactly the 100000 bytes that "
                   "arrived and its record kept; the next call sends Range bytes=100000- with If-Range and ends "
                   "with exactly the body and no partial",
                   stopped && resumed,
-                  "stopped=" + std::to_string(stopped) + " ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" +
+                  "stopped=" + std::to_string(stopped) + " ok=" + std::to_string(ok) + " decided_at=" + num(secs) +
+                      "s holds_run_out=" + std::to_string(run_out) + " close_after_decision=" + num(closed) + "s t2=" + num(t2) + "s err='" +
                       err + "' part=" + std::to_string(slurp(sdcard::partial_path(dest)).size()) +
                       " resumed=" + std::to_string(resumed) + " ok2=" + std::to_string(ok2) + " err2='" + err2 +
                       "' reqs=" + std::to_string(reqs.size()));
@@ -1148,28 +1203,40 @@ void test_stall_rows() {
             const std::string dest = dest_in("c");
             srv.set(stalling());
             Seen seen;
+            hs::HostStalls stalls(seen.t0);
             double seen_at = -1, cancelled_at = -1;
+            size_t calls_at_false = 0;
             sdcard::ProgressFn pf = [&](uint64_t d, uint64_t t) {
                 const double at = seen.now();
                 seen.calls.push_back({at, d, t});
+                if (cancelled_at >= 0) return false;   // once said, always said: a backend that goes on shows it
                 if (d != 100000) return true;
                 if (seen_at < 0) { seen_at = at; return true; }
-                if (at - seen_at >= 0.5) { cancelled_at = at; return false; }   // 100000, unchanged for 0.5 s
+                if (at - seen_at >= 0.5) { cancelled_at = at; calls_at_false = seen.calls.size(); return false; }   // 100000, unchanged for 0.5 s
                 return true;
             };
             std::string err;
             const bool ok = sdcard::http_download(srv.url(), dest, pf, err, {200, 5000});
-            const double after = seen.now() - cancelled_at;
+            const int run_out = srv.holds_run_out();
+            const double closed = close_after_decision(srv, seen, stalls);
+            const bool last = calls_at_false > 0 && calls_at_false == seen.calls.size();
             sdcard::ResumeInfo ri;
             check("PROV-STALL-03",
                   "a ProgressFn that says false once 100000 has stood still for 0.5 s ends the stalled transfer "
-                  "within 1.0 s of it (the stall timeout is 5 s) with 'cancelled by user', the .part exactly the "
-                  "100000 bytes that arrived and its record kept",
-                  !ok && cancelled_at >= 0 && after <= 1.0 && err == "cancelled by user" && !exists(dest) &&
+                  "(the stall timeout is 5 s) with 'cancelled by user': that false is the LAST call it got (the "
+                  "backend stopped on it) and the server's 60 s hold had not run out at the return (it did not "
+                  "wait for the network), and the server saw the client close the connection within 1.0 s of that call (net "
+                  "of the process's own stalls; not observable under WinHTTP); the .part exactly the 100000 bytes "
+                  "that arrived and its record kept",
+                  !ok && cancelled_at >= 0 && last && run_out == 0 && closed >= 0 && closed <= 1.0 &&
+                      err == "cancelled by user" && !exists(dest) &&
                       slurp(sdcard::partial_path(dest)) == body.substr(0, 100000) &&
                       sdcard::read_resume_info(dest, ri) && ri.total == 300000,
-                  "ok=" + std::to_string(ok) + " cancelled_at=" + num(cancelled_at) + " returned_after=" + num(after) +
-                      "s err='" + err + "' part=" + std::to_string(slurp(sdcard::partial_path(dest)).size()));
+                  "ok=" + std::to_string(ok) + " cancelled_at=" + num(cancelled_at) + " calls=" +
+                      std::to_string(seen.calls.size()) + " calls_at_false=" + std::to_string(calls_at_false) +
+                      " holds_run_out=" + std::to_string(run_out) + " close_after_decision=" + num(closed) +
+                      "s err='" + err + "' part=" +
+                      std::to_string(slurp(sdcard::partial_path(dest)).size()));
         }
     }
 
@@ -1184,22 +1251,28 @@ void test_stall_rows() {
             o.body = body;
             o.etag = kEtag;
             o.silent = true;
-            o.stall_ms = 8000;
+            o.stall_ms = 60000;
             srv.set(o);
             Seen seen;
+            hs::HostStalls stalls(seen.t0);
             std::string err;
-            const Clk::time_point t0 = Clk::now();
             const bool ok = sdcard::http_download(srv.url(), dest, seen.fn(), err, fast);
-            const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
+            const double secs = seen.decided_at();
+            const int run_out = srv.holds_run_out();
+            const double closed = close_after_decision(srv, seen, stalls);
             check("PROV-STALL-04",
-                  "a server that reads the request and never answers ends the attempt in 1.9-5.0 s with exactly "
-                  "'stalled: no data received for 2 s' (nothing begun, so no 'after'), leaves no dest, .part or "
-                  "record, and the ProgressFn was called at least 6 times, always (0, 0)",
-                  !ok && secs >= 1.9 && secs <= 5.0 && err == "stalled: no data received for 2 s" && !exists(dest) &&
+                  "a server that reads the request and never answers ends the attempt, decided (its last "
+                  "ProgressFn call) at 1.9-5.0 s, with exactly 'stalled: no data received for 2 s' (nothing "
+                  "begun, so no 'after'), the server's 60 s hold not run out at the return and its close seen within "
+                  "1.0 s of the decision (not observable under WinHTTP), leaves no dest, .part "
+                  "or record, and the ProgressFn was called at least 6 times, always (0, 0)",
+                  !ok && secs >= 1.9 && secs <= 5.0 && run_out == 0 && closed >= 0 && closed <= 1.0 &&
+                      err == "stalled: no data received for 2 s" && !exists(dest) &&
                       !exists(sdcard::partial_path(dest)) && !exists(sdcard::resume_record_path(dest)) &&
                       seen.calls.size() >= 6 && seen.count_at(0, 0) == static_cast<int>(seen.calls.size()),
-                  "ok=" + std::to_string(ok) + " t=" + num(secs) + "s err='" + err + "' calls=" +
-                      std::to_string(seen.calls.size()) + " at_0_0=" + std::to_string(seen.count_at(0, 0)));
+                  "ok=" + std::to_string(ok) + " decided_at=" + num(secs) + "s holds_run_out=" +
+                      std::to_string(run_out) + " close_after_decision=" + num(closed) + "s err='" + err +
+                      "' calls=" + std::to_string(seen.calls.size()) + " at_0_0=" + std::to_string(seen.count_at(0, 0)));
         }
     }
 
@@ -1277,32 +1350,36 @@ void test_stall_rows() {
             o.body.assign(reinterpret_cast<const char*>(zip.data()), zip.size());
             o.etag = "\"zip1\"";
             o.stall_after = 8000;
-            o.stall_ms = 8000;
+            o.stall_ms = 60000;
             srv.set(o);
             jtp::set_env("JNEXT_SDCARD_DISTRO_URL", srv.url("/sn.zip").c_str());
             sdcard::ProvisionOptions po;
+            Seen seen;   // provision_sd_card hands po.progress to the download unchanged: its last call is the decision
+            po.progress = seen.fn();
             po.auto_confirm = true;
             po.retries = 0;   // GH #497: this row pins ONE attempt; the retries have their own rows
             po.download = [&](const std::string& u, const std::string& dest, const sdcard::ProgressFn& p, std::string& e) {
                 return sdcard::http_download(u, dest, p, e, fast);
             };
-            const Clk::time_point t0 = Clk::now();
             const auto r = sdcard::provision_sd_card(po);
-            const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
+            const double secs = seen.decided_at();
+            const int run_out = srv.holds_run_out();
             const std::string part = sddir + "/sn-emulator.zip.part";
             const std::string kept = slurp(part);
             jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
             clean();
             check("PROV-STALL-07",
-                  "an SD-card download that stalls fails within 5 s saying 'download failed: stalled: no data "
-                  "received for 2 s' and that the part fetched so far is kept and the next start continues it; "
+                  "an SD-card download that stalls decides (its last ProgressFn call) within 5 s and fails saying "
+                  "'download failed: stalled: no data received for 2 s' and that the part fetched so far is kept "
+                  "and the next start continues it, the server's 60 s hold not run out at the return; "
                   "sn-emulator.zip.part holds the 8000 bytes that arrived",
-                  r.status == sdcard::ProvisionStatus::Failed && secs <= 5.0 &&
+                  r.status == sdcard::ProvisionStatus::Failed && secs > 0 && secs <= 5.0 && run_out == 0 &&
                       r.error.find("download failed: stalled: no data received for 2 s") != std::string::npos &&
                       r.error.find("the part fetched so far is kept and the next start continues it") !=
                           std::string::npos &&
                       kept.size() == 8000,
-                  "status=" + std::to_string(static_cast<int>(r.status)) + " t=" + num(secs) + "s part=" +
+                  "status=" + std::to_string(static_cast<int>(r.status)) + " decided_at=" + num(secs) +
+                      "s holds_run_out=" + std::to_string(run_out) + " part=" +
                       std::to_string(kept.size()) + " error='" + r.error.substr(0, 200) + "'");
         }
     }
@@ -1440,34 +1517,241 @@ void test_stall_rows() {
             o.body = body;
             o.etag = kEtag;
             o.silent = true;
-            o.stall_ms = 8000;
+            o.stall_ms = 60000;
             srv.set(o);
             Seen seen;
+            hs::HostStalls stalls(seen.t0);
             double seen_at = -1, cancelled_at = -1;
+            size_t calls_at_false = 0;
             sdcard::ProgressFn pf = [&](uint64_t d, uint64_t t) {
                 const double at = seen.now();
                 seen.calls.push_back({at, d, t});
+                if (cancelled_at >= 0) return false;   // once said, always said: a backend that goes on shows it
                 if (d != 0 || t != 0) return true;
                 if (seen_at < 0) { seen_at = at; return true; }
-                if (at - seen_at >= 0.5) { cancelled_at = at; return false; }   // (0, 0) for 0.5 s
+                if (at - seen_at >= 0.5) { cancelled_at = at; calls_at_false = seen.calls.size(); return false; }   // (0, 0) for 0.5 s
                 return true;
             };
             std::string err;
-            const Clk::time_point t0 = Clk::now();
             const bool ok = sdcard::http_download(srv.url(), dest, pf, err, {200, 5000});
-            const double secs = std::chrono::duration<double>(Clk::now() - t0).count();
-            const double after = seen.now() - cancelled_at;
+            const double secs = seen.decided_at();
+            const int run_out = srv.holds_run_out();
+            const double closed = close_after_decision(srv, seen, stalls);
+            const bool last = calls_at_false > 0 && calls_at_false == seen.calls.size();
             check("PROV-STALL-11",
                   "a ProgressFn that says false once (0, 0) has stood for 0.5 s ends an attempt whose server has "
-                  "not answered within 1.0 s of it (the stall timeout is 5 s, the server holds 8 s) with 'cancelled "
-                  "by user', in under 5.0 s, leaving no dest, .part or record",
-                  !ok && cancelled_at >= 0 && after <= 1.0 && secs < 5.0 && err == "cancelled by user" &&
+                  "not answered (the stall timeout is 5 s, the server holds 60 s) with 'cancelled by user': that "
+                  "false is the LAST call it got, made before 5.0 s, and the server's hold had not run out at "
+                  "the return (the backend did not wait for the server) and the server saw the client close the connection "
+                  "within 1.0 s of that call (net of the process's own stalls; not observable under WinHTTP); no "
+                  "dest, .part or record is left",
+                  !ok && cancelled_at >= 0 && last && secs < 5.0 && run_out == 0 && closed >= 0 && closed <= 1.0 &&
+                      err == "cancelled by user" &&
                       !exists(dest) && !exists(sdcard::partial_path(dest)) &&
                       !exists(sdcard::resume_record_path(dest)),
-                  "ok=" + std::to_string(ok) + " t=" + num(secs) + "s cancelled_at=" + num(cancelled_at) +
-                      " returned_after=" + num(after) + "s err='" + err + "' calls=" +
+                  "ok=" + std::to_string(ok) + " decided_at=" + num(secs) + "s cancelled_at=" + num(cancelled_at) +
+                      " calls_at_false=" + std::to_string(calls_at_false) + " holds_run_out=" +
+                      std::to_string(run_out) + " close_after_decision=" + num(closed) + "s err='" + err + "' calls=" +
                       std::to_string(seen.calls.size()));
         }
+    }
+
+    // 12: the sentinel's arithmetic against a known answer, no threads (host_stalls.h). Oracle: interval
+    // arithmetic on the spans given.
+    {
+        auto close_to = [](double a, double b) { return std::abs(a - b) < 1e-9; };
+        using hs::Span;
+        const std::vector<Span> none;
+        const bool inside = close_to(hs::stall_overlap({{1.0, 2.0}}, 0.0, 5.0), 1.0);                   // a span inside the gap
+        const bool left   = close_to(hs::stall_overlap({{0.5, 1.5}}, 1.0, 5.0), 0.5);                   // cut at the gap's start
+        const bool right  = close_to(hs::stall_overlap({{4.5, 6.0}}, 1.0, 5.0), 0.5);                   // cut at the gap's end
+        const bool two    = close_to(hs::stall_overlap({{1.0, 1.5}, {3.0, 4.0}}, 0.0, 5.0), 1.5);       // two spans sum
+        const bool touch  = close_to(hs::stall_overlap({{0.0, 1.0}, {5.0, 6.0}}, 1.0, 5.0), 0.0);       // endpoints only
+        const bool empty  = close_to(hs::stall_overlap(none, 0.0, 5.0), 0.0);
+        std::vector<Span> rec;
+        const bool late15 = !hs::note_wake(rec, 1.0, 1.015) && rec.empty();                         // 15 ms late: not a stall
+        const bool late25 = hs::note_wake(rec, 2.0, 2.025) && rec.size() == 1 && close_to(rec[0].from, 2.0) &&
+                            close_to(rec[0].to, 2.025);                                                  // 25 ms late: recorded
+        const bool net = close_to(hs::stall_overlap({{1.0, 2.0}}, 0.5, 2.5) , 1.0) &&
+                         close_to((2.5 - 0.5) - hs::stall_overlap({{1.0, 2.0}}, 0.5, 2.5), 1.0);        // net = gap - overlap
+        check("PROV-STALL-12",
+              "the host-stall sentinel's arithmetic: the overlap of recorded spans with a gap is the sum of the "
+              "parts inside it (a span inside, cut at either end, two summed, touching endpoints and none give "
+              "1.0, 0.5, 0.5, 1.5, 0 and 0), a wake 15 ms late is not recorded and one 25 ms late is, and a "
+              "gap's net length is its length minus that overlap",
+              inside && left && right && two && touch && empty && late15 && late25 && net,
+              "inside=" + std::to_string(inside) + " left=" + std::to_string(left) + " right=" + std::to_string(right) +
+                  " two=" + std::to_string(two) + " touch=" + std::to_string(touch) + " empty=" +
+                  std::to_string(empty) + " late15=" + std::to_string(late15) + " late25=" + std::to_string(late25) +
+                  " net=" + std::to_string(net));
+    }
+
+    // 13: the loopback server's two verbs against a known answer: holds_run_out() counts a hold that ended
+    // because its time ran out, release() ends a hold without counting it.
+    {
+        rs::Server a, b;
+        if (!a.ok() || !b.ok()) {
+            check("PROV-STALL-13", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
+        } else {
+            // (a) the server holds 500 ms against a client that would wait 5 s: the hold runs out, the
+            // server closes, the client fails with a transport error, not a stall
+            rs::Opts oa;
+            oa.body = body;
+            oa.silent = true;
+            oa.stall_ms = 500;
+            a.set(oa);
+            std::string err_a;
+            const bool ok_a = sdcard::http_download(a.url(), dest_in("m"), {}, err_a, {200, 5000});
+            const int run_out_a = a.holds_run_out();
+            // (b) the server holds 60 s; the client's ProgressFn releases it from its 3rd call on (every call
+            // from then on, so a connection accepted late is released too): the attempt ends in a transport
+            // error well before the 5 s stall timeout and no hold ran out
+            rs::Opts ob = oa;
+            ob.stall_ms = 60000;
+            b.set(ob);
+            std::string err_b;
+            int calls_b = 0;
+            sdcard::ProgressFn pf = [&](uint64_t, uint64_t) {
+                if (++calls_b >= 3) b.release();
+                return true;
+            };
+            Seen seen_b;
+            const bool ok_b = sdcard::http_download(b.url(), dest_in("n"), pf, err_b, {200, 5000});
+            const double t_b = seen_b.now();
+            const int run_out_b = b.holds_run_out();
+            const bool a_ok = !ok_a && run_out_a == 1 && !err_a.empty() && err_a.rfind("stalled:", 0) != 0;
+            const bool b_ok = !ok_b && run_out_b == 0 && t_b < 5.0 && !err_b.empty() && err_b.rfind("stalled:", 0) != 0;
+            check("PROV-STALL-13",
+                  "the loopback server's hold counter and release: a 500 ms hold against a client willing to wait "
+                  "5 s runs out (count 1) and the client fails with a transport error, not 'stalled:'; a 60 s "
+                  "hold released by the client's own ProgressFn from its 3rd call ends the attempt in under 5 s "
+                  "with a transport error and counts no run-out hold",
+                  a_ok && b_ok,
+                  "a: ok=" + std::to_string(ok_a) + " run_out=" + std::to_string(run_out_a) + " err='" + err_a +
+                      "'; b: ok=" + std::to_string(ok_b) + " run_out=" + std::to_string(run_out_b) + " t=" +
+                      num(t_b) + "s err='" + err_b + "'");
+        }
+    }
+
+    // 14: the server's close observation against a known answer: wait_client_close() reports the CLIENT's close of
+    // the held connection and nothing else.
+    {
+        rs::Server a, b;
+        if (!a.ok() || !b.ok()) {
+            check("PROV-STALL-14", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
+        } else {
+            // (a) the client gives up (its ProgressFn says false from the 3rd call): the server sees it close
+            rs::Opts oa;
+            oa.body = body;
+            oa.silent = true;
+            oa.stall_ms = 60000;
+            a.set(oa);
+            std::string err_a;
+            int calls_a = 0;
+            sdcard::ProgressFn pf = [&](uint64_t, uint64_t) { return ++calls_a < 3; };
+            const Clk::time_point t0 = Clk::now();
+            const bool ok_a = sdcard::http_download(a.url(), dest_in("p"), pf, err_a, {200, 5000});
+            Clk::time_point seen_at;
+#ifdef _WIN32
+            const bool closed_a = true;   // wine keeps an abandoned request's socket until the server closes it
+#else
+            const bool closed_a = a.wait_client_close(seen_at, 10000);
+#endif
+            const double after_s = std::chrono::duration<double>(Clk::now() - t0).count();
+            // (b) the SERVER closes (its hold runs out after 300 ms): that is not a client close
+            rs::Opts ob = oa;
+            ob.stall_ms = 300;
+            b.set(ob);
+            std::string err_b;
+            const bool ok_b = sdcard::http_download(b.url(), dest_in("q"), {}, err_b, {200, 5000});
+            Clk::time_point seen_b;
+            const bool closed_b = b.wait_client_close(seen_b, 500);
+            check("PROV-STALL-14",
+                  "the loopback server reports the client's close of a held connection: a client that gives up "
+                  "(ProgressFn false from its 3rd call, against a 60 s hold) is seen to close it within 10 s and "
+                  "the hold did not run out; a hold that runs out (300 ms, the SERVER closes) is not reported as a "
+                  "client close (the close is not observable under WinHTTP: only the second half applies there)",
+                  !ok_a && err_a == "cancelled by user" && closed_a && a.holds_run_out() == 0 && after_s < 10.0 &&
+                      !ok_b && b.holds_run_out() == 1 && !closed_b,
+                  "a: ok=" + std::to_string(ok_a) + " err='" + err_a + "' closed=" + std::to_string(closed_a) +
+                      " run_out=" + std::to_string(a.holds_run_out()) + " t=" + num(after_s) + "s; b: ok=" +
+                      std::to_string(ok_b) + " run_out=" + std::to_string(b.holds_run_out()) + " closed=" +
+                      std::to_string(closed_b) + " err='" + err_b + "'");
+        }
+    }
+
+    // 15: download_step DECIDES, it does not settle the partial: the backend closes the transfer first and then calls
+    // settle_stop(). Oracle: the keep-or-remove rule of PartialDownload (kept only with bytes and a validator), the
+    // 'stalled' wording of stall_reason() and fail()'s "(after X of Y bytes)". No network.
+    {
+        const sdcard::DownloadTimings never{200, 30000};
+        const sdcard::DownloadTimings at_once{200, 0};
+        const sdcard::ProgressFn say_no  = [](uint64_t, uint64_t) { return false; };
+        const sdcard::ProgressFn say_yes = [](uint64_t, uint64_t) { return true; };
+        // cancel, no validator: cancelled() would REMOVE the .part, so its presence before settle_stop is the proof
+        const std::string dest_c = dest_in("r");
+        sdcard::PartialDownload pc("http://x/y", dest_c, false);
+        sdcard::HttpResponseInfo rc;
+        rc.status = 200;
+        rc.has_content_length = true;
+        rc.content_length = 1000;
+        std::string ec;
+        const bool begun_c = pc.begin(rc, ec) == sdcard::PartialDownload::Begin::Ok && pc.write("0123456789", 10);
+        sdcard::StallWatch wc;
+        const bool go_c = sdcard::download_step(pc, say_no, 10, wc, never, ec);
+        const bool before_c = !go_c && ec == "cancelled by user" && exists(sdcard::partial_path(dest_c));
+        pc.settle_stop(ec);
+        const bool after_c = !exists(sdcard::partial_path(dest_c)) && ec == "cancelled by user";
+        // stall, validator: fail() keeps the .part and adds "(after 10 of 1000 bytes)" to err
+        const std::string dest_s = dest_in("s");
+        sdcard::PartialDownload ps("http://x/y", dest_s, false);
+        sdcard::HttpResponseInfo rs_;
+        rs_.status = 200;
+        rs_.etag = kEtag;
+        rs_.has_content_length = true;
+        rs_.content_length = 1000;
+        std::string es;
+        const bool begun_s = ps.begin(rs_, es) == sdcard::PartialDownload::Begin::Ok && ps.write("0123456789", 10);
+        sdcard::StallWatch ws;
+        const bool go_s = sdcard::download_step(ps, say_yes, 10, ws, at_once, es);
+        const bool before_s = !go_s && es == sdcard::stall_reason(0);   // bare: fail() has not run
+        ps.settle_stop(es);
+        sdcard::ResumeInfo ri;
+        const bool after_s = es == sdcard::stall_reason(0) + " (after 10 of 1000 bytes)" &&
+                             slurp(sdcard::partial_path(dest_s)) == "0123456789" && sdcard::read_resume_info(dest_s, ri);
+        // a second settle_stop is a no-op
+        std::string again = "unchanged";
+        ps.settle_stop(again);
+        // the destructor's safety net: a recorded stop left UNSETTLED is settled when the object goes out of scope
+        const std::string dest_dc = dest_in("t"), dest_ds = dest_in("u");
+        bool begun_d = true;
+        {
+            sdcard::PartialDownload pd("http://x/y", dest_dc, false);   // cancel, no validator
+            std::string e1;
+            begun_d = begun_d && pd.begin(rc, e1) == sdcard::PartialDownload::Begin::Ok && pd.write("0123456789", 10);
+            sdcard::StallWatch w1;
+            begun_d = begun_d && !sdcard::download_step(pd, say_no, 10, w1, never, e1);
+            sdcard::PartialDownload pe("http://x/y", dest_ds, false);   // stall, ETag
+            std::string e2;
+            begun_d = begun_d && pe.begin(rs_, e2) == sdcard::PartialDownload::Begin::Ok && pe.write("0123456789", 10);
+            sdcard::StallWatch w2;
+            begun_d = begun_d && !sdcard::download_step(pe, say_yes, 10, w2, at_once, e2);
+        }   // no settle_stop: ~PartialDownload does it
+        sdcard::ResumeInfo rd;
+        const bool net_ok = begun_d && !exists(sdcard::partial_path(dest_dc)) &&
+                            slurp(sdcard::partial_path(dest_ds)) == "0123456789" && sdcard::read_resume_info(dest_ds, rd);
+        check("PROV-STALL-15",
+              "download_step records the verdict without settling the partial: after a cancel with no validator the "
+              ".part still exists (cancelled() would have removed it) and err is 'cancelled by user', and "
+              "settle_stop() then removes it; after a stall with an ETag err is the bare stall reason (no 'after') "
+              "until settle_stop() keeps the 10 byte .part and its record and adds '(after 10 of 1000 bytes)'; a "
+              "second settle_stop() does nothing; a recorded stop left unsettled is settled by the destructor (a cancel "
+              "with no validator leaves no .part, a stall with an ETag keeps the 10 byte .part and its record)",
+              begun_c && before_c && after_c && begun_s && before_s && after_s && again == "unchanged" && net_ok,
+              "c: begun=" + std::to_string(begun_c) + " before=" + std::to_string(before_c) + " after=" +
+                  std::to_string(after_c) + " s: begun=" + std::to_string(begun_s) + " before=" +
+                  std::to_string(before_s) + " after=" + std::to_string(after_s) + " destructor_net=" + std::to_string(net_ok) +
+                  " err='" + es + "' again='" + again + "'");
     }
 }
 

@@ -397,7 +397,7 @@ The instruction at the PC is read as the CPU will fetch it, not as a data read.
 `Debugger::memory_reader()` (`debugger_inspect.cpp:833`) takes the bytes of that one instruction
 (at most four) from `Emulator::predict_instruction_bytes()` and every other address from
 `Mmu::peek()`; at a DivMMC instant entry the M1 itself maps DivMMC, so a peek at the PC would show
-other bytes than the ones that execute. The Disassembly, `step_over()` (`debugger_control.cpp:181`: `is_call_like()` at `:191` and `step_successors()` at `:200`
+other bytes than the ones that execute. The Disassembly, `step_over()` (`debugger_control.cpp:201`: `is_call_like()` at `:211` and `step_successors()` at `:220`
 read through it) and ZRCP `cpu-step-over`
 (`ZrcpServer::cmd_cpu_step_over`) all use it (rows `LADDR-17` to `LADDR-20`).
 
@@ -449,7 +449,7 @@ mapping. On the other machines segment 0 is `DIV` while DivMMC is paged in.
 the SLD or the map itself and evaluates its own breakpoint conditions (jnext arms a conditional DZRP breakpoint
 unconditionally). So a DeZog user gets no C variables from jnext. What DZRP shares with this section is the legacy `bank+1` qualifier
 ([3.9.5.1](01-which-memory.md)). `CMD_GET_REGISTERS` reports `0xFF` for every ROM slot
-(`is_rom`, `dzrp_server.cpp:564-568`), because DeZog has no bank for the ROM values
+(`is_rom`, `dzrp_server.cpp:537-540`), because DeZog has no bank for the ROM values
 `0xE0`-`0xFE`.
 
 **Scripts.** `on execute FILE:LINE` resolves through `source_map().resolve()` at load time (`source_map().resolve()`, `script_engine.cpp:332`) and

@@ -216,7 +216,7 @@ Outcome attempt_download(const std::string& url, const std::string& dest, const 
     // honours its false, and ends the attempt once no body byte has arrived for
     // the stall timeout (counted from here, then from the last byte).
     StallWatch watch;
-    bool stopped = false;    // download_step() ended the attempt: err set, partial settled
+    bool stopped = false;    // download_step() ended the attempt: err set, partial settled after the teardown
     int running = 1;
     while (multi_err.empty()) {
         CURLMcode mc = curl_multi_perform(multi, &running);
@@ -242,7 +242,10 @@ Outcome attempt_download(const std::string& url, const std::string& dest, const 
     curl_multi_cleanup(multi);
     curl_slist_free_all(headers);
 
-    if (stopped) return Outcome::Failed;
+    if (stopped) {   // the connection is closed (above): only now the file work
+        part.settle_stop(err);
+        return Outcome::Failed;
+    }
     if (!multi_err.empty()) {
         err = multi_err;
         part.fail(err, false);

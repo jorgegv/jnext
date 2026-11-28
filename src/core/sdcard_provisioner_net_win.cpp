@@ -302,9 +302,11 @@ std::string query_header(HINTERNET req, DWORD what) {
 
 enum class Outcome { Done, Retry, Failed };
 
-Outcome attempt_download(const std::string& url, const std::string& dest_path, const ProgressFn& progress,
-                         bool allow_resume, const DownloadTimings& timings, std::string& err) {
-    PartialDownload part(url, dest_path, allow_resume);
+// The transfer itself: every WinHTTP handle it opens is closed when it returns. A stop decided by
+// download_step() is settled by the caller AFTER that (PartialDownload::settle_stop), so the
+// connection is let go of before any file work.
+Outcome attempt_transfer(PartialDownload& part, const std::string& url, const std::string& dest_path,
+                         const ProgressFn& progress, const DownloadTimings& timings, std::string& err) {
     if (part.complete()) {   // only its rename was missing: no request (GH #358)
         if (!part.finish(err)) return Outcome::Failed;
         if (!regular_file_exists(dest_path)) { err = "produced no file: " + dest_path; return Outcome::Failed; }
@@ -389,7 +391,7 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
     uint64_t got_total = 0;   // body bytes of this response written so far
 
     // Wait for the completion `want`, one tick at a time. On Ended the attempt is
-    // over (download_step has set `err` and settled the partial) and nothing is
+    // over (download_step has set `err`; the caller settles the partial once the handles are closed) and nothing is
     // waited for: the caller returns, the handles close, WinHTTP cleans up behind.
     //
     // The tick is by the clock: a deadline that persists across wakes that are not
@@ -502,6 +504,14 @@ Outcome attempt_download(const std::string& url, const std::string& dest_path, c
         return Outcome::Failed;
     }
     return Outcome::Done;
+}
+
+Outcome attempt_download(const std::string& url, const std::string& dest_path, const ProgressFn& progress,
+                         bool allow_resume, const DownloadTimings& timings, std::string& err) {
+    PartialDownload part(url, dest_path, allow_resume);
+    const Outcome o = attempt_transfer(part, url, dest_path, progress, timings, err);
+    part.settle_stop(err);   // the handles are closed: no-op unless download_step stopped the attempt
+    return o;
 }
 
 } // namespace

@@ -30,7 +30,9 @@
 // ---------------------------------------------------------------------------
 
 #include <cstring>
+#include <set>
 
+#include "core/log.h"
 #include "debug/debugger_impl.h"
 #include "debug/event_table.h"
 
@@ -42,7 +44,10 @@ namespace dbg {
 // ---------------------------------------------------------------------------
 
 void Debugger::Impl::gates_changed() {
-    if (!emu) return;   // the hot-path gates are the local machine's
+    if (!emu) {         // the hot-path gates are the local machine's: a target gets the mirror
+        reconcile_remote();
+        return;
+    }
     // The MMU slot masks, the port flag, and the `Execute` / `Cycle` arms.
     ds().refresh_event_gates();
 
@@ -76,7 +81,19 @@ void Debugger::Impl::gates_changed() {
 // ---------------------------------------------------------------------------
 
 Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
-    if (!impl_->emu) return make_refused<EventId>(Result::Unsupported);
+    // A facade over a target serves `Execute` and `Mem` (TGT-05) and nothing else:
+    // MachineEvents is local-only (plan section 11).
+    if (!impl_->emu) {
+        if (sub.kind == EventKind::Execute) {
+            if (!impl_->serves(Capability::ExecuteBreakpoints))
+                return make_refused<EventId>(Result::Unsupported);
+        } else if (sub.kind == EventKind::Mem) {
+            if (!impl_->serves(Capability::Watchpoints))
+                return make_refused<EventId>(Result::Unsupported);
+        } else {
+            return make_refused<EventId>(Result::Unsupported);
+        }
+    }
     // GH #276 B5 — a client that has DETACHED cannot own a subscription: its
     // `erase_client()` already ran, so one made now would stay armed for ever
     // with an owner no detach will ever sweep again — the "per-client state left
@@ -156,8 +173,45 @@ Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
     Subscription fixed = sub;
     if (fixed.kind == EventKind::Cycle) fixed.once = true;
 
+    // What a target can hold (TGT-05). DZRP's `bank+1` names ONE RAM page or none, a
+    // breakpoint is one address, and a watchpoint is one range: anything else is
+    // refused here, never narrowed or widened (a bank of 224 or more would arrive as
+    // "any page" at the remote).
+    if (!impl_->emu) {
+        const EventFilter& f = fixed.filter;
+        const bool page_ok = f.page == PAGE_ANY || f.page <= 223;
+        if (!page_ok) return make_refused<EventId>(Result::RefusedUnavailable);
+        if (fixed.kind == EventKind::Execute) {
+            if (f.lo != f.hi || f.space != MemSpace::cpu())
+                return make_refused<EventId>(Result::RefusedUnavailable);
+        } else if (!f.pages.empty() || f.lo > f.hi) {
+            return make_refused<EventId>(Result::RefusedUnavailable);
+        }
+    }
+
     const EventId id = impl_->events.add(by, fixed);
+    impl_->remote_last_fail = Result::Ok;
     impl_->gates_changed();
+    if (!impl_->emu) {
+        // The table never holds an entry the target refused at subscribe time.
+        const EventTable::Entry* e = impl_->events.find(id);
+        bool armed = true;
+        if (e && e->live) {
+            const EventFilter& f = e->filter;
+            if (e->kind == EventKind::Execute)
+                armed = impl_->remote_bps.count({f.lo, f.page}) != 0;
+            else
+                armed = impl_->remote_wps.count(
+                            {f.lo, f.hi, f.page, static_cast<uint8_t>(e->access)}) != 0;
+        }
+        if (!armed) {
+            const Result why = impl_->remote_last_fail == Result::Ok
+                                   ? Result::RefusedUnavailable : impl_->remote_last_fail;
+            impl_->events.erase(id);
+            impl_->gates_changed();
+            return make_refused<EventId>(why);
+        }
+    }
     impl_->bump_revision();   // GH #428
     return make_ok<EventId>(id);
 }
@@ -571,7 +625,10 @@ void Debugger::Impl::deliver_to_subscribers(Event& ev, bool& stop,
     draining = true;
 
     {
-        DebugState::InspectionScope scope(ds());
+        // The scope keeps a delivery's own reads from latching events on the LOCAL machine;
+        // a facade over a target has none.
+        std::optional<DebugState::InspectionScope> scope;
+        if (emu) scope.emplace(ds());
 
         // INDEX-BASED, not iterator-based: a handler may `subscribe()` (a script
         // arming a follow-up rule) and invalidate any iterator into `subs_`. A
@@ -796,7 +853,7 @@ void Debugger::Impl::note_event_stop(const Event& ev) {
     // rest.
     if (event_stop_latched) return;
     event_stop_latched = true;
-    event_stop_gen     = ds().resume_generation();
+    event_stop_gen     = emu ? ds().resume_generation() : remote_resume_gen;
     event_stop.id      = ev.id;
     event_stop.by      = ev.owner;
     event_stop.addr    = matched_addr(ev);
@@ -880,6 +937,153 @@ std::string Debugger::Impl::log_line_for(const Event& ev) const {
                       unsigned(ev.dropped));
     }
     return buf;
+}
+
+// ---------------------------------------------------------------------------
+// TGT-05 - a facade over a target: the remote mirror and the stop path
+// ---------------------------------------------------------------------------
+
+// ONE function mirrors the subscription table into the target. Every table change
+// already ends in `gates_changed()` (subscribe, unsubscribe, the group verbs,
+// set_enabled, the master and client switches, `once`, a stop's transient clear, a
+// detach), so no verb needs remote code of its own, and a verb added later cannot
+// forget one. The target holds one object per DISTINCT key; the entries that share a
+// key share it. A disabled entry is removed from the target (never filtered at the
+// stop): a disabled breakpoint must not cost a stop and a round trip per hit.
+void Debugger::Impl::reconcile_remote() {
+    if (emu) return;
+    std::set<BpKey> want_bp;
+    std::set<WpKey> want_wp;
+    for (const auto& e : events.entries()) {
+        if (e.removed || !e.live || e.once_fired) continue;
+        if (e.kind == EventKind::Execute)
+            want_bp.insert({e.filter.lo, e.filter.page});
+        else if (e.kind == EventKind::Mem)
+            want_wp.insert({e.filter.lo, e.filter.hi, e.filter.page,
+                            static_cast<uint8_t>(e.access)});
+    }
+
+    // Removals first: a key that is no longer wanted. The record goes even when the
+    // target fails the removal: keeping it would retry on every later change.
+    for (auto it = remote_bps.begin(); it != remote_bps.end();) {
+        if (want_bp.count(it->first)) { ++it; continue; }
+        const Result r = target.remove_breakpoint(it->second);
+        if (r != Result::Ok)
+            Log::debugger()->warn("target: remove breakpoint 0x{:04X} refused: {}",
+                                  it->first.first, result_name(r));
+        it = remote_bps.erase(it);
+    }
+    for (auto it = remote_wps.begin(); it != remote_wps.end();) {
+        if (want_wp.count(it->first)) { ++it; continue; }
+        for (uint32_t h : it->second) {
+            const Result r = target.remove_watchpoint(h);
+            if (r != Result::Ok)
+                Log::debugger()->warn("target: remove watchpoint 0x{:04X}-0x{:04X} refused: {}",
+                                      std::get<0>(it->first), std::get<1>(it->first),
+                                      result_name(r));
+        }
+        it = remote_wps.erase(it);
+    }
+
+    for (const BpKey& k : want_bp) {
+        if (remote_bps.count(k)) continue;
+        const auto r = target.add_breakpoint(k.first, k.second);
+        if (!r) {
+            remote_last_fail = r.status;
+            Log::debugger()->error("target: add breakpoint 0x{:04X} (page {}) failed: {}",
+                                   k.first, k.second, result_name(r.status));
+            continue;
+        }
+        remote_bps[k] = r.value;
+    }
+    for (const WpKey& k : want_wp) {
+        if (remote_wps.count(k)) continue;
+        const uint16_t lo = std::get<0>(k), hi = std::get<1>(k), page = std::get<2>(k);
+        const Access   access = static_cast<Access>(std::get<3>(k));
+        // A DZRP size is 16 bits: the whole 64K is two watches under one key.
+        std::vector<std::pair<uint16_t, uint16_t>> parts;
+        if (lo == 0x0000 && hi == 0xFFFF) parts = {{0x0000, 0x7FFF}, {0x8000, 0xFFFF}};
+        else parts = {{lo, hi}};
+        std::vector<uint32_t> handles;
+        Result failed = Result::Ok;
+        for (const auto& p : parts) {
+            const auto r = target.add_watchpoint(p.first, p.second, page, access);
+            if (!r) { failed = r.status; break; }
+            handles.push_back(r.value);
+        }
+        if (failed != Result::Ok) {
+            for (uint32_t h : handles) target.remove_watchpoint(h);
+            remote_last_fail = failed;
+            Log::debugger()->error("target: add watchpoint 0x{:04X}-0x{:04X} (page {}) failed: {}",
+                                   lo, hi, page, result_name(failed));
+            continue;
+        }
+        remote_wps[k] = std::move(handles);
+    }
+}
+
+// The target's stops, through the SAME delivery a local stop gets: filters,
+// conditions, handlers, `once`, `Log`, hit records and CTL-13's reason are
+// `deliver_to_subscribers()`, not a copy of it. What differs is the verdict's
+// consequence. Locally a stop nothing claims never happens (the hot loop only pauses
+// on a `Stop`); a remote has already stopped, so a hit whose condition is false (or
+// whose handler said Continue or Log) must be RESUMED here, at once, unless a
+// `pause()` was made since the last resume: the last verb wins, as locally.
+void Debugger::Impl::service_target_stops() {
+    if (emu) return;
+    TargetStop ts;
+    while (target.take_stop(ts)) {
+        events.clear_hits();
+        bool stop     = false;
+        bool by_event = false;
+        const uint16_t page = ts.page == PAGE_ANY ? 0xFF : ts.page;   // no accepted filter holds 0xFF
+        switch (ts.why) {
+            case TargetStop::Why::Breakpoint: {
+                Event ev;
+                ev.kind      = EventKind::Execute;
+                ev.pc        = ts.addr;
+                ev.phys_page = page;
+                deliver_to_subscribers(ev, stop, CLIENT_NONE);
+                by_event = stop;
+                break;
+            }
+            case TargetStop::Why::WatchRead:
+            case TargetStop::Why::WatchWrite: {
+                Event ev;
+                ev.kind      = EventKind::Mem;
+                ev.addr      = ts.addr;
+                ev.access    = ts.why == TargetStop::Why::WatchWrite ? Access::Write : Access::Read;
+                ev.phys_page = page;
+                // The notification carries the data address only; the PC is read now.
+                ev.pc        = target.registers().PC;
+                deliver_to_subscribers(ev, stop, CLIENT_NONE);
+                by_event = stop;
+                break;
+            }
+            case TargetStop::Why::Manual:
+                stop = true;
+                break;
+            case TargetStop::Why::Other:
+                stop              = true;
+                remote_other_stop = true;
+                remote_other_gen  = remote_resume_gen;
+                remote_stop_text  = ts.text;
+                break;
+        }
+        if (stop) {
+            apply_stop(by_event);
+            continue;
+        }
+        if (armed_reason == PauseReason::Kind::User) continue;   // a pause() since the last resume wins
+        if (!serves(Capability::Run)) continue;
+        const Result r = target.resume();
+        if (r != Result::Ok) {
+            Log::debugger()->warn("target: resuming after a stop nobody claimed failed: {}",
+                                  result_name(r));
+            continue;
+        }
+        ++remote_resume_gen;   // the machine left that stop: a latch written under the old value is stale
+    }
 }
 
 }  // namespace dbg
