@@ -272,7 +272,7 @@ std::optional<bool> Debugger::Impl::remote_identity(const SourceMap& map) const 
             const uint8_t* bank = nex.bank_data(page >> 1);
             if (!bank) { note_page(page, "is not in the NEX"); continue; }
             const auto b = bufs.find(page);
-            if (b == bufs.end() || !b->second.ok) { note_page(page, "was not read"); continue; }
+            if (b == bufs.end() || !b->second.ok) continue;   // the read above said why
             const uint32_t end = std::min<uint32_t>(c.hi_excl, (c.lo & 0xE000u) + 0x2000u);
             for (uint32_t a = c.lo; a < end; ++a) {
                 const uint32_t off = a & 0x1FFFu;
