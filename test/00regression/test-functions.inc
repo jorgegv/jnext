@@ -326,7 +326,7 @@ sd_expected_recipe() {
 
 # sd_card_name [source] - print the file name of jnext's default SD card (GH #579). Read from its
 # one definition, sdcard::kFixedImageFileName in src/core/sdcard_provisioner.cpp (or from [source],
-# a test seam for HS-203), the way sd_expected_recipe reads the recipe: the binary under test is built
+# a test seam for HS-206), the way sd_expected_recipe reads the recipe: the binary under test is built
 # from this same tree, so no second spelling exists to drift. Prints nothing and fails unless exactly
 # one line matches, so a reworded or doubled definition is loud, never a guess. Every script that
 # sources this library reads the name from $SD_CARD_NAME, set once below.
@@ -356,7 +356,7 @@ export SD_CARD_NAME SD_CARD_LEGACY_NAME
 # sd_card_name_in <dir>: the file name of the default card in <dir>, by the product's own rule (sdcard::card_name_in,
 # GH #579): the new name when that file exists, else the old name when that exists, else the new name. Both names are
 # the constants read above; no setting names the card. Every shell consumer of a default card goes through this
-# (tools/sd-card-name.sh is the command line to it), and HS-204 pins that it and the C++ rule agree.
+# (tools/sd-card-name.sh is the command line to it), and HS-206 pins that it and the C++ rule agree.
 sd_card_name_in() {
     if [[ -f "$1/$SD_CARD_NAME" ]]; then printf '%s\n' "$SD_CARD_NAME"
     elif [[ -f "$1/$SD_CARD_LEGACY_NAME" ]]; then printf '%s\n' "$SD_CARD_LEGACY_NAME"

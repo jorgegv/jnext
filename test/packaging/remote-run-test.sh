@@ -9,7 +9,7 @@
 # locally), the owner's rule that all remote work data lives under one directory, and
 # .github/workflows/ci.yml as the consumer of test/ci-deps.sh. No VHDL: this is tooling.
 #
-# Rows RRUN-01 .. RRUN-74. A missing tool FAILS every row (no SKIP path).
+# Rows RRUN-01 .. RRUN-77. A missing tool FAILS every row (no SKIP path).
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -17,7 +17,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$ROOT/test/packaging/skill-env-scrub.sh"
 SKILL=$ROOT/.claude/skills/remote-run
 DRIVER=$SKILL/remote-run.sh
-EXPECTED_ROWS=74
+EXPECTED_ROWS=77
 
 total=0; passed=0; failed=0
 ids_seen=" "
@@ -160,6 +160,8 @@ if [[ " $* " == *" oomy "* ]]; then
     echo "anon 3221225472" > "$RR_CGROUP/memory.stat"; sleep 2
     echo "anon 104857600" > "$RR_CGROUP/memory.stat"; echo "oom_kill 1" > "$RR_CGROUP/memory.events"
 fi
+if [[ " $* " == *" refuse "* ]]; then echo " TEST HARNESS REFUSES TO RUN "; echo "mutant-test: NO VERDICT: x"; exit 2; fi
+if [[ " $* " == *" killed "* ]]; then echo "mutant-test: KILLED by the suites; rows not run"; exit 2; fi
 [[ " $* " != *" bad "* ]]
 EOF
 chmod +x "$TMP/bin/podman" "$TMP/bin/make"
@@ -1269,6 +1271,41 @@ PATH="$TMP/dnfstub:$PATH" bash "$ROOT/test/ci-deps.sh" --list test >/dev/null 2>
 [[ ! -s "$DNF_LOG" ]] || dnf_ok=0
 unset DNF_LOG
 row RRUN-74 "$dnf_ok" "ci-deps.sh runs dnf upgrade -y then dnf install -y with the whole set, stops when the upgrade fails, and --list calls no dnf"
+
+# RRUN-75 (GH #585): mutant-test is a heavy target: the driver prints no "not a heavy target" notice for it
+reset_state
+drive --id hv3 feature "$SHA" "mutant-test SUITES=a"; hv_c=$OUT
+reset_state
+drive --id hv4 feature "$SHA" "unit-test-build SUITES=a"; hv_d=$OUT
+row RRUN-75 "$([[ "$hv_c" != *"is not a heavy target"* && "$hv_d" == *"'unit-test-build' is not a heavy target"* ]] && echo 1 || echo 0)" \
+    "mutant-test SUITES=a raises no heavy-target notice (the control unit-test-build SUITES=a does)"
+
+# RRUN-76 (GH #585 review): the banner rule also holds for a patch run that FELL BACK into the mutant (run_local folds every status to 1):
+# a refusing local run is exit 2 PATCH REFUSED; the control without the banner stays exit 1; the summary shows the last `mutant-test:` line
+reset_state; rm -f "$FAKE_STATE/make-calls"
+LC_ALL=C pdrive --id p76 --fallback-local "$TMP/mut62" --patch "$TMP/p62.patch" pbase "$PSHA" "unit-test refuse"
+rc76=$RC; o76=$OUT
+reset_state
+LC_ALL=C pdrive --id p76b --fallback-local "$TMP/mut62" --patch "$TMP/p62.patch" pbase "$PSHA" "unit-test bad"
+rc76b=$RC; o76b=$OUT
+reset_state
+LC_ALL=C pdrive --id p76c --fallback-local "$TMP/mut62" --patch "$TMP/p62.patch" pbase "$PSHA" "unit-test killed"
+rc76c=$RC; o76c=$OUT
+row RRUN-76 "$([[ $rc76 -eq 2 && "$o76" == *"RAN LOCALLY"* && "$o76" == *"PATCH REFUSED"*"no verdict (REFUSES TO RUN)"* && "$o76" == *"--- mutant-test: NO VERDICT: x"* \
+    && $rc76b -eq 1 && "$o76b" != *"PATCH REFUSED"* && "$o76b" != *"--- mutant-test:"* \
+    && $rc76c -eq 1 && "$o76c" == *"--- mutant-test: KILLED by the suites; rows not run"* ]] && echo 1 || echo 0)" \
+    "a patch run that fell back: banner = exit 2 PATCH REFUSED, no banner = exit 1, and the summary carries the last mutant-test: line (rc $rc76/$rc76b/$rc76c)"
+
+# RRUN-77 (GH #585 review): a lane whose bootstrap fails (the SD master cannot be provisioned) ran no test: no verdict for a patch run,
+# exit 1 for a plain one
+sed 's/^BOOTSTRAP_CMD=.*/BOOTSTRAP_CMD="exit 3"/' "$ROOT/.claude/skills/remote-run/project.conf" > "$TMP/bs-fail.conf"
+reset_state
+FAKE_INNER=1 pdrive --id p77 --conf "$TMP/bs-fail.conf" --patch "$TMP/pA.patch" pbase "$PSHA" unit-test
+rc77=$RC; o77=$OUT
+reset_state
+FAKE_INNER=1 pdrive --id p77b --conf "$TMP/bs-fail.conf" pbase "$PSHA" unit-test
+row RRUN-77 "$([[ $rc77 -eq 2 && "$o77" == *"PATCH REFUSED"*"no verdict (bootstrap)"* && $RC -eq 1 && "$OUT" != *"PATCH REFUSED"* ]] && echo 1 || echo 0)" \
+    "a patch run whose lane bootstrap failed is exit 2 'no verdict (bootstrap)'; a plain run stays exit 1 (rc $rc77 / $RC)"
 
 # RRUN-38: the contract does not depend on the caller's environment: this whole test, run again with
 # the driver-fallback variables, the remote's variables and a failing ssh and wrapper on PATH, is green

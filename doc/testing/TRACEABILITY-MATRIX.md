@@ -73,7 +73,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextpi_test                     |   103 |  103 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  6705 | 6705 |    0 |    0 |       0 |          0 |
 
-Rows the sections above carry: **6705**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6176**. Rows the 259 suites declared in `test/unit-tests.conf` run live: **18576**.
+Rows the sections above carry: **6705**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **6176**. Rows the 259 suites declared in `test/unit-tests.conf` run live: **18566**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -85,7 +85,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 206 suites (12484 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 206 suites (12474 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -120,10 +120,10 @@ These 206 suites (12484 live rows) have no VHDL-derived plan row to map, so they
 | `sdcard_forward_test` | 14 | the issue and its decision comments (GH #568) and the lock-file format of core/image_lock.h as oracle: jnext --sdcard-file-add forwarded to the running jnext that holds the card (the client, hostile servers, the endpoint DebugServers publishes in the card locks), a host feature with no core counterpart |
 | `image_lock_posix_test` | 2 | SD card image lock, symlink and hard-link rows (POSIX, GH #555); same oracle (host feature, no core counterpart) |
 | `sdcard_file_extract_posix_test` | 1 | SDFX-P01 moved out of sdcard_file_extract_test (a symbolic link needs POSIX, GH #557); same oracle |
-| `sdcard_provisioner_test` | 205 | jnext SD-image download/patch policy (host side) |
+| `sdcard_provisioner_test` | 193 | jnext SD-image download/patch policy (host side) |
 | `sha256_test` | 15 | SHA-256 of every backend (OpenSSL, BCrypt, the portable WebAssembly one; host utility): NIST FIPS 180-2 Appendix B and the NIST CSRC SHA-2 example as oracles, coreutils sha256sum for the rest; the FPGA core has no counterpart |
 | `minimal_card_test` | 43 | the minimal NextZXOS card builder (GH #458): a synthetic MS-FAT32-spec distribution and a zlib zip built in the test, the card read back with ChaN FatFs (host SD-image tool, jnext-internal; the FPGA core has no counterpart) |
-| `sdcard_provisioner_posix_test` | 4 | PROV-REASON-06 and 07, rows that need libcurl itself (an HTTP proxy put in front of it through the environment; the codes it gives for a reply it cannot use) and have no WinHTTP counterpart, so they are POSIX-only (GH #385); same oracle: libcurl documentation and jnext SD-image download/patch policy (host side) |
+| `sdcard_provisioner_posix_test` | 2 | PROV-REASON-06 and 07, rows that need libcurl itself (an HTTP proxy put in front of it through the environment; the codes it gives for a reply it cannot use) and have no WinHTTP counterpart, so they are POSIX-only (GH #385); same oracle: libcurl documentation and jnext SD-image download/patch policy (host side) |
 | `warm_start_test` | 120 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
 | `warm_start_card_test` | 4 | warm-start digest key and stepped recording against the real card (GH #464, jnext-internal); no FPGA counterpart |
 | `snapshot_test` | 299 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
@@ -170,7 +170,7 @@ These 206 suites (12484 live rows) have no VHDL-derived plan row to map, so they
 | `quit_signal_test` | 14 | SIGINT/SIGTERM as a quit request (host process behaviour; GH #364) |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
 | `log_gate_test` | 27 | jnext log-level gating |
-| `cli_options_test` | 53 | CLI flag table vs the man page (see `make cli-check`) |
+| `cli_options_test` | 52 | CLI flag table vs the man page (see `make cli-check`) |
 | `cli_options_native_test` | 30 | CLI rows that run the built jnext binary (split out of cli_options_test, GH #460; see `make cli-check`) |
 | `config_keys_test` | 31 | the table of jnext.conf keys and its --set setter (GH #417, host settings file, no VHDL oracle) |
 | `video_recorder_cmd_test` | 46 | FFmpeg command-line construction (host encoder) |
@@ -180,7 +180,7 @@ These 206 suites (12484 live rows) have no VHDL-derived plan row to map, so they
 | `extended_nex_test` | 62 | narrative section, ID ranges not per-row IDs |
 | `tap_loader_test` | 67 | TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart |
 | `tap_loader_autoplay_test` | 16 | TAP automatic play/stop (host deck feature), the design in GH #395 as oracle, no core counterpart |
-| `program_archive_test` | 103 | ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart |
+| `program_archive_test` | 101 | ZIP archive container (GH #392): PKWARE APPNOTE.TXT as oracle, Info-ZIP and CPython zipfile as foreign writers (host reader), no core counterpart |
 | `halt_batch_equiv_test` | 23 | cycle-batching equivalence (GH #452): the oracle is the unbatched path of the same emulator, held to the VHDL by the other suites; each row cites the hardware behaviour a batch span must not move in its own source (jnext-internal) |
 | `halt_batch_periph_test` | 38 | cycle-batching equivalence on peripheral, observer and host-input fixtures (GH #452): batching off vs on, per frame; the oracle is the unbatched path of the same emulator (jnext-internal) |
 | `raster_poll_batch_test` | 13 | raster-poll batch equivalence (GH #496): the batch off vs on, per frame, video + audio + full state; the oracle is the unbatched path of the same emulator (jnext-internal); each row cites the hardware behaviour a batched window must not move in its own source |
@@ -246,12 +246,12 @@ These 206 suites (12484 live rows) have no VHDL-derived plan row to map, so they
 | `app_config_test` | 182 | jnext.conf schema/precedence (host settings file) |
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
 | `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
-| `mouse_release_test` | 17 | captured-mouse release gesture in the Qt window (host UI, GH #365) |
+| `mouse_release_test` | 23 | captured-mouse release gesture in the Qt window (host UI, GH #365) |
 | `present_count_test` | 27 | host present accounting (wall-clock, not core timing) |
 | `frame_timer_test` | 6 | host GUI frame-timer contract (Qt timer, not core timing) |
 | `esp_status_test` | 15 | host status-bar ESP indicator (GUI), no core counterpart |
 | `no_sdcard_ui_test` | 4 | --no-sdcard in the window: Insert / Eject SD Card disabled, "SD: none" (host GUI, GH #540) |
-| `sdcard_menu_test` | 24 | File menu card-set actions and their enablement (GH #555): the design in the issue as oracle (host UI, no core counterpart) |
+| `sdcard_menu_test` | 25 | File menu card-set actions and their enablement (GH #555): the design in the issue as oracle (host UI, no core counterpart) |
 | `sdcard_manager_window_test` | 53 | the issue and its decision comments (GH #558) as oracle: the SD card file manager window (two panes, read-only forcing, copy, move, rename, delete, New Folder, drops, what it opens on, the card pane following the card, the window staying modeless and inert during a card operation and the emulator winning), a host GUI feature with no core counterpart |
 | `bug_report_ui_test` | 6 | File > Save Bug Report... in the Qt window (host GUI, GH #492): the menu, the real dialog, the report written |
 | `nex_v13_dialog_test` | 4 | experimental NEX V1.3 warning dialog (GUI), no core counterpart |

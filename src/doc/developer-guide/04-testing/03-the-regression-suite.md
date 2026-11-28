@@ -98,7 +98,7 @@ lookup instead, and the suite provisions that image for itself in the
   attempt and the final error), not a guess; `sdcard-ensure-func` tests the tool.
   Every script that sources the library reads the card's file name from
   `$SD_CARD_NAME`, which `sd_card_name` takes from its one definition,
-  `kFixedImageFileName` in `src/core/sdcard_provisioner.cpp` (`HS-204`); the
+  `kFixedImageFileName` in `src/core/sdcard_provisioner.cpp` (`HS-206`); the
   few files that cannot source it carry the same literal.
   The master is found by the product's rule too (`sd_card_name_in`: the new
   name if that file exists, else the old one), so a host that still holds the

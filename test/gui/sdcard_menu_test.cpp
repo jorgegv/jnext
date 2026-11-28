@@ -697,6 +697,38 @@ int main(int argc, char** argv)
             check("SDMENU-26", "a backup removed and then recreated behind jnext's back shows at the next File open (entries and size label), with 0 hashes",
                   gone && back && carry::pristine_hash_count() == h0, del ? del->text().toStdString() : "missing");
         }
+        {   // SDMENU-27 (GH #571)
+            // Oracle: the claim of the close note, no menu of the menu bar checksums the 1 GB original when it opens.
+            // The count starts before the window exists (startup counts), and the original is touched before
+            // each menu, so a verification recorded by an earlier hash can never hide a later one.
+            fixture574();   // a sidecar and no verification record: a hash WOULD run
+            const uint64_t h0 = carry::pristine_hash_count();
+            Fixture f(card);
+            int opened = 0, top = 0;
+            std::vector<QMenu*> menus;   // every menu the menu bar reaches: the top-level ones and their submenus
+            std::function<void(QMenu*)> walk = [&](QMenu* m) {
+                menus.push_back(m);
+                for (QAction* sub : m->actions()) if (sub->menu()) walk(sub->menu());
+            };
+            for (QAction* a : f.win.menuBar()->actions()) if (QMenu* m = a->menu()) { ++top; walk(m); }
+            auto stamp = fs::last_write_time(raw);
+            for (QMenu* m : menus) {
+                stamp += std::chrono::seconds(2);
+                fs::last_write_time(raw, stamp);
+                int shown = 0;
+                const QMetaObject::Connection c = QObject::connect(m, &QMenu::aboutToShow, [&] { ++shown; });
+                m->popup(QPoint(0, 0));
+                QCoreApplication::processEvents();
+                m->hide();
+                if (!shown) Q_EMIT m->aboutToShow();
+                QObject::disconnect(c);
+                ++opened;
+            }
+            const uint64_t hashes = carry::pristine_hash_count() - h0;
+            check("SDMENU-27", "opening every menu of the menu bar (at least 8 top-level, and their submenus) hashes the original 0 times, with a fixture in which a hash would run",
+                  top >= 8 && opened > top && hashes == 0,
+                  std::to_string(top) + " top-level, " + std::to_string(opened) + " menus, " + std::to_string(hashes) + " hashes");
+        }
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);

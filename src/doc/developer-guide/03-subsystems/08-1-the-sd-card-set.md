@@ -48,7 +48,7 @@ other is left alone (a test master that has both as hard links is current).
 
 The shell side has the same rule in `sd_card_name_in` (`test/00regression/test-functions.inc`),
 reachable as `tools/sd-card-name.sh <dir>`; the unit-test header `test/test_sd_image.h` spells the two
-names itself, and `HS-204` pins all three against the constants. `.mmc` is a known image extension
+names itself, and `HS-206` pins all three against the constants. `.mmc` is a known image extension
 beside `.img` (`has_image_extension`, the open-file filters, a card inside a zip).
 
 The tests are `SDNAME-01..09` in `sdcard_provisioner_test` (the row `sdcard-name-func` runs the
