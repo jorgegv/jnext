@@ -23,13 +23,13 @@ if want sdcard-no-default-card-func; then
     W="$RUN_DIR/private/sdcard-no-default-card"
     H="$W/home"
     SUITE="$PROJECT_DIR/build/test/cli_options_native_test"
-    TM="$H/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"
-    UC="$H/.jnext/sdcard/cspect-next-1gb-fixed.img"
+    TM="$H/.jnext/sdcard/test-suite/sdcard/${SD_CARD_NAME}"
+    UC="$H/.jnext/sdcard/${SD_CARD_NAME}"
     rm -rf "$W"; mkdir -p "$(dirname "$TM")" "$H/.jnext/runs"
     if [[ ! -x "$SUITE" ]]; then
         faults+=("$SUITE is not built (regression depends on unit-test-build)")
     else
-        cp --reflink=auto "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" "$TM"
+        cp --reflink=auto "$RUN_DIR/sdcard/${SD_CARD_NAME}" "$TM"
         printf 'USER-CARD\n' > "$UC"; printf 'sn-emulator-24.11.zip\n' > "$UC.distro"; printf '1\n' > "$UC.recipe"
         chmod 0000 "$UC"; touch -d '2020-01-02 03:04:05' "$UC"
         sig() { stat -c '%s:%a:%Y' "$UC"; cat "$UC.distro" "$UC.recipe"; }

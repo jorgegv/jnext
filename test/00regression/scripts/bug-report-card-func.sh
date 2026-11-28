@@ -34,7 +34,7 @@ if want bug-report-card-func; then
         export MTOOLS_SKIP_CHECK=1
         check_py="$SCRIPT_DIR/bug-report-check.py"
         python3 "$SCRIPT_DIR/no-sdcard-probe.py" "$TMP_DIR/im1.nex"
-        card="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+        card="$RUN_DIR/sdcard/${SD_CARD_NAME}"
         rep="$TMP_DIR/card-report.zip"
 
         a_rc=0

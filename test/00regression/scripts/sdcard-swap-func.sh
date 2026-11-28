@@ -46,12 +46,12 @@ if want sdcard-swap-func; then
     BASE="$RUN_DIR/private/sdcard-swap"
     W="$BASE/work"
     mkdir -p "$W"
-    MASTER="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    MASTER="$RUN_DIR/sdcard/${SD_CARD_NAME}"
 
     clone_a() {   # clone_a <name> — a config dir whose fallback card is a clone of A
         mkdir -p "$BASE/$1/sdcard"
-        cp --reflink=auto "$MASTER" "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
-        sd_card_sidecars "$MASTER" "$BASE/$1/sdcard/cspect-next-1gb-fixed.img"
+        cp --reflink=auto "$MASTER" "$BASE/$1/sdcard/${SD_CARD_NAME}"
+        sd_card_sidecars "$MASTER" "$BASE/$1/sdcard/${SD_CARD_NAME}"
     }
     clone_a swap
     clone_a control
@@ -150,7 +150,7 @@ if want sdcard-swap-func; then
     short_run twice "another SD card change is already pending" \
         --headless --machine 48k --rewind-buffer-size 0 \
         --delayed-sdcard-insert-frames 5 "$CARD_B" \
-        --delayed-sdcard-insert-frames 5 "$BASE/refused/sdcard/cspect-next-1gb-fixed.img" \
+        --delayed-sdcard-insert-frames 5 "$BASE/refused/sdcard/${SD_CARD_NAME}" \
         --delayed-automatic-exit-frames 20
     grep -qF "SD card inserted: '$CARD_B'" "$W/twice.log" \
         || faults+=("twice: the FIRST insert did not go in")

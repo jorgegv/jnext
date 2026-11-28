@@ -704,7 +704,7 @@ The `--headless` option runs without display/audio for automated testing:
 Key options:
 - `--machine TYPE` — `48k`, `128k`, `plus3`, `next` (default)
 - `--headless` — no display, no audio, runs at max speed
-- `--sdcard FILE` — SD image with ROMs at `/MACHINES/NEXT/`. Optional; if omitted, falls back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img` (the patched image; offers to download the canonical distribution `cspect-next-1gb.img` and produce that patched copy). `--sdcard-download-confirm` / `--sdcard-download-force` control that provisioning
+- `--sdcard FILE` — SD image with ROMs at `/MACHINES/NEXT/`. Optional; if omitted, falls back to `~/.jnext/sdcard/jnext-sdcard.img` (the patched image; an existing card named `cspect-next-1gb-fixed.img`, the old name, keeps it and is used when the new name does not exist; offers to download the canonical distribution `cspect-next-1gb.img` and produce that patched copy, always under the new name). `--sdcard-download-confirm` / `--sdcard-download-force` control that provisioning
 - `--delayed-screenshot FILE` — save PNG screenshot after delay
 - `--delayed-screenshot-time N` — delay in emulated seconds (default 10; machine time, host speed does not matter)
 - `--delayed-screenshot-frames N` — delay in frames (overrides `--delayed-screenshot-time`)
@@ -758,16 +758,16 @@ image at init time.
 ### ZX Spectrum Next boot assets
 
 jnext needs a NextZXOS SD image. Mount one explicitly via `--sdcard`, or omit
-it and let jnext fall back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img` (the
-patched image; offering to download the canonical distribution image, kept as
+it and let jnext fall back to `~/.jnext/sdcard/jnext-sdcard.img` (the
+patched image, or the old-named `cspect-next-1gb-fixed.img` when only that exists; offering to download the canonical distribution image, kept as
 `cspect-next-1gb.img`, and produce that FAT32-patched copy — see Task 27).
 
 **`roms/` holds ONLY `nextboot.rom`.** No SD-card image lives there, and
 nothing links one in — the two 1 GB `.img` fixtures that used to sit there
 were deleted 2026-07-22 (GH #75/#77). The image jnext provisions and caches
-for itself at `~/.jnext/sdcard/cspect-next-1gb-fixed.img` is the USER'S card (GH #555): no test,
+for itself at `~/.jnext/sdcard/jnext-sdcard.img` (or the old `cspect-next-1gb-fixed.img`, never renamed) is the USER'S card (GH #555): no test,
 build step or tool of the suites ever opens it. The suites' own master is
-`~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img` (`sd_test_state_dir`,
+`~/.jnext/sdcard/test-suite/sdcard/` + the card name by the same rule, new name else old (`sd_test_state_dir`, `tools/sd-card-name.sh`,
 `test/test_sd_image.h`); every suite resolves it from there, and no test row passes
 `--sdcard` at all (`lint-user-card` guards it).
 

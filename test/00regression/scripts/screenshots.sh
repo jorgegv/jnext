@@ -93,8 +93,8 @@ while IFS= read -r line; do
                 priv_cfg="$RUN_DIR/private/$test_name"
                 mkdir -p "$priv_cfg/sdcard"
                 cp --reflink=auto \
-                   "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" \
-                   "$priv_cfg/sdcard/cspect-next-1gb-fixed.img"
+                   "$RUN_DIR/sdcard/${SD_CARD_NAME}" \
+                   "$priv_cfg/sdcard/${SD_CARD_NAME}"
                 row_env=(env "JNEXT_CONFIG_DIR=$priv_cfg")
             else
                 cmd+=("$extra_arg")
@@ -109,14 +109,14 @@ while IFS= read -r line; do
     # copied, and the card's size and mtime, which the warm start keys on, are the run's), the
     # clone's distribution sidecars, and the run's warm-start cache, as parallel-rows.inc gives
     # every functional row. The command line is the same for every row (no --sdcard).
-    if [[ ${#row_env[@]} -eq 0 && -f "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" ]]; then
+    if [[ ${#row_env[@]} -eq 0 && -f "$RUN_DIR/sdcard/${SD_CARD_NAME}" ]]; then
         shot_cfg="$RUN_DIR/shots/$test_name"
         mkdir -p "$shot_cfg/sdcard"
-        ln -f "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" "$shot_cfg/sdcard/" \
+        ln -f "$RUN_DIR/sdcard/${SD_CARD_NAME}" "$shot_cfg/sdcard/" \
             || harness_fault "could not link the run's SD clone into screenshot row ${BOLD}$test_name${RESET}'s $shot_cfg/sdcard"
         for shot_sc in distro distro-declined; do
-            [[ ! -f "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img.$shot_sc" ]] \
-                || cp "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img.$shot_sc" "$shot_cfg/sdcard/" \
+            [[ ! -f "$RUN_DIR/sdcard/${SD_CARD_NAME}.$shot_sc" ]] \
+                || cp "$RUN_DIR/sdcard/${SD_CARD_NAME}.$shot_sc" "$shot_cfg/sdcard/" \
                 || harness_fault "could not copy the run's SD clone sidecar $shot_sc into screenshot row ${BOLD}$test_name${RESET}'s $shot_cfg/sdcard"
         done
         if [[ -d "$RUN_DIR/warm-start" ]]; then

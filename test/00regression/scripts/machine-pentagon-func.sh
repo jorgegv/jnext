@@ -29,7 +29,7 @@ if want machine-pentagon-func; then
     begin_func machine-pentagon-func
 
     sdfile="$TEST_BIN_DIR/sdfile_tool"
-    sd_image="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    sd_image="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     jds="$TMP_DIR/machine_pentagon.jds"
     jds_fw="$TMP_DIR/machine_pentagon_fw.jds"
     log_a="$TMP_DIR/machine_pentagon_a.log"

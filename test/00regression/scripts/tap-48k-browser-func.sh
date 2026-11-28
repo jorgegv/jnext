@@ -121,8 +121,8 @@ PY
         shift 3
         local cfg="$BASE/$name"
         mkdir -p "$cfg/sdcard"
-        cp --reflink=auto "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" \
-                          "$cfg/sdcard/cspect-next-1gb-fixed.img"
+        cp --reflink=auto "$RUN_DIR/sdcard/${SD_CARD_NAME}" \
+                          "$cfg/sdcard/${SD_CARD_NAME}"
         JNEXT_CONFIG_DIR="$cfg" timeout --foreground --kill-after=5s 120s \
             "$JNEXT" --sdcard-file-add "$tap" --sdcard-file-dest "$dest" \
             > "$W/add-$name.log" 2>&1 || rc=$?

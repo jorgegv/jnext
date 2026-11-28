@@ -72,7 +72,7 @@ if want minimal-sdcard-dot-func; then
             grep -qF "SD card image mounted: '$md_a'" <<<"$md_log_a" || md_faults+=("a: the run did not mount the minimal card")
             grep -qF "SD card image mounted: '$md_c'" <<<"$md_log_c" || md_faults+=("c: the run did not mount the control card")
             if grep -qF "SD card image mounted: '$md_a'" <<<"$md_log_b" || grep -qF "SD card image mounted: '$md_c'" <<<"$md_log_b" \
-               || ! grep -q "SD card image mounted: '.*cspect-next-1gb-fixed.img'" <<<"$md_log_b"; then
+               || ! grep -q "SD card image mounted: '.*${SD_CARD_NAME}'" <<<"$md_log_b"; then
                 md_faults+=("b: the run did not mount the full card")
             fi
             if [[ -f "$TMP_DIR/dot-a.png" && -f "$TMP_DIR/dot-b.png" && -f "$TMP_DIR/dot-c.png" ]]; then

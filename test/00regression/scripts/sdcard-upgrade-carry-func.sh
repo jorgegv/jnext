@@ -33,8 +33,8 @@ if want sdcard-upgrade-carry-func; then
         fail_row " (tools absent: ${uc_missing[*]})"
     else
         export MTOOLS_SKIP_CHECK=1
-        uc_card="$uc_dir/cfg/sdcard/cspect-next-1gb-fixed.img"
-        uc_prev="$uc_dir/cfg/sdcard/previous/cspect-next-1gb-fixed.img"
+        uc_card="$uc_dir/cfg/sdcard/${SD_CARD_NAME}"
+        uc_prev="$uc_dir/cfg/sdcard/previous/${SD_CARD_NAME}"
         uc_off=32256
         uc_sectors=1228800
         # uc_mkdist <name>: dist-<name>.zip holding an MBR + FAT32 image with MARKER-<name>.TXT and a 16 KB 48.rom

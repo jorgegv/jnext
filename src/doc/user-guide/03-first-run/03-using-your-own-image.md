@@ -6,6 +6,9 @@ If you already have a NextZXOS SD-card image, point JNEXT at it:
 jnext --sdcard /path/to/my-image.img
 ```
 
+An image named `.mmc` instead of `.img` works the same, and so does one of them inside a `.zip`
+(the single `.img` or `.mmc` in it is used). The open-file dialogs of the window list both.
+
 An explicit `--sdcard` always wins: it is used as-is, and no download is ever
 offered or performed. In the graphical version you can set a permanent default
 in Preferences (chapter 4), and change the card while JNEXT runs (below).

@@ -11,11 +11,21 @@ losing what you saved.
 | Linux, macOS | `~/.jnext/sdcard/` |
 | Windows | `%USERPROFILE%\.jnext\sdcard\` |
 
-`cspect-next-1gb-fixed.img` is **your card**: NextZXOS runs from it and everything you
+`jnext-sdcard.img` (or `cspect-next-1gb-fixed.img`, if that is the one you have) is **your card**: NextZXOS runs from it and everything you
 save lands on it. `cspect-next-1gb.img` is the original that JNEXT downloaded and made your
 card from. Every other file and folder there belongs to JNEXT (the small sidecar files
 beside the two images, `previous`, `upgrade-work`, `overlays.list`, `locks`, and
 `test-suite` on a developer's machine): do not edit or delete them by hand.
+
+Earlier versions named the card `cspect-next-1gb-fixed.img`. JNEXT does not rename it: scripts
+and habits may rely on the name, and renaming a gigabyte file is not something a program should do
+behind your back. The rule is the same everywhere JNEXT opens or manages the card (starting, the
+upgrade, **Go back**, **Delete backup**, the writes files): use `jnext-sdcard.img` if that file
+exists, otherwise `cspect-next-1gb-fixed.img` if that exists. A card JNEXT downloads or installs
+from now on is always `jnext-sdcard.img`. If both files are there (for example you copied one by
+hand), JNEXT uses `jnext-sdcard.img` and leaves the other alone. An upgrade of an old-named card
+installs the new card as `jnext-sdcard.img` and keeps the old card, under its own name, as the
+backup; **Go back** restores it.
 
 ## The offer
 
@@ -93,7 +103,7 @@ with the reason.
 Two JNEXTs on one card would each cache what the other changes. The second one is refused:
 
 ```
-the SD card image /home/me/.jnext/sdcard/cspect-next-1gb-fixed.img is in use by another jnext (process 4242); give each jnext its own card (--sdcard FILE)
+the SD card image /home/me/.jnext/sdcard/jnext-sdcard.img is in use by another jnext (process 4242); give each jnext its own card (--sdcard FILE)
 ```
 
 To run two, give each its own card image with `--sdcard FILE`. The same goes for a writes file. A hard link to a card counts as a

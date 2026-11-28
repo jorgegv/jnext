@@ -94,8 +94,8 @@ PY
         local name=$1 dsk=${2:-} rc=0
         local cfg="$BASE/$name"
         mkdir -p "$cfg/sdcard"
-        cp --reflink=auto "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" \
-                          "$cfg/sdcard/cspect-next-1gb-fixed.img"
+        cp --reflink=auto "$RUN_DIR/sdcard/${SD_CARD_NAME}" \
+                          "$cfg/sdcard/${SD_CARD_NAME}"
         if [[ -n "$dsk" ]]; then
             JNEXT_CONFIG_DIR="$cfg" timeout --foreground --kill-after=5s 120s \
                 "$JNEXT" --sdcard-file-add "$dsk" \

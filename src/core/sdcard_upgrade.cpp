@@ -35,6 +35,7 @@ namespace {
 
 namespace carry = sdcard::carry;
 
+// Where the new card is installed: the new name, always (an old-named card is moved into the backup by step 1).
 std::string card_of(const std::string& dir) { return dir + "/" + kFixedImageFileName; }
 std::string raw_of(const std::string& dir) { return dir + "/" + kImageFileName; }
 
@@ -143,7 +144,7 @@ bool file_binds_to_card(const std::string& card, const std::string& file) {
 }
 
 bool file_belongs_to_backup(const std::string& dir, const std::string& file) {
-    const std::string prev = previous_dir(dir) + "/" + kFixedImageFileName;
+    const std::string prev = previous_dir(dir) + "/" + card_name_in(previous_dir(dir));
     std::error_code ec;
     if (!fs::is_regular_file(prev, ec) || !fs::is_regular_file(file, ec)) return false;
     return overlay_belongs(prev, file);
@@ -166,7 +167,7 @@ std::string overlay_problem(const std::string& card, const std::vector<std::stri
 }
 
 std::string backup_distribution(const std::string& dir) {
-    std::ifstream f(previous_dir(dir) + "/" + kFixedImageFileName + kDistroSuffix);
+    std::ifstream f(previous_dir(dir) + "/" + card_name_in(previous_dir(dir)) + kDistroSuffix);
     std::string l;
     if (f) std::getline(f, l);
     while (!l.empty() && (l.back() == '\r' || l.back() == ' ')) l.pop_back();
@@ -357,6 +358,19 @@ bool carry_over(const Plan& plan, carry::Report& report, std::string& err) {
 
 // ---- the switch ---------------------------------------------------------------------------------
 
+// The files that make up the set, by name, with the sidecars: the card under either of its names (a directory
+// holds one set; a file that is not there is skipped by every caller), then the raw.
+std::vector<std::string> set_names() {
+    std::vector<std::string> v;
+    for (const char* cn : {kFixedImageFileName, kLegacyFixedImageFileName}) {
+        const std::string c = cn;
+        v.insert(v.end(), {c, c + kDistroSuffix, c + kFixedImageRecipeSuffix, c + kDeclinedSuffix});
+    }
+    const std::string r = kImageFileName;
+    v.insert(v.end(), {r, r + ".sha256", r + kDistroSuffix});
+    return v;
+}
+
 namespace {
 
 struct Switch {
@@ -382,12 +396,6 @@ bool parse_switch(const std::string& dir, Switch& s) {
         else if (k == "overlay") s.overlays.push_back(v);
     }
     return true;
-}
-
-// The files that make up the set, by name, with the sidecars.
-std::vector<std::string> set_names() {
-    const std::string c = kFixedImageFileName, r = kImageFileName;
-    return {c, c + kDistroSuffix, c + kFixedImageRecipeSuffix, c + kDeclinedSuffix, r, r + ".sha256", r + kDistroSuffix};
 }
 
 bool done(const std::string& dir, int step) { return fs::exists(work_dir(dir) + "/s" + std::to_string(step) + ".done"); }

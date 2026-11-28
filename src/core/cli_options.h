@@ -295,7 +295,7 @@ inline constexpr Option OPTIONS[] = {
       "a NEX above V1.2 is refused. V1.0-V1.2 are unaffected." },
     { "--sdcard", 1, Doc::Documented, OptId::Sdcard,
       "FILE",
-      "Mount SD card image FILE (.img). If omitted, jnext falls\n"
+      "Mount SD card image FILE (.img or .mmc). If omitted, jnext falls\n"
       "back to ~/.jnext/sdcard/ (offering to download the image)." },
     // Backward-compatibility alias for --sdcard, deliberately never documented:
     // it exists so older scripts keep working, and promoting it to the man page
@@ -458,7 +458,7 @@ inline constexpr Option OPTIONS[] = {
     // to the next drive letter, D: with a one-partition card 0).
     { "--sdcard2", 1, Doc::Documented, OptId::Sdcard2,
       "FILE",
-      "Mount SD card image FILE (.img) in the second SD card slot,\n"
+      "Mount SD card image FILE (.img or .mmc) in the second SD card slot,\n"
       "which NextZXOS sees as the next drive after the first card's\n"
       "partitions (D: for a one-partition first card). No download,\n"
       "no default: the slot is empty unless this is given. ROMs are\n"

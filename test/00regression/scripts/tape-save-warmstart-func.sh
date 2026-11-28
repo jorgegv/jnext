@@ -25,7 +25,7 @@ if want tape-save-warmstart-func; then
 
     tw_dir="$TMP_DIR/tape-save-warmstart"
     rm -rf "$tw_dir"; mkdir -p "$tw_dir/config"
-    tw_sd="$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img"
+    tw_sd="$JNEXT_CONFIG_DIR/sdcard/${SD_CARD_NAME}"
     tw_faults=()
 
     tw_out=$(JNEXT_CONFIG_DIR="$tw_dir/config" timeout --foreground --kill-after=5s 120s \

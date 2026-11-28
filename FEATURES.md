@@ -235,7 +235,7 @@ One line per feature. Details are in the user guide (`doc/user-guide`) and the d
 - `--bug-report PATH` writes the same bug report when jnext exits (a directory gets `PROGRAM.YYYYMMDDhhmm.jnext-bug.zip`)
 - `--machine`, `--load`, `--headless`, `--tape-realtime`, `--tape-save`, `--esxdos-stub`
 - `--esxdos-stub-root DIR`, `--esxdos-stub-writable` (host directory for a loaded NEX / dot commands)
-- `--sdcard` mounts an SD image, the source of all ROMs; falls back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img`, offering a download
+- `--sdcard` mounts an SD image, the source of all ROMs; falls back to `~/.jnext/sdcard/jnext-sdcard.img`, offering a download
 - `--sdcard-download-confirm`, `--sdcard-download-force` (auto-provision / force re-download of the fallback image)
 - `--sdcard-readonly` (write-protected card; the host file is never modified)
 - `--sdcard-writes FILE`, `--sdcard-writes-reset` (the image is never written: the machine's writes, and the esxDOS stand-in's file of a directly loaded NEX, go to FILE and are laid over the image on every run; reset discards them)

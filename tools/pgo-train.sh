@@ -118,8 +118,11 @@ PROFILE_DIR=$(cd "$PROFILE_DIR" && pwd)
 SD_STATE_DIR=$(JNEXT_REGRESSION_LIB_NO_INIT=1 PROJECT_DIR="$PROJECT_DIR" bash -c \
     'source "$PROJECT_DIR/test/00regression/test-functions.inc" && sd_test_state_dir') \
     || die "cannot read the SD test state dir from test/00regression/test-functions.inc"
+SD_CARD_NAME=$(JNEXT_REGRESSION_LIB_NO_INIT=1 PROJECT_DIR="$PROJECT_DIR" bash -c \
+    'source "$PROJECT_DIR/test/00regression/test-functions.inc" && printf "%s" "$SD_CARD_NAME"') \
+    || die "cannot read the default card's file name from test/00regression/test-functions.inc"
 SD_MASTER_DIR="$SD_STATE_DIR/sdcard"
-SD_MASTER="$SD_MASTER_DIR/cspect-next-1gb-fixed.img"
+SD_MASTER="$SD_MASTER_DIR/$(bash "$PROJECT_DIR/tools/sd-card-name.sh" "$SD_MASTER_DIR")"
 NEX=test/00regression/nex
 TAP=test/00regression/tap
 RTC="2026-07-10T08:55:00"
@@ -267,11 +270,11 @@ trap 'cleanup' EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 mkdir -p "$RUN_DIR/sdcard" "$RUN_DIR/xdg"
-cp --reflink=always "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" 2>/dev/null ||
-    cp -c "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" 2>/dev/null ||   # APFS clone
-    cp "$SD_MASTER" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" ||
+cp --reflink=always "$SD_MASTER" "$RUN_DIR/sdcard/$SD_CARD_NAME" 2>/dev/null ||
+    cp -c "$SD_MASTER" "$RUN_DIR/sdcard/$SD_CARD_NAME" 2>/dev/null ||   # APFS clone
+    cp "$SD_MASTER" "$RUN_DIR/sdcard/$SD_CARD_NAME" ||
     die "cannot clone the SD master $SD_MASTER"
-SD="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+SD="$RUN_DIR/sdcard/$SD_CARD_NAME"
 # The clone carries the master's distribution sidecars: without them the GUI run would be offered
 # the upgrade to the default distribution and wait for an answer (the NextZXOS dialog of GH #476).
 for sc in distro distro-declined; do

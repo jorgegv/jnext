@@ -39,7 +39,7 @@
 # all steps succeed (so a failure mid-fix leaves source untouched).
 #
 # jnext's tests do NOT use a fixture under `roms/` any more (GH #75): they
-# resolve `~/.jnext/sdcard/cspect-next-1gb-fixed.img`, which jnext itself
+# resolve `~/.jnext/sdcard/jnext-sdcard.img`, which jnext itself
 # downloads and FAT32-patches via `--sdcard-download-confirm`. This script
 # stays for re-clustering an image you supply yourself — an under-clustered
 # 1 GB FAT32 (32 KB clusters -> 32758 clusters, below the spec minimum of

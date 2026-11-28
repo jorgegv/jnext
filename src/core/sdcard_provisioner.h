@@ -18,14 +18,17 @@
 ///   1. `--sdcard FILE` given  → use it verbatim (explicit ALWAYS wins,
 ///      unconditionally — even alongside --sdcard-download-force, which is
 ///      ignored in that case, since the named file may be any image).
-///   2. else look in <config-dir>/sdcard/cspect-next-1gb-fixed.img → use if
+///   2. else look in <config-dir>/sdcard/jnext-sdcard.img → use if
 ///      present, where <config-dir> is $JNEXT_CONFIG_DIR when set, else
 ///      $HOME/.jnext. This is the PATCHED (FAT32-reclustered) image jnext
 ///      actually boots from — distinct from the raw download.
+///      A card an earlier jnext named `cspect-next-1gb-fixed.img` is kept under that name
+///      and used when `jnext-sdcard.img` does not exist (card_name_in); nothing renames,
+///      moves or deletes it. Every download or provisioning writes the new name only.
 ///   3. else offer to download the canonical distro zip, extract the raw
 ///      official `cspect-next-1gb.img` (kept pristine), record its SHA256 in a
 ///      `cspect-next-1gb.img.sha256` sidecar, copy it to
-///      `cspect-next-1gb-fixed.img`, and FAT32-recluster THAT copy so our
+///      `jnext-sdcard.img`, and FAT32-recluster THAT copy so our
 ///      strict reader accepts it. The fixed image is what is returned/used.
 ///
 /// If the raw `cspect-next-1gb.img` is already present but the fixed one is
@@ -48,7 +51,9 @@ namespace sdcard {
 // Canonical constants.
 extern const char* const kDistroUrl;           // specnext distro zip URL
 extern const char* const kImageFileName;       // "cspect-next-1gb.img" (raw)
-extern const char* const kFixedImageFileName;  // "cspect-next-1gb-fixed.img"
+extern const char* const kFixedImageFileName;  // "jnext-sdcard.img"
+// The card's name in earlier versions: a card that has it keeps it (see card_name_in).
+extern const char* const kLegacyFixedImageFileName;  // "cspect-next-1gb-fixed.img"
 
 // The version of the recipe that turns the raw image into the fixed one
 // (patch_image_fat32). Bump it whenever that recipe changes what it writes.
@@ -97,12 +102,30 @@ std::string default_state_dir();
 // debugger window, which resolve the SAME directory the same way; the
 // regression suite uses it to give each run a private image (GH #65).
 std::string default_sdcard_dir();
-// <config-dir>/sdcard/cspect-next-1gb-fixed.img — the PATCHED image jnext
-// looks for and boots from at the default location.
+// The file name of the card in directory `dir` (the default sdcard directory, or one of its card
+// sets: previous/, ...): kFixedImageFileName when that file exists, else kLegacyFixedImageFileName
+// when that does, else kFixedImageFileName (where a new card is made). THE resolver: every function
+// that opens or manages a default card goes through it, both names are constants, and neither is
+// a setting. With both present the new one wins and the other is left alone.
+std::string card_name_in(const std::string& dir);
+// <config-dir>/sdcard/ + card_name_in(that directory): the PATCHED image jnext looks for and boots
+// from at the default location.
 std::string default_sdcard_image_path();
+// <config-dir>/sdcard/jnext-sdcard.img whether or not it exists: where a download or an install
+// creates the card.
+std::string default_sdcard_new_image_path();
 // <config-dir>/sdcard/cspect-next-1gb.img — the raw, pristine download the
 // fixed image is produced from (kept for skip-redownload).
 std::string default_sdcard_raw_image_path();
+
+// The file extensions of a known SD-card image, lower case with the dot: `.img` and `.mmc`. Every place that
+// recognises an image by its extension (an image inside a zip, the open-file filters) goes through these.
+extern const char* const kImageExtensions[2];
+// True when the file name `path` ends in one of kImageExtensions, case-insensitively.
+bool has_image_extension(const std::string& path);
+// The patterns of the "Disk Images" open-file filters: "*.img *.mmc *.bin *.raw" (the last two are
+// accepted by the dialogs, not recognised by name anywhere else).
+extern const char* const kDiskImageFilterPatterns;
 
 // The default config.ini injected into /MACHINES/NEXT (matches
 // tools/fix-sdcard-image.sh). Returned as raw bytes.

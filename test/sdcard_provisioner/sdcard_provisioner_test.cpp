@@ -80,7 +80,7 @@
 //                  unset or empty falls back to the canonical URL.
 //   PROV-FIXED-01  Skip-redownload: with a valid raw cspect-next-1gb.img
 //                  (+ matching .sha256) present, provision produces
-//                  cspect-next-1gb-fixed.img WITHOUT a download; both files
+//                  jnext-sdcard.img WITHOUT a download; both files
 //                  exist afterwards AND the raw is byte-identical (pristine).
 //   PROV-COPY-FAIL-01  A CopyFn that fails → Failed AND the fixed image is
 //                  removed (no truncated fixed left behind).
@@ -153,6 +153,8 @@
 #include "core/fat32_image.h"
 #include "core/sdcard_provisioner.h"
 #include "core/sdcard_backup.h"
+#include "peripheral/sd_write_journal.h"
+#include "core/sdcard_upgrade.h"
 #include "range_server.h"
 #include "host_stalls.h"
 
@@ -3049,6 +3051,294 @@ void test_retry_rows() {
     jtp::unset_env("JNEXT_CONFIG_DIR");
 }
 
+
+// GH #579: .mmc is a known SD-card image extension everywhere .img is. Oracle: the owner's request on the issue;
+// the consumers are the zip extraction (program_archive_test ZIPL-40/41), the three "Disk Images" open-file
+// filters (which build their text from kDiskImageFilterPatterns) and the --sdcard help (CLI-MMC-01).
+void test_extension_rows() {
+    check("SDEXT-01", "has_image_extension accepts .img and .mmc in any case and nothing else (not a bare 'mmc', .mmcx, .img.bak, .zip, .nex)",
+          sdcard::has_image_extension("a.img") && sdcard::has_image_extension("A.IMG") && sdcard::has_image_extension("dir/Card.Mmc") &&
+          sdcard::has_image_extension("x.mmc") && sdcard::has_image_extension("C:\\cards\\x.MMC") &&
+          !sdcard::has_image_extension("mmc") && !sdcard::has_image_extension("x.mmcx") && !sdcard::has_image_extension("x.img.bak") &&
+          !sdcard::has_image_extension("x.zip") && !sdcard::has_image_extension("x.nex") && !sdcard::has_image_extension(""));
+    const std::string f = sdcard::kDiskImageFilterPatterns;
+    check("SDEXT-02", "the open-file filter patterns list *.img and *.mmc, and still the *.bin and *.raw the dialogs always offered",
+          f == "*.img *.mmc *.bin *.raw");
+}
+
+// GH #579: the default card is jnext-sdcard.img; a card an earlier jnext named cspect-next-1gb-fixed.img keeps
+// its name and is used when the new name does not exist. Oracle (the owner's rule, recorded in
+// sdcard_provisioner.h): every function that opens or manages a card resolves its name through card_name_in
+// (new name if it exists, else old, else new); every download or provisioning writes the new name only;
+// nothing renames, moves or deletes an existing old-name card. Each row runs in its own config directory under
+// the fake HOME, with a download seam that counts and a confirm seam that counts. (The IDs SDREN-01..16 of an
+// earlier design that RENAMED the card are retired, never reused.)
+void test_name_rows() {
+    namespace fs = std::filesystem;
+    const std::string cfg = g_tmpdir + "/nm";
+    jtp::set_env("JNEXT_CONFIG_DIR", cfg.c_str());
+    const std::string dir = sdcard::default_sdcard_dir();
+    const std::string newn = sdcard::kFixedImageFileName, oldn = sdcard::kLegacyFixedImageFileName;
+    const std::string cur_distro = sdcard::distribution_of_url(sdcard::kDistroUrl);
+    jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+    const SharedSrc& shared = shared_src();
+
+    int downloads = 0, confirms = 0;
+    auto zip_dl = [&](const std::string&, const std::string& dst, const sdcard::ProgressFn&, std::string&) {
+        ++downloads; std::error_code ec;
+        fs::copy_file(shared.zip, dst, fs::copy_options::overwrite_existing, ec);
+        return !ec; };
+    auto no_dl = [&](const std::string&, const std::string&, const sdcard::ProgressFn&, std::string& err) {
+        ++downloads; err = "stub: a download must not happen"; return false; };
+    auto opts = [&](bool real_download) {
+        sdcard::ProvisionOptions o;
+        o.download = real_download ? sdcard::DownloadFn(zip_dl) : sdcard::DownloadFn(no_dl);
+        o.confirm = [&](const std::string&) { ++confirms; return false; };
+        o.upgrade = [&](const std::string&, const std::string&, const std::string&, bool) {
+            ++confirms; return sdcard::UpgradeChoice::Keep; };
+        return o;
+    };
+    auto wipe = [&]() { std::error_code ec; fs::remove_all(cfg, ec); fs::create_directories(dir, ec); downloads = confirms = 0; };
+    auto put = [&](const std::string& path, const std::string& text) {
+        std::ofstream f(path, std::ios::binary | std::ios::trunc); f << text; };
+    auto gone = [&](const std::string& path) {
+        std::error_code ec; return fs::symlink_status(path, ec).type() == fs::file_type::not_found; };
+    // The directory listing with every file's size and mtime: "nothing renamed, moved or deleted".
+    auto listing = [&](const std::string& d) {
+        std::vector<std::string> v; std::error_code ec;
+        for (const auto& e : fs::recursive_directory_iterator(d, fs::directory_options::skip_permission_denied, ec)) {
+            const std::string n = e.path().string();
+            if (n.find("/locks") != std::string::npos) continue;
+            v.push_back(n + ":" + (e.is_regular_file(ec) ? std::to_string(e.file_size(ec)) + ":" +
+                                   std::to_string(e.last_write_time(ec).time_since_epoch().count()) : std::string("d")));
+        }
+        std::sort(v.begin(), v.end());
+        std::string out; for (const auto& x : v) out += x + "\n";
+        return out;
+    };
+    auto card_set = [&](const std::string& name, const std::string& bytes) {
+        put(dir + "/" + name, bytes);
+        put(dir + "/" + name + ".distro", cur_distro + "\n");
+        put(dir + "/" + name + ".recipe", "3\n");
+    };
+    const std::string old_bytes = "THE-OLD-NAMED-CARD";
+
+    // 01: nothing there: the new name, and nothing is created by asking.
+    {
+        wipe();
+        std::error_code ec;
+        check("SDNAME-01", "an empty directory: the card is dir/jnext-sdcard.img, resolving creates nothing",
+              sdcard::card_name_in(dir) == newn && sdcard::default_sdcard_image_path() == dir + "/" + newn &&
+              sdcard::default_sdcard_new_image_path() == dir + "/" + newn && fs::is_empty(dir, ec));
+    }
+    // 02: old only: used under its name; nothing renamed, moved, deleted or rewritten; no download, no question.
+    {
+        wipe(); card_set(oldn, old_bytes);
+        put(dir + "/" + oldn + ".distro-declined", "sn-emulator-99.99.zip\n");
+        const std::string before = listing(dir), dig = sdcard::sha256_file(dir + "/" + oldn);
+        const sdcard::ProvisionResult r = sdcard::provision_sd_card(opts(false));
+        check("SDNAME-02", "a card with the old name only is used under that name: Ok on the old path, the directory (names, sizes, mtimes) "
+              "unchanged, no jnext-sdcard.img appears, no download, no question",
+              r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + oldn && sdcard::card_name_in(dir) == oldn &&
+              sdcard::default_sdcard_image_path() == dir + "/" + oldn && listing(dir) == before &&
+              sdcard::sha256_file(dir + "/" + oldn) == dig && gone(dir + "/" + newn) && downloads == 0 && confirms == 0, r.error);
+    }
+    // 03: new only.
+    {
+        wipe(); card_set(newn, "THE-NEW-CARD");
+        const std::string before = listing(dir);
+        const sdcard::ProvisionResult r = sdcard::provision_sd_card(opts(false));
+        check("SDNAME-03", "a card with the new name only is used: Ok on the new path, nothing changed, nothing at the old name",
+              r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + newn && listing(dir) == before && gone(dir + "/" + oldn) &&
+              downloads == 0 && confirms == 0, r.error);
+    }
+    // 04: both, different cards: the new one wins and the old one is left exactly as it is.
+    {
+        wipe(); card_set(oldn, old_bytes); card_set(newn, "THE-NEW-CARD");
+        const std::string before = listing(dir);
+        const sdcard::ProvisionResult r = sdcard::provision_sd_card(opts(false));
+        check("SDNAME-04", "both names present: the new one is used, every file of both is unchanged, no download, no question",
+              r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + newn && listing(dir) == before &&
+              slurp_text(dir + "/" + oldn) == old_bytes && slurp_text(dir + "/" + newn) == "THE-NEW-CARD" && downloads == 0 && confirms == 0, r.error);
+    }
+    // 04b: both names are hard links of one card (the test master on a host that kept both): nothing deleted.
+    {
+        wipe(); card_set(newn, "MASTER");
+        std::error_code ec;
+        for (const std::string& x : {std::string(), std::string(".distro"), std::string(".recipe")})
+            fs::create_hard_link(dir + "/" + newn + x, dir + "/" + oldn + x, ec);
+        const std::string before = listing(dir);
+        const sdcard::ProvisionResult r = sdcard::provision_sd_card(opts(false));
+        check("SDNAME-04b", "both names hard links of one card: the new one is used, nothing is deleted, rewritten or re-downloaded",
+              !ec && r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + newn && fs::hard_link_count(dir + "/" + newn, ec) == 2 &&
+              listing(dir) == before && slurp_text(dir + "/" + oldn) == "MASTER" && downloads == 0 && confirms == 0, r.error);
+    }
+    // 05: neither: a download creates the NEW name only.
+    {
+        wipe();
+        if (!shared.ok) {
+            check("SDNAME-05", "neither name: a provisioning creates the card under the new name only", false, shared.err);
+        } else {
+            sdcard::ProvisionOptions o = opts(true); o.auto_confirm = true;
+            const sdcard::ProvisionResult r = sdcard::provision_sd_card(o);
+            check("SDNAME-05", "neither name: a provisioning downloads once and creates the card under the new name only",
+                  r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + newn && fs::is_regular_file(dir + "/" + newn) &&
+                  fs::is_regular_file(dir + "/" + newn + ".distro") && gone(dir + "/" + oldn) && downloads == 1, r.error);
+        }
+    }
+    // 06: --sdcard-download-force beside an old-named card: the new name is created, the old card is untouched.
+    {
+        wipe(); card_set(oldn, old_bytes);
+        std::vector<std::string> keep;
+        const std::string dig = sdcard::sha256_file(dir + "/" + oldn);
+        if (!shared.ok) {
+            check("SDNAME-06", "--sdcard-download-force beside an old-named card creates the new name and leaves the old card as it is", false, shared.err);
+        } else {
+            sdcard::ProvisionOptions o = opts(true); o.force_download = true; o.auto_confirm = true;
+            const sdcard::ProvisionResult r = sdcard::provision_sd_card(o);
+            check("SDNAME-06", "--sdcard-download-force beside an old-named card creates the new name and leaves the old card and its sidecars as they are",
+                  r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + newn && fs::is_regular_file(dir + "/" + newn) &&
+                  sdcard::sha256_file(dir + "/" + oldn) == dig && slurp_text(dir + "/" + oldn + ".distro") == cur_distro + "\n" &&
+                  slurp_text(dir + "/" + oldn + ".recipe") == "3\n" && downloads == 1, r.error);
+        }
+    }
+    // 07/08: an accepted upgrade of an old-named card installs the NEW name; the old set goes to previous/ under
+    // its own name; the set machinery (status, go back) finds both through card_name_in; go back restores the old.
+    {
+        wipe(); card_set(oldn, old_bytes);
+        put(dir + "/" + oldn + ".distro", "sn-emulator-23.01.zip\n");
+        put(dir + "/" + sdcard::kImageFileName, "oldraw");
+        if (!shared.ok) {
+            check("SDNAME-07", "an accepted upgrade of an old-named card installs the new name and keeps the old set as the backup under its own name", false, shared.err);
+            check("SDNAME-08", "go back from that backup restores the old-named card and the set machinery resolves it", false, shared.err);
+        } else {
+            jtp::set_env("JNEXT_SDCARD_DISTRO_URL", "http://127.0.0.1:1/sn-emulator-99.99.zip");
+            sdcard::ProvisionOptions o = opts(true);
+            o.upgrade = [&](const std::string&, const std::string&, const std::string&, bool) { return sdcard::UpgradeChoice::Replace; };
+            const sdcard::ProvisionResult r = sdcard::provision_sd_card(o);
+            const sdcard::backup::Status st = sdcard::backup::card_set_status(dir, "sn-emulator-99.99.zip", false);
+            check("SDNAME-07", "an accepted upgrade of an old-named card installs the new name and keeps the old set as the backup under its own name (status sees it)",
+                  r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + newn && fs::is_regular_file(dir + "/" + newn) &&
+                  slurp_text(dir + "/previous/" + oldn) == old_bytes && gone(dir + "/" + oldn) && st.backup && st.backup_distro == "sn-emulator-23.01.zip" &&
+                  st.card_present && slurp_text(dir + "/" + newn + ".distro") == "sn-emulator-99.99.zip\n" &&
+                  sdcard::upgrade::backup_distribution(dir) == "sn-emulator-23.01.zip", r.error + r.warning + " path=" + r.path + " new=" + std::to_string(fs::is_regular_file(dir + "/" + newn)) +
+                  " prev_old=" + slurp_text(dir + "/previous/" + oldn) + " old_gone=" + std::to_string(gone(dir + "/" + oldn)) +
+                  " backup=" + std::to_string(st.backup) + " present=" + std::to_string(st.card_present) +
+                  " distro=" + slurp_text(dir + "/" + newn + ".distro") + " bdist=" + sdcard::upgrade::backup_distribution(dir));
+            std::string err;
+            const sdcard::backup::Result gb = sdcard::backup::go_back(dir, err);
+            const sdcard::backup::Status st2 = sdcard::backup::card_set_status(dir, "sn-emulator-99.99.zip", false);
+            check("SDNAME-08", "go back restores the old-named card as the current one (resolved by name, nothing at the new name) and the new card becomes the backup",
+                  gb == sdcard::backup::Result::Ok && sdcard::card_name_in(dir) == oldn && slurp_text(dir + "/" + oldn) == old_bytes &&
+                  gone(dir + "/" + newn) && fs::is_regular_file(dir + "/previous/" + newn) && st2.card_present && st2.backup, err);
+            check("SDNAME-11", "go back to an old-named card records the distribution just left as <old name>.distro-declined (what the provisioner reads), and none under the new name",
+                  slurp_text(dir + "/" + oldn + ".distro-declined") == "sn-emulator-99.99.zip\n" && gone(dir + "/" + newn + ".distro-declined"),
+                  slurp_text(dir + "/" + oldn + ".distro-declined"));
+            jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+        }
+    }
+    // 09: an interrupted upgrade of an old-named card (stopped after step 1, the old set in previous.new/ under
+    // its name) is finished by the next start: the new card has the new name, the backup keeps the old one.
+    {
+        wipe(); card_set(oldn, old_bytes);
+        put(dir + "/" + oldn + ".distro", "sn-emulator-23.01.zip\n");
+        put(dir + "/" + sdcard::kImageFileName, "oldraw");
+        if (!shared.ok) {
+            check("SDNAME-09", "an interrupted upgrade of an old-named card is finished with the new name for the new card and the old name in the backup", false, shared.err);
+        } else {
+            jtp::set_env("JNEXT_SDCARD_DISTRO_URL", "http://127.0.0.1:1/sn-emulator-99.99.zip");
+            sdcard::ProvisionOptions o = opts(true);
+            o.upgrade = [&](const std::string&, const std::string&, const std::string&, bool) { return sdcard::UpgradeChoice::Replace; };
+            sdcard::upgrade::g_fail_switch_step_for_test = 2;
+            (void)sdcard::provision_sd_card(o);
+            sdcard::upgrade::g_fail_switch_step_for_test = 0;
+            const bool marker = fs::exists(dir + "/upgrade-work/SWITCHING");
+            const sdcard::ProvisionResult r = sdcard::provision_sd_card(o);
+            check("SDNAME-09", "an interrupted upgrade of an old-named card is finished by the next start: the new card has the new name, the backup keeps the old one",
+                  marker && r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + newn &&
+                  slurp_text(dir + "/previous/" + oldn) == old_bytes && gone(dir + "/" + oldn) &&
+                  slurp_text(dir + "/" + newn + ".distro") == "sn-emulator-99.99.zip\n", r.error + " marker=" + std::to_string(marker));
+            jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+        }
+    }
+    // 09b: the same interruption BEFORE the old card moved (step 1): recovery finishes the switch first, and only then
+    // is the card's name resolved, so the run neither derives a new card under the old name nor loses the old one
+    {
+        wipe(); card_set(oldn, old_bytes);
+        put(dir + "/" + oldn + ".distro", "sn-emulator-23.01.zip\n");
+        put(dir + "/" + sdcard::kImageFileName, "oldraw");
+        if (!shared.ok) {
+            check("SDNAME-09b", "an upgrade of an old-named card interrupted at step 1 is finished first: the new card has the new name, the backup keeps the old one, no old-named card is made", false, shared.err);
+        } else {
+            jtp::set_env("JNEXT_SDCARD_DISTRO_URL", "http://127.0.0.1:1/sn-emulator-99.99.zip");
+            sdcard::ProvisionOptions o = opts(true);
+            o.upgrade = [&](const std::string&, const std::string&, const std::string&, bool) { return sdcard::UpgradeChoice::Replace; };
+            sdcard::upgrade::g_fail_switch_step_for_test = 1;
+            (void)sdcard::provision_sd_card(o);
+            sdcard::upgrade::g_fail_switch_step_for_test = 0;
+            const bool marker = fs::exists(dir + "/upgrade-work/SWITCHING");
+            const int dl0 = downloads;
+            const sdcard::ProvisionResult r = sdcard::provision_sd_card(o);
+            check("SDNAME-09b", "an upgrade of an old-named card interrupted at step 1 is finished first: the new card has the new name, the backup keeps the old one, no old-named card is made, no second download",
+                  marker && r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + newn &&
+                  slurp_text(dir + "/previous/" + oldn) == old_bytes && gone(dir + "/" + oldn) && downloads == dl0 &&
+                  slurp_text(dir + "/" + newn + ".distro") == "sn-emulator-99.99.zip\n", r.error + " marker=" + std::to_string(marker));
+            jtp::unset_env("JNEXT_SDCARD_DISTRO_URL");
+        }
+    }
+    // 10: a go back from a new-named card to an old-named backup, interrupted after its step 1: the next start finishes
+    // it and uses the restored OLD-named card: it makes no new-named card, asks for no download, offers nothing
+    {
+        wipe(); card_set(newn, "THE-NEW-CARD");
+        fs::create_directories(dir + "/previous");
+        put(dir + "/previous/" + oldn, old_bytes);
+        put(dir + "/previous/" + oldn + ".distro", "sn-emulator-23.01.zip\n");
+        sdcard::backup::g_fail_step_for_test = 2;
+        std::string gerr;
+        (void)sdcard::backup::go_back(dir, gerr);
+        sdcard::backup::g_fail_step_for_test = 0;
+        const bool marker = fs::exists(dir + "/go-back-work");
+        const sdcard::ProvisionResult r = sdcard::provision_sd_card(opts(false));
+        check("SDNAME-10", "a go back to an old-named backup interrupted after step 1 is finished by the next start: the old-named card is in use, no new-named card is made, no download, no question; the card that was in use is the backup",
+              marker && r.status == sdcard::ProvisionStatus::Ok && r.path == dir + "/" + oldn && slurp_text(dir + "/" + oldn) == old_bytes &&
+              gone(dir + "/" + newn) && slurp_text(dir + "/previous/" + newn) == "THE-NEW-CARD" && downloads == 0 && confirms == 0,
+              r.error + " marker=" + std::to_string(marker));
+    }
+    // 12: a go back from an OLD-named current card to an old-named backup (the state of every v1.4.x upgrader):
+    // the cards swap under their own names and the distribution just left is declined under the current name
+    {
+        wipe(); card_set(oldn, "CURRENT-OLD");
+        fs::create_directories(dir + "/previous");
+        put(dir + "/" + oldn + ".distro", "sn-emulator-99.98.zip\n");
+        put(dir + "/previous/" + oldn, "BACKUP-OLD");
+        put(dir + "/previous/" + oldn + ".distro", "sn-emulator-23.01.zip\n");
+        std::string gerr;
+        const sdcard::backup::Result gb = sdcard::backup::go_back(dir, gerr);
+        check("SDNAME-12", "go back from an old-named card to an old-named backup swaps them under their own names, declines the distribution left under the old name, and makes no new-named file",
+              gb == sdcard::backup::Result::Ok && slurp_text(dir + "/" + oldn) == "BACKUP-OLD" && slurp_text(dir + "/previous/" + oldn) == "CURRENT-OLD" &&
+              slurp_text(dir + "/" + oldn + ".distro") == "sn-emulator-23.01.zip\n" &&
+              slurp_text(dir + "/" + oldn + ".distro-declined") == "sn-emulator-99.98.zip\n" &&
+              gone(dir + "/" + newn) && gone(dir + "/previous/" + newn) && gone(dir + "/" + newn + ".distro-declined"), gerr);
+    }
+    // 13: a writes file bound to the card in an OLD-named backup belongs to the backup (the --sdcard-writes refusal says "go back")
+    {
+        wipe(); card_set(newn, "THE-NEW-CARD");
+        fs::create_directories(dir + "/previous");
+        put(dir + "/previous/" + oldn, std::string(4096, 'x'));
+        const std::string pc = dir + "/previous/" + oldn, wf = cfg + "/user.jsdw";
+        sd_write_journal::Binding b; std::error_code ec;
+        b.bytes = fs::file_size(pc, ec);
+        b.mtime = static_cast<int64_t>(fs::last_write_time(pc, ec).time_since_epoch().count());
+        std::string jwhy;
+        const bool bound = sd_write_journal::bind(pc, wf, b, true, jwhy);
+        if (bound) { uint8_t sec[sd_write_journal::kSectorBytes]; std::memset(sec, 0x5A, sizeof sec); sd_write_journal::for_image(pc)->commit(9, sec); }
+        sd_write_journal::forget_image(pc);
+        check("SDNAME-13", "a writes file bound to the card of an old-named backup belongs to the backup; a file that does not exist does not",
+              bound && sdcard::upgrade::file_belongs_to_backup(dir, wf) && !sdcard::upgrade::file_belongs_to_backup(dir, cfg + "/none.jsdw"), jwhy);
+    }
+    jtp::unset_env("JNEXT_CONFIG_DIR");
+}
+
 int main() {
     // Isolated HOME so path/default-location tests are hermetic.
     g_tmpdir = jtp::make_temp_dir("jnext_prov_");
@@ -3064,8 +3354,8 @@ int main() {
         const std::string raw   = sdcard::default_sdcard_raw_image_path();
         check("PROV-PATH-01", "default dir == $HOME/.jnext/sdcard",
               dir == g_tmpdir + "/.jnext/sdcard", dir);
-        check("PROV-PATH-01b", "default (used) image == dir/cspect-next-1gb-fixed.img",
-              fixed == dir + "/cspect-next-1gb-fixed.img", fixed);
+        check("PROV-PATH-01b", "default (used) image == dir/jnext-sdcard.img",
+              fixed == dir + "/jnext-sdcard.img", fixed);
         check("PROV-PATH-01c", "raw download image == dir/cspect-next-1gb.img",
               raw == dir + "/cspect-next-1gb.img", raw);
     }
@@ -3087,7 +3377,7 @@ int main() {
         check("PROV-PATH-02b", "override dir is NOT under $HOME/.jnext",
               dir.find(g_tmpdir + "/.jnext") == std::string::npos, dir);
         check("PROV-PATH-02c", "fixed image follows the override",
-              fixed == over + "/sdcard/cspect-next-1gb-fixed.img", fixed);
+              fixed == over + "/sdcard/jnext-sdcard.img", fixed);
         check("PROV-PATH-02d", "raw image follows the override",
               raw == over + "/sdcard/cspect-next-1gb.img", raw);
 
@@ -3155,11 +3445,11 @@ int main() {
         auto r = sdcard::provision_sd_card(o);
         check("PROV-PATH-03", "provision resolves to the $JNEXT_CONFIG_DIR image",
               r.status == sdcard::ProvisionStatus::Ok &&
-              r.path == over + "/sdcard/cspect-next-1gb-fixed.img", r.path);
+              r.path == over + "/sdcard/jnext-sdcard.img", r.path);
         check("PROV-PATH-03b", "provision does NOT fall back to the $HOME image",
               r.path.find(g_tmpdir + "/.jnext/sdcard") == std::string::npos, r.path);
         jtp::unset_env("JNEXT_CONFIG_DIR");
-        std::remove((g_tmpdir + "/.jnext/sdcard/cspect-next-1gb-fixed.img").c_str());
+        std::remove((g_tmpdir + "/.jnext/sdcard/jnext-sdcard.img").c_str());
     }
 
     // -- SHA256-01: known-answer digests (non-circular NIST vectors) --
@@ -3948,6 +4238,8 @@ int main() {
     test_retry_rows();
     test_console_rows();
     test_upgrade_rows();
+    test_name_rows();
+    test_extension_rows();
 
     for (const auto& d : g_deferred) d();   // joins the PROV-STALL-08 thread before g_tmpdir goes
     std::printf("\n====================================\n");

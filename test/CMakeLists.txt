@@ -528,7 +528,7 @@ endif()
 # Host-side FAT32 reader for ROM-from-SD extraction at Emulator::init time.
 # Pure host code (no Z80 / no peripherals) — links jnext_core only.
 # Test fixture is the SD image jnext provisions for itself at
-# ~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img, overridable via
+# ~/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img, overridable via
 # JNEXT_TEST_SD_IMAGE — which run-unit-tests.sh sets to a private per-run
 # clone (GH #75). Nothing under roms/ is involved.
 add_executable(sd_rom_extractor_test sd_rom_extractor/sd_rom_extractor_test.cpp core/log_capture.cpp)

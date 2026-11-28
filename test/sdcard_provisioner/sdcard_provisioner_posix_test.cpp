@@ -36,6 +36,8 @@
 #include "range_server.h"
 
 #include <algorithm>
+#include <fstream>
+#include <sys/stat.h>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -179,6 +181,47 @@ void test_reply_libcurl_cannot_use() {
           bad.empty(), bad);
 }
 
+// GH #579: a card with the old name is used where it is (POSIX: symlinks and inodes). Oracle: the resolver rule in
+// sdcard_provisioner.h (new name if it exists, else old; nothing renames, moves or deletes a card). The IDs
+// SDREN-15/16 of an earlier design that renamed the card are retired, never reused.
+void test_name_posix_rows() {
+    namespace fs = std::filesystem;
+    const std::string cfg = g_tmpdir + "/nm";
+    jtp::set_env("HOME", g_tmpdir.c_str());
+    jtp::set_env("JNEXT_CONFIG_DIR", cfg.c_str());
+    const std::string dir = sdcard::default_sdcard_dir();
+    const std::string oldp = dir + "/" + sdcard::kLegacyFixedImageFileName, newp = dir + "/" + sdcard::kFixedImageFileName;
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    auto put = [&](const std::string& path, const std::string& text) { std::ofstream f(path, std::ios::binary | std::ios::trunc); f << text; };
+    auto inode = [&](const std::string& path) { struct stat st{}; return ::stat(path.c_str(), &st) == 0 ? static_cast<uintmax_t>(st.st_ino) : uintmax_t(0); };
+    sdcard::ProvisionOptions o;
+    o.download = [](const std::string&, const std::string&, const sdcard::ProgressFn&, std::string& err) { err = "no download"; return false; };
+    {
+        put(oldp, "CARD-BYTES");
+        put(oldp + ".distro", sdcard::distribution_of_url(sdcard::kDistroUrl) + "\n");
+        const uintmax_t ino0 = inode(oldp);
+        const auto r = sdcard::provision_sd_card(o);
+        check("SDNAME-P01", "an old-named card is used in place: the same path, the same inode, nothing at the new name",
+              r.status == sdcard::ProvisionStatus::Ok && r.path == oldp && ino0 != 0 && inode(oldp) == ino0 && !fs::exists(newp, ec), r.error);
+        fs::remove(oldp, ec); fs::remove(oldp + ".distro", ec);
+    }
+    {
+        const std::string elsewhere = g_tmpdir + "/elsewhere";
+        fs::create_directories(elsewhere, ec);
+        const std::string target = elsewhere + "/card.img";
+        put(target, "LINKED-CARD");
+        put(oldp + ".distro", sdcard::distribution_of_url(sdcard::kDistroUrl) + "\n");
+        fs::create_symlink(target, oldp, ec);
+        const auto r = sdcard::provision_sd_card(o);
+        std::error_code e2;
+        check("SDNAME-P02", "an old-named card that is a symlink is used as it is: the link stays, the target is untouched",
+              r.status == sdcard::ProvisionStatus::Ok && r.path == oldp && fs::is_symlink(oldp, e2) && fs::read_symlink(oldp, e2) == fs::path(target) &&
+              !fs::exists(newp, e2) && fs::file_size(target, e2) == 11, r.error);
+    }
+    jtp::unset_env("JNEXT_CONFIG_DIR");
+}
+
 }  // namespace
 
 int main() {
@@ -187,6 +230,7 @@ int main() {
 
     test_proxy_refusal();
     test_reply_libcurl_cannot_use();
+    test_name_posix_rows();
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);

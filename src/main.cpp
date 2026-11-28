@@ -2323,9 +2323,9 @@ static int run_main(int argc, char* argv[]) {
     // check lives only here in main.cpp, not in Emulator::init).
     // Resolve the SD-card image (Task 27). Precedence:
     //   1. explicit --sdcard FILE (unless --sdcard-download-force is set)
-    //   2. the default location $HOME/.jnext/sdcard/cspect-next-1gb-fixed.img
+    //   2. the default location $HOME/.jnext/sdcard/jnext-sdcard.img (or the old cspect-next-1gb-fixed.img when only that exists)
     //   3. offer to download the canonical distribution image (kept pristine as
-    //      cspect-next-1gb.img) and produce the patched cspect-next-1gb-fixed.img
+    //      cspect-next-1gb.img) and produce the patched jnext-sdcard.img
     // Unit-test fixtures construct Emulator directly and never reach this
     // path. When resolution ultimately fails, fall back to the historical
     // "--sdcard is required" error so behaviour is unchanged for scripts.
@@ -2568,7 +2568,7 @@ static int run_main(int argc, char* argv[]) {
                 "jnext is a ZX Spectrum Next emulator and the SD card image is the canonical\n"
                 "source for all peripheral ROMs (DivMMC, Multiface, NextZXOS) and machine\n"
                 "ROMs (48K, 128K, +3) - same as real hardware. Provide one with --sdcard FILE,\n"
-                "or accept the download prompt to install it at ~/.jnext/sdcard/cspect-next-1gb-fixed.img.\n"
+                "or accept the download prompt to install it at ~/.jnext/sdcard/jnext-sdcard.img.\n"
                 "Use --sdcard-download-confirm to confirm download without asking.\n");
             return 1;
         }
@@ -2576,7 +2576,7 @@ static int run_main(int argc, char* argv[]) {
 
     // A ZIP archive is not an SD card. The firmware would read garbage and the
     // ROM extractor would fail without saying why. The browser build is given
-    // the page's download as a zip and extracts its single .img (the zip's
+    // the page's download as a zip and extracts its single .img or .mmc (the zip's
     // SHA-256 stands for its member); every other build refuses.
     if (program_archive::is_archive_path(sd_card_image)) {
 #ifdef __EMSCRIPTEN__
@@ -2669,7 +2669,7 @@ static int run_main(int argc, char* argv[]) {
     //
     // Placed here, after resolution, so it operates on exactly the image a
     // normal run would boot: --sdcard FILE when given, else the default
-    // ~/.jnext/sdcard/cspect-next-1gb-fixed.img (provisioning it first if it
+    // ~/.jnext/sdcard/jnext-sdcard.img (provisioning it first if it
     // is not there yet — a card is needed either way).
     // ---------------------------------------------------------------------
     if (sdcard_file_add_count > 0) {

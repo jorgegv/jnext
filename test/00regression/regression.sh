@@ -858,7 +858,7 @@ source "$SCRIPTS_DIR/01-sdcard-provision.sh"
 # The run's clone as provisioned. func_phases_end compares against it once
 # every row has run: the screenshot rows and the untagged functional rows all
 # boot this one file, so none of them may change it.
-SHARED_SD_PRINT=$(sd_fingerprint "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img")
+SHARED_SD_PRINT=$(sd_fingerprint "$RUN_DIR/sdcard/${SD_CARD_NAME}")
 
 # FUSE Z80 + Z80N opcode tests run in `make unit-test` (fuse_z80_test +
 # z80n_test), not here.

@@ -47,12 +47,6 @@ bool read_lines(const std::string& path, std::vector<std::string>& out) {
     return true;
 }
 
-// The files of a set, by name.
-std::vector<std::string> set_names() {
-    const std::string c = kFixedImageFileName, r = kImageFileName;
-    return {c, c + kDistroSuffix, c + kFixedImageRecipeSuffix, c + kDeclinedSuffix, r, r + ".sha256", r + kDistroSuffix};
-}
-
 // "sn-emulator-26.11a.zip" -> {26, 11, 'a'}; false when it has no version.
 bool parse_version(const std::string& name, int& major, int& minor, int& letter) {
     size_t i = name.find_first_of("0123456789");
@@ -113,7 +107,7 @@ bool step1(const Swap& s, std::string& err) {
     const fs::path cur = fs::path(work_dir(s.dir)) / "cur";
     std::error_code ec;
     fs::create_directories(cur / "overlays", ec);
-    for (const std::string& n : set_names()) {
+    for (const std::string& n : upgrade::set_names()) {
         const fs::path src = fs::path(s.dir) / n;
         if (fs::exists(src, ec) && !fs::exists(cur / n, ec) && !move_to(src, cur / n, err)) return false;
     }
@@ -130,7 +124,7 @@ bool step1(const Swap& s, std::string& err) {
 bool step2(const Swap& s, std::string& err) {
     const fs::path prev = upgrade::previous_dir(s.dir);
     std::error_code ec;
-    for (const std::string& n : set_names()) {
+    for (const std::string& n : upgrade::set_names()) {
         if (fs::exists(prev / n, ec) && !move_to(prev / n, fs::path(s.dir) / n, err)) return false;
     }
     std::vector<std::string> incoming, list;
@@ -159,7 +153,7 @@ bool step2(const Swap& s, std::string& err) {
         list.push_back(path);
     }
     write_lines(s.dir + "/" + upgrade::kOverlayList, list);
-    const std::string card = s.dir + "/" + kFixedImageFileName;
+    const std::string card = s.dir + "/" + card_name_in(s.dir);
     if (!s.declined.empty()) write_lines(card + kDeclinedSuffix, {s.declined});
     return true;
 }
@@ -213,7 +207,7 @@ int compare_distributions(const std::string& a, const std::string& b) {
 
 Status card_set_status(const std::string& dir, const std::string& current_distro, bool check_pristine) {
     Status s;
-    const std::string card = dir + "/" + kFixedImageFileName;
+    const std::string card = dir + "/" + card_name_in(dir);
     std::error_code ec;
     s.card_present = fs::is_regular_file(card, ec);
     if (s.card_present) {
@@ -224,10 +218,11 @@ Status card_set_status(const std::string& dir, const std::string& current_distro
         if (check_pristine) s.pristine = carry::pristine_base_ok(card, s.pristine_why);
     }
     const fs::path prev = upgrade::previous_dir(dir);
-    s.backup = fs::is_regular_file(prev / kFixedImageFileName, ec);
+    const std::string prev_card = card_name_in(prev.string());
+    s.backup = fs::is_regular_file(prev / prev_card, ec);
     if (s.backup) {
         s.backup_bytes = tree_bytes(prev);
-        const std::string d = read_line((prev / (std::string(kFixedImageFileName) + kDistroSuffix)).string());
+        const std::string d = read_line((prev / (prev_card + kDistroSuffix)).string());
         s.backup_distro = d.empty() ? std::string(kLegacyDistribution) : d;
     }
     return s;
@@ -251,10 +246,10 @@ std::string size_label(uint64_t bytes) {
 }
 
 Result go_back(const std::string& dir, std::string& err) {
-    const std::string card = dir + "/" + kFixedImageFileName;
+    const std::string card = dir + "/" + card_name_in(dir);
     const fs::path prev = upgrade::previous_dir(dir);
     std::error_code ec;
-    if (!fs::is_regular_file(prev / kFixedImageFileName, ec)) { err = "there is no previous SD card to go back to"; return Result::NoBackup; }
+    if (!fs::is_regular_file(prev / card_name_in(prev.string()), ec)) { err = "there is no previous SD card to go back to"; return Result::NoBackup; }
     if (fs::exists(work_dir(dir), ec)) { err = "an earlier go-back is unfinished: start jnext once to finish it"; return Result::Failed; }
     // Every writes file the backup holds is restored to the path it came from. That is checked BEFORE anything
     // moves: the directory is made when it is missing, and a path nothing can be written to refuses the whole
@@ -299,7 +294,7 @@ Result go_back(const std::string& dir, std::string& err) {
         return Result::Failed;
     }
     if (!run_steps(s, err)) return Result::Failed;
-    Log::emulator()->info("sdcard: went back to the previous SD card ({})", read_line(card + kDistroSuffix));
+    Log::emulator()->info("sdcard: went back to the previous SD card ({})", read_line(dir + "/" + card_name_in(dir) + kDistroSuffix));
     return Result::Ok;
 }
 

@@ -14,7 +14,7 @@ start-up error box and the browser's counterpart. The sources are `src/core/sdca
 
 | File | Content | Written by |
 |---|---|---|
-| `cspect-next-1gb-fixed.img` | the user's card | the provisioner, then the guest |
+| `jnext-sdcard.img` | the user's card | the provisioner, then the guest |
 | `cspect-next-1gb.img` | the original distribution image the card was made from | the provisioner |
 | `<card>.distro`, `<raw>.distro` | the distribution (zip name) of each; none means 24.11 | the provisioner |
 | `<card>.recipe` | the recipe number that made the card; none means 1 | the provisioner |
@@ -27,6 +27,32 @@ start-up error box and the browser's counterpart. The sources are `src/core/sdca
 | `go-back-work/` | the swap's scratch, `SWAPPING` and the `gN.done` marks | go back |
 | `<state dir>/locks/<hash>.lock` | the image lock files | `image_lock.cpp` |
 | `test-suite/` | the harness's own card; owned by the test suites, never by a user | the harness |
+
+## The card's name
+
+The card has two names, both constants in `sdcard_provisioner.cpp`: `jnext-sdcard.img`
+(`kFixedImageFileName`) and the one earlier versions used, `cspect-next-1gb-fixed.img`
+(`kLegacyFixedImageFileName`). Neither is a setting. `card_name_in(dir)` is the one resolver: the new
+name when that file exists in `dir`, else the old name when that exists, else the new name (where a
+card is made). `default_sdcard_image_path()` is that for the default directory, and every function
+that opens or manages a card goes through it: the provisioner, the upgrade, the backup and go-back,
+the File menu, the writes files. The sets in `previous/`, `previous.new/` and `go-back-work/cur/` are
+resolved the same way, directory by directory, so a backup keeps the name its card had.
+
+Nothing renames, moves or deletes a card because of its name. A download or a provisioning writes
+`default_sdcard_new_image_path()` only: `--sdcard-download-force` beside an old-named card creates the
+new name and leaves the old card as it is, and an accepted upgrade installs the new card under the
+new name while step 1 moves the whole old set, whichever name it carries, into the backup
+(`upgrade::set_names()` lists both names' files). With both names present the new one wins and the
+other is left alone (a test master that has both as hard links is current).
+
+The shell side has the same rule in `sd_card_name_in` (`test/00regression/test-functions.inc`),
+reachable as `tools/sd-card-name.sh <dir>`; the unit-test header `test/test_sd_image.h` spells the two
+names itself, and `HS-206` pins all three against the constants. `.mmc` is a known image extension
+beside `.img` (`has_image_extension`, the open-file filters, a card inside a zip).
+
+The tests are `SDNAME-01..09` in `sdcard_provisioner_test` (the row `sdcard-name-func` runs the
+real binary), `SDEXT-01..02` and `ZIPL-40/41` for the extension.
 
 ## Identifying a version
 

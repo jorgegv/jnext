@@ -254,7 +254,7 @@ sd_clone_for_run() {
     SD_CLONE_MODE=absent
     SD_CLONE_SIDECARS=none
     [[ -f "$SD_MASTER_IMAGE" ]] || return 1
-    local dst="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    local dst="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     mkdir -p "$RUN_DIR/sdcard" || { SD_CLONE_MODE=failed; return 1; }
     rm -f "$dst"
     if cp --reflink=always "$SD_MASTER_IMAGE" "$dst" 2>/dev/null; then
@@ -296,10 +296,10 @@ sd_card_sidecars() {
 # locks the card it boots, so a row that runs two jnext at once on the card gives every instance but
 # one such a dir: JNEXT_CONFIG_DIR="$(sd_extra_cfg b)" "$JNEXT" ... Fails when the link cannot be made.
 sd_extra_cfg() {
-    local d="$RUN_DIR/extra/$1" img="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    local d="$RUN_DIR/extra/$1" img="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     mkdir -p "$d/sdcard" || return 1
     ln -f "$img" "$d/sdcard/" || return 1
-    sd_card_sidecars "$img" "$d/sdcard/cspect-next-1gb-fixed.img" || return 1
+    sd_card_sidecars "$img" "$d/sdcard/${SD_CARD_NAME}" || return 1
     printf '%s\n' "$d"
 }
 
@@ -324,9 +324,48 @@ sd_expected_recipe() {
     grep -E "$pat" "$src" | grep -oE '[0-9]+'
 }
 
+# sd_card_name [source] - print the file name of jnext's default SD card (GH #579). Read from its
+# one definition, sdcard::kFixedImageFileName in src/core/sdcard_provisioner.cpp (or from [source],
+# a test seam for HS-206), the way sd_expected_recipe reads the recipe: the binary under test is built
+# from this same tree, so no second spelling exists to drift. Prints nothing and fails unless exactly
+# one line matches, so a reworded or doubled definition is loud, never a guess. Every script that
+# sources this library reads the name from $SD_CARD_NAME, set once below.
+sd_card_name() {
+    local src="${1:-${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}/src/core/sdcard_provisioner.cpp}"
+    local sym=kFixedImageFileName; [[ "${2:-}" != legacy ]] || sym=kLegacyFixedImageFileName
+    local pat="^const char\\* const $sym = \"[^\"]+\";\$"
+    [[ "$(grep -cE "$pat" "$src" 2>/dev/null)" == 1 ]] || return 1
+    grep -E "$pat" "$src" | sed -E 's/^[^"]*"([^"]+)";$/\1/'
+}
+# A tree with no src/core/sdcard_provisioner.cpp at all is a harness-selftest fixture (no jnext can be built from it):
+# it gets the names as literals. A tree that HAS the file must define both on one line each, or this library refuses.
+_sd_src="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}/src/core/sdcard_provisioner.cpp"
+if [[ -f "$_sd_src" ]]; then
+    SD_CARD_NAME=$(sd_card_name "$_sd_src") \
+        || { echo "FATAL: the default card's file name (kFixedImageFileName) cannot be read from src/core/sdcard_provisioner.cpp: it must stay one line, const char* const kFixedImageFileName = \"...\";" >&2; exit 2; }
+    # The name earlier trees (and the branches still on them) look for the master under: kLegacyFixedImageFileName.
+    SD_CARD_LEGACY_NAME=$(sd_card_name "$_sd_src" legacy) \
+        || { echo "FATAL: kLegacyFixedImageFileName cannot be read from src/core/sdcard_provisioner.cpp" >&2; exit 2; }
+else
+    SD_CARD_NAME=jnext-sdcard.img
+    SD_CARD_LEGACY_NAME=cspect-next-1gb-fixed.img
+fi
+unset _sd_src
+export SD_CARD_NAME SD_CARD_LEGACY_NAME
+
+# sd_card_name_in <dir>: the file name of the default card in <dir>, by the product's own rule (sdcard::card_name_in,
+# GH #579): the new name when that file exists, else the old name when that exists, else the new name. Both names are
+# the constants read above; no setting names the card. Every shell consumer of a default card goes through this
+# (tools/sd-card-name.sh is the command line to it), and HS-206 pins that it and the C++ rule agree.
+sd_card_name_in() {
+    if [[ -f "$1/$SD_CARD_NAME" ]]; then printf '%s\n' "$SD_CARD_NAME"
+    elif [[ -f "$1/$SD_CARD_LEGACY_NAME" ]]; then printf '%s\n' "$SD_CARD_LEGACY_NAME"
+    else printf '%s\n' "$SD_CARD_NAME"; fi
+}
+
 # ---- The SD master gate: shared by 01-sdcard-provision.sh and tools/sd-master-ensure.sh ----
 # sd_test_state_dir: the jnext state dir whose sdcard/ holds the suites' OWN master card (GH #555).
-# It is ~/.jnext/sdcard/test-suite, never the user's own card (the cspect-next-1gb-fixed.img directly under ~/.jnext/sdcard):
+# It is ~/.jnext/sdcard/test-suite, never the user's own card (the jnext-sdcard.img directly under ~/.jnext/sdcard):
 # the gate below deletes and re-derives its master whenever the distribution or the recipe moves,
 # and a user's saved files must not go with it. JNEXT_REGRESSION_SD_STATE_DIR (the candidate-card
 # seam) replaces it. The same relative path is spelled in test/test_sd_image.h (HS-196 checks).
@@ -335,7 +374,7 @@ sd_test_state_dir() { printf '%s\n' "${JNEXT_REGRESSION_SD_STATE_DIR:-$HOME/.jne
 # JNEXT_REGRESSION_SD_STATE_DIR, moves them). Sets the SD_MASTER_* names and the short aliases the gate uses.
 sd_master_paths() {
     SD_MASTER_DIR="$(sd_test_state_dir)/sdcard"
-    SD_MASTER_IMAGE="$SD_MASTER_DIR/cspect-next-1gb-fixed.img"
+    SD_MASTER_IMAGE="$SD_MASTER_DIR/$(sd_card_name_in "$SD_MASTER_DIR")"
     SD_MASTER_WITNESS="$SD_MASTER_IMAGE.sha256"
     # Written by jnext itself when it derives the image: the number of the
     # recipe that made it (sdcard::kFixedImageRecipe, GH #284). Absent on any
@@ -397,6 +436,12 @@ sd_rederive() {
     # success anyway. It matters only on the FAILURE path, where it stops a
     # witness describing an image that no longer exists from surviving.
     rm -f "$FALLBACK_SD_IMAGE" "$SD_WITNESS" "$SD_RECIPE" "$FALLBACK_SD_IMAGE.distro"
+    # Both names' files go: the master is being REPLACED, and a card left under the other name would be used by the
+    # derive below instead of a fresh one. Not in a candidate-card directory (it keeps what it is given).
+    if [[ -z "${JNEXT_REGRESSION_SD_STATE_DIR:-}" ]]; then
+        local n
+        for n in "$SD_CARD_NAME" "$SD_CARD_LEGACY_NAME"; do rm -f "$SD_DIR/$n" "$SD_DIR/$n.sha256" "$SD_DIR/$n.recipe" "$SD_DIR/$n.distro"; done
+    fi
     # JNEXT_CONFIG_DIR is pinned to the MASTER's directory for this one
     # invocation. It points at the per-run clone dir everywhere else, and the
     # provisioner honours it (src/core/sdcard_provisioner.cpp) — without the
@@ -426,6 +471,7 @@ sd_rederive() {
         || { sd_derive_why="cannot create a temporary file for jnext's output"; return 1; }
     env "${sd_env[@]}" ${sd_bound[@]+"${sd_bound[@]}"} \
         "${JNEXT_NATIVE:-$JNEXT}" --headless --sdcard-download-confirm --delayed-automatic-exit 2 >"$sd_log" 2>&1 || sd_rc=$?
+    sd_master_paths   # the derive creates the new name: resolve the paths again
     if [[ ! -f "$FALLBACK_SD_IMAGE" ]]; then
         sd_derive_why=$(sd_derive_reason "$sd_log" "$sd_rc")
         rm -f "$sd_log"
@@ -858,7 +904,7 @@ regression_lib_init() {
     #
     #  2. The SD-card image. src/core/sdcard_provisioner.cpp resolves the
     #     fallback image under this same directory, so the run boots
-    #     $RUN_DIR/sdcard/cspect-next-1gb-fixed.img — a private clone — and
+    #     $RUN_DIR/sdcard/jnext-sdcard.img — a private clone — and
     #     never the master. NextZXOS WRITES BACK to the card it boots, so
     #     without this the suite mutates the very artefact its reference
     #     screenshots were generated against. That is not hypothetical: a drift

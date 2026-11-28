@@ -24,7 +24,7 @@ if want sdcard-sha256-func; then
 
     sh_faults=()
     sh_hex=$(printf 'a%.0s' $(seq 1 64))
-    sh_card="$JNEXT_CONFIG_DIR/sdcard/cspect-next-1gb-fixed.img"
+    sh_card="$JNEXT_CONFIG_DIR/sdcard/${SD_CARD_NAME}"
     sh_cache_dir="$JNEXT_CONFIG_DIR/warm-start"
     sh_nex="test/00regression/nex/tilemap_demo.nex"
     sh_ref="test/00regression/img/tilemap-demo-reference.png"

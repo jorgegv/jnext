@@ -33,8 +33,8 @@ if want sdcard-upgrade-real-func; then
     ur_variant="$PROJECT_DIR/build/test/distro_variant"
     sd_master_paths
     ur_raw_src="$SD_MASTER_DIR/cspect-next-1gb.img"
-    ur_card="$ur_dir/cfg/sdcard/cspect-next-1gb-fixed.img"
-    ur_prev="$ur_dir/cfg/sdcard/previous/cspect-next-1gb-fixed.img"
+    ur_card="$ur_dir/cfg/sdcard/${SD_CARD_NAME}"
+    ur_prev="$ur_dir/cfg/sdcard/previous/${SD_CARD_NAME}"
 
     if [[ ${#ur_missing[@]} -gt 0 ]]; then
         fail_row " (tools absent: ${ur_missing[*]})"

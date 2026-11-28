@@ -1146,6 +1146,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-cards-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The card's name
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#identifying-a-version" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3201,7 +3212,7 @@ start-up error box and the browser's counterpart. The sources are <code>src/core
 </thead>
 <tbody>
 <tr>
-<td><code>cspect-next-1gb-fixed.img</code></td>
+<td><code>jnext-sdcard.img</code></td>
 <td>the user's card</td>
 <td>the provisioner, then the guest</td>
 </tr>
@@ -3267,6 +3278,27 @@ start-up error box and the browser's counterpart. The sources are <code>src/core
 </tr>
 </tbody>
 </table>
+<h2 id="the-cards-name">The card's name<a class="headerlink" href="#the-cards-name" title="Permanent link">&para;</a></h2>
+<p>The card has two names, both constants in <code>sdcard_provisioner.cpp</code>: <code>jnext-sdcard.img</code>
+(<code>kFixedImageFileName</code>) and the one earlier versions used, <code>cspect-next-1gb-fixed.img</code>
+(<code>kLegacyFixedImageFileName</code>). Neither is a setting. <code>card_name_in(dir)</code> is the one resolver: the new
+name when that file exists in <code>dir</code>, else the old name when that exists, else the new name (where a
+card is made). <code>default_sdcard_image_path()</code> is that for the default directory, and every function
+that opens or manages a card goes through it: the provisioner, the upgrade, the backup and go-back,
+the File menu, the writes files. The sets in <code>previous/</code>, <code>previous.new/</code> and <code>go-back-work/cur/</code> are
+resolved the same way, directory by directory, so a backup keeps the name its card had.</p>
+<p>Nothing renames, moves or deletes a card because of its name. A download or a provisioning writes
+<code>default_sdcard_new_image_path()</code> only: <code>--sdcard-download-force</code> beside an old-named card creates the
+new name and leaves the old card as it is, and an accepted upgrade installs the new card under the
+new name while step 1 moves the whole old set, whichever name it carries, into the backup
+(<code>upgrade::set_names()</code> lists both names' files). With both names present the new one wins and the
+other is left alone (a test master that has both as hard links is current).</p>
+<p>The shell side has the same rule in <code>sd_card_name_in</code> (<code>test/00regression/test-functions.inc</code>),
+reachable as <code>tools/sd-card-name.sh &lt;dir&gt;</code>; the unit-test header <code>test/test_sd_image.h</code> spells the two
+names itself, and <code>HS-206</code> pins all three against the constants. <code>.mmc</code> is a known image extension
+beside <code>.img</code> (<code>has_image_extension</code>, the open-file filters, a card inside a zip).</p>
+<p>The tests are <code>SDNAME-01..09</code> in <code>sdcard_provisioner_test</code> (the row <code>sdcard-name-func</code> runs the
+real binary), <code>SDEXT-01..02</code> and <code>ZIPL-40/41</code> for the extension.</p>
 <h2 id="identifying-a-version">Identifying a version<a class="headerlink" href="#identifying-a-version" title="Permanent link">&para;</a></h2>
 <p>A distribution is the file name of its zip. <code>distribution_of_url</code> takes it from the address,
 <code>backup::compare_distributions</code> orders two (the numbers of <code>sn-emulator-&lt;N&gt;(.&lt;N&gt;)*&lt;letter&gt;?.zip</code>

@@ -29,7 +29,7 @@ if want machine-port-enables-func; then
     begin_func machine-port-enables-func
 
     sdfile="$TEST_BIN_DIR/sdfile_tool"
-    sd_image="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    sd_image="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     jds_a="$TMP_DIR/machine_port_enables_a.jds"
     jds_fw="$TMP_DIR/machine_port_enables_fw.jds"
     cfg_in="$TMP_DIR/machine_port_enables_config.ini"

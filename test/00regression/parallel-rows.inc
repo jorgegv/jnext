@@ -74,7 +74,7 @@ func_phases_begin() {
     ROWS_RUN="$RUN_DIR/rows"
     ROWS_OUT="$TMP_DIR/row-out"
     mkdir -p "$ROWS_TMP" "$ROWS_RUN" "$ROWS_OUT"
-    SHARED_SD="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    SHARED_SD="$RUN_DIR/sdcard/${SD_CARD_NAME}"
     SHARED_SD_PRINT=${SHARED_SD_PRINT:-$(sd_fingerprint "$SHARED_SD")}
 }
 

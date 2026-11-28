@@ -38,7 +38,7 @@ if want snapshot-sdcard-mismatch-func; then
     SDID="$TEST_BIN_DIR/sd_identity_test"
     base="$TMP_DIR/sdid-base.img"
     mutant="$TMP_DIR/sdid-mutant.img"
-    real_card="$RUN_DIR/sdcard/cspect-next-1gb-fixed.img"
+    real_card="$RUN_DIR/sdcard/${SD_CARD_NAME}"
 
     # A missing binary is a LOUD failure, never a silent skip: `make clean`
     # deletes it, and a row that quietly disappears is the Task 35 defect.

@@ -129,7 +129,7 @@ naming the option and the value, and exits with status 1.
     are unaffected either way.
 
 **\--sdcard** *FILE*
-:   Mount SD-card image *FILE* (`.img`). Optional; see **SD CARD AND ROMS**.
+:   Mount SD-card image *FILE* (`.img` or `.mmc`). Optional; see **SD CARD AND ROMS**.
     **\--sdcard1** is the same option, spelt like **\--sdcard2**: each of the
     first card's options (**\--sdcard**, **\--sdcard-readonly**,
     **\--sdcard-writes**, **\--sdcard-writes-reset**,
@@ -139,7 +139,7 @@ naming the option and the value, and exits with status 1.
     spelling is refused (exit status 1). The `1` spellings are not listed by
     **\--help**.
     A ZIP archive is not an image and is refused (exit status 1): unzip it
-    first. The WebAssembly build extracts the single `.img` inside one.
+    first. The WebAssembly build extracts the single `.img` or `.mmc` inside one.
 
 **\--sdcard-sha256** *HEX*
 :   The SHA-256 of the **\--sdcard** image, as the caller has already checked
@@ -240,7 +240,7 @@ naming the option and the value, and exits with status 1.
     and **\--delayed-nmi**. In a browser page it is `card: { source: 'none' }`.
 
 **\--sdcard2** *FILE*
-:   Mount SD-card image *FILE* (`.img`) in the **second SD card slot**, which
+:   Mount SD-card image *FILE* (`.img` or `.mmc`) in the **second SD card slot**, which
     NextZXOS sees as the next drive after the first card's partitions (D: for a
     first card with one). There is no default and no download: the slot is empty
     unless this is given. ROMs are read from the first card only. A *FILE* that
@@ -1788,7 +1788,7 @@ So even a **\--machine** `48k` run needs an SD-card image: that is where
 `48.rom` lives.
 
 Point at an image with **\--sdcard** *FILE*, or give no **\--sdcard** at all:
-jnext then falls back to `~/.jnext/sdcard/cspect-next-1gb-fixed.img` (a
+jnext then falls back to `~/.jnext/sdcard/jnext-sdcard.img` (a
 FAT32-patched image), offering to download the canonical distribution image
 (kept alongside it as `cspect-next-1gb.img`) and produce that patched copy on
 first run. **\--sdcard-download-confirm** skips the prompt, which is useful in
@@ -3794,7 +3794,7 @@ Boot NextZXOS / the TBBlue firmware (the default machine is `next`):
 
 The same, with an explicit SD-card image:
 
-    jnext --sdcard ~/.jnext/sdcard/cspect-next-1gb-fixed.img
+    jnext --sdcard ~/.jnext/sdcard/jnext-sdcard.img
 
 Run a program; a bare filename is shorthand for **\--load**:
 
@@ -3820,7 +3820,7 @@ at EOF, so an unattended run would exit non-zero instead of capturing
 anything (**\--sdcard-download-confirm** is the alternative).
 
     jnext --headless --machine 48k \
-        --sdcard ~/.jnext/sdcard/cspect-next-1gb-fixed.img \
+        --sdcard ~/.jnext/sdcard/jnext-sdcard.img \
         --delayed-screenshot /tmp/test.png \
         --delayed-screenshot-frames 200 --delayed-automatic-exit 5
 
@@ -3945,17 +3945,24 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     **\--warm-start-regenerate**. Deleting it costs one cold boot, nothing
     else.
 
-`~/.jnext/sdcard/cspect-next-1gb-fixed.img`
-:   The default SD-card image, used when **\--sdcard** is not given.
+`~/.jnext/sdcard/jnext-sdcard.img`
+:   The default SD-card image, used when **\--sdcard** is not given. A new
+    download or install always creates this name. A card that earlier
+    versions made as `cspect-next-1gb-fixed.img` keeps that name: JNEXT uses
+    it, with its companion files (`.distro`, `.recipe`, the writes file, ...),
+    when `jnext-sdcard.img` does not exist, and never renames it. An
+    upgrade keeps it, under its own name, as the backup in `previous/`
+    (a later upgrade or **\--sdcard-delete-backup** removes that backup). If
+    both exist, `jnext-sdcard.img` is used and the other is left alone.
 
 `~/.jnext/sdcard/cspect-next-1gb.img`
 :   The canonical distribution image the patched one above is produced from.
 
-`~/.jnext/sdcard/cspect-next-1gb-fixed.img.distro`, `cspect-next-1gb.img.distro`
+`~/.jnext/sdcard/jnext-sdcard.img.distro`, `cspect-next-1gb.img.distro`
 :   The distribution (the zip file name, e.g. `sn-emulator-24.11.zip`) each of
     the two images came from. Without one, the image is taken to be 24.11.
 
-`~/.jnext/sdcard/cspect-next-1gb-fixed.img.distro-declined`
+`~/.jnext/sdcard/jnext-sdcard.img.distro-declined`
 :   The distribution whose upgrade offer you turned down with "Keep my card
     (don't ask again)" (or **\--sdcard-upgrade** `never`). Delete it, or use
     **\--sdcard-upgrade** `ask`, to be asked again.

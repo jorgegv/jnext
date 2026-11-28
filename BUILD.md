@@ -94,7 +94,7 @@ three steps:
 3. the **optimised** build in `build/gui-release`, compiled with that profile.
 
 Training needs the **NextZXOS SD image**, because the machines' ROMs come from
-it. If the suites' own SD master (`~/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img`,
+it. If the suites' own SD master (`~/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img`,
 never your own card) is missing, the training
 provisions it the same way jnext does on a first run — it downloads the
 NextZXOS distribution (about 50 MB) — and if that fails the build stops and

@@ -29,7 +29,21 @@ namespace sdcard {
 const char* const kDistroUrl =
     "https://www.specnext.com/distro/26.11a/sn-emulator-26.11a.zip";
 const char* const kImageFileName = "cspect-next-1gb.img";
-const char* const kFixedImageFileName = "cspect-next-1gb-fixed.img";
+const char* const kFixedImageFileName = "jnext-sdcard.img";
+const char* const kLegacyFixedImageFileName = "cspect-next-1gb-fixed.img";
+const char* const kImageExtensions[2] = {".img", ".mmc"};
+const char* const kDiskImageFilterPatterns = "*.img *.mmc *.bin *.raw";
+bool has_image_extension(const std::string& path) {
+    for (const char* e : kImageExtensions) {
+        const size_t n = std::strlen(e);
+        if (path.size() < n) continue;
+        bool same = true;
+        for (size_t i = 0; i < n && same; ++i)
+            same = std::tolower(static_cast<unsigned char>(path[path.size() - n + i])) == e[i];
+        if (same) return true;
+    }
+    return false;
+}
 const int kFixedImageRecipe = 3;
 const char* const kFixedImageRecipeSuffix = ".recipe";
 const char* const kDistroSuffix = ".distro";
@@ -569,8 +583,18 @@ std::string default_state_dir() { return config_dir(); }
 std::string default_sdcard_dir() {
     return config_dir() + "/sdcard";
 }
-std::string default_sdcard_image_path() {
+std::string card_name_in(const std::string& dir) {
+    std::error_code ec;
+    if (std::filesystem::is_regular_file(dir + "/" + kFixedImageFileName, ec)) return kFixedImageFileName;
+    if (std::filesystem::is_regular_file(dir + "/" + kLegacyFixedImageFileName, ec)) return kLegacyFixedImageFileName;
+    return kFixedImageFileName;
+}
+std::string default_sdcard_new_image_path() {
     return default_sdcard_dir() + "/" + kFixedImageFileName;
+}
+std::string default_sdcard_image_path() {
+    const std::string dir = default_sdcard_dir();
+    return dir + "/" + card_name_in(dir);
 }
 std::string default_sdcard_raw_image_path() {
     return default_sdcard_dir() + "/" + kImageFileName;
@@ -1025,7 +1049,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
 
     const std::string dir   = default_sdcard_dir();
     const std::string raw   = default_sdcard_raw_image_path();   // pristine
-    const std::string fixed = default_sdcard_image_path();       // patched
+    std::string fixed;   // the patched card, resolved after the recovery below (it can change the name on disk)
 
     // GH #555: an interrupted upgrade is finished (SWITCHING present) or its scratch removed.
     {
@@ -1042,6 +1066,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             return r;
         }
     }
+    fixed = default_sdcard_image_path();   // the name in use: see card_name_in
 
     // Distro URL: $JNEXT_SDCARD_DISTRO_URL overrides kDistroUrl when set
     // and non-empty. A TEST SEAM in the same spirit as $JNEXT_CONFIG_DIR
@@ -1057,6 +1082,9 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
     // Which distribution that address is (the zip's file name), and the sidecars that
     // record it beside the images.
     const std::string current_dist = distribution_of_url(distro_url);
+    // A rebuild that the user forces (--sdcard-download-force) is a new provisioning: it creates the card under the
+    // new name and leaves a card with the old name exactly as it is (nothing renames, moves or deletes one).
+    if (opts.force_download) fixed = default_sdcard_new_image_path();
     const std::string fixed_distro = fixed + kDistroSuffix;
     const std::string raw_distro   = raw + kDistroSuffix;
     const std::string declined     = fixed + kDeclinedSuffix;
@@ -1496,7 +1524,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             if (opts.show_report) opts.show_report(report_text);
         }
         r.status = ProvisionStatus::Ok;
-        r.path   = fixed;
+        r.path   = default_sdcard_image_path();   // the new card was installed under the new name, whatever the old one was called
         r.upgraded = true;
         return r;
     }

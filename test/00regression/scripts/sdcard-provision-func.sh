@@ -48,9 +48,9 @@ if want sdcard-provision-func; then
         cat > "$W/bin/jnext-stub" <<STUB
 #!/usr/bin/env bash
 echo x >> "$W/calls"
-printf 'PRISTINE-IMAGE-CONTENT\n' > "$1/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"
-printf '%s\n' '${2:-$WANT_RECIPE}' > "$1/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img.recipe"
-printf '%s\n' '$WANT_DISTRO' > "$1/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img.distro"
+printf 'PRISTINE-IMAGE-CONTENT\n' > "$1/.jnext/sdcard/test-suite/sdcard/${SD_CARD_NAME}"
+printf '%s\n' '${2:-$WANT_RECIPE}' > "$1/.jnext/sdcard/test-suite/sdcard/${SD_CARD_NAME}.recipe"
+printf '%s\n' '$WANT_DISTRO' > "$1/.jnext/sdcard/test-suite/sdcard/${SD_CARD_NAME}.distro"
 exit 0
 STUB
         chmod +x "$W/bin/jnext-stub"
@@ -66,7 +66,7 @@ STUB
     }
 
     rm -rf "$W"; H="$W/home"; mk_stub "$H"
-    IMG="$H/.jnext/sdcard/test-suite/sdcard/cspect-next-1gb-fixed.img"
+    IMG="$H/.jnext/sdcard/test-suite/sdcard/${SD_CARD_NAME}"
     WIT="$IMG.sha256"
     REC="$IMG.recipe"
     [[ -n "$WANT_RECIPE" ]] || faults+=("sd_expected_recipe could not read kFixedImageRecipe")

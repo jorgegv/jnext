@@ -36,7 +36,7 @@
 ///   * The image must be a filesystem FatFs will mount — i.e. a spec-valid
 ///     FAT32 (>= 65525 clusters). The canonical CSpect image is under-clustered
 ///     and jnext already re-clusters it while provisioning
-///     (`cspect-next-1gb-fixed.img`); an under-clustered image supplied by hand
+///     (`jnext-sdcard.img`); an under-clustered image supplied by hand
 ///     is refused with a pointer at `tools/fix-sdcard-image.sh`. The emulated
 ///     machine's own firmware would reject it too.
 ///   * Long file names come out exactly as FatFs writes them: an 8.3-clean

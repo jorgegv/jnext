@@ -1,3 +1,4 @@
+#include "core/sdcard_provisioner.h"
 #include "gui/preferences_dialog.h"
 #include "gui/host_shortcuts.h"   // GH #403
 #include "gui/qt_ctrl_is_command.h"   // GH #365
@@ -653,7 +654,7 @@ void PreferencesDialog::browse_directory(QLineEdit* target) {
 void PreferencesDialog::browse_sd_image(QLineEdit* target) {
     QString path = QFileDialog::getOpenFileName(
         this, tr("Select SD Card Image"), target->text(),
-        tr("Disk Images (*.img *.bin *.raw);;All Files (*)"));
+        tr("Disk Images (%1);;All Files (*)").arg(QString::fromLatin1(sdcard::kDiskImageFilterPatterns)));
     if (!path.isEmpty()) target->setText(path);
 }
 

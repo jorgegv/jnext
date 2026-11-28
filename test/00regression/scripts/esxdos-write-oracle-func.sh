@@ -27,7 +27,7 @@ if want esxdos-write-oracle-func; then
     m_rc=0
     oe_shift=$(boot_shift)   # the card's boot delay in frames (bf), applied by the measure script
     BOOT_SHIFT=$oe_shift PROBE_FRAMES=3500 timeout --foreground --kill-after=5s 540s bash "$SCRIPT_DIR/esxdos-write-probe-measure.sh" \
-        "$JNEXT" "$W" "$RUN_DIR/sdcard/cspect-next-1gb-fixed.img" > "$W/measure.log" 2>&1 || m_rc=$?
+        "$JNEXT" "$W" "$RUN_DIR/sdcard/${SD_CARD_NAME}" > "$W/measure.log" 2>&1 || m_rc=$?
 
     rw_rc=0 ro_rc=0
     rw=$(python3 -I "$probe" compare --exact --recorded "$rec" --mode rw "$W/raw-rw.txt" 2>&1) || rw_rc=$?
