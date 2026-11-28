@@ -93,8 +93,17 @@ are sub-issues of their own; R6 is one placeholder sub-issue, opened only if R5.
 
 #### Sub-issue 9: remote program, sidecars and build match
 
-- [ ] **R3.1** Program and sidecars for a remote target; fetch identity from the MMU slots
-- [ ] **R3.2** Build-match check at connect and after a load: target code bytes against the program file
+- [x] **R3.1** Program and sidecars for a remote target; fetch identity from the MMU slots
+- [x] **R3.2** Build-match check at connect and after a load: target code bytes against the program file
+
+**Delivered (#519)** (`debugger_source.cpp`: `Impl::remote_identity()`; `SourceMap::code_spans()`; `NexLoader::bank_data()`; rows `RSRC-` in `remote_target_test`, `TGT-07` in `debug_target_test`, `NEXB-DATA` in `nex_loader_test`). Deviations from the design text above, and decisions the later sub-issues build on:
+
+- The build match is the facade's own identity rule on a non-local facade (the non-local branch of `verify_identity()`), so the sidecar attach, the hand load and the user's map are judged by one rule and no verb was added to the frozen `debugger.h`: a verdict is reported through `SidecarLoad::problem`, `SourceMapLoad::identity`/`error` and `source_map_status()`. Confirming is the existing hand load (`load_source_map(path, true)`), which the GUI's "Load it anyway?" dialog already offers.
+- It compares the program file when it is a NEX (its banks, through `NexLoader::bank_data()`, re-read at every judgement) and the map's own binary identity (a "bare binary with a map" has no load address but through its map). Only **code** ranges count: z88dk data, bss and smc lines are source-mapped too and a running program writes them. A page the file lacks, a read that failed, or a space that is not a RAM page is "not compared", never a mismatch.
+- `PhysicalMemory` served: each page holding code is read once, whatever the slots map. Otherwise (dezogif) the page is read where a slot shows it now, and a page mapped nowhere is not read.
+- A target with no `Core` registers (no program loaded, a lost link) gets nothing loaded and nothing read; the caller loads again once there is state (the upload does). A target judges at the call: a tape program or a `verify_at_first_execution` map is never pending, a dot command's map is refused.
+- Line breakpoints work on a target: a start is a page-qualified `Execute` held under its page (DZRP `bank+1`), and a breakpoint stop in a known page carries `Page{page}` as the event's space.
+- Moved: the `remote.program` key, its dialog field and the call at connect go to #517 (the facade call is `load_program_sidecars()`); the "MMU only" label in the Disassembly goes to #514's capability surface.
 
 #### Sub-issue 10: source line stepping on a remote target
 
