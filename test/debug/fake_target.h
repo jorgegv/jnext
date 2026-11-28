@@ -47,6 +47,19 @@ public:
     Result           set_register_status = Result::Ok;
     Result           port_in_status = Result::Ok;
     Result           port_out_status = Result::Ok;
+    /// TGT-05: a non-Ok status makes that verb fail (nothing recorded as held).
+    Result           resume_status = Result::Ok;
+    Result           pause_status = Result::Ok;
+    Result           add_bp_status = Result::Ok;
+    Result           add_wp_status = Result::Ok;
+    Result           remove_bp_status = Result::Ok;
+    Result           remove_wp_status = Result::Ok;
+    /// TGT-05: the stops the target will report, oldest first. `take_stop()` hands one
+    /// out and, as a real target's stop does, leaves the machine paused. It is a cheap
+    /// query like `run_state()`: not a recorded call.
+    std::vector<TargetStop> stops;
+    /// The handle the next `add_breakpoint` / `add_watchpoint` returns.
+    uint32_t         next_handle = 1;
 
     // ---- the record ----------------------------------------------------------
     std::vector<std::string> calls;                  ///< "name(args)" per machine call
@@ -170,6 +183,46 @@ public:
         return Expected<uint16_t>{Result::Ok, pal_value};
     }
     ClipWindow sprite_clip() const override { rec("sprite_clip"); return clip; }
+
+    // ---- run control, breakpoints, watchpoints (TGT-05) ----------------------
+    Result resume() override {
+        rec("resume");
+        if (resume_status != Result::Ok) return resume_status;
+        run.paused = false;
+        return Result::Ok;
+    }
+    Result pause() override {
+        rec("pause");
+        if (pause_status != Result::Ok) return pause_status;
+        run.paused = true;
+        return Result::Ok;
+    }
+    bool take_stop(TargetStop& out) override {
+        if (stops.empty()) return false;
+        out = stops.front();
+        stops.erase(stops.begin());
+        run.paused = true;
+        return true;
+    }
+    Expected<uint32_t> add_breakpoint(uint16_t addr, uint16_t page) override {
+        rec("add_breakpoint(" + std::to_string(addr) + "," + std::to_string(page) + ")");
+        if (add_bp_status != Result::Ok) return make_refused<uint32_t>(add_bp_status);
+        return make_ok<uint32_t>(next_handle++);
+    }
+    Result remove_breakpoint(uint32_t handle) override {
+        rec("remove_breakpoint(" + std::to_string(handle) + ")");
+        return remove_bp_status;
+    }
+    Expected<uint32_t> add_watchpoint(uint16_t lo, uint16_t hi, uint16_t page, Access access) override {
+        rec("add_watchpoint(" + std::to_string(lo) + "," + std::to_string(hi) + "," +
+            std::to_string(page) + "," + std::to_string(static_cast<int>(access)) + ")");
+        if (add_wp_status != Result::Ok) return make_refused<uint32_t>(add_wp_status);
+        return make_ok<uint32_t>(next_handle++);
+    }
+    Result remove_watchpoint(uint32_t handle) override {
+        rec("remove_watchpoint(" + std::to_string(handle) + ")");
+        return remove_wp_status;
+    }
 
 private:
     void rec(const std::string& s) const { const_cast<std::vector<std::string>&>(calls).push_back(s); }

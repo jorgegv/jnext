@@ -1120,10 +1120,25 @@ uint8_t SpriteEngine::read_attr_byte(uint8_t sprite_idx, uint8_t byte_idx) const
 
 SpriteEngine::SpriteInfo SpriteEngine::get_sprite_info(uint8_t idx) const
 {
-    SpriteInfo info{};
     if (idx >= NUM_SPRITES)
-        return info;
-    const auto& s = sprites_[idx];
+        return SpriteInfo{};
+    return decode_info(sprites_[idx]);
+}
+
+SpriteEngine::SpriteInfo SpriteEngine::sprite_info_from_attr(const uint8_t bytes[5])
+{
+    SpriteAttr s;
+    s.byte0 = bytes[0];
+    s.byte1 = bytes[1];
+    s.byte2 = bytes[2];
+    s.byte3 = bytes[3];
+    s.byte4 = bytes[4];
+    return decode_info(s);
+}
+
+SpriteEngine::SpriteInfo SpriteEngine::decode_info(const SpriteAttr& s)
+{
+    SpriteInfo info{};
     info.x              = s.x();
     info.y              = s.y();
     // The pattern number the hardware FETCHES (GH #278 WP0): an 8-bit sprite
