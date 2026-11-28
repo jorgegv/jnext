@@ -253,6 +253,16 @@ int fuse_z80_take_stackless_retn_consumed(void)
  * instruction that doesn't involve IX/IY through the main switch. */
 #define HAVE_ENOUGH_MEMORY 1
 
+/* A DD/FD whose M1 an earlier call already ran (the wrapper cut a long prefix
+ * run right after it): the next fuse_z80_execute_one() enters the DD/FD case
+ * directly, so the run's next byte is the M1 it charges. 0 = none. */
+static libspectrum_byte resume_prefix = 0;
+
+void fuse_z80_resume_prefix(libspectrum_byte prefix)
+{
+    resume_prefix = prefix;
+}
+
 int fuse_z80_execute_one(void)
 {
     libspectrum_byte opcode;
@@ -261,6 +271,14 @@ int fuse_z80_execute_one(void)
 
     z80.iff2_read = 0;
 
+    if (__builtin_expect(resume_prefix != 0, 0)) {
+        /* The prefix's own fetch, PC++ and R++ were charged by the call that
+         * cut the run: go straight to its dispatch. */
+        opcode = resume_prefix;
+        resume_prefix = 0;
+        goto resume_dispatch;
+    }
+
     /* Opcode fetch contention + read */
     contend_read(PC, 4);
     opcode = readbyte_internal(PC);
@@ -268,9 +286,13 @@ int fuse_z80_execute_one(void)
 end_opcode:
     /* This label is the target of "goto end_opcode" in z80_ddfd.c's default
      * case, which backs up PC and R and sets opcode to the re-dispatched byte.
+     * The wrapper strips every DD/FD that precedes another DD, FD or ED, so
+     * that case is reached only for a DD/FD followed by a plain opcode: one
+     * hop, never a chain.
      * We then fall through to the normal PC++, R++, and switch. */
     PC++;
     R++;
+resume_dispatch:
     last_Q = Q;
     Q = 0;
 

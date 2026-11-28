@@ -180,7 +180,7 @@ A `.tzx` or `.wav` save also samples the tape-out level
 end of the frame; see
 [3.8](../03-subsystems/08-media-and-loaders.md).
 
-**Then `step_one_instruction()`** (`src/core/emulator.cpp:11632`), the one shared per-instruction
+**Then `step_one_instruction()`** (`src/core/emulator.cpp:11638`), the one shared per-instruction
 body. It picks exactly one of four things to do:
 
 - If the DMA genuinely holds the bus, run a burst of up to 16 bytes and charge
@@ -335,7 +335,7 @@ drain returned a stop). The early return still ticks the IM2 fabric for the
 slot (`finish_slot_interrupts()`), since the device cluster that normally does
 so is skipped.
 
-**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:12336`), the
+**Finally `tick_devices_after_instruction(master_cycles)`** (`src/core/emulator.cpp:12346`), the
 shared post-instruction cluster. Its order matters:
 
 ![The post-instruction device cluster, in order](../img/frame-device-cluster.svg)
@@ -386,7 +386,7 @@ edge its bus cycle latches or commits on (`Emulator::sync_io_devices_to()`),
 so it sees what the VHDL register holds at that edge; the rest of the
 instruction is ticked afterwards, so every edge is ticked exactly once.
 
-`Emulator::on_scanline(line)` (`src/core/emulator.cpp:14703`) renders nothing at all. What it does is
+`Emulator::on_scanline(line)` (`src/core/emulator.cpp:14713`) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 `snapshot_row_render_state()` — fallback colour, ULA-enable, stencil and blend
 mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA

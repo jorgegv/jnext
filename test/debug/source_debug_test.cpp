@@ -733,6 +733,55 @@ static void interrupt_machine(Machine& m) {
               m.pc() == 0x8001, m.where());
     }
     {
+        // GH #584: a slot can end inside an instruction (a DD/FD run cut after a prefix M1), and the step
+        // loop's per-instruction deliveries (PC breakpoint, `Execute` Stop) apply to instruction starts only,
+        // as in run_frame(). NOP at $8000 (statement 1), 200 DD from $8001, NOP at $80C9, statement 2 at $80CA.
+        const fs::path pfx = dir / "pfx.sld";
+        write_text(pfx, x_sld(p80, {{"1", 0x8000}, {"2", 0x80CA}}));
+        auto stop_pc = [&](uint16_t at, bool sub) {
+            Machine m;
+            m.emu.mmu().write(0x8000, 0x00);
+            for (int i = 0; i < 200; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8001 + i), 0xDD);
+            m.emu.mmu().write(0x80C9, 0x00);
+            m.emu.mmu().write(0x80CA, 0x18); m.emu.mmu().write(0x80CB, 0xFE);
+            m.dbg->load_source_map(pfx.string(), false);
+            if (sub) {
+                Subscription e;
+                e.kind = EventKind::Execute;
+                e.filter.lo = e.filter.hi = at;
+                e.action = Action::Stop;
+                m.dbg->subscribe(m.a, e);
+            } else {
+                m.emu.debug_state().breakpoints().add_pc(at);
+            }
+            m.dbg->source_step(m.a, Step::Into);
+            return m.pc();
+        };
+        const uint16_t bp_in = stop_pc(0x8001 + 65, false), sub_in = stop_pc(0x8001 + 65, true);
+        const uint16_t bp_at = stop_pc(0x8001, false), sub_at = stop_pc(0x8001, true);
+        check("SRCDBG-STEP-PFX-01", "a source step across a 200 DD run does not stop at a PC breakpoint or an Execute Stop "
+                                    "on the address a cut slot starts at (inside the instruction); the same two on the run's first byte stop it",
+              bp_in == 0x80CA && sub_in == 0x80CA && bp_at == 0x8001 && sub_at == 0x8001,
+              "bp_in=" + std::to_string(bp_in) + " sub_in=" + std::to_string(sub_in) + " bp_at=" +
+                  std::to_string(bp_at) + " sub_at=" + std::to_string(sub_at));
+    }
+    {
+        // GH #584: the step's boundary test is an instruction-start test too. A statement record at the address a
+        // cut slot starts at ($8001 + 65, inside the DD run) is not a place a step may stop: it ends at the next
+        // record, $80CA, after the run's instruction has completed.
+        const fs::path pfx2 = dir / "pfx2.sld";
+        write_text(pfx2, x_sld(p80, {{"1", 0x8000}, {"2", 0x8042}, {"3", 0x80CA}}));
+        Machine m;
+        m.emu.mmu().write(0x8000, 0x00);
+        for (int i = 0; i < 200; ++i) m.emu.mmu().write(static_cast<uint16_t>(0x8001 + i), 0xDD);
+        m.emu.mmu().write(0x80C9, 0x00);
+        m.emu.mmu().write(0x80CA, 0x18); m.emu.mmu().write(0x80CB, 0xFE);
+        m.dbg->load_source_map(pfx2.string(), false);
+        m.dbg->source_step(m.a, Step::Into);
+        check("SRCDBG-STEP-PFX-02", "a source step does not stop at a statement record that falls inside a DD run (the cut slot's address); it ends at the next one after the run",
+              m.pc() == 0x80CA, m.where());
+    }
+    {
         // sub.bas:1 is one instruction, the write: the watchpoint fires on the
         // step's last instruction, which also reaches the next statement.
         Machine m;

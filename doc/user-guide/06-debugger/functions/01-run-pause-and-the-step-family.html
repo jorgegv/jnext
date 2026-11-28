@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.19</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.19</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.20</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -4589,7 +4589,9 @@ as normal, and a pending <strong>Run to Here</strong> or step target is left alo
 stray F5 while you wait for one cannot cancel it. The key is still swallowed by
 the debugger either way, so it never reaches the emulated machine.</p>
 <p><strong>Single Step</strong> executes exactly one instruction, entering calls, traps and
-interrupt handlers.</p>
+interrupt handlers. The one exception is a run of more than 64 <code>DD</code>/<code>FD</code> prefix
+bytes in a row: that takes more than one step, and the registers can show <code>PC</code>
+in the middle of the run.</p>
 <p><strong>Step Over</strong> sets a one-shot breakpoint after the current instruction and
 resumes, so a subroutine runs at full speed and you land on the following
 instruction. It only does this for instructions that can come back —

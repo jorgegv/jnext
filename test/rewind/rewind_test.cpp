@@ -7923,6 +7923,153 @@ static int test_gh402_tape_reattach()
               "saved=" + std::to_string(saved) + " boundary=" + std::to_string(at_boundary) + " j1=" + std::to_string(grace(j1)) + " j2=" + std::to_string(grace(j2)));
     }
 
+    // ── A DD/FD prefix pending at a boundary (GH #584) ──
+    // Oracle: the T80N's own state after a prefix M1 (t80n.vhd:513-520: the next M1 turns the pending DD/FD
+    // into IX or IY); a run of 65 DD ends a slot right after the 65th M1, so a snapshot taken there has to
+    // carry it, or the restored machine would run `21 34 12` as LD HL,nn instead of LD IX,nn.
+    {
+        auto at_cut = [&](bool fd = false) {
+            auto a = make();
+            Bytes prog(65, 0xDD);
+            if (fd) prog[64] = 0xFD;                              // the 65th prefix, the one left pending
+            prog.insert(prog.end(), {0x21, 0x34, 0x12, 0x18, 0xFE});
+            for (size_t i = 0; i < prog.size(); ++i) a->mmu().write(uint16_t(0x8000 + i), prog[i]);
+            auto r = a->cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0x9000; r.IFF1 = r.IFF2 = 0;
+            a->cpu().set_registers(r);
+            a->run_frame();                                       // reach a frame boundary...
+            r = a->cpu().get_registers();
+            r.PC = 0x8000; r.SP = 0x9000; r.IFF1 = r.IFF2 = 0; r.HL = 0x5555; r.IX = 0; r.IY = 0;
+            a->cpu().set_registers(r);
+            a->execute_single_instruction();                      // ...then the cut slot, and save at once
+            return a;
+        };
+        auto finishes_as_iy = [&](Emulator& e) {
+            e.execute_single_instruction();                       // the resumed slot: LD IY,nn
+            const auto r = e.cpu().get_registers();
+            return r.IY == 0x1234 && r.HL == 0x5555 && r.IX == 0;
+        };
+        auto finishes_as_ix = [&](Emulator& e) {
+            e.execute_single_instruction();                       // the resumed slot: LD IX,nn
+            const auto r = e.cpu().get_registers();
+            return r.IX == 0x1234 && r.HL == 0x5555 && r.IY == 0;
+        };
+        {
+            auto a = at_cut();
+            const bool cut = a->cpu().prefix_pending() == 0xDD && !a->frame_in_progress();
+            const Bytes full = stream(*a);
+            auto b = make();
+            StateReader rd(full.data(), full.size());
+            const bool l = b->load_state(rd);
+            const bool latch_clear = l && !b->cpu().stackless_retn_active();   // before the slot runs: it would drop a latch
+            const bool carried = l && b->cpu().prefix_pending() == 0xDD && finishes_as_ix(*b);
+            // The pending prefix is two bits of the stackless-latch byte, so the stream keeps its length:
+            // the same machine with the prefix cleared differs from it in exactly that byte.
+            a->cpu().set_prefix_pending_for_load(0);
+            const Bytes none = stream(*a);
+            size_t at = 0, diffs = 0;
+            for (size_t i = 0; i < full.size() && i < none.size(); ++i)
+                if (full[i] != none[i]) { ++diffs; at = i; }
+            const bool one_byte = full.size() == none.size() && diffs == 1 && full[at] == 2 && none[at] == 0;
+            // A stream saved with nothing pending clears a pending prefix on load...
+            auto c = at_cut();
+            StateReader rd2(none.data(), none.size());
+            const bool l2 = c->load_state(rd2);
+            const bool clears = l2 && c->cpu().prefix_pending() == 0;
+            // ...and an impossible value (bit 1 and bit 2 together, or a stray bit) is refused.
+            bool refused = one_byte;
+            for (uint8_t v : {uint8_t(6), uint8_t(7), uint8_t(8)}) {   // 6: both prefix bits; 7: both plus the latch; 8: a stray bit
+                Bytes bad = full;
+                bad[at] = v;
+                auto d = make();
+                StateReader rd3(bad.data(), bad.size());
+                refused = refused && !d->load_state(rd3);
+            }
+            // The latch and the prefix are decoded apart: value 2 leaves the stackless latch clear, 3 sets both.
+            Bytes both = full;
+            both[at] = 3;
+            auto e3 = make();
+            StateReader rd4(both.data(), both.size());
+            const bool l3 = e3->load_state(rd4);
+            const bool both_ok = one_byte && l3 && e3->cpu().prefix_pending() == 0xDD && e3->cpu().stackless_retn_active();
+            // An FD pending is saved as an FD (the binary save), and the next slot writes IY.
+            auto f = at_cut(true);
+            const Bytes fdstream = stream(*f);
+            auto g = make();
+            StateReader rd5(fdstream.data(), fdstream.size());
+            const bool fd_ok = f->cpu().prefix_pending() == 0xFD && g->load_state(rd5) &&
+                               g->cpu().prefix_pending() == 0xFD && finishes_as_iy(*g);
+            check("PFXCH-SAVE-01", cut && carried && one_byte && clears && refused && latch_clear && both_ok && fd_ok,
+                  "a binary stream saved at the cut of a 65 DD run restores the pending prefix (the next slot writes IX, HL untouched) "
+                  "in one byte of the stream (same length as with nothing pending); a stream with nothing pending clears it; the values 6, 7 and 8 are refused; value 2 leaves the stackless latch clear and 3 sets both; an FD pending is saved and restored as FD (the next slot writes IY)",
+                  "cut=" + std::to_string(cut) + " carried=" + std::to_string(carried) + " one_byte=" + std::to_string(one_byte) +
+                      " clears=" + std::to_string(clears) + " refused=" + std::to_string(refused) +
+                      " latch_clear=" + std::to_string(latch_clear) + " both_ok=" + std::to_string(both_ok) +
+                      " fd_ok=" + std::to_string(fd_ok));
+        }
+        Bytes j1;
+        {
+            auto a = at_cut();
+            const bool saved = save(*a, j1);
+            auto b = make();
+            jnext::JnsLoadReport rep;
+            const bool l = saved && load(*b, j1, true, rep);
+            const std::string em = member_text(j1, "state/emulator.json");
+            // An FD pending: the .jns says "fd" and restores 0xFD (the next slot writes IY).
+            auto fa = at_cut(true);
+            Bytes jf;
+            const bool fsaved = save(*fa, jf);
+            auto fb = make();
+            jnext::JnsLoadReport frep;
+            const bool fd_ok = fsaved && load(*fb, jf, true, frep) && fb->cpu().prefix_pending() == 0xFD &&
+                               member_text(jf, "state/emulator.json").find("\"fd\"") != std::string::npos &&
+                               finishes_as_iy(*fb);
+            check("PFXCH-SAVE-02", l && b->cpu().prefix_pending() == 0xDD && finishes_as_ix(*b) && fd_ok &&
+                  em.find("cpu_prefix_pending") != std::string::npos,
+                  "a .jns saved at the cut of a 65 DD run names cpu_prefix_pending in state/emulator.json and restores it; an FD pending is saved as \"fd\" and restores 0xFD (the next slot writes IY)",
+                  "saved=" + std::to_string(saved) + " loaded=" + std::to_string(l));
+        }
+        {
+            // The same file with the field's value edited: "fd" is a legal name (control: it loads, as FD), "zz" is not.
+            auto with_value = [&](const char* value, Bytes& out) {
+                jnext::zip::Reader r;
+                std::string why;
+                if (!r.open(j1.data(), j1.size(), why)) return false;
+                jnext::zip::Writer w(r.comment());
+                bool edited = false;
+                for (const auto& e : r.entries()) {
+                    std::vector<uint8_t> data;
+                    if (!r.read(e.name, data, why)) return false;
+                    if (e.name == "state/emulator.json") {
+                        nlohmann::json j = nlohmann::json::parse(std::string(data.begin(), data.end()), nullptr, false);
+                        if (!j.is_object() || !j.contains("cpu_prefix_pending")) return false;
+                        j["cpu_prefix_pending"] = value;
+                        edited = true;
+                        if (!w.add(e.name, j.dump(), jnext::zip::Method::Stored, why)) return false;
+                    } else if (!w.add(e.name, data.data(), data.size(), jnext::zip::Method::Stored, why)) {
+                        return false;
+                    }
+                }
+                return edited && w.finish(out, why);
+            };
+            Bytes jfd, jbad;
+            const bool made = !j1.empty() && with_value("fd", jfd) && with_value("zz", jbad);
+            auto b = make();
+            jnext::JnsLoadReport rep;
+            jnext::JnsLoadOptions o;
+            std::string why_fd, why_bad;
+            const bool fd_ok = made && b->load_jns(jfd.data(), jfd.size(), o, rep, why_fd) &&
+                               b->cpu().prefix_pending() == 0xFD;
+            auto c = make();
+            jnext::JnsLoadReport rep2;
+            const bool bad_refused = made && !c->load_jns(jbad.data(), jbad.size(), o, rep2, why_bad);
+            check("PFXCH-SAVE-03", fd_ok && bad_refused && why_bad.find("cpu_prefix_pending") != std::string::npos,
+                  "a .jns whose cpu_prefix_pending is not none, dd or fd is refused naming the field; \"fd\" loads as a pending FD",
+                  "made=" + std::to_string(made) + " fd_ok=" + std::to_string(fd_ok) + " refused=" +
+                      std::to_string(bad_refused) + " why=" + why_bad + " why_fd=" + why_fd);
+        }
+    }
+
     printf("Total so far: %d passed, %d failed\n", pass_count, fail_count);
     fs::remove_all(base, ec);
     return 0;

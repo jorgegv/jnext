@@ -15,6 +15,7 @@
 - File menu opens instantly; the SD card's original image is no longer checksummed on every open
 - TZX tapes with 1 ms pauses or stop blocks load in real time (no tape loading error, no skipped parts)
 - NEX Layer 2 loading screens load into the same banks as on NextZXOS, so --load matches the hardware
+- Long runs of DD/FD prefix bytes no longer freeze emulation; DD/FD before a Z80N opcode now runs it
 
 ### Internal JNEXT Development
 - Mutation test runs go to the remote hosts as a patch and build only the suites and rows that should kill the mutant (make mutant-test)

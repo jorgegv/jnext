@@ -187,7 +187,11 @@ public:
     int  execute();   // execute one instruction; returns T-states used
 
     Z80Registers get_registers() const { return regs_; }
-    void set_registers(const Z80Registers& r) { regs_ = r; }
+    /// A new PC starts a fresh instruction: it clears prefix_pending(); the same PC keeps it.
+    void set_registers(const Z80Registers& r) {
+        if (r.PC != regs_.PC) prefix_pending_ = 0;
+        regs_ = r;
+    }
 
     // G46(b) #102 investigation probe (env-gated via the caller; zero cost
     // when null). When set, execute() logs one CSV line per instruction
@@ -236,6 +240,13 @@ public:
     void cancel_interrupt() { int_pending_ = false; }
     void request_nmi();
     bool is_halted() const { return regs_.halted; }
+    /// A DD/FD M1 has run and its instruction has not ended (execute() cuts a run of DD/FD bytes
+    /// longer than kMaxPrefixHops after a prefix M1): 0, 0xDD or 0xFD. It is the T80N's own state
+    /// at that M1 boundary (Prefix = "11", t80n.vhd:513-520): PC is past the prefix, and neither
+    /// INT nor NMI is accepted there (t80n.vhd:1765, :1768). Serialised in the binary stream and
+    /// the .jns (a load refuses any other value); set_prefix_pending_for_load() is the loaders' door.
+    uint8_t prefix_pending() const { return prefix_pending_; }
+    void set_prefix_pending_for_load(uint8_t p) { prefix_pending_ = p; }
     bool stackless_retn_active() const { return stackless_retn_active_; }
     void set_stackless_retn_active_for_load(bool active) {
         stackless_retn_active_ = active;
@@ -339,10 +350,13 @@ public:
     /// had been "fixed" by an SP-shape test.
     ///
     /// Transient per-call state; deliberately not serialised.
+    /// GH #584 - the last execute() resumed inside an instruction (a DD/FD run cut by the slot
+    /// before it): it did not start one at PC. Stamped only on that path, so it costs the rest nothing.
+    bool resumed_last_execute() const { return resumed_serial_ == execute_serial_; }
     bool fetched_opcode_last_execute() const { return slot_kind_ == SlotKind::Opcode; }
 
     /// GH #278 — WHICH kind of slot the last execute() was: an instruction
-    /// (the opcode at PC was fetched), an accepted INT, an accepted NMI, or
+    /// (the opcode at PC was fetched; a slot may end inside an instruction, see prefix_pending()), an accepted INT, an accepted NMI, or
     /// neither (the esxdos shim; a slot that ran nothing). The call-stack
     /// tracker needs the INT/NMI answer to record an interrupt frame, and it
     /// cannot infer it from SP for the same reason fetched_opcode_last_execute()
@@ -503,6 +517,13 @@ private:
     /// s_fetch_buf): fetch the inner bytes of a prefix chain, each after the
     /// automap decode of its own M1, and read one back.
     void    fetch_prefix_chain_(uint16_t pc, uint8_t opcode);
+    /// Most DD/FD hops one execute() walks (the M1 fetch buffer is sized for it).
+    static constexpr int kMaxPrefixHops = 64;
+    /// Run the redundant prefixes (a DD/FD followed by DD, FD or ED) at `pc` as one 4 T M1 each, as
+    /// the T80N does (t80n.vhd:513-526), leaving `pc`/`opcode` at the byte that decides the
+    /// instruction. Returns true when the run is cut after a prefix M1 (prefix_pending_ set, the
+    /// slot is over).
+    bool    strip_prefixes_(uint16_t& pc, uint8_t& opcode);
     uint8_t chain_byte_(uint16_t addr);
 
     mutable int32_t  ser_ei_grace_      = -1;
@@ -522,6 +543,8 @@ private:
     // During the handler SP remains two below its entry value, exactly as
     // t80n's suppressed NMIACK writes dictate.
     bool             stackless_retn_active_ = false;
+    // See prefix_pending().
+    uint8_t          prefix_pending_ = 0;
     // Set by execute(): Opcode only once the opcode fetch at PC has actually
     // happened, Int / Nmi on an accepted interrupt. See last_slot_kind().
     SlotKind         slot_kind_ = SlotKind::Other;
@@ -530,4 +553,5 @@ private:
     bool             executing_ = false;
     uint32_t         exec_start_tstates_ = 0;
     uint64_t         execute_serial_ = 0;
+    uint64_t         resumed_serial_ = 0;   // execute_serial_ of the last slot that resumed a prefix
 };

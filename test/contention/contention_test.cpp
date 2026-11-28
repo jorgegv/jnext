@@ -3895,6 +3895,76 @@ uint8_t sw28_a(Emulator& emu) {
 
 } // namespace
 
+// GH #584 - a run of DD/FD prefixes longer than 64 is walked in several slots: every M1 of it is
+// still charged once, in the slot that fetches it (t80n_mcode.vhd:231-235: a DD/FD is one 4 T M1).
+static void test_pfxch_contention() {
+    set_group("CT-PFXCH");
+
+    // PFXCH-13: 28 MHz, code in SRAM (page 0x20): 70 DD then NOP is 71 M1s of 4 T + the 28 MHz
+    // read wait each (zxnext.vhd:3171-3181) = 71 x 5 T, across the cut after the 65th prefix.
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZXN_ISSUE2)) {
+            check("PFXCH-13", "Emulator::init failed (Next machine)", false, "init returned false");
+        } else {
+            sw28_set_speed(emu, 3);
+            emu.nextreg().write(0x54, 0x20);
+            for (int i = 0; i < 70; ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), 0xDD);
+            emu.mmu().write(0x8000 + 70, 0x00);
+            Z80Registers r = emu.cpu().get_registers();
+            r.PC = 0x8000;
+            r.halted = false;
+            emu.cpu().set_registers(r);
+            const uint64_t before = emu.monotonic_tstates();
+            int slots = 0;
+            do {
+                emu.execute_single_instruction();
+                ++slots;
+            } while (emu.cpu().prefix_pending() != 0 && slots < 8);
+            const uint64_t t = emu.monotonic_tstates() - before;
+            check("PFXCH-13",
+                  "70 DD then NOP at 28 MHz from SRAM = 71 x 5 T over 2 slots: each M1's read wait is charged "
+                  "in the slot that charges the M1 (zxnext.vhd:3171-3181; t80n_mcode.vhd:231-235)",
+                  t == 71 * 5 && slots == 2,
+                  fmt("t=%llu slots=%d expected=355 slots=2", static_cast<unsigned long long>(t), slots));
+        }
+    }
+
+    // PFXCH-16: 48K, the code in contended bank 5, started inside the display window: 70 DD + NOP
+    // ends at the same T-state as 71 NOPs from the same T-state: both are 71 contended 4 T M1s.
+    {
+        Emulator emu;
+        if (!make_emu(emu, MachineType::ZX48K)) {
+            check("PFXCH-16", "Emulator::init failed (48K machine)", false, "init returned false");
+        } else {
+            auto run = [&](bool dd_chain) {
+                for (int i = 0; i < 71; ++i)
+                    emu.mmu().write(static_cast<uint16_t>(0x4000 + i), (dd_chain && i < 70) ? 0xDD : 0x00);
+                Z80Registers r = emu.cpu().get_registers();
+                r.PC = 0x4000;
+                r.IFF1 = r.IFF2 = 0;
+                r.halted = false;
+                emu.cpu().set_registers(r);
+                seek_to_display_window(emu);
+                const uint32_t t0 = *fuse_z80_tstates_ptr();
+                int slots = 0;
+                do {
+                    emu.cpu().execute();
+                    ++slots;
+                } while ((emu.cpu().pc() != 0x4047 || emu.cpu().prefix_pending() != 0) && slots < 200);
+                return *fuse_z80_tstates_ptr() - t0;
+            };
+            const uint32_t t_chain = run(true);
+            const uint32_t t_nops = run(false);
+            check("PFXCH-16",
+                  "contended bank 5, 70 DD + NOP ends at the same T-state as 71 NOPs from the same start: "
+                  "71 contended 4 T M1s either way (t80n_mcode.vhd:231-235)",
+                  t_chain == t_nops && t_chain > 71 * 4,
+                  fmt("chain=%u nops=%u (uncontended %u)", t_chain, t_nops, 71 * 4));
+        }
+    }
+}
+
 static void test_sw28_sram_read_wait() {
     set_group("CT-SW28");
 
@@ -5538,6 +5608,8 @@ int main() {
     // GH #92 — 28 MHz SRAM read wait (zxnext.vhd:3171-3181).
     test_sw28_sram_read_wait();
     std::printf("  Group: CT-SW28        — done\n");
+    test_pfxch_contention();
+    std::printf("  Group: CT-PFXCH       - done\n");
 
     // GH #183 — ULA hc-origin phase invariance (zxula_timing.vhd:344,
     // 423-451; zxula.vhd:582-583).
