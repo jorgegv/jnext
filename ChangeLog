@@ -14,6 +14,7 @@
 - Release packages ship stripped executables (rpm, deb, Windows zips, macOS dmg): smaller downloads
 - File menu opens instantly; the SD card's original image is no longer checksummed on every open
 - TZX tapes with 1 ms pauses or stop blocks load in real time (no tape loading error, no skipped parts)
+- NEX Layer 2 loading screens load into the same banks as on NextZXOS, so --load matches the hardware
 
 ### Internal JNEXT Development
 - Remote builds: mutation test runs go to the remote hosts as a patch on the pushed commit
