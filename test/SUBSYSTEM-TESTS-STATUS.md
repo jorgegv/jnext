@@ -13,8 +13,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger sprite-pattern and tile decoders (GH #371) |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU runtime binding (GH #551) |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CPU/Z80N IM2 regr.    |       65 |       65 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Rewind                |      370 |      370 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CPU/Z80N IM2 regr.    |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Rewind                |      373 |      373 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind call stack     |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       88 |       88 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -27,7 +27,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Quick snapshots: prune never follows a symlink (GH #321) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg PATH lookup, POSIX) |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | PGO link-map parser (GH #416) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Input                 |      391 |      391 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Input                 |      396 |      396 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration)   |       64 |       64 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration, native) |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Phantom Typist        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -38,7 +38,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | UART (integration)    |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration, ESP) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (POSIX-only rows) |       51 |       51 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NextPi launcher + TCP link (all OSes) |      102 |      102 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NextPi launcher + TCP link (all OSes) |      103 |      103 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket transport |      246 |      246 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket SIGPIPE (POSIX) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 AT command engine |      499 |      499 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -47,28 +47,31 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | DivMMC + SPI          |      156 |      156 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC (int, SRAM map) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Multiface (core)      |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card               |       93 |       93 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card write journal (GH #470) |       29 |       29 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card (POSIX-only rows) |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card               |       96 |       96 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card write journal (GH #470) |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card (POSIX-only rows) |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD File Add (GH #269) |      165 |      165 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD File Add (GH #269) |      171 |      171 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (POSIX-only rows) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (case-sensitive host) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FatFs glue cache (Linux) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       29 |       29 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD image lock (every target) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD card carry-over + rescue verbs (GH #555) |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD card carry-over + rescue verbs (GH #555) |       64 |       64 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD card upgrade flow (GH #555) |       35 |       35 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD card backup, go back, menu state (GH #555) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD image lock (GH #555) |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD card backup, go back, menu state (GH #555) |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD image lock (GH #555) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD live change lock wiring (GH #555) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
-| sdcard_file_extract_test |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "sdcard_file_extract_test" to the label map in refresh-subsystem-status.sh. |
+| sdcard_file_extract_test |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "sdcard_file_extract_test" to the label map in refresh-subsystem-status.sh. |
+| sdcard_card_ops_test  |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "sdcard_card_ops_test" to the label map in refresh-subsystem-status.sh. |
+| sdcard_manager_test   |       62 |       62 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "sdcard_manager_test" to the label map in refresh-subsystem-status.sh. |
+| sdcard_forward_test   |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "sdcard_forward_test" to the label map in refresh-subsystem-status.sh. |
 | SD image lock (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | sdcard_file_extract_posix_test |        1 |        1 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "sdcard_file_extract_posix_test" to the label map in refresh-subsystem-status.sh. |
-| SD Card Provisioner   |      189 |      189 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card Provisioner   |      210 |      210 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SHA-256 backends (GH #459) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Minimal NextZXOS card builder (GH #458) |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card Provisioner (POSIX-only rows) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card Provisioner (POSIX-only rows) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start (GH #234)  |      120 |      120 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start on a real card (GH #464) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot container + descriptor (.jns, GH #27) |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -83,7 +86,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ULA Video (int)       |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Floating Bus          |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | VideoTiming           |      113 |      113 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Contention            |      178 |      178 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Contention            |      180 |      180 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |      132 |      132 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (AY+DAC+Beeper) |      179 |      179 |      0 |       0 |    100% | 🟢 All tests pass. |
 | AY/TurboSound caches  |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -121,24 +124,24 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Host key minimum-hold latch |      182 |      182 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SdlApp tick (frame loop) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Browser frame gate and refusals |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Browser JavaScript API |       40 |       40 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Browser JavaScript API |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL Pointer Release (GH #365) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL upgrade offer box (GH #476) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SDL window title (version) |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SIGINT/SIGTERM quit request |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CLI options / docs    |       52 |       52 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CLI options / docs    |       53 |       53 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CLI options (real binary) |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | jnext.conf key table (GH #417) |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Video recorder (child process) |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NEX loader (screen ingest) |      167 |      167 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NEX loader (V1.3)     |      117 |      117 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Video recorder (child process) |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NEX loader (screen ingest) |      171 |      171 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NEX loader (V1.3)     |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Extended NEX streaming |       62 |       62 |      0 |       0 |    100% | 🟢 All tests pass. |
-| TAP loader (container) |       67 |       67 |      0 |       0 |    100% | 🟢 All tests pass. |
+| TAP loader (container) |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
 | TAP loader (auto play/stop) |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ZIP program archives  |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ZIP program archives  |      103 |      103 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (fixtures) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (peripherals) |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raster-poll batch equivalence (engaged cases) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -150,9 +153,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Costly-optimisation registry |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (ESP and debugger client) |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (ESP, native builds) |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Call-stack tracker fetch feed |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
+| sdcard_live_change_test |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "sdcard_live_change_test" to the label map in refresh-subsystem-status.sh. |
+| Call-stack tracker fetch feed |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Call-stack tracker rebuild |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger idle-block gate |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger idle-block gate |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (cold boot) |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (NEX corpus 1/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (NEX corpus 2/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -162,8 +166,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Cycle batching equivalence (NEX corpus 6/8) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (NEX corpus 7/8) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Cycle batching equivalence (NEX corpus 8/8) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
-| TZX loader (container) |      141 |      141 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Tape SAVE TZX/WAV (GH #89) |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
+| TZX loader (container) |      163 |      163 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Tape SAVE TZX/WAV (GH #89) |       60 |       60 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot IM latch (NR 0xC0) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Loading .sna/.szx/.z80 selects the saved machine (GH #323) |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | POK trainers (.pok, GH #381) |       61 |       61 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -187,7 +191,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | z88dk --list listing adapter |       47 |       47 |      0 |       0 |    100% | 🟢 All tests pass. |
 | z88dk CDB record decoder |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
 | C value formatting (frames and values) |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Source debugging (backend) |      537 |      537 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Source debugging (backend) |      539 |      539 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Source debugging (POSIX file types) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Backend (GH #276) |     1605 |     1605 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (debugger introspection, GH #529) |      333 |      333 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -207,17 +211,18 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger DSL engine (GH #26) |      169 |      169 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger session recorder (GH #20) |       35 |       35 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Breakpoint file codec (GH #376) |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ZRCP remote debugger adapter (GH #280) |      232 |      232 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ZRCP remote debugger adapter (GH #280) |      243 |      243 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CRT display effect rules (pure) |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (AppConfig) |      179 |      179 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (AppConfig) |      182 |      182 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Mouse Release Gesture (GH #365) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Mouse Release Gesture (GH #365) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present count (widget) |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI frame timer (single-shot, GH #155) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 status cell (GUI) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | --no-sdcard in the window (GH #540) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
-| File menu: SD card set actions (GH #555) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
+| File menu: SD card set actions (GH #555) |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
+| sdcard_manager_window_test |       53 |       53 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "sdcard_manager_window_test" to the label map in refresh-subsystem-status.sh. |
 | File > Save Bug Report... in the window (GH #492) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX V1.3 GUI warning dialog |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Finder/desktop file open (GUI) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -230,7 +235,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Main-window menu mnemonics |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | macOS host shortcuts on Command (GH #403) |       40 |       40 |      0 |       0 |    100% | 🟢 All tests pass. |
 | macOS host shortcuts, default args (GH #403) |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Main-window Pause (Alt+U, Pause key) |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Main-window Pause (Alt+U, Pause key) |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Joystick controller picker (Input menu, Preferences) |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Shifted symbols reach the guest |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Window scale + fullscreen geometry |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -260,6 +265,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Verbs (GH #278) |      203 |      203 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Source panel |      299 |      299 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Variables panel |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **18264**| **18264**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **18621**| **18621**|  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** A row its suite could not exercise on the host that ran it. A SKIP fails the run (owner, 2026-10-06). A planned row whose feature does not exist yet is PLANNED in its `*-TEST-PLAN-DESIGN.md`, not a SKIP.
