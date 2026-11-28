@@ -476,6 +476,10 @@ public:
     /// Get decoded sprite info. Returns zeroed struct if idx >= 128.
     SpriteInfo get_sprite_info(uint8_t idx) const;
 
+    /// The same decode of one sprite's five raw attribute bytes (port 0x57 order), for a
+    /// caller that holds the bytes and not the engine (a remote target's sprite list).
+    static SpriteInfo sprite_info_from_attr(const uint8_t bytes[5]);
+
 private:
     /// Internal representation of one sprite's 5-byte attribute set.
     struct SpriteAttr {
@@ -515,6 +519,8 @@ private:
         // Type 1: additionally inherit mirror/rotate/scale with XOR
         bool     is_anchor_type1() const { return extended() && ((byte4 & 0x20) != 0); }
     };
+
+    static SpriteInfo decode_info(const SpriteAttr& s);
 
     SpriteAttr sprites_[NUM_SPRITES];
     uint8_t    pattern_ram_[PATTERN_RAM_SZ];

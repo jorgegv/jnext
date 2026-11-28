@@ -66,6 +66,20 @@ public:
     Expected<uint16_t>      sprite_palette_rgb333(int bank, uint8_t index) const override;
     ClipWindow              sprite_clip() const override;
 
+    // TGT-05: run control and breakpoints are the local facade's own (`DebugState`,
+    // `EventTable`), which never calls these. They exist for the interface.
+    Result resume() override { return Result::Unsupported; }
+    Result pause() override { return Result::Unsupported; }
+    bool   take_stop(TargetStop&) override { return false; }
+    Expected<uint32_t> add_breakpoint(uint16_t, uint16_t) override {
+        return make_refused<uint32_t>(Result::Unsupported);
+    }
+    Result remove_breakpoint(uint32_t) override { return Result::Unsupported; }
+    Expected<uint32_t> add_watchpoint(uint16_t, uint16_t, uint16_t, Access) override {
+        return make_refused<uint32_t>(Result::Unsupported);
+    }
+    Result remove_watchpoint(uint32_t) override { return Result::Unsupported; }
+
 private:
     Emulator& emu_;
 };
