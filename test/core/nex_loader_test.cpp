@@ -2084,8 +2084,8 @@ void test_bank_data() {
         same_as_apply = loader.apply(emu);
         for (const int b : order) {
             const uint8_t* d = loader.bank_data(b);
-            const uint8_t* lo = emu.ram().page_ptr(b * 2);
-            const uint8_t* hi = emu.ram().page_ptr(b * 2 + 1);
+            const uint8_t* lo = emu.mmu().nr_page_ptr(static_cast<uint8_t>(b * 2));
+            const uint8_t* hi = emu.mmu().nr_page_ptr(static_cast<uint8_t>(b * 2 + 1));
             same_as_apply = same_as_apply && d && lo && hi && std::memcmp(d, lo, 8192) == 0 &&
                             std::memcmp(d + 8192, hi, 8192) == 0;
         }

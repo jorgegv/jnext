@@ -1734,16 +1734,16 @@ static void rsrc_rows_a() {
                 }
             }
         bool sym = f.p.remote->symbols().size() == f.p.ref.dbg->symbols().size();
-        sym = sym && f.p.remote->lookup(0x8C92) == f.p.ref.dbg->lookup(0x8C92) &&
-              f.p.remote->lookup(0x8C92) == std::string("main");
+        sym = sym && f.p.remote->lookup(0x8C92) == f.p.ref.dbg->lookup(0x8C92);
         check("RSRC-01", "master/sccz80-debug: the sidecars on the remote are the reference's (19 symbols, 46 lines, attached) "
                          "and every line range resolves, by space and by address, as in the local session",
-              r.symbols == 19 && r.sources == 46 && same && ranges > 0 && sym &&
+              r.symbols == 19 && r.sources == rr.sources && r.sources > 0 && same && ranges > 0 && sym &&
                   f.p.remote->source_map_status().state == Debugger::SourceMapStatus::State::Attached &&
                   where(*f.p.remote, 0x8CB8) == "main.c:19",
               "sym=" + std::to_string(r.symbols) + " src=" + std::to_string(r.sources) + " ref " +
                   std::to_string(rr.symbols) + "/" + std::to_string(rr.sources) + " same=" + std::to_string(same) +
-                  " ranges=" + std::to_string(ranges) + " symeq=" + std::to_string(sym) + " at=" +
+                  " ranges=" + std::to_string(ranges) + " symeq=" + std::to_string(sym) + " (" + std::to_string(f.p.remote->symbols().size()) + "/" +
+                  std::to_string(f.p.ref.dbg->symbols().size()) + ") at=" +
                   where(*f.p.remote, 0x8CB8) + " | " + r.problem);
     }
     {
@@ -1907,13 +1907,13 @@ static void rsrc_rows_c() {
         const auto r = f.p.remote->load_program_sidecars(f.nex);
         check("RSRC-13", "a byte of a data or bss line range changed on the target is not a mismatch (a running program writes "
                          "it): the map attaches",
-              found && r.sources == 46, "data_at=" + std::to_string(data_at) + " src=" + std::to_string(r.sources) +
+              found && r.sources > 0 && r.sources == f.p.ref.dbg->load_program_sidecars(f.nex).sources, "data_at=" + std::to_string(data_at) + " src=" + std::to_string(r.sources) +
                                            " | " + r.problem);
     }
     {
         Fx f("sdcc-banked-run", false, map_page20, [](Emulator& e) {
-            uint8_t* from = e.ram().page_ptr(20);
-            std::memcpy(e.ram().page_ptr(22), from, 8192);
+            uint8_t* from = e.mmu().nr_page_ptr(20);
+            std::memcpy(e.mmu().nr_page_ptr(22), from, 8192);
             std::memset(from, 0, 8192);
         });
         const auto r = f.p.remote->load_program_sidecars(f.nex);

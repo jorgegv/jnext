@@ -32,6 +32,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <string>
 #include <vector>
@@ -1846,28 +1847,37 @@ static void tgt07_rows() {
     {   // TGT-07-12
         Remote m;
         const std::string dir = jtp::make_temp_dir("t7j");
-        const char* dev = "|-1|-1|Z|pages.size:8192,pages.count:256,slots.count:8,"
-                          "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n";
-        write_file(dir + "/a.sld", "|SLD.data.version|1\nx.asm|1||0" + std::string(dev) +
-                                       "x.asm|5||0|36|32768|T|\nx.asm|5||0|255|32784|T|\n");
-        write_file(dir + "/b.sld", "|SLD.data.version|1\nx.asm|1||0" + std::string(dev) +
-                                       "x.asm|5||0|255|32784|T|\n");
-        (void)m.d.load_source_map(dir + "/a.sld", true, false, false);
+        write_file(dir + "/a.sld", "|SLD.data.version|1\nx.asm|1||0" + std::string(kNextDevice) +
+                                       "x.asm|5||0|36|32768|T|\nx.asm|5||0|37|40976|T|\n");
+        const auto la = m.d.load_source_map(dir + "/a.sld", true, false, false);
         m.t.clear();
         jnext::dbg::Subscription like;
         like.kind = jnext::dbg::EventKind::Execute;
         const auto g = m.d.subscribe_source_line(m.a, "x.asm:5", like);
-        const bool one = g.status == Result::Ok && m.t.count("add_breakpoint") == 1 &&
-                         m.t.calls[0] == "add_breakpoint(32768,36)";
-        (void)m.d.load_source_map(dir + "/b.sld", true, false, false);
-        m.t.clear();
-        const auto g2 = m.d.subscribe_source_line(m.a, "x.asm:5", like);
+        const bool both = g.status == Result::Ok && m.t.count("add_breakpoint") == 2 &&
+                          m.t.calls[0] == "add_breakpoint(32768,36)" && m.t.calls[1] == "add_breakpoint(40976,37)";
+        // A map whose only start is in page 240 (a page no target can name): refused, no call.
+        std::string map;
+        {
+            std::ifstream in(fix + "sdcc-banked-run/prog.map");
+            std::string line;
+            while (std::getline(in, line)) {
+                for (size_t at; (at = line.find("PAGE_20")) != std::string::npos;) line.replace(at, 7, "PAGE_240");
+                map += line + "\n";
+            }
+        }
+        write_file(dir + "/z.map", map);
+        std::filesystem::copy_file(fix + "sdcc-banked-run/banked.c.lis", dir + "/banked.c.lis");
+        Remote z;
+        const auto lz = z.d.load_source_map(dir + "/z.map", true, false, false);
+        z.t.clear();
+        const auto g2 = z.d.subscribe_source_line(z.a, "banked.c:5", like);
         fs::remove_all(dir);
-        check("TGT-07-12", "a source line on a target arms the starts in a RAM page (page-qualified) and skips the rest; a line "
-                           "with none left is RefusedUnavailable with no call",
-              one && g2.status == Result::RefusedUnavailable && m.t.calls.empty(),
-              "g=" + std::to_string(static_cast<int>(g.status)) + " calls=" + std::to_string(m.t.calls.size()) +
-                  " g2=" + std::to_string(static_cast<int>(g2.status)));
+        check("TGT-07-12", "a source line on a target arms each start in a RAM page, page-qualified; a line whose only start is in "
+                           "a page no target can name (240) is RefusedUnavailable with no call",
+              la.count == 2 && both && lz.count > 0 && g2.status == Result::RefusedUnavailable && z.t.calls.empty(),
+              "la=" + std::to_string(la.count) + " calls=" + std::to_string(m.t.calls.size()) + " lz=" +
+                  std::to_string(lz.count) + " " + lz.error + " g2=" + std::to_string(static_cast<int>(g2.status)));
     }
     {   // TGT-07-13
         namespace dbgns = jnext::dbg;
