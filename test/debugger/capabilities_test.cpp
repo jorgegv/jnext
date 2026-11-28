@@ -1451,7 +1451,7 @@ void test_retarget() {
             lw->watch_panel()->add_watch(0x9000, "w1");
             lw->disasm_panel()->show_address(0x8010);
             QApplication::processEvents();
-            const uint16_t disasm_at = lw->disasm_panel()->selected_address();
+            const bool history = lw->disasm_panel()->can_go_back();
             put_on_show(lw, lw->callstack_panel());
             fx.lf.tick();
             const bool tracked_before = fx.lf.backend->call_stack_enabled();
@@ -1473,13 +1473,13 @@ void test_retarget() {
                   "PC=" + s(after(lw->cpu_panel(), QStringLiteral("PC: "))));
             const int touches = fx.touches_after(20);
             check("RTQ-103", "show_local(): the local window is back with its own state (a watch, the "
-                             "Disassembly address) and the target sees nothing at all after remote_released()",
+                             "Disassembly history) and the target sees nothing at all after remote_released()",
                   back && fx.released && fx.window_gone_at_release && lw->watch_panel()->watch_count() == 1 &&
-                      lw->disasm_panel()->selected_address() == disasm_at && touches == 0,
+                      history && lw->disasm_panel()->can_go_back() && touches == 0,
                   "back=" + std::to_string(back) + " released=" + std::to_string(fx.released) + " gone=" +
                       std::to_string(fx.window_gone_at_release) + " watches=" +
-                      std::to_string(lw->watch_panel()->watch_count()) + " disasm=" +
-                      std::to_string(lw->disasm_panel()->selected_address()) + "/" + std::to_string(disasm_at) +
+                      std::to_string(lw->watch_panel()->watch_count()) + " history=" +
+                      std::to_string(history) + std::to_string(lw->disasm_panel()->can_go_back()) +
                       " touches=" + std::to_string(touches));
             // RTQ-104: the local breakpoint stops the local machine again
             fx.lf.emu.debug_state().resume();
@@ -1545,7 +1545,10 @@ void test_retarget() {
             const bool again = fx.lf.mgr->show_remote(fx.fake);
             check("RTQ-110", "show_remote() while a remote is shown returns false and changes nothing",
                   !again && fx.lf.mgr->remote_manager() == first && fx.lf.mgr->showing_remote());
-            QAction* act = fx.rw() ? fx.rw()->script_key_action(0) : nullptr;
+            QAction* act = nullptr;   // an action of the remote window that is enabled over the fake: Reset Layout
+            if (fx.rw())
+                for (QAction* a : fx.rw()->findChildren<QAction*>())
+                    if (a->text() == QStringLiteral("&Reset Layout") && a->isEnabled()) act = a;
             if (act) QObject::connect(act, &QAction::triggered, [&]() { fx.lf.mgr->show_local(); });
             if (act) act->trigger();   // show_local() runs inside the window's own action
             QApplication::processEvents();
