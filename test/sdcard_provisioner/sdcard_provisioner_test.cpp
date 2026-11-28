@@ -3110,7 +3110,7 @@ void test_name_rows() {
             const std::string n = e.path().string();
             if (n.find("/locks") != std::string::npos) continue;
             v.push_back(n + ":" + (e.is_regular_file(ec) ? std::to_string(e.file_size(ec)) + ":" +
-                                   std::to_string(e.last_write_time(ec).time_since_epoch().count()) : std::string("d")));
+                                   std::to_string(static_cast<long long>(e.last_write_time(ec).time_since_epoch().count())) : std::string("d")));
         }
         std::sort(v.begin(), v.end());
         std::string out; for (const auto& x : v) out += x + "\n";
