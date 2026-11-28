@@ -17,10 +17,12 @@
 
 #include <cstdint>
 #include <deque>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
-
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include "core/emulator.h"
@@ -337,6 +339,7 @@ struct Debugger::Impl {
         // for the step-off arm: one place, so a verb added later cannot forget.
         event_stop_latched = false;
         event_stop         = PauseReason{};
+        remote_other_stop  = false;
         events.clear_hits();
     }
 
@@ -400,9 +403,45 @@ struct Debugger::Impl {
     /// Stop of the boundary wins; `events.hits()` carries the rest.
     PauseReason event_stop;
     bool        event_stop_latched = false;
-    /// `DebugState::resume_generation()` at the moment the latch was written.
-    /// `state()` ignores a latch whose generation has moved — see there.
+    /// `DebugState::resume_generation()` at the moment the latch was written (a
+    /// non-local facade: `remote_resume_gen`). `state()` ignores a latch whose
+    /// generation has moved, see there.
     uint64_t    event_stop_gen = 0;
+
+    // ── Non-local facade only (TGT-05, epic #486 R2.2/R2.3) ─────────────────
+    //
+    // A facade over a `Target` has no `DebugState`, so the pieces of it that the stop
+    // machinery needs live here. `service_target_stops()` turns the target's `TargetStop`s
+    // into the SAME delivery a local stop gets (`deliver_to_subscribers()`), so
+    // conditions, handlers, `once`, `Log`, hit records and `Paused{matched[]}` are the
+    // local code, not a second copy. `reconcile_remote()` mirrors the subscription table
+    // into the target's own breakpoints and watchpoints.
+
+    /// The number of resumes this facade has made, `DebugState::resume_generation()`'s
+    /// twin: a latch written under an older value describes a stop the machine has left.
+    uint64_t    remote_resume_gen = 0;
+    /// The last `Other` stop (`TargetStop::Why::Other`): "a stop that is nobody's verb of
+    /// mine", with the remote's own words. Valid while `remote_other_gen` is current.
+    bool        remote_other_stop = false;
+    uint64_t    remote_other_gen  = 0;
+    std::string remote_stop_text;
+
+    /// What the target holds for this facade: one object per DISTINCT key, whatever
+    /// number of subscriptions share it. A full-range watch is two target watches under
+    /// one key (a DZRP size is 16 bits).
+    using BpKey = std::pair<uint16_t, uint16_t>;                          // addr, page
+    using WpKey = std::tuple<uint16_t, uint16_t, uint16_t, uint8_t>;      // lo, hi, page, access
+    std::map<BpKey, uint32_t>              remote_bps;
+    std::map<WpKey, std::vector<uint32_t>> remote_wps;
+    /// The status of the last add the target refused or failed, `Ok` when none did
+    /// since `reconcile_remote()` last started: `subscribe()` reads it.
+    Result remote_last_fail = Result::Ok;
+    /// Diff the live Execute and Mem entries against `remote_bps` / `remote_wps`:
+    /// add what is missing, remove what is extra. Called by `gates_changed()`, which
+    /// every table change ends with, so it is the WHOLE remote mirror.
+    void reconcile_remote();
+    /// `pump()`'s stop step: consume the target's pending stops.
+    void service_target_stops();
 
     /// Re-entrancy guard for the drain: a `Handler` may `subscribe()`,
     /// `unsubscribe()` (its own id included) or `raise_host_event()`, and the

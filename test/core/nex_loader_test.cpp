@@ -2033,6 +2033,99 @@ void test_nex_magic() {
     }
 }
 
+// ── GH #573: where the classic Layer 2 loading screen lands ──────────
+//
+// nexload.asm:100-103 (LAYER_2_PAGE_0/1/2 = 9/10/11) and :441-443 read the
+// screen into banks 9,10,11 = MMU pages 18..23; :367 then shows bank 9
+// (NR 0x12). Pages 16/17 (bank 8) are never written by the screen block.
+
+struct L2Fixture {
+    Emulator emu;
+    bool     ok = false;
+
+    L2Fixture(const char* tag, bool with_bank9) {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        for (uint8_t pg : {16, 17, 22, 23}) {
+            const uint8_t saved = emu.mmu().get_page(7);
+            emu.mmu().set_page(7, pg);
+            for (size_t i = 0; i < 0x2000; ++i)
+                emu.mmu().write(static_cast<uint16_t>(0xE000 + i), kSentinel);
+            emu.mmu().set_page(7, saved);
+        }
+
+        const std::string path = fixture_path(tag);
+        if (!write_nex_fixture(path, NexHeader::SCREEN_LAYER2 | NexHeader::SCREEN_NO_PAL,
+                               49152)) return;
+        if (with_bank9) {
+            // Append bank 9 (16 KB of 0x5A) after the screen and flag it.
+            std::fstream f(path, std::ios::binary | std::ios::in | std::ios::out);
+            f.seekp(9);  f.put(1);
+            f.seekp(18 + 9);  f.put(1);
+            f.seekp(0, std::ios::end);
+            const std::vector<char> bank(16384, 0x5A);
+            f.write(bank.data(), static_cast<std::streamsize>(bank.size()));
+        }
+        NexLoader loader;
+        if (loader.load(path)) ok = loader.apply(emu);
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+};
+
+void test_l2_screen_banks() {
+    {
+        L2Fixture f("l2_01", false);
+        if (!f.ok) {
+            check("NEXL2-01", "NEX fixture failed to load/apply", false, "load+apply returned false");
+            check("NEXL2-02", "NEX fixture failed to load/apply", false, "load+apply returned false");
+            check("NEXL2-03", "NEX fixture failed to load/apply", false, "load+apply returned false");
+        } else {
+            Mmu& m = f.emu.mmu();
+            const uint8_t a = read_page(m, 18, 0), b = read_page(m, 20, 0),
+                          c = read_page(m, 22, 0), d = read_page(m, 23, 0x1FFF);
+            check("NEXL2-01",
+                  "a V1.2 Layer 2 screen lands in banks 9-11 = pages 18-23 "
+                  "(nexload.asm:100-103, :441-443)",
+                  a == payload_byte(0) && b == payload_byte(16384) &&
+                      c == payload_byte(32768) && d == payload_byte(49151),
+                  fmt("p18[0]=%02x p20[0]=%02x p22[0]=%02x p23[1FFF]=%02x", a, b, c, d));
+            const uint8_t e = read_page(m, 16, 0), g = read_page(m, 16, 0x1FFF),
+                          h = read_page(m, 17, 0), i = read_page(m, 17, 0x1FFF);
+            check("NEXL2-02",
+                  "a V1.2 Layer 2 screen does not write bank 8 = pages 16/17 "
+                  "(nexload.asm:441-443 reads nothing below page 18)",
+                  e == kSentinel && g == kSentinel && h == kSentinel && i == kSentinel,
+                  fmt("p16[0]=%02x p16[1FFF]=%02x p17[0]=%02x p17[1FFF]=%02x want c3", e, g, h, i));
+            const int nr12 = f.emu.nextreg().read(0x12) & 0x7F;
+            const uint8_t pg = static_cast<uint8_t>(nr12 * 2);
+            const uint8_t j = read_page(m, pg, 0), k = read_page(m, static_cast<uint8_t>(pg + 5), 0x1FFF);
+            check("NEXL2-03",
+                  "the screen sits in the bank NR 0x12 points to after apply "
+                  "(nexload.asm:367 + :441-443)",
+                  j == payload_byte(0) && k == payload_byte(49151),
+                  fmt("NR12=%d page %u[0]=%02x page %u[1FFF]=%02x", nr12, pg, j, pg + 5u, k));
+        }
+    }
+    {
+        L2Fixture f("l2_05", true);
+        if (!f.ok) {
+            check("NEXL2-05", "NEX fixture failed to load/apply", false, "load+apply returned false");
+        } else {
+            Mmu& m = f.emu.mmu();
+            const uint8_t a = read_page(m, 18, 0), b = read_page(m, 19, 0x1FFF),
+                          c = read_page(m, 20, 0);
+            check("NEXL2-05",
+                  "a V1.2 file with a Layer 2 screen AND bank 9: the bank data wins in "
+                  "pages 18/19, the screen stays in 20.. (nexload.asm :441-443 then :520-545)",
+                  a == 0x5A && b == 0x5A && c == payload_byte(16384),
+                  fmt("p18[0]=%02x p19[1FFF]=%02x p20[0]=%02x", a, b, c));
+        }
+    }
+}
+
 int main() {
     std::printf("NEX loader screen-ingest tests (issue #68)\n\n");
 
@@ -3044,6 +3137,10 @@ int main() {
         std::filesystem::remove(parked_path, ec);
         std::filesystem::remove(running_path, ec);
     }
+
+    // GH #573 — classic Layer 2 screen destination.
+    set_group("NEXL2");
+    test_l2_screen_banks();
 
     // The register state at entry.
     set_group("NEXENT");

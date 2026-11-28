@@ -461,10 +461,80 @@ Every public verb of `Debugger` is one of three kinds:
   verb that can refuse returns `Unsupported`; a query returns its empty value.
 
 A non-local facade installs no hook anywhere: its `pump()` runs the registered
-services and compacts the event table, and the control verbs and every `subscribe()`
-kind are `Unsupported`. `state()` is the target's `run_state()` with no pause reason,
-and `source_page()` and `effective_page()` come from the target's slots, there being
-no fetch prediction.
+services, hands the target's reported stops to the event delivery and compacts the
+event table. `pause()` and `run()` reach the target, `subscribe()` accepts `Execute` and
+`Mem` (any other kind is `Unsupported`), and the steps and the run-to family stay
+`Unsupported`. `state()` is the target's `run_state()` with a pause reason composed from
+the armed verb and the reported stop (below), and `source_page()` and `effective_page()`
+come from the target's slots, there being no fetch prediction.
+
+### Run control, breakpoints and watchpoints over a target
+
+`Target` carries seven primitives for this: `resume()`, `pause()`, `take_stop()`,
+`add_breakpoint()` / `remove_breakpoint()` and `add_watchpoint()` / `remove_watchpoint()`.
+`LocalTarget` answers `Unsupported` (or false): the local facade has its own stop machinery
+and never calls them. `info()`, `capabilities()`, `why_unavailable()`, `register_validity()`,
+`run_state()` and `take_stop()` are cheap reads of state the target already holds, with no I/O:
+`pump()` calls `run_state()` once per serviced command.
+
+The subscription table is mirrored into the target by one function, `reconcile_remote()`,
+called from `gates_changed()`, which every table change already ends with (subscribe,
+unsubscribe, enable and disable, the master and client switches, `once`, a stop's transient
+clear, a detach). The target holds one breakpoint or watchpoint per distinct key (address and
+page, or range, page and access), however many subscriptions share it, and holds none for a
+disabled entry. A full 64 KB `Mem` watch is two target watches under one key, a remote
+watch size being 16 bits. `subscribe()` refuses what a target cannot hold before any
+target call: an `Execute` range or space, `Mem` page sets, a page outside 0 to 223, an
+inverted range (`RefusedUnavailable`), and an entry the target then refuses is never left in the
+table.
+
+A stop the target reports (`TargetStop`: manual, breakpoint, watch read or write, other with
+the remote's text) goes through `deliver_to_subscribers()`, the code a local stop uses, so
+conditions, handlers, `once`, `Log` and the hit list are the same. The remote has already
+stopped, so a hit nothing claims (a false condition, a `Continue` or `Log` verdict) is
+resumed at once, one round trip per hit, unless a `pause()` was made since the last resume:
+the last verb wins. `state()` reports the armed `User` verb first, then the stop a
+subscription made, then a stop that is nobody's verb as `User` with no owner (and the remote's
+words), so no client's detach resumes it.
+
+## The remote jnext target
+
+`DzrpTarget` (`src/remote/dzrp/dzrp_target.cpp`) is the `Target` for another jnext reached
+over DZRP. Its owner builds a ready `DzrpClient`, installs the client's wait hook (the local
+facade's `pump()`) and registers the target as a service of the remote facade; the target
+connects nothing itself.
+
+- **Capabilities** come from the commands the remote advertises: each needs every command
+  of its row present (`CMD_ADD_BREAKPOINT` and `CMD_REMOVE_BREAKPOINT` for execute
+  breakpoints, and so on), else the capability is absent with "the remote does not serve
+  CMD_x". `CommandsWhileRunning` and `MemoryWhileRunning` are a property of the jnext profile.
+  Another profile (the dezogif_ng stub) has an empty set for now. The registers' validity is
+  `Core` and `IM`: the wire carries no flags, `HALT`, `MEMPTR`, `Q` or `IncDecZ`.
+- **The cache** keeps CPU memory and pages in 256-byte lines, NextREGs in lines of 16, and
+  the sprites, patterns, palettes and clip window whole. It is dropped at every resume,
+  at every `service_once()` while the target runs, and after a NextREG or port access or
+  a slot write, which can move memory. The first read after a stop sends the registers and
+  the memory around PC and SP in one round trip; a miss fetches every missing line of the
+  request in one burst. A memory write is pipelined with the re-read of the lines it touched in
+  the same view, so the next read shows what the remote holds (a byte dropped on ROM) and needs no
+  fetch; it also drops every cached line of the other view (a Cpu write drops the Page lines and
+  every other Cpu line, which another slot mapping the same page would otherwise serve stale; a
+  Page write drops the Cpu lines). A NextREG or port access drops the whole cache.
+- **Slots**: a RAM slot is `Page{n}` with the NextREG value; a ROM slot is named through the
+  CPU view (`MemSpace::cpu()` plus the slot's offset), because the wire says "ROM" without the
+  ROM's index. `rom_select()` is `cpu()`, and `Rom{i}` and `DivMmcRam{b}` reads are
+  `Unsupported`.
+- **Not writable remotely**: `IFF1` and `IFF2` (the one command sets both) and sprite
+  attributes and patterns (no command writes them); all `Unsupported` with nothing sent.
+- **Stops**: `NTF_PAUSE` is read in `service_once()`; one stop is owed per `CMD_CONTINUE` and
+  one per `CMD_PAUSE` sent to a target believed paused (the remote's own client may have resumed it
+  behind this one's back, and the pause then stops it), and a notification beyond that, or with
+  nothing owed, is dropped with a warning. Each accepted stop drops the cache.
+  `CMD_CONTINUE` carries eleven bytes, all zero.
+- **Failure**: a timeout, a lost link or a reply of the wrong length (a protocol error) ends the
+  session. The target is then lost: its capabilities are empty with "link lost: ...", every
+  verb is `Unsupported` (not `RefusedUnavailable`, under which the facade would log a `MUTATE`
+  for a short page write), and `connected()` and `lost_reason()` say so.
 
 A target's answers are untrusted, since a remote target feeds them from a network.
 The facade clamps every byte count to the request, returns exactly `SPRITE_COUNT`
@@ -478,10 +548,11 @@ status, with no `MUTATE` line and no revision bump.
 
 `Debugger::capabilities()` says which verbs a facade serves. A local facade has every
 `Capability` (36 bits, in two groups: what a remote may serve, then what is local-only). A
-non-local facade has the target's set intersected with the eight capabilities the facade serves
-over a target (`RegisterWrite`, `Memory`, `PhysicalMemory`, `MmuSlots`, `NextRegs`, `Ports`,
-`SpriteData`, `SpritePaletteClip`); a target that claims more gets no more. Later work widens that
-set when it implements run control, breakpoints and watchpoints over a target.
+non-local facade has the target's set intersected with the fourteen capabilities the facade serves
+over a target (`Run`, `Pause`, `ExecuteBreakpoints`, `Watchpoints`, `CommandsWhileRunning`,
+`RegisterWrite`, `Memory`, `MemoryWhileRunning`, `PhysicalMemory`, `MmuSlots`, `NextRegs`, `Ports`,
+`SpriteData`, `SpritePaletteClip`); a target that claims more gets no more. Instruction steps and
+run-to-cursor are not served over a target yet.
 
 Every served machine verb checks its capability through one function, after its argument
 checks, the RZX refusal and the read-only refusals (so a null buffer or `poke(Rom)` keeps its own

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.15</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.18</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.15</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v1.4.18</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3214,7 +3214,7 @@ attachment of that generation:</p>
 <li>The record comes from the <strong>attachment cache</strong>, <code>Impl::attach_cache</code>: one
   <code>Attachment</code> per generation, holding the sidecar <code>SourceMap</code> and <code>SymbolTable</code>
   (shared, immutable), the reason text, and the sidecar identity checks still to
-  make. It keeps the last <code>ATTACH_CACHE_MAX</code> = 4 (<code>ATTACH_CACHE_MAX</code>, <code>debugger_impl.h:233</code>); when
+  make. It keeps the last <code>ATTACH_CACHE_MAX</code> = 4 (<code>ATTACH_CACHE_MAX</code>, <code>debugger_impl.h:235</code>); when
   a fifth is added the oldest record is evicted. <code>cache_push_current()</code> erases a
   generation's existing record and appends the new one, so a replaced record becomes
   the newest and is the last to be evicted.</li>
@@ -3349,7 +3349,7 @@ The map therefore has its own rule, on top of the tape machinery above. <code>So
 <li><strong>The history.</strong> <code>dot_record()</code> (<code>debugger_source.cpp:221</code>) appends a snapshot <code>{generation, cycle, entry_ok, units,
   spans, held}</code> to <code>DeferredCheck::history</code> at every judgement and every change of the check, replacing
   the records of the same generation from that cycle on (a re-run replaces what the first run recorded
-  from there), and keeping at most <code>kDotHistoryMax</code> = 256 (<code>kDotHistoryMax</code>, <code>debugger_impl.h:196</code>; the oldest go, and
+  from there), and keeping at most <code>kDotHistoryMax</code> = 256 (<code>kDotHistoryMax</code>, <code>debugger_impl.h:198</code>; the oldest go, and
   a landing older than the oldest reads pending). <code>dot_landing(false)</code> picks the last record of the
   landed generation strictly <em>before</em> the landed cycle (a verdict at cycle C applies to the instruction
   about to run at C, which a landing at C has not run); none means pending. Records of earlier generations

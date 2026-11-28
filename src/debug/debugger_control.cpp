@@ -61,9 +61,19 @@ Result Debugger::Impl::rewind_refusal() const {
 // ---------------------------------------------------------------------------
 
 Result Debugger::pause(ClientId by) {
-    if (!impl_->emu) return Result::Unsupported;
+    if (!impl_->emu && !impl_->serves(Capability::Pause)) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("pause"); nested != Result::Ok)
         return nested;
+    if (!impl_->emu) {
+        // TGT-05: ALWAYS sent, even when the target believes it is paused. A remote
+        // jnext's own GUI may have resumed it, and DZRP has no "resumed" notification;
+        // a paused remote ignores a CMD_PAUSE.
+        const Result r = impl_->target.pause();
+        if (r != Result::Ok) return r;
+        impl_->apply_stop(/*from_event=*/false);
+        impl_->arm(PauseReason::Kind::User, by);
+        return Result::Ok;
+    }
     // Idempotent (CTL-01): DebugState::pause() is, and re-pausing an already
     // paused machine re-attributes the stop to the caller, which is what "last
     // verb wins" means.
@@ -83,7 +93,7 @@ Result Debugger::pause(ClientId by) {
 }
 
 Result Debugger::run(ClientId by) {
-    if (!impl_->emu) return Result::Unsupported;
+    if (!impl_->emu && !impl_->serves(Capability::Run)) return Result::Unsupported;
     if (const Result nested = impl_->refuse_inside_delivery("run"); nested != Result::Ok)
         return nested;
     return impl_->run_verb(by);
@@ -95,7 +105,17 @@ Result Debugger::run(ClientId by) {
 // `log()` reaches every listener), and SES-01's "a crashed DeZog must not leave
 // the machine hung" must not depend on where the detach came from.
 Result Debugger::Impl::run_verb(ClientId by) {
-    if (!emu) return Result::Unsupported;
+    if (!emu) {
+        // TGT-05: a target that is already running is a no-op (CTL-02, GH #223), and
+        // nothing is sent. No corruption gate: that is the local machine's.
+        if (!serves(Capability::Run)) return Result::Unsupported;
+        if (!paused_now()) return Result::Ok;
+        const Result r = target.resume();
+        if (r != Result::Ok) return r;
+        ++remote_resume_gen;
+        arm(PauseReason::Kind::None, by);
+        return Result::Ok;
+    }
     // GH #223 — Run on an already-running machine is a no-op that still returns
     // Ok, and it must return BEFORE the corruption gate: DebugState::resume()
     // clears the one-shot breakpoint, so reaching it here would silently throw
