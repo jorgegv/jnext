@@ -197,9 +197,6 @@ std::optional<bool> Debugger::Impl::remote_identity(const SourceMap& map) const 
             it->second.hi = std::max(it->second.hi, w.hi);
         }
     };
-    for (const auto& c : code) want_page(c.space, c.lo, c.hi_excl);
-    for (const auto& v : vspans) want_page(v.space, v.lo, v.hi_excl);
-
     // The program file, when it is a NEX: its banks are what the target must hold.
     NexLoader nex;
     bool have_nex = false;
@@ -222,6 +219,11 @@ std::optional<bool> Debugger::Impl::remote_identity(const SourceMap& map) const 
                 notes.push_back("'" + remote_program + "' is not a NEX file this build loads");
         }
     }
+
+    // The code is read only when there is a file to compare it with.
+    if (have_nex)
+        for (const auto& c : code) want_page(c.space, c.lo, c.hi_excl);
+    for (const auto& v : vspans) want_page(v.space, v.lo, v.hi_excl);
 
     // Read every page once. PhysicalMemory: the page itself, whatever is mapped. Else the
     // page where a slot shows it now, through the CPU view: never paged in to be read.
