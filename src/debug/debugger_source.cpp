@@ -235,10 +235,10 @@ std::optional<bool> Debugger::Impl::remote_identity(const SourceMap& map) const 
         b.data.resize(w.hi - w.lo);
         const size_t n = b.data.size();
         const FetchSource sp = MemSpace::page(page);
-        if (self->serves(Capability::PhysicalMemory)) {
+        if (serves(Capability::PhysicalMemory)) {
             const auto r = self->peek(sp, w.lo, n, b.data.data());
             b.ok = r.status == Result::Ok && r.value == n;
-        } else if (self->serves(Capability::MmuSlots) && self->serves(Capability::Memory)) {
+        } else if (serves(Capability::MmuSlots) && serves(Capability::Memory)) {
             const auto& slots = target.mmu_slots();
             int slot = -1;
             for (int s = 0; s < 8 && slot < 0; ++s)
