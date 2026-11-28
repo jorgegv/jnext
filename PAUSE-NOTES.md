@@ -1,35 +1,28 @@
-# GH #516 Stage A: PAUSE NOTES (2026-11-27 ~21:10)
+# GH #516 Stage A: PAUSE NOTES (2026-11-28, second pause)
 
-Branch gh516-remote-stepping, base epic486-remote-target @ feb7a6812. Stage A code is complete and committed;
-paused by the orchestrator for #585 (cheaper mutant runner). Stage B not started (waits for #515).
+Branch gh516-remote-stepping. The epic merge (epic486-remote-target @ 6e4b0227d) is DONE and committed cleanly
+(cece694b5): conflicts only in test/unit-tests.conf and the 07-frontends.md cite, resolved by hand; `# expect:` now 263
+(epic 262 + step_successors_test); my row counts kept (debugger_backend 1607, dzrp_adapter 169, dzrp_client 73,
+cpu_z80n_im2_regressions 66); guides and matrix regenerated after the merge (rendered with `nice make docs-...` directly: the local lane
+was held by other agents; the matrix with `perl test/refresh-traceability-matrix.pl --no-fails`). Functional expect lines
+and HS EXPECTED_TOTAL come from the epic untouched (I changed neither). No run is queued or live; no mutant worktree is left.
 
-## Done
-- step_successors() (src/debug/step_successors.{h,cpp}), suite step_successors_test SSC-01..21 (21/21 green).
-- Findings: CTL-04-05/06 (local Step Over via step_successors; RST $08 stops at pc+2), DZRP-CONT-06 (5-byte
-  CMD_CONTINUE), SLNMI-RETI-01 + SSC-17 (RETI no longer takes the stackless address; z80_ed.c).
-  Each new row was seen FAILING on the base (commit 8a9172e43 holds rows only; remote log
-  gh516-remote-stepping-1806-574775.log: CTL-04-05, DZRP-CONT-06, SLNMI-RETI-01 FAIL; CTL-04-06 passes on base, as expected).
-- step_out_returned() / step_out_sp_past() in debug_state.h (members delegate); DzrpClient::wait_pause() + DZC-WP-01..03.
-- Pins: expect 261->262, debugger_backend 1607, dzrp_adapter 169, dzrp_client 73, cpu_z80n_im2_regressions 66.
-- Docs: user guide Step Over note, dev guide 09-4 (+ cite in 07-frontends.md), re-rendered; matrix regenerated; suite tombstoned in
-  test/refresh-traceability-matrix.pl. (Guides/matrix were rendered locally with `nice make docs-...`, NOT via slot.sh: the local lane was starved.)
-- `make test-affected BASE=feb7a6812` (remote, tip dd9a1c3b1): all 177 selected suites green; only failure was the devguide cite
-  check, fixed in 8cfc3a787 (not re-run since). Platform runs it names: unit-test-sdl, unit-test-win, unit-test-wasm: NOT RUN yet.
-  Full `make unit-test` NOT RUN yet.
+## Stage A state
+Code, rows, pins, docs: complete (see the earlier notes in the report). Not yet run on the merged tip:
+`make test-affected BASE=<epic tip 6e4b0227d>`, `unit-test-sdl`, `unit-test-win`, `unit-test-wasm`, one full `make unit-test`.
+(Before the merge, test-affected at dd9a1c3b1 was green except a devguide cite, fixed.)
 
-## Mutants (via slot.sh --patch, at pushed tips; script ~/tmp/gh516/mut/mutants.py, driver run.sh/poll.sh/verdict.sh)
-Because the tip carried no failing check besides docs, read CAUGHT = a FAIL row.
-- CAUGHT: M2 (cond fall only: SSC-01,05,06,09,10,18,20), M3 (chain cap like the disassembler: SSC-09, SSC-20),
-  M5 (IX/IY swap: SSC-05,06,09,18,20), M6 (stack word at SP+1 for RETI: SSC-03,09,17,18,20).
-- KILLED MID-RUN, NO VERDICT (rerun): M1, M8, M10, M11 (worktrees left at ~/tmp/worktrees/jnext/gh516-M1/-M8/-M10/-M11).
-- PENDING: M12 (JP (C) guess), M13a (stackless ignored), M13b (RETI uses shadow), M14 (RETI fix reverted; mutants.py restores shared case),
-  M15 (server size check removed), M18 (step_out >=), M27 (wait_pause timeout tears session down), M28 (step_over first target only),
-  M29 (no dedupe), M30 (chain bound 0x1FFFF), M31 (no plain-ED rule behind prefix), M32 (Over ignores call-like).
-- Note: sdcard_provisioner_test PROV-STALL-08 failed once in M3 under load (timing row, unrelated to this branch).
+## Mutants (all on the merged tip cece694b5 via `slot.sh --patch make -C <wt> mutant-test SUITES=...`; scripts in ~/tmp/gh516/mut: mutants.py, one.sh, batch.sh)
+KILLED (rows): M1 (SSC-01,09,10,18), M8 (SSC-11,13), M10 (SSC-01,05,06,09,14,18), M11 (SSC-03,04,09,18,20,21),
+M12 (SSC-04,09,15,18,20), M13a (SSC-16), M13b (SSC-17), M14 (SSC-17, SLNMI-RETI-01), M15 (DZRP-CONT-06),
+M18 (STPOUT-P09, P11, W08), M27 (DZC-WP-02), M28 (CTL-04-05), M29 (SSC-19), M30 (SSC-20), M31 (SSC-09).
+Earlier on the pre-merge tip, by FAIL row in test-affected runs: M2 (SSC-01,05,06,09,10,18,20), M3 (SSC-09, SSC-20), M5 (SSC-05,06,09,18,20), M6 (SSC-03,09,17,18,20).
+NO VERDICT: M32 (Over ignores is_call_like: `if (false) {` made the build fail, probably an unused-function/variable error). Fix: mutate
+the condition to `kind == StepKind::Over && false && ::is_call_like(pc, code)` and re-run with SUITES=step_successors_test; expected killers SSC-11/12/13.
 
-## Notes for resume
-- Merge main (#585 landed) into the epic, then the epic into this branch; re-pin counts from the files.
-- #584 (cap of 64 DD/FD hops per execute()): SSC-09's chains of 65, 66, 70 and 200 prefixes (g_chains() n list) and the DD/FD ED sweeps assume
-  one chain = one execute(); SSC-20's "65535 prefixes then NOP" row only checks the function (no core run). Adapt SSC-09 when #584 lands.
-- Findings for the report: behind a DD/FD prefix the core treats every ED opcode as the standard one (Z80N interception tests the first byte
-  only); step_successors follows the core (plain_ed). Over's call-like test is first-byte only (DD CD enters the call), same as local Step Over.
+## Resume steps
+1. Merge the epic again if it moved (`git -C <wt> merge --no-ff epic486-remote-target`), recount pins from the files, regenerate matrix and guides.
+2. Re-run M32 (above).
+3. `slot.sh make -C <wt> test-affected BASE=<epic tip>`, then the platform runs it names (`unit-test-sdl`, `unit-test-win`, `unit-test-wasm`), then one `make unit-test`.
+4. Remove this file from the branch, write the report (/home/jorgegv/tmp/autorun/jnext/2026-11-26/gh516-report-stageA.md; the earlier draft content is in the pause hand-back and in this file's history).
+5. SSC-09 (chains of 65/66/70/200 prefixes and the DD/FD ED sweeps) assumes one chain = one execute(); adapt it if #584 lands first.
