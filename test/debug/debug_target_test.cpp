@@ -639,9 +639,9 @@ static void tgt01_refusal_rows() {
         Subscription like;
         const auto g = m.d.subscribe_source_line(m.a, "x.c:1", like);
         check("TGT-01-18", "Execute and Mem subscriptions are accepted (one add_breakpoint, one add_watchpoint at the "
-                           "target); every other kind and subscribe_source_line are Unsupported; raise_host_event is "
-                           "Ok with nothing delivered",
-              all && g.status == Result::Unsupported && m.d.raise_host_event(m.a, "x") == Result::Ok &&
+                           "target); every other kind is Unsupported and subscribe_source_line with no source map is "
+                           "RefusedUnavailable; raise_host_event is Ok with nothing delivered",
+              all && g.status == Result::RefusedUnavailable && m.d.raise_host_event(m.a, "x") == Result::Ok &&
                   m.d.subscriptions(true).size() == 2 && m.t.count("add_breakpoint") == 1 &&
                   m.t.count("add_watchpoint") == 1 && m.t.calls.size() == 2);
     }
