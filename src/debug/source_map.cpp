@@ -64,7 +64,7 @@ void SourceMap::replace(std::vector<SourceRange> ranges,
         next.files_.insert(r.location.file);
         const uint32_t hi = std::max<uint32_t>(r.hi_excl, r.lo);
         next.ranges_.push_back({space_key(r.space), r.lo, std::min<uint32_t>(hi, 0x10000),
-                                it->second});
+                                it->second, r.code});
     }
 
     // Line index: non-zero-width ranges, in emission order.
@@ -265,6 +265,13 @@ bool SourceMap::has_identity() const
     return identity_ && (!identity_->sha256.empty() || !identity_->bytes.empty());
 }
 
+std::optional<std::pair<uint16_t, uint32_t>> SourceMap::sha_region() const
+{
+    if (!identity_ || identity_->sha256.empty() || identity_->size > 0x10000u - identity_->org)
+        return std::nullopt;
+    return std::make_pair(identity_->org, identity_->size);
+}
+
 std::optional<bool> SourceMap::verify_program(
     const std::function<uint8_t(uint16_t)>& read,
     const SpaceReader& read_space) const
@@ -327,6 +334,25 @@ std::vector<SourceMap::VerifySpan> SourceMap::verify_spans() const
         } else {
             merged.push_back(v);
         }
+    }
+    return merged;
+}
+
+std::vector<SourceMap::CodeSpan> SourceMap::code_spans() const
+{
+    std::vector<CodeSpan> out;
+    for (const Range& r : ranges_)
+        if (r.code && r.hi != r.lo) out.push_back({key_space(r.space_key), static_cast<uint16_t>(r.lo), r.hi});
+    std::sort(out.begin(), out.end(), [](const CodeSpan& a, const CodeSpan& b) {
+        return std::make_tuple(space_key(a.space), a.lo) < std::make_tuple(space_key(b.space), b.lo);
+    });
+    std::vector<CodeSpan> merged;
+    for (const CodeSpan& c : out) {
+        if (!merged.empty() && space_key(merged.back().space) == space_key(c.space) &&
+            c.lo <= merged.back().hi_excl)
+            merged.back().hi_excl = std::max(merged.back().hi_excl, c.hi_excl);
+        else
+            merged.push_back(c);
     }
     return merged;
 }

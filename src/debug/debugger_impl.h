@@ -263,6 +263,24 @@ struct Debugger::Impl {
     /// (a `Page` is read whatever the MMU maps over it; any other space is
     /// unreadable, so a byte check in one fails).
     std::optional<bool> verify_identity(const SourceMap& map) const;
+    /// `verify_identity()` on a facade over a target (no machine): the target's code against
+    /// the program file named by `remote_program` (when it is a NEX) and the map's own
+    /// binary identity. Fills `remote_detail`.
+    std::optional<bool> remote_identity(const SourceMap& map) const;
+    /// The program file the last non-local `load_program_sidecars()` named; empty = none.
+    std::string remote_program;
+    /// What the last `remote_identity()` found: the first difference when it said false,
+    /// what matched (and what was not compared) when true, the reasons when it compared
+    /// nothing.
+    mutable std::string remote_detail;
+    /// The refusal text of a false verdict: `local` on the local machine, the target's
+    /// words (with `remote_detail`) otherwise.
+    std::string mismatch_reason(const char* local) const;
+    /// The suffix an attach line carries on a non-local facade for `identity`.
+    std::string remote_note(std::optional<bool> identity) const;
+    /// Why a non-local facade cannot place or judge sources now: the target reports no
+    /// registers (no debuggee, or a lost link). Empty when it can, and always on a local one.
+    std::string remote_no_debuggee() const;
     /// One unit of `map`'s identity (see `DeferredCheck`), through the same two readers,
     /// except that a unit may also be `DivMmcRam{b}` (a dot command's, GH #351; its map
     /// is never judged whole, so `verify_identity()` does not read that space).

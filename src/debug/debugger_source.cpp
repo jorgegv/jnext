@@ -16,6 +16,9 @@
 #include "debug/z88dk_space.h"
 
 #include "core/log.h"
+#include "core/nex_loader.h"
+#include "core/program_archive.h"
+#include "core/snapshot_machine.h"
 #include "debug/long_address.h"
 #include "debug/ram_page.h"
 
@@ -23,6 +26,7 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <map>
 
 namespace jnext {
 namespace dbg {
@@ -129,7 +133,245 @@ std::string space_name(FetchSource s) {
 // The store
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// A facade over a target: the build match
+// ---------------------------------------------------------------------------
+
+std::string Debugger::Impl::remote_no_debuggee() const {
+    if (emu || self->register_validity().valid(RegisterValidity::Field::Core)) return {};
+    const std::string why = target.why_unavailable(Capability::Run);
+    return why.empty() ? "the target reports no registers" : why;
+}
+
+std::string Debugger::Impl::mismatch_reason(const char* local) const {
+    if (emu) return local;
+    return "the program on the target is not the build these sources describe (" + remote_detail + ")";
+}
+
+std::string Debugger::Impl::remote_note(std::optional<bool> identity) const {
+    if (!identity) return " (not checked against the target: " + remote_detail + ")";
+    return " (the target's code " + remote_detail + ")";
+}
+
+namespace {
+
+std::string hex_text(uint32_t v, int digits) {
+    static const char* d = "0123456789ABCDEF";
+    std::string s(static_cast<size_t>(digits), '0');
+    for (int i = digits - 1; i >= 0; --i, v >>= 4) s[static_cast<size_t>(i)] = d[v & 15];
+    return s;
+}
+
+std::string join_notes(const std::vector<std::string>& notes) {
+    std::string out;
+    for (const std::string& n : notes) out += (out.empty() ? "" : "; ") + n;
+    return out;
+}
+
+}  // namespace
+
+std::optional<bool> Debugger::Impl::remote_identity(const SourceMap& map) const {
+    namespace fs = std::filesystem;
+    const FetchSource cpu = MemSpace::cpu();
+    std::vector<std::string> notes;
+    std::vector<std::string> matched;
+    std::string diff;           // the first difference
+    bool any_false = false;
+
+    const std::vector<SourceMap::CodeSpan> code = map.code_spans();
+    const std::vector<SourceMap::VerifySpan> vspans = map.verify_spans();
+
+    // The offsets [lo, hi) of each RAM page the checks below read. A span never reaches past
+    // its 8 KB slot: the bytes beyond it are another slot's page.
+    struct Window { uint32_t lo; uint32_t hi; };
+    std::map<uint8_t, Window> want;
+    auto want_page = [&want](FetchSource sp, uint16_t lo, uint32_t hi) {
+        if (sp.kind != MemSpace::Kind::Page || sp.index > 223) return;
+        const uint32_t end = std::min<uint32_t>(hi, (lo & 0xE000u) + 0x2000u);
+        if (end <= lo) return;
+        const Window w{lo & 0x1FFFu, (lo & 0x1FFFu) + (end - lo)};
+        auto [it, fresh] = want.try_emplace(static_cast<uint8_t>(sp.index), w);
+        if (!fresh) {
+            it->second.lo = std::min(it->second.lo, w.lo);
+            it->second.hi = std::max(it->second.hi, w.hi);
+        }
+    };
+    for (const auto& c : code) want_page(c.space, c.lo, c.hi_excl);
+    for (const auto& v : vspans) want_page(v.space, v.lo, v.hi_excl);
+
+    // The program file, when it is a NEX: its banks are what the target must hold.
+    NexLoader nex;
+    bool have_nex = false;
+    bool code_in_pages = false;
+    for (const auto& c : code) code_in_pages = code_in_pages || c.space.kind == MemSpace::Kind::Page;
+    if (!remote_program.empty() && code_in_pages) {
+        const std::string ext = snapshot_file_ext(remote_program);
+        const std::string why = source_file_problem(remote_program);
+        uint8_t ver_bcd = 0;
+        char    ver[5]  = {0};
+        if (!why.empty()) {
+            notes.push_back(why);
+        } else if (ext == "nex" ||
+                   !program_archive::is_program_ext(remote_program)) {
+            if (NexLoader::preboot_check(remote_program, ext == "nex", ver_bcd, ver) ==
+                    NexLoader::PreBoot::Ok &&
+                nex.load(remote_program))
+                have_nex = true;
+            else
+                notes.push_back("'" + remote_program + "' is not a NEX file this build loads");
+        }
+    }
+
+    // Read every page once. PhysicalMemory: the page itself, whatever is mapped. Else the
+    // page where a slot shows it now, through the CPU view: never paged in to be read.
+    struct Buf { uint32_t lo = 0; std::vector<uint8_t> data; bool ok = false; };
+    std::map<uint8_t, Buf> bufs;
+    for (const auto& [page, w] : want) {
+        Buf b;
+        b.lo = w.lo;
+        b.data.resize(w.hi - w.lo);
+        const size_t n = b.data.size();
+        const FetchSource sp = MemSpace::page(page);
+        if (self->serves(Capability::PhysicalMemory)) {
+            const auto r = self->peek(sp, w.lo, n, b.data.data());
+            b.ok = r.status == Result::Ok && r.value == n;
+        } else if (self->serves(Capability::MmuSlots) && self->serves(Capability::Memory)) {
+            const auto& slots = target.mmu_slots();
+            int slot = -1;
+            for (int s = 0; s < 8 && slot < 0; ++s)
+                if (slots[static_cast<size_t>(s)].space == sp) slot = s;
+            if (slot < 0) {
+                notes.push_back(space_tag(sp) + " is not mapped now");
+                bufs[page] = std::move(b);
+                continue;
+            } else {
+                const auto r = self->peek(cpu, (static_cast<uint32_t>(slot) << 13) + w.lo, n,
+                                          b.data.data());
+                b.ok = r.status == Result::Ok && r.value == n;
+            }
+        }
+        if (!b.ok) notes.push_back(space_tag(sp) + " could not be read");
+        bufs[page] = std::move(b);
+    }
+
+    // The NEX against the target: each code span, clipped to its slot.
+    if (have_nex) {
+        std::vector<uint8_t> noted;
+        auto note_page = [&](uint8_t page, const std::string& what) {
+            if (std::find(noted.begin(), noted.end(), page) != noted.end()) return;
+            noted.push_back(page);
+            notes.push_back(space_tag(MemSpace::page(page)) + " " + what);
+        };
+        bool compared = false;
+        for (const auto& c : code) {
+            if (c.space.kind != MemSpace::Kind::Page || c.space.index > 223) continue;
+            const uint8_t page = static_cast<uint8_t>(c.space.index);
+            const uint8_t* bank = nex.bank_data(page >> 1);
+            if (!bank) { note_page(page, "is not in the NEX"); continue; }
+            const auto b = bufs.find(page);
+            if (b == bufs.end() || !b->second.ok) { note_page(page, "was not read"); continue; }
+            const uint32_t end = std::min<uint32_t>(c.hi_excl, (c.lo & 0xE000u) + 0x2000u);
+            for (uint32_t a = c.lo; a < end; ++a) {
+                const uint32_t off = a & 0x1FFFu;
+                const uint8_t target_byte = b->second.data[off - b->second.lo];
+                const uint8_t file_byte   = bank[(page & 1u) * 0x2000u + off];
+                compared = true;
+                if (target_byte != file_byte) {
+                    if (diff.empty())
+                        diff = space_tag(MemSpace::page(page)) + "+$" + hex_text(off, 4) +
+                               ": target $" + hex_text(target_byte, 2) + ", " +
+                               fs::path(remote_program).filename().string() + " $" +
+                               hex_text(file_byte, 2);
+                    any_false = true;
+                    break;
+                }
+            }
+        }
+        if (compared) matched.push_back("matches '" + fs::path(remote_program).filename().string() + "'");
+    }
+    for (const auto& c : code)
+        if (c.space.kind != MemSpace::Kind::Page && have_nex) {
+            notes.push_back("code in the " + space_name(c.space) + " is not in the target's pages");
+            break;
+        }
+
+    // The map's own identity, unit by unit.
+    std::vector<FetchSource> units;
+    for (const auto& v : vspans)
+        if (std::find(units.begin(), units.end(), v.unit) == units.end()) units.push_back(v.unit);
+    bool unit_matched = false;
+    for (const FetchSource unit : units) {
+        bool unreadable = false;
+        std::vector<uint8_t> cbuf;
+        uint32_t corg = 0;
+        const SourceMap::SpaceReader rs = [&](FetchSource sp, uint16_t addr) -> std::optional<uint8_t> {
+            if (sp.kind != MemSpace::Kind::Page || sp.index > 223) { unreadable = true; return std::nullopt; }
+            const auto b = bufs.find(static_cast<uint8_t>(sp.index));
+            const uint32_t off = addr & 0x1FFFu;
+            if (b == bufs.end() || !b->second.ok || off < b->second.lo ||
+                off - b->second.lo >= b->second.data.size()) {
+                unreadable = true;
+                return std::nullopt;
+            }
+            return b->second.data[off - b->second.lo];
+        };
+        const std::function<uint8_t(uint16_t)> rd = [&](uint16_t addr) -> uint8_t {
+            if (addr < corg || addr - corg >= cbuf.size()) { unreadable = true; return 0; }
+            return cbuf[addr - corg];
+        };
+        if (unit.kind == MemSpace::Kind::Cpu) {
+            const auto region = map.sha_region();
+            if (!region) { notes.push_back("the SHA-256 region is not valid"); continue; }
+            corg = region->first;
+            cbuf.resize(region->second);
+            const auto r = self->peek(cpu, corg, cbuf.size(), cbuf.data());
+            if (r.status != Result::Ok || r.value != cbuf.size()) {
+                notes.push_back("the program's memory could not be read for its SHA-256");
+                continue;
+            }
+        } else if (unit.kind != MemSpace::Kind::Page) {
+            notes.push_back("the binary identity in the " + space_name(unit) + " is not checked");
+            continue;
+        }
+        const std::optional<bool> v = map.verify_unit(unit, rd, rs);
+        if (unreadable) {
+            notes.push_back("the binary identity in " +
+                            (unit.kind == MemSpace::Kind::Cpu ? std::string("memory") : space_tag(unit)) +
+                            " is not checked: not readable");
+            continue;
+        }
+        if (!v) continue;
+        if (*v) {
+            unit_matched = true;
+        } else {
+            any_false = true;
+            if (diff.empty())
+                diff = unit.kind == MemSpace::Kind::Cpu
+                           ? std::string("the SHA-256 of the program differs from the map's")
+                           : space_tag(unit) + " differs from the map's binary identity";
+        }
+    }
+    if (unit_matched) matched.push_back("matches the map's binary identity");
+
+    if (any_false) {
+        remote_detail = diff;
+        return false;
+    }
+    std::string text = join_notes(matched);
+    if (!notes.empty())
+        text += std::string(text.empty() ? "" : "; ") + (matched.empty() ? "" : "not compared: ") +
+                join_notes(notes);
+    remote_detail = text;
+    if (matched.empty()) {
+        if (notes.empty()) remote_detail = "no program file and no section binaries to compare";
+        return std::nullopt;
+    }
+    return true;
+}
+
 std::optional<bool> Debugger::Impl::verify_identity(const SourceMap& map) const {
+    if (!emu) return remote_identity(map);
     return map.verify_program(
         [this](uint16_t addr) -> uint8_t {
             uint8_t b = 0;
@@ -473,6 +715,12 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
         ~SyncOnExit() { impl->sync_call_stack(); }
     } sync_on_exit{impl_.get()};
     SourceMapLoad out;
+    // A target with no registers (no debuggee, a lost link) places nothing: the slots it
+    // shows are not the program's. Nothing is read from it.
+    if (const std::string why = impl_->remote_no_debuggee(); !why.empty()) {
+        out.error = "source map not loaded: " + why;
+        return out;
+    }
     SourceMap candidate;
     SymbolTable labels;
     SourceMapLoadResult parsed;
@@ -508,21 +756,32 @@ Debugger::SourceMapLoad Debugger::load_source_map(const std::string& path,
         out.error = "it is not the map of a z88dk dot command";
         return out;
     }
+    // A dot command runs from DivMMC RAM, which a target does not show.
+    if (!impl_->emu && candidate.dot()) {
+        out.error = "a dot command runs from DivMMC RAM, which a remote target does not show";
+        return out;
+    }
     // A tape's program is not in memory yet: a map with an identity attaches pending and
     // is judged where the CPU first runs its code (design 6.2). A dot command's is
     // always so (GH #351): the guest loads it into DivMMC RAM when the command is typed,
-    // and it is judged at its entry.
-    const bool defer = (verify_at_first_execution || candidate.dot()) &&
+    // and it is judged at its entry. A target has no first execution to wait for: judged now.
+    const bool defer = impl_->emu && (verify_at_first_execution || candidate.dot()) &&
                        !candidate.verify_spans().empty();
     if (!defer) {
         out.identity = impl_->verify_identity(candidate);
         if (out.identity && !*out.identity && !accept_identity_mismatch) {
-            out.error = "the program in memory does not match the source map's binary identity";
+            out.error = impl_->mismatch_reason(
+                "the program in memory does not match the source map's binary identity");
             return out;
         }
     }
-    out.identity_note = defer ? (candidate.dot() ? kDotPendingNote : kPendingNote)
-                              : identity_note(candidate, parsed, out.identity);
+    if (!impl_->emu)
+        out.identity_note = out.identity && !*out.identity
+                                ? " (loaded although the target's code differs: " + impl_->remote_detail + ")"
+                                : impl_->remote_note(out.identity);
+    else
+        out.identity_note = defer ? (candidate.dot() ? kDotPendingNote : kPendingNote)
+                                  : identity_note(candidate, parsed, out.identity);
     impl_->drop_source_guards();
     impl_->source_map         = std::move(candidate);
     impl_->sources_owner      = Impl::StoreOwner::User;
@@ -688,6 +947,10 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     SidecarLoad out;
     const fs::path program(program_path);
     auto log = Log::debugger();
+    // The refusal of a false verdict, in the words of the machine it was judged on.
+    auto bad = [this]() {
+        return impl_->mismatch_reason("the loaded program's bytes differ from its binary identity");
+    };
 
     // A writer first (a pending landing is judged against the machine as it is
     // now), then the new generation: the sidecars about to be attached belong
@@ -714,6 +977,21 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     // The previous program's identity checks went with its sidecars.
     impl_->drop_sidecar_checks();
 
+    // On a target the program is judged where it stands now, never pending, against the
+    // file named here. With no registers (no debuggee, a lost link) the slots it shows are
+    // not the program's: nothing is placed, judged or read, and the caller loads again once
+    // there is state (an upload does, after it has set the CPU and the slots).
+    if (!impl_->emu) {
+        impl_->remote_program.clear();
+        if (const std::string why = impl_->remote_no_debuggee(); !why.empty()) {
+            impl_->drop_sidecars(why);
+            out.problem = "sources of '" + program_path + "' not loaded: " + why;
+            log->warn("{}", out.problem);
+            return out;
+        }
+        impl_->remote_program = program_path;
+    }
+
     // The SLD sidecar is read ONCE (design 9.1: one file, two transactions) and
     // judged here, before the symbols, because its labels join them; it is logged
     // below, in today's order.
@@ -722,7 +1000,7 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     SymbolTable sld_labels;
     const SourceMapLoadResult parsed = load_sld_sidecar(candidate, program_path, &sld_labels);
     const bool user_sources = impl_->sources_owner == Owner::User;
-    const bool tape         = program_loads_later(program_path);
+    const bool tape         = impl_->emu && program_loads_later(program_path);
     std::optional<bool> identity;   // only a source half that loaded, from memory
     if (parsed && !tape && !user_sources)
         identity = impl_->verify_identity(candidate);
@@ -824,17 +1102,30 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
 
     // The source map, under the same ownership rule.
     if (user_sources) {
+        // On a target a landing never judges the user's map: it is judged now, against this
+        // program, and a different build makes it stale.
+        if (!impl_->emu && !impl_->source_map.dot()) {
+            const std::string program_detail = impl_->remote_detail;   // the sidecar's, below
+            const std::optional<bool> uid = impl_->verify_identity(impl_->source_map);
+            if (uid && !*uid) {
+                impl_->user_sources_stale = true;
+                impl_->source_reason = impl_->mismatch_reason("");
+                log->error("The loaded source map '{}' is stale: {}", impl_->source_map.loaded_file(),
+                           impl_->source_reason);
+            } else {
+                impl_->user_sources_stale = false;
+                impl_->source_reason.clear();
+            }
+            impl_->remote_detail = program_detail;
+        }
         if (parsed)
             log->info("Kept the loaded source map '{}'; not loading '{}'",
                       impl_->source_map.loaded_file(), candidate.loaded_file());
         else if (zpath && zmismatch) {
             // Its binaries are another build's: the whole map is rejected, symbols included,
             // whether or not its source lines would have been used.
-            log->error("Rejected z88dk source map '{}': the loaded program's bytes differ "
-                       "from its binary identity", zsrc.loaded_file());
-            add_problem(out, "source map '" + zsrc.loaded_file() +
-                                 "' rejected: the loaded program's bytes differ from its "
-                                 "binary identity");
+            log->error("Rejected z88dk source map '{}': {}", zsrc.loaded_file(), bad());
+            add_problem(out, "source map '" + zsrc.loaded_file() + "' rejected: " + bad());
         } else if (zpath && zparsed.count > 0) {
             log->info("Kept the loaded source map '{}'; not loading the source lines of '{}'",
                       impl_->source_map.loaded_file(), zpath->string());
@@ -871,11 +1162,8 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
             return out;
         }
         if (zmismatch) {
-            log->error("Rejected z88dk source map '{}': the loaded program's bytes differ "
-                       "from its binary identity", zsrc.loaded_file());
-            const std::string why = "source map '" + zsrc.loaded_file() +
-                                    "' rejected: the loaded program's bytes differ from its "
-                                    "binary identity";
+            log->error("Rejected z88dk source map '{}': {}", zsrc.loaded_file(), bad());
+            const std::string why = "source map '" + zsrc.loaded_file() + "' rejected: " + bad();
             add_problem(out, why);
             impl_->source_reason = why;
             return out;
@@ -890,7 +1178,11 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
                                                    (zparsed.listings == 1 ? " listing" : " listings")
                                        : std::string(),
                   z_pending ? std::string(kPendingNote)
-                            : identity_note(impl_->source_map, zparsed, zidentity));
+                  : !impl_->emu ? impl_->remote_note(zidentity)
+                                : identity_note(impl_->source_map, zparsed, zidentity));
+        if (!impl_->emu && !zidentity)
+            log->warn("z88dk source map '{}' is not checked against the target: {}",
+                      impl_->source_map.loaded_file(), impl_->remote_detail);
         if (z_pending)
             impl_->add_check(impl_->source_map, /*user=*/false, /*sources=*/true,
                              /*symbols=*/zsyms_attach && impl_->symbols_owner == Owner::Sidecar);
@@ -899,11 +1191,8 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     // A tape is loaded by the machine over the frames that follow: its map attaches at
     // once, and is judged where the CPU first runs its code (sld_pending).
     if (mismatch) {
-        log->error("Rejected SLD source map '{}': the loaded program's bytes differ "
-                   "from its binary identity", candidate.loaded_file());
-        const std::string why = "source map '" + candidate.loaded_file() +
-                                "' rejected: the loaded program's bytes differ from its "
-                                "binary identity";
+        log->error("Rejected SLD source map '{}': {}", candidate.loaded_file(), bad());
+        const std::string why = "source map '" + candidate.loaded_file() + "' rejected: " + bad();
         add_problem(out, why);
         impl_->source_reason = why;
         return out;
@@ -914,7 +1203,12 @@ Debugger::SidecarLoad Debugger::load_program_sidecars(const std::string& program
     out.sources_pending = sld_pending;
     log->info("Loaded {} SLD source traces from '{}'{}", parsed.count,
               impl_->source_map.loaded_file(),
-              sld_pending ? kPendingNote : identity ? " (program identity verified)" : "");
+              sld_pending ? std::string(kPendingNote)
+              : !impl_->emu ? impl_->remote_note(identity)
+              : identity ? " (program identity verified)" : "");
+    if (!impl_->emu && !identity)
+        log->warn("SLD source map '{}' is not checked against the target: {}",
+                  impl_->source_map.loaded_file(), impl_->remote_detail);
     if (sld_pending)
         impl_->add_check(impl_->source_map, /*user=*/false, /*sources=*/true,
                          /*symbols=*/impl_->symbols_owner == Owner::Sidecar);

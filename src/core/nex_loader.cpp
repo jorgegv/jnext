@@ -384,6 +384,21 @@ NexLoader::PreBoot NexLoader::preboot_check(const std::string& path, bool nex_ex
     return version_bcd > kNexLoaderVersionBcd ? PreBoot::TooNew : PreBoot::Ok;
 }
 
+const uint8_t* NexLoader::bank_data(int bank) const
+{
+    constexpr size_t kBankSize = 16384;
+    if (!loaded_ || bank < 0 || bank >= 112 || !header_.banks[bank]) return nullptr;
+    if (bank_data_offset_ < 512) return nullptr;
+    size_t offset = static_cast<size_t>(bank_data_offset_ - 512);
+    for (const int b : kBankOrder) {
+        if (b >= 112 || !header_.banks[b]) continue;
+        if (offset + kBankSize > file_data_.size()) return nullptr;
+        if (b == bank) return file_data_.data() + offset;
+        offset += kBankSize;
+    }
+    return nullptr;
+}
+
 bool NexLoader::load(const std::string& path)
 {
     loaded_ = false;

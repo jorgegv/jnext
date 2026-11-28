@@ -1185,6 +1185,9 @@ SourceMapLoadResult load_z88dk_source_map(SourceMap& map, const std::string& pat
         }
     }
 
+    // A data, bss or smc section's lines are not code: the build match skips them.
+    for (size_t k = 0; k < ranges.size(); ++k) ranges[k].code = !is_data_section(*meta[k].second);
+
     // Identity: the section binaries beside the map.
     std::optional<SourceProgramIdentity> identity;
     int unchecked = 0;

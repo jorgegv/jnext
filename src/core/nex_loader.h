@@ -297,6 +297,11 @@ public:
     /// field when that is present and consistent (see load()).
     uint64_t bank_data_offset() const { return bank_data_offset_; }
 
+    /// The 16 KB of `bank` (0..111) as the file stores them, or null: nothing loaded,
+    /// `bank` out of range, the header does not list it, or the file is too short for it.
+    /// Valid until the next load().
+    const uint8_t* bank_data(int bank) const;
+
     /// Result of the optional V1.3 CRC-32C verification.
     NexChecksum checksum_status() const { return checksum_status_; }
 

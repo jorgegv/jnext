@@ -39,6 +39,17 @@
 namespace jnext {
 namespace dbg {
 
+namespace {
+
+// The page a remote Execute entry is held under: a page-qualified space (a source-line
+// breakpoint names the page its location was compiled into) is DZRP's `bank+1` of that
+// page; any other entry is held under its own legacy `page`.
+uint16_t remote_exec_page(const EventFilter& f) {
+    return f.space.kind == MemSpace::Kind::Page ? f.space.index : f.page;
+}
+
+}  // namespace
+
 // ---------------------------------------------------------------------------
 // Gate publication — the one function every table change ends with
 // ---------------------------------------------------------------------------
@@ -182,7 +193,12 @@ Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
         const bool page_ok = f.page == PAGE_ANY || f.page <= 223;
         if (!page_ok) return make_refused<EventId>(Result::RefusedUnavailable);
         if (fixed.kind == EventKind::Execute) {
-            if (f.lo != f.hi || f.space != MemSpace::cpu())
+            // `cpu()` = no space qualifier; a Page space names the RAM page the breakpoint
+            // lives in (the MMU identity, which is all a target shows); every other space
+            // (ROM, DivMMC RAM) is one DZRP cannot name.
+            const bool page_space = f.space.kind == MemSpace::Kind::Page && f.space.index <= 223 &&
+                                    (f.page == PAGE_ANY || f.page == f.space.index);
+            if (f.lo != f.hi || (f.space != MemSpace::cpu() && !page_space))
                 return make_refused<EventId>(Result::RefusedUnavailable);
         } else if (!f.pages.empty() || f.lo > f.hi) {
             return make_refused<EventId>(Result::RefusedUnavailable);
@@ -199,7 +215,7 @@ Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
         if (e && e->live) {
             const EventFilter& f = e->filter;
             if (e->kind == EventKind::Execute)
-                armed = impl_->remote_bps.count({f.lo, f.page}) != 0;
+                armed = impl_->remote_bps.count({f.lo, remote_exec_page(f)}) != 0;
             else
                 armed = impl_->remote_wps.count(
                             {f.lo, f.hi, f.page, static_cast<uint8_t>(e->access)}) != 0;
@@ -218,21 +234,49 @@ Expected<EventId> Debugger::subscribe(ClientId by, const Subscription& sub) {
 
 Expected<GroupId> Debugger::subscribe_source_line(ClientId by, const std::string& file_line,
                                                   const Subscription& like) {
-    if (!impl_->emu) return make_refused<GroupId>(Result::Unsupported);
+    if (!impl_->emu && !impl_->serves(Capability::ExecuteBreakpoints))
+        return make_refused<GroupId>(Result::Unsupported);
     if (impl_->client_gone(by)) return make_refused<GroupId>(Result::RefusedUnavailable);
     if (like.kind != EventKind::Execute) return make_refused<GroupId>(Result::RefusedUnavailable);
     const SourceResolution r = source_map().resolve(file_line);
     if (r.starts.empty()) return make_refused<GroupId>(Result::RefusedUnavailable);
 
+    // A target holds a breakpoint in a RAM page or at a CPU address; a start in ROM (or any
+    // other space) has neither identity there, so it is not armed. Nothing left: refused.
+    std::vector<SourceAddress> starts;
+    for (const SourceAddress& s : r.starts)
+        if (impl_->emu || (s.space.kind == MemSpace::Kind::Page && s.space.index <= 223))
+            starts.push_back(s);
+    if (starts.empty()) return make_refused<GroupId>(Result::RefusedUnavailable);
+
     const GroupId group = impl_->next_group_id++;
-    for (const SourceAddress& s : r.starts) {
+    for (const SourceAddress& s : starts) {
         Subscription m = like;
         m.filter.lo = m.filter.hi = s.address;
         m.filter.page  = PAGE_ANY;
         m.filter.space = s.space;
         impl_->events.add(by, m, group);
     }
+    impl_->remote_last_fail = Result::Ok;
     impl_->gates_changed();
+    if (!impl_->emu) {
+        // No member the target holds: the group is refused whole, as `subscribe()` does.
+        bool armed = false;
+        for (const auto& e : impl_->events.entries())
+            if (!e.removed && e.group == group && e.live &&
+                impl_->remote_bps.count({e.filter.lo, remote_exec_page(e.filter)}) != 0)
+                armed = true;
+        if (!armed) {
+            const Result why = impl_->remote_last_fail == Result::Ok
+                                   ? Result::RefusedUnavailable : impl_->remote_last_fail;
+            std::vector<EventId> ids;
+            for (const auto& e : impl_->events.entries())
+                if (!e.removed && e.group == group) ids.push_back(e.id);
+            for (EventId id : ids) impl_->events.erase(id);
+            impl_->gates_changed();
+            return make_refused<GroupId>(why);
+        }
+    }
     impl_->bump_revision();   // GH #428
     return make_ok<GroupId>(group);
 }
@@ -957,7 +1001,7 @@ void Debugger::Impl::reconcile_remote() {
     for (const auto& e : events.entries()) {
         if (e.removed || !e.live || e.once_fired) continue;
         if (e.kind == EventKind::Execute)
-            want_bp.insert({e.filter.lo, e.filter.page});
+            want_bp.insert({e.filter.lo, remote_exec_page(e.filter)});
         else if (e.kind == EventKind::Mem)
             want_wp.insert({e.filter.lo, e.filter.hi, e.filter.page,
                             static_cast<uint8_t>(e.access)});
@@ -1043,6 +1087,9 @@ void Debugger::Impl::service_target_stops() {
                 ev.kind      = EventKind::Execute;
                 ev.pc        = ts.addr;
                 ev.phys_page = page;
+                // The MMU identity: the page the slot holds, which a page-qualified filter
+                // (a source-line breakpoint) compares. Unknown page: no qualifier matches.
+                if (page <= 223) ev.space = MemSpace::page(static_cast<uint8_t>(page));
                 deliver_to_subscribers(ev, stop, CLIENT_NONE);
                 by_event = stop;
                 break;

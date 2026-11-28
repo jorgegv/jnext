@@ -34,6 +34,9 @@ struct SourceRange {
     uint16_t lo = 0;
     uint32_t hi_excl = 0;   // lo..0x10000
     SourceLocation location;
+    /// The bytes are instructions. False for a z88dk data, bss or smc section's
+    /// line: a running program writes those bytes, so a build match skips them.
+    bool code = true;
 };
 
 /// A zero-width line that resolves through a (non-zero-width) range.
@@ -145,6 +148,10 @@ public:
     /// Whether the map carries a binary identity (a SHA-256 or byte checks).
     bool has_identity() const;
 
+    /// The logical memory an SLD's SHA-256 hashes: `size` bytes from `org`. nullopt when
+    /// the identity has no SHA-256 (or it describes more than the 64K there is).
+    std::optional<std::pair<uint16_t, uint32_t>> sha_region() const;
+
     /// GH #344 stage 3 - the memory a tape program's map is judged against, split into
     /// the UNITS the identity is verified in: each memory space a z88dk byte check lies
     /// in, and, for an SLD's SHA-256 (which hashes logical memory as one), the single
@@ -165,6 +172,16 @@ public:
     std::optional<bool> verify_unit(jnext::dbg::FetchSource unit,
                                     const std::function<uint8_t(uint16_t)>& read,
                                     const SpaceReader& read_space) const;
+
+    /// The code ranges of the map in `space` terms: `[lo, hi_excl)` of `space` (adjacent or
+    /// overlapping ranges of one space merged, zero-width ones left out, `code == false`
+    /// ones left out), sorted by space, then address.
+    struct CodeSpan {
+        jnext::dbg::FetchSource space;
+        uint16_t lo = 0;
+        uint32_t hi_excl = 0;
+    };
+    std::vector<CodeSpan> code_spans() const;
 
     /// Same file, line and column (one statement can emit several ranges).
     static bool same_position(const SourceLocation& a, const SourceLocation& b) {
@@ -204,6 +221,7 @@ private:
         uint32_t lo = 0;
         uint32_t hi = 0;
         size_t location = 0;      // into locations_
+        bool code = true;
     };
     struct Segment {              // an elementary interval with its covering ranges
         uint64_t start = 0;       // space_key << 20 | lo
