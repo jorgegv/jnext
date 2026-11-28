@@ -585,9 +585,9 @@ int main() {
         };
         std::string bad;
         int in_section = 0;
-        for (const Key& k : KEYS) if (std::string(k.section) == "remote") ++in_section;
+        for (const config_keys::Key& k : config_keys::KEYS) if (std::string(k.section) == "remote") ++in_section;
         for (const Want& w : want) {
-            const Key& k = config_keys::info(w.id);
+            const config_keys::Key& k = config_keys::info(w.id);
             const std::string n = std::string("remote.") + w.name + " ";
             if (std::string(k.section) != "remote" || std::string(k.name) != w.name) bad += n + "name ";
             if (k.type != w.type || k.lo != w.lo || k.hi != w.hi) bad += n + "type/bounds ";
