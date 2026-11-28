@@ -8026,7 +8026,7 @@ static int test_gh402_tape_reattach()
                                finishes_as_iy(*fb);
             check("PFXCH-SAVE-02", l && b->cpu().prefix_pending() == 0xDD && finishes_as_ix(*b) && fd_ok &&
                   em.find("cpu_prefix_pending") != std::string::npos,
-                  "a .jns saved at the cut of a 65 DD run names cpu_prefix_pending in state/emulator.json and restores it",
+                  "a .jns saved at the cut of a 65 DD run names cpu_prefix_pending in state/emulator.json and restores it; an FD pending is saved as \"fd\" and restores 0xFD (the next slot writes IY)",
                   "saved=" + std::to_string(saved) + " loaded=" + std::to_string(l));
         }
         {
