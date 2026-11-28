@@ -3246,12 +3246,12 @@ and an I/O port as <code>({0})</code> at <code>E,0,0</code>, and neither has mem
 record is never given a storage.</p>
 <h2 id="where-it-lives-and-why">Where it lives, and why<a class="headerlink" href="#where-it-lives-and-why" title="Permanent link">&para;</a></h2>
 <p>The store is a member of the <code>SourceMap</code> it was read from
-(<code>SourceMap::variables()</code>, <code>src/debug/source_map.h:113</code>), held by
+(<code>SourceMap::variables()</code>, <code>src/debug/source_map.h:116</code>), held by
 a <code>shared_ptr</code> to an immutable object, exactly like the embedded texts of 3.9.5.2.
 <code>SourceMap::replace()</code> takes it as its last argument and stores it
 (<code>variables_</code>, <code>src/debug/source_map.cpp:127</code>); every <code>replace()</code>
 without one drops the previous store, and <code>clear()</code> resets it
-(<code>variables_</code>, <code>src/debug/source_map.cpp:347</code>).</p>
+(<code>variables_</code>, <code>src/debug/source_map.cpp:373</code>).</p>
 <p>That placement is the design. <code>Debugger::Impl::source_map</code> is assigned, moved,
 copied or cleared at about ten places (the owner, the stale flag, <code>drop_sidecars()</code>,
 the tape <code>DeferredCheck</code>, the attachment cache, the ring restore). A store kept
@@ -3260,7 +3260,7 @@ misses its map. Inside it, every rule of <a href="06-lifetime.html">3.9.5.6</a> 
 code of its own: the store is attached with the map, dropped with it, made stale
 with it, cached and restored with it, and the copies share one object, so the
 cache costs nothing more.</p>
-<p>The facade is <code>Debugger::variables()</code> (<code>variables</code>, <code>src/debug/debugger_source.cpp:594</code>):
+<p>The facade is <code>Debugger::variables()</code> (<code>variables</code>, <code>src/debug/debugger_source.cpp:855</code>):
 it runs <code>recheck()</code> first, like every reader, and returns the live source map's
 store, or null when there is no live map or it carries none (an SLD). A z88dk map
 with lines but no record carries an <strong>empty</strong> store, so "this program has no C
