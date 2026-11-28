@@ -1650,8 +1650,14 @@ void test_stall_rows() {
             a.set(oa);
             std::string err_a;
             int calls_a = 0;
-            sdcard::ProgressFn pf = [&](uint64_t, uint64_t) { return ++calls_a < 3; };
             const Clk::time_point t0 = Clk::now();
+            const int diag_n = std::getenv("DIAG_CANCEL_AT") ? std::atoi(std::getenv("DIAG_CANCEL_AT")) : 3;
+            std::string diag_calls;
+            sdcard::ProgressFn pf = [&](uint64_t, uint64_t) {
+                diag_calls += num(std::chrono::duration<double>(Clk::now() - t0).count() * 1000.0) + "ms/req" +
+                              std::to_string(a.requests().size()) + " ";
+                return ++calls_a < diag_n;
+            };
             const bool ok_a = sdcard::http_download(a.url(), dest_in("p"), pf, err_a, {200, 5000});
             Clk::time_point seen_at;
 #ifdef _WIN32
@@ -1678,7 +1684,10 @@ void test_stall_rows() {
                   "a: ok=" + std::to_string(ok_a) + " err='" + err_a + "' closed=" + std::to_string(closed_a) +
                       " run_out=" + std::to_string(a.holds_run_out()) + " t=" + num(after_s) + "s; b: ok=" +
                       std::to_string(ok_b) + " run_out=" + std::to_string(b.holds_run_out()) + " closed=" +
-                      std::to_string(closed_b) + " err='" + err_b + "'");
+                      std::to_string(closed_b) + " err='" + err_b + "' DIAG reqs_a=" + std::to_string(a.requests().size()) + " accepted_a=" + std::to_string(a.diag_accepted.load()) +
+                      " req_eof_a=" + std::to_string(a.diag_req_eof.load()) +
+                      " calls_a=[" + diag_calls + "]");
+            std::fprintf(stderr, "DIAG14 accepted=%d req_eof=%d reqs_a=%zu closed_a=%d calls=[%s]\n", a.diag_accepted.load(), a.diag_req_eof.load(), a.requests().size(), (int)closed_a, diag_calls.c_str());
         }
     }
 
