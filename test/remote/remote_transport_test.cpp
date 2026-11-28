@@ -1303,6 +1303,66 @@ static void link_rows() {
               all && serr.find("serial links are not supported (TCP only)") != std::string::npos, why + " " + serr);
     }
 
+    // The host rule shared with the remote.host setting: valid_link_host agrees with
+    // parse_link_uri on every sample (oracle = parse_link_uri's own grammar, RLK-URI-01/02).
+    {
+        const std::string h253 = std::string(63, 'a') + "." + std::string(63, 'b') + "." +
+                                 std::string(63, 'c') + "." + std::string(61, 'd');
+        const std::string h254 = h253 + "d";
+        const std::vector<std::string> good = {"127.0.0.1", "my-next.local", h253, "::1", "fe80::1"};
+        const std::vector<std::string> bad = {
+            "", "a b", "[::1]", h254, "a..b", "e\xC3\xA9.example", "h:1", "fe80::1%eth0",
+            std::string("1.2.3\0.4", 8)};
+        auto uri_of = [](const std::string& h) {
+            return "tcp:" + (h.find(':') != std::string::npos && h[0] != '[' ? "[" + h + "]" : h) + ":1";
+        };
+        bool        all = true;
+        std::string why;
+        for (const auto& h : good) {
+            std::string r;
+            LinkSpec    sp;
+            std::string e;
+            const bool v = jnext::remote::valid_link_host(h, r);
+            const bool u = jnext::remote::parse_link_uri(uri_of(h), sp, e);
+            if (!v || !u) { all = false; why += " good[" + h.substr(0, 12) + "]"; }
+        }
+        for (const auto& h : bad) {
+            std::string r;
+            LinkSpec    sp;
+            std::string e;
+            const bool v = jnext::remote::valid_link_host(h, r);
+            const bool u = jnext::remote::parse_link_uri(uri_of(h), sp, e);
+            if (v || r.empty() || (u && h != "[::1]")) { all = false; why += " bad[" + h.substr(0, 12) + "]"; }
+        }
+        check("RLK-URI-03", "valid_link_host agrees with parse_link_uri: a name, an IPv4 and unbracketed IPv6 "
+                            "are accepted; empty, a blank, brackets, 254 characters, an empty label, a "
+                            "non-ASCII byte, a port in a name, a zone id and a NUL are refused with a reason",
+              all, why);
+    }
+    {
+        bool        all = true;
+        std::string why;
+        for (const char* h : {"127.0.0.1", "::1", "my-next.local"})
+            for (unsigned p : {1u, 11000u, 65535u}) {
+                LinkSpec s;
+                s.host = h;
+                s.port = static_cast<std::uint16_t>(p);
+                LinkSpec    back;
+                std::string e;
+                if (!jnext::remote::parse_link_uri(jnext::remote::format_link_uri(s), back, e) ||
+                    back.host != s.host || back.port != s.port || back.kind != LinkKind::Tcp) {
+                    all = false;
+                    why += std::string(" [") + h + "]";
+                }
+            }
+        LinkSpec v6;
+        v6.host = "::1";
+        v6.port = 1;
+        check("RLK-URI-04", "format_link_uri round-trips through parse_link_uri for IPv4, IPv6 and a name "
+                            "at ports 1, 11000 and 65535, and writes an IPv6 host in brackets",
+              all && jnext::remote::format_link_uri(v6) == "tcp:[::1]:1", why);
+    }
+
     // TcpLink against a real Server.
     LineProtocol proto;
     Server       srv(cfg_named("rlk"), proto);

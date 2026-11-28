@@ -1189,6 +1189,15 @@ int main() {
                   cli::debugger_implied_dzrp_port(false, 14000, -1, -1) == 14000);
     }
 
+    // CLI-RT-01 (GH #517): --remote-target is a documented one-value option (URI), not terminal,
+    // and not browser-refused: the non-Qt refusal in main() covers the browser build.
+    {
+        const cli::Option* o = cli::find("--remote-target");
+        check("CLI-RT-01", "--remote-target is Documented, takes one value (URI), is not terminal and is not browser-refused",
+              o && o->doc == cli::Doc::Documented && o->arity == 1 && std::string(o->args) == "URI" &&
+                  !o->terminal && cli::browser_refusal(o->id) == nullptr);
+    }
+
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total + g_skip, g_pass, g_fail, g_skip);

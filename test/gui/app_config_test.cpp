@@ -1396,6 +1396,7 @@ std::vector<std::string> accepted_samples(const config_keys::Key& k) {
         case Type::PathList: return {"a b", "x, y", "", std::string("/a") + source_search::kListSeparator + "/b"};
         case Type::TrimmedText: return {"a b", "x, y", "  padded ", ""};
         case Type::HostList: return {"a.example,B.example", ""};
+        case Type::Host:  return {"127.0.0.1", "::1", "my-next.local"};
         case Type::DeviceId: return {"0123456789ABCDEF0123456789abcdef#2", ""};
         case Type::Keep:  return {"unlimited", "1", "20", "1000000"};
         case Type::Combo: return {"Ctrl+Shift+F10", "none"};
@@ -1415,6 +1416,7 @@ std::vector<std::string> refused_samples(const config_keys::Key& k) {
         case Type::Machine: return {"nonsense"};
         case Type::Keep:  return {"0", "-1", "1000001", "x"};
         case Type::DeviceId: return {"xyz"};
+        case Type::Host:  return {"a b", "[::1]", ""};
         case Type::Combo: return {"Ctrl+"};
         // The file reader is more permissive than `--set` for these (a QVariant
         // bool reads 1/yes; blank hosts are dropped), and the text types take
@@ -1813,6 +1815,98 @@ static void test_sdmanager_keys(QTemporaryDir& dir) {
           why1 + why2);
 }
 
+// AC-107..109 (GH #517): the Remote target's four settings. Oracle: the plan's key table
+// (defaults 127.0.0.1 / 11000 / 5000 / 2000, bounds 1..65535 and 100..60000) and the grammar of
+// remote::valid_link_host; the defaults are also the ones the code that reads them has.
+static void test_remote_keys(QTemporaryDir& dir) {
+    set_group("AC-REMOTE");
+    using config_keys::KeyId;
+
+    // AC-107: defaults with no file; round trips of the two ends of every range.
+    {
+        const AppConfigData def;
+        AppConfig none(fresh_ini_path(dir, "remote-nofile"));
+        none.load();
+        const bool defaults = def.remote_host == "127.0.0.1" && def.remote_port == 11000 &&
+                              def.remote_connect_timeout_ms == 5000 && def.remote_response_timeout_ms == 2000 &&
+                              none.data().remote_host == "127.0.0.1" && none.data().remote_port == 11000 &&
+                              none.data().remote_connect_timeout_ms == 5000 &&
+                              none.data().remote_response_timeout_ms == 2000;
+        bool trips = true;
+        struct Case { const char* host; int port, ct, rt; };
+        int n = 0;
+        for (const Case& c : {Case{"::1", 1, 100, 60000}, Case{"my-next.local", 65535, 60000, 100}}) {
+            const QString p = fresh_ini_path(dir, ("remote-trip-" + std::to_string(++n)).c_str());
+            { AppConfig w(p); w.load(); w.data().remote_host = c.host; w.data().remote_port = c.port;
+              w.data().remote_connect_timeout_ms = c.ct; w.data().remote_response_timeout_ms = c.rt; w.save(); }
+            AppConfig r(p);
+            r.load();
+            trips = trips && r.data().remote_host == c.host && r.data().remote_port == c.port &&
+                    r.data().remote_connect_timeout_ms == c.ct && r.data().remote_response_timeout_ms == c.rt;
+        }
+        check("AC-107", "the remote settings default to 127.0.0.1, 11000, 5000 and 2000 (a fresh struct and a load with no "
+                        "file) and round-trip through save/load at both ends of each range",
+              defaults && trips);
+    }
+
+    // AC-108: one file per key; a hand-edited bad value falls back to its own default, alone.
+    {
+        std::string bad;
+        int n = 0;
+        for (const char* line : {"host=a b", "host=[::1]", "port=0", "port=65536", "connect_timeout_ms=99",
+                                 "response_timeout_ms=60001", "port=x", "connect_timeout_ms=1,2"}) {
+            const QString p = fresh_ini_path(dir, ("remote-bad-" + std::to_string(++n)).c_str());
+            plant(p, (std::string("[remote]\nhost=203.0.113.9\nport=2222\nconnect_timeout_ms=3000\n"
+                                  "response_timeout_ms=4000\n") + line + "\n").c_str());
+            AppConfig c(p);
+            c.load();
+            const AppConfigData& d = c.data();
+            const std::string key = std::string(line).substr(0, std::string(line).find('='));
+            // The later line of the same key wins in QSettings, so the planted good value is replaced.
+            const bool host_def = d.remote_host == "127.0.0.1", port_def = d.remote_port == 11000,
+                       ct_def = d.remote_connect_timeout_ms == 5000, rt_def = d.remote_response_timeout_ms == 2000;
+            const bool host_kept = d.remote_host == "203.0.113.9", port_kept = d.remote_port == 2222,
+                       ct_kept = d.remote_connect_timeout_ms == 3000, rt_kept = d.remote_response_timeout_ms == 4000;
+            const bool ok = key == "host" ? host_def && port_kept && ct_kept && rt_kept
+                          : key == "port" ? port_def && host_kept && ct_kept && rt_kept
+                          : key == "connect_timeout_ms" ? ct_def && host_kept && port_kept && rt_kept
+                                                        : rt_def && host_kept && port_kept && ct_kept;
+            if (!ok) bad += std::string(line) + "; ";
+        }
+        check("AC-108", "a hand-edited host with a blank or brackets, a port of 0, 65536 or x, and a timeout of 99, 60001 or "
+                        "1,2 each falls back to the default of that key alone",
+              bad.empty(), bad);
+    }
+
+    // AC-109: merge_cli_assignments() sets the four keys (the later of one key wins), nothing else, nothing saved.
+    {
+        AppConfigData saved;
+        saved.remote_host = "saved.example";
+        saved.remote_port = 1234;
+        saved.remote_connect_timeout_ms = 1000;
+        saved.remote_response_timeout_ms = 1500;
+        saved.window_scale = 3;
+        AppConfigData merged = saved;
+        merge_cli_assignments(merged, {
+            { KeyId::RemoteHost, {}, "first.example" },
+            { KeyId::RemotePort, {}, "2222" },
+            { KeyId::RemoteConnectTimeoutMs, {}, "300" },
+            { KeyId::RemoteResponseTimeoutMs, {}, "400" },
+            { KeyId::RemoteHost, {}, "::1" },
+            { KeyId::RemotePort, {}, "11001" },
+        });
+        const QString p = fresh_ini_path(dir, "remote-merge");
+        { AppConfig a(p); a.data() = saved; a.save(); }
+        const QByteArray before = slurp(p);
+        check("AC-109", "merge_cli_assignments() sets remote.host, port, connect_timeout_ms and response_timeout_ms (the later of "
+                        "one key wins) and leaves every other field as saved; the saved file is not touched",
+              merged.remote_host == "::1" && merged.remote_port == 11001 && merged.remote_connect_timeout_ms == 300 &&
+                  merged.remote_response_timeout_ms == 400 && merged.window_scale == 3 &&
+                  saved.remote_host == "saved.example" && slurp(p) == before &&
+                  has_line(before, "host=saved.example") && has_line(before, "port=1234"));
+    }
+}
+
 int main() {
     QTemporaryDir dir;
     if (!dir.isValid()) {
@@ -1847,6 +1941,7 @@ int main() {
     test_fast_boot_hide(dir);
     test_sd_card2(dir);
     test_sdmanager_keys(dir);
+    test_remote_keys(dir);
 
     std::printf("\n");
     for (const auto& r : g_results) {

@@ -79,6 +79,20 @@ static bool parse_port(const std::string& p, std::uint16_t& out, std::string& wh
     return true;
 }
 
+bool valid_link_host(const std::string& host, std::string& why) {
+    if (!host.empty() && host[0] == '[') {
+        why = "write an IPv6 address without brackets";
+        return false;
+    }
+    if (host.find(':') != std::string::npos) return valid_ipv6_literal(host, why);
+    return valid_dns_name(host, why);
+}
+
+std::string format_link_uri(const LinkSpec& spec) {
+    const bool v6 = spec.host.find(':') != std::string::npos;
+    return "tcp:" + (v6 ? "[" + spec.host + "]" : spec.host) + ":" + std::to_string(spec.port);
+}
+
 bool parse_link_uri(const std::string& uri, LinkSpec& out, std::string& error) {
     const std::string tcp = "tcp:";
     if (uri.compare(0, 7, "serial:") == 0) {

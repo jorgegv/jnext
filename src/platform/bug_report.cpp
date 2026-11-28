@@ -369,6 +369,9 @@ ValueRule config_value_rule(config_keys::KeyId id)
         case K::InputJoy2Source:
         case K::InputMouseRelease:
         case K::SourceColourScheme:
+        case K::RemotePort:
+        case K::RemoteConnectTimeoutMs:
+        case K::RemoteResponseTimeoutMs:
         case K::EspEnabled:
         case K::NextpiEnabled:
         case K::NextpiRelease:
@@ -391,6 +394,7 @@ ValueRule config_value_rule(config_keys::KeyId id)
         case K::InputJoy1DeviceName:
         case K::InputJoy2DeviceName:
         case K::EspAllowedHosts:
+        case K::RemoteHost:         // names a machine
         case K::NextpiDir:
         case K::NextpiQemuBinary:
         case K::NextpiAudio:        // empty, a mode, or `wav:FILE`

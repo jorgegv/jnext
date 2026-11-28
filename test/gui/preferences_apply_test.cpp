@@ -1971,6 +1971,53 @@ void test_fast_boot_hide_control()
           " kept=" + std::to_string(kept) + " cleared=" + std::to_string(cleared));
 }
 
+// PA-41: GH #517 - the Remote target values ride through an untouched dialog (a persisted field with
+// no control would be wiped by collect(), in a build without the Debugger tab above all); where the
+// controls exist, the values they hold are the ones the dialog was given, and an edit comes back.
+// Oracle: the plan's PA-41; the dialog's own collect().
+void test_remote_target_passthrough()
+{
+    AppConfigData initial;
+    initial.remote_host = "::1";
+    initial.remote_port = 1;
+    initial.remote_connect_timeout_ms = 100;
+    initial.remote_response_timeout_ms = 60000;
+    PreferencesDialog dlg(initial);
+    AppConfigData got;
+    bool emitted = false;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { emitted = true; got = cfg; });
+    auto* buttons = dlg.findChild<QDialogButtonBox*>();
+    auto* apply = buttons ? buttons->button(QDialogButtonBox::Apply) : nullptr;
+    if (apply) apply->click();
+    const bool kept = emitted && got.remote_host == "::1" && got.remote_port == 1 &&
+                      got.remote_connect_timeout_ms == 100 && got.remote_response_timeout_ms == 60000;
+
+    // With the controls (a debugger build): filled from the config, and an edit is collected.
+    bool edited = true;
+    if (auto* host = dlg.findChild<QLineEdit*>(QStringLiteral("remoteHostEdit"))) {
+        auto* port = dlg.findChild<QSpinBox*>(QStringLiteral("remotePortSpin"));
+        auto* ct = dlg.findChild<QSpinBox*>(QStringLiteral("remoteConnectTimeoutSpin"));
+        auto* rt = dlg.findChild<QSpinBox*>(QStringLiteral("remoteResponseTimeoutSpin"));
+        edited = port && ct && rt && host->text() == QLatin1String("::1") && port->value() == 1 &&
+                 ct->value() == 100 && rt->value() == 60000;
+        if (edited) {
+            host->setText(QStringLiteral(" my-next.local "));
+            port->setValue(65535);
+            ct->setValue(60000);
+            rt->setValue(100);
+            emitted = false;
+            apply->click();
+            edited = emitted && got.remote_host == "my-next.local" && got.remote_port == 65535 &&
+                     got.remote_connect_timeout_ms == 60000 && got.remote_response_timeout_ms == 100;
+        }
+    }
+    check("PA-41", "an untouched Apply emits the four Remote target values it was given, and where the controls exist they hold "
+                   "them and an edit (host trimmed) is collected",
+          kept && edited,
+          "kept=" + std::to_string(kept) + " edited=" + std::to_string(edited) + " host=" + got.remote_host);
+}
+
 int main(int argc, char** argv)
 {
     qputenv("QT_QPA_PLATFORM", "offscreen");
@@ -2010,6 +2057,7 @@ int main(int argc, char** argv)
     test_cpu_speed_only_when_changed();
     test_cpu_speed_saved_non_default();
     test_fast_boot_hide_control();
+    test_remote_target_passthrough();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

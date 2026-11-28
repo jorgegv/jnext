@@ -76,6 +76,7 @@ private:
 #endif
     AppConfigData collect() const;
     bool source_dirs_ok();   // GH #420 - refuses a directory holding the list separator
+    bool remote_host_ok();   // refuses a Remote target host the link grammar refuses
     void browse_directory(QLineEdit* target);
     void browse_sd_image(QLineEdit* target);
 
@@ -134,6 +135,18 @@ private:
     // it back: a build with no Debugger tab must not reset a saved scheme.
     QComboBox*   source_scheme_combo_ = nullptr;
     SourceScheme source_scheme_ = SourceScheme::Auto;
+
+    // Debugger > Remote target (a debugger build only). remote_saved_ is what collect() hands
+    // back when there is no control: a build without the Debugger tab must not reset a saved
+    // remote.
+    QLineEdit* remote_host_edit_ = nullptr;
+    QSpinBox*  remote_port_spin_ = nullptr;
+    QSpinBox*  remote_connect_timeout_spin_ = nullptr;
+    QSpinBox*  remote_response_timeout_spin_ = nullptr;
+    struct RemoteValues {
+        std::string host;
+        int port = 0, connect_timeout_ms = 0, response_timeout_ms = 0;
+    } remote_saved_;
 
     QLineEdit* quick_screenshot_dir_edit_  = nullptr;   // GH #19
     QComboBox* quick_screenshot_fmt_combo_ = nullptr;

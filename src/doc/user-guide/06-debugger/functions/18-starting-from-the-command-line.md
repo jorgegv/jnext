@@ -84,6 +84,22 @@ instead of ending the run with exit code 3, as it does without `--debugger`:
 under `--script`, a `stop` or a failed `assert` pauses, while a script's own
 `exit` still exits.
 
+## `--remote-target`: the debugger on another JNEXT
+
+`--remote-target tcp:HOST:PORT` opens the debugger window on another JNEXT, the one serving DZRP at that
+address (started with `--dzrp-port`). Only TCP is supported, and an IPv6 address is written in brackets:
+
+```console
+$ jnext --remote-target tcp:192.168.1.50:11000
+$ jnext --remote-target tcp:[::1]:11000
+```
+
+It sets the Remote target's host and port for that run (`remote.host` and `remote.port`, which
+`--set` also gives; the later of the two wins) and nothing is written to the configuration file.
+A bad address is refused at startup. So is the option together with `--debugger` or `--break-at`
+(each says what the window opens on, and a window has one target), with `--headless`, and in a
+build without the Qt debugger window.
+
 ## `--break-at`: stop somewhere else
 
 `--break-at ADDR|SYMBOL` runs to an address and stops there instead of at the

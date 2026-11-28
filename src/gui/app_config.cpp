@@ -139,6 +139,10 @@ void merge_cli_assignments(AppConfigData& d, const std::vector<config_keys::Assi
         case KeyId::SdManagerHostDir:       d.sdmanager_host_dir = text; break;
         case KeyId::ScreenshotQuickDir:     d.quick_screenshot_dir = text; break;
         case KeyId::PathsSourceDirs:        d.source_dirs = source_dirs_from_text(text); break;
+        case KeyId::RemoteHost:             d.remote_host = a.text; break;
+        case KeyId::RemotePort:             d.remote_port = text.toInt(); break;
+        case KeyId::RemoteConnectTimeoutMs: d.remote_connect_timeout_ms = text.toInt(); break;
+        case KeyId::RemoteResponseTimeoutMs: d.remote_response_timeout_ms = text.toInt(); break;
         case KeyId::ScreenshotQuickFormat: {
             const int i = config_keys::word_index(config_keys::info(KeyId::ScreenshotQuickFormat).values, a.text);
             if (i >= 0) d.quick_screenshot_format = static_cast<ScreenshotFormat>(i);
@@ -438,6 +442,23 @@ void AppConfig::load() {
     }
     settings_.endGroup();
 
+    // The Remote Target: each value that fails the table's rule keeps its default alone.
+    settings_.beginGroup(S(KeyId::RemoteHost));
+    {
+        const std::string host = ini_text(settings_.value(N(KeyId::RemoteHost))).trimmed().toStdString();
+        std::string why;
+        if (jnext::remote::valid_link_host(host, why)) data_.remote_host = host;
+        auto number = [&](KeyId id, int& field) {
+            bool ok = false;
+            const int n = settings_.value(N(id)).toInt(&ok);
+            if (ok && n >= config_keys::info(id).lo && n <= config_keys::info(id).hi) field = n;
+        };
+        number(KeyId::RemotePort, data_.remote_port);
+        number(KeyId::RemoteConnectTimeoutMs, data_.remote_connect_timeout_ms);
+        number(KeyId::RemoteResponseTimeoutMs, data_.remote_response_timeout_ms);
+    }
+    settings_.endGroup();
+
     settings_.beginGroup(S(KeyId::NextpiEnabled));
     data_.nextpi_enabled     = settings_.value(N(KeyId::NextpiEnabled), data_.nextpi_enabled).toBool();
     data_.nextpi_dir         = ini_text(settings_.value(N(KeyId::NextpiDir), data_.nextpi_dir)).trimmed();
@@ -564,6 +585,13 @@ void AppConfig::save() const {
         if (hosts.isEmpty()) settings_.setValue(N(KeyId::EspAllowedHosts), QString());
         else                 settings_.setValue(N(KeyId::EspAllowedHosts), hosts);
     }
+    settings_.endGroup();
+
+    settings_.beginGroup(S(KeyId::RemoteHost));
+    settings_.setValue(N(KeyId::RemoteHost), QString::fromStdString(data_.remote_host));
+    settings_.setValue(N(KeyId::RemotePort), data_.remote_port);
+    settings_.setValue(N(KeyId::RemoteConnectTimeoutMs), data_.remote_connect_timeout_ms);
+    settings_.setValue(N(KeyId::RemoteResponseTimeoutMs), data_.remote_response_timeout_ms);
     settings_.endGroup();
 
     settings_.beginGroup(S(KeyId::NextpiEnabled));

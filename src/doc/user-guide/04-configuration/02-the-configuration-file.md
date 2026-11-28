@@ -53,6 +53,11 @@ The Source tab's colour scheme is stored in the `[source]` section as `colour_sc
 `dark` or `borland`. Anything else in that key keeps `auto`. It is the persistent form of the
 Preferences **Debugger** setting and of `--set source.colour_scheme`.
 
+The Remote target is stored in the `[remote]` section: `host` (a name, an IPv4 address or an IPv6 address
+without brackets), `port` (1 to 65535), `connect_timeout_ms` and `response_timeout_ms` (100 to 60000). Each value
+that is not valid keeps its default alone (`127.0.0.1`, `11000`, `5000` and `2000`). It is the persistent form of
+the Preferences **Debugger** group, of `--remote-target` and of `--set remote.*`.
+
 Redefined debugger keys are stored in the `[debugger_keys]` section, one line
 per action, for example `step_over=F10`. **Only the keys you have changed
 appear** — a configuration file in which you have never touched a debugger key

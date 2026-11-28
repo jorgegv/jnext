@@ -69,5 +69,14 @@ struct LinkSpec {
 /// `error`.
 bool parse_link_uri(const std::string& uri, LinkSpec& out, std::string& error);
 
+/// A host as `parse_link_uri` accepts it in its host position, with an IPv6 literal written
+/// WITHOUT its brackets (the form of the `remote.host` setting): a DNS name or IPv4 address,
+/// or, when it holds a `:`, an IPv6 literal. One grammar for both consumers. False sets `why`.
+/// The accepted alphabet holds no character special in an INI file.
+bool valid_link_host(const std::string& host, std::string& why);
+
+/// The inverse of `parse_link_uri`: `tcp:HOST:PORT`, `tcp:[HOST]:PORT` for an IPv6 host.
+std::string format_link_uri(const LinkSpec& spec);
+
 }  // namespace remote
 }  // namespace jnext

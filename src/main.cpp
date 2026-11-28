@@ -19,6 +19,7 @@
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
 #include "esp01/esp_at.h"          // AtEngine::UNASSOCIATED_IP, for --esp-ip-address
+#include "remote/client_link.h"   // --remote-target: parse_link_uri
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/joy_uart_source.h"   // read_joy_uart_source_file (GH #251)
 #include "core/pi_qemu.h"
@@ -469,6 +470,7 @@ static int run_main(int argc, char* argv[]) {
     bool        persistent_breakpoints = false;
     bool        debugger_start = false;   // GH #548: --debugger / --break-at
     std::string break_at;                 // GH #548: --break-at ADDR|SYMBOL
+    bool        remote_target_start = false;   // GH #517: --remote-target given
     // GH #287 — the debugger protocol servers' bind address. Empty means "the
     // user did not say", which leaves EmulatorConfig's loopback default.
     std::string debug_listen_address;
@@ -662,6 +664,10 @@ static int run_main(int argc, char* argv[]) {
         case KeyId::ScreenshotQuickDir:
         case KeyId::ScreenshotQuickFormat:
         case KeyId::SourceColourScheme:
+        case KeyId::RemoteHost:
+        case KeyId::RemotePort:
+        case KeyId::RemoteConnectTimeoutMs:
+        case KeyId::RemoteResponseTimeoutMs:
             qt_assignments.push_back(a);   // merged into the Qt session's copy (merge_cli_assignments)
             break;
         case KeyId::StartupSilent:
@@ -1220,6 +1226,22 @@ static int run_main(int argc, char* argv[]) {
                 debug_listen_address = v[0];
                 break;
             }
+            case cli::OptId::RemoteTarget: {
+                // GH #517: the address becomes remote.host / remote.port in the SAME stream
+                // --set feeds, at this position: the later of this flag and a --set wins.
+                jnext::remote::LinkSpec spec;
+                std::string why;
+                if (!jnext::remote::parse_link_uri(v[0], spec, why)) {
+                    startup_report::report("--remote-target: \"%s\": %s\n", v[0], why.c_str());
+                    return 1;
+                }
+                note_given(config_keys::KeyId::RemoteHost, arg);
+                apply_assignment({ config_keys::KeyId::RemoteHost, {}, spec.host });
+                note_given(config_keys::KeyId::RemotePort, arg);
+                apply_assignment({ config_keys::KeyId::RemotePort, {}, std::to_string(spec.port) });
+                remote_target_start = true;
+                break;
+            }
             case cli::OptId::EsxdosStub:
                 esxdos_stub = true;
                 break;
@@ -1747,6 +1769,26 @@ static int run_main(int argc, char* argv[]) {
             positional_file = arg;
         } else {
             startup_report::report("Unknown option: %s\nRun '%s --help' for a list of available options.\n", arg.c_str(), argv[0]);
+            return 1;
+        }
+    }
+
+    // GH #517: --remote-target opens the debugger window on another jnext. The action cannot
+    // happen with a second target choice for the same window, nor without that window: refused
+    // here, before anything connects.
+    if (remote_target_start) {
+        if (debugger_start) {
+            startup_report::report("--remote-target: cannot be combined with --debugger or --break-at "
+                "(both choose what the debugger window opens on, one target per window); give one.\n");
+            return 1;
+        }
+#if !(defined(ENABLE_QT_UI) && defined(ENABLE_DEBUGGER))
+        constexpr bool qt_debugger_build = false;
+#else
+        const bool qt_debugger_build = true;
+#endif
+        if (headless || !qt_debugger_build) {
+            startup_report::report("--remote-target: needs the debugger window of the Qt build; not started.\n");
             return 1;
         }
     }

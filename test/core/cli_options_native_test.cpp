@@ -7,7 +7,7 @@
 // descriptions are in the header of cli_options_test.cpp:
 //   CLI-ENV-01, CLI-BIN-01..04, CLI-TAP-01, CLI-JNS-05, CLI-NUM-05..07,
 //   CLI-SET-03..12, CLI-SET-14, CLI-COV-01, CLI-ANN-01, CLI-REX-01, CLI-REX-02, CLI-TKB-02,
-//   CLI-DBG-07..08.
+//   CLI-DBG-07..08, CLI-RT-02..05.
 // `make cli-check` runs both suites (CLI-BIN-04 checks the binary's --help against
 // the man page).
 
@@ -16,6 +16,7 @@
 #include "peripheral/esp_host_policy.h"
 #include "platform/cli_delay.h"
 #include "platform/config_keys.h"
+#include "remote/transport.h"
 
 #include <algorithm>
 #include <cctype>
@@ -37,6 +38,19 @@
 #include "cli_options_test_common.h"
 
 using namespace cli_test;
+
+namespace {
+// A listener that only counts the connections it accepts (CLI-RT-03/04: the mechanism of "not
+// connected" is that nothing ever reached the port, not the wording of the refusal).
+class CountingProtocol : public jnext::remote::Protocol {
+public:
+    int connects = 0;
+    void on_connect(jnext::remote::Connection&) override { ++connects; }
+    jnext::dbg::ServiceStep on_service(jnext::remote::Connection&) override { return jnext::dbg::ServiceStep::Idle; }
+    void on_notify(jnext::remote::Connection&) override {}
+    void on_disconnect() override {}
+};
+}  // namespace
 
 int main() {
     std::printf("=== CLI rows that run the real jnext binary ===\n\n");
@@ -154,6 +168,14 @@ int main() {
                  "jnext binary not built at " + bin);
             skip("CLI-DBG-08", "--debugger counts as a debugger server for --debug-listen-address; without it the flag is refused",
                  "jnext binary not built at " + bin);
+            skip("CLI-RT-02", "--remote-target refuses a bad URI, naming the flag and the reason",
+                 "jnext binary not built at " + bin);
+            skip("CLI-RT-03", "--remote-target under --headless exits 1 without connecting",
+                 "jnext binary not built at " + bin);
+            skip("CLI-RT-04", "--remote-target with --debugger or --break-at exits 1 without connecting",
+                 "jnext binary not built at " + bin);
+            skip("CLI-RT-05", "--set remote.port warns under --headless and the run goes on",
+                 "jnext binary not built at " + bin);
         } else if (!have_timeout) {
             skip("CLI-BIN-01", "real binary honours the table",
                  "no timeout(1) on this host; refusing to run unbounded");
@@ -208,6 +230,14 @@ int main() {
             skip("CLI-DBG-07", "--break-at with no value or an empty one exits 1 naming the flag",
                  "no timeout(1) on this host; refusing to run unbounded");
             skip("CLI-DBG-08", "--debugger counts as a debugger server for --debug-listen-address; without it the flag is refused",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-RT-02", "--remote-target refuses a bad URI, naming the flag and the reason",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-RT-03", "--remote-target under --headless exits 1 without connecting",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-RT-04", "--remote-target with --debugger or --break-at exits 1 without connecting",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-RT-05", "--set remote.port warns under --headless and the run goes on",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
@@ -916,6 +946,78 @@ int main() {
                           rc_without != 0 &&
                           without_err.find(refusal) != std::string::npos,
                       "rc_without=" + std::to_string(rc_without) + " with: " + with_err.substr(0, 160));
+            }
+
+            // CLI-RT-02..05 (GH #517): --remote-target. Oracle: parse_link_uri's own reasons
+            // (RLK-URI-01/02) and the plan's refusal order (URI, then --debugger/--break-at, then the
+            // frontend); the listener proves the process never connected.
+            {
+                struct Bad { const char* uri; const char* reason; };
+                const std::vector<Bad> cases = {
+                    {"udp:1.2.3.4:5", "unsupported link scheme"},
+                    {"tcp:1.2.3.4:0", "port out of range"},
+                    {"serial:/dev/ttyUSB0", "TCP only"},
+                    {"tcp:a b:1", "invalid character in host name"},
+                    {"tcp:[::1:5", "unbalanced bracket"},
+                };
+                std::vector<std::string> bad;
+                for (const Bad& c : cases) {
+                    const int rc = run_split("--headless --machine 48k" + sd_arg + " --remote-target \"" + c.uri + "\"");
+                    const std::string e = slurp(err_path);
+                    if (rc != 1 && rc != 256) bad.push_back(std::string("rc ") + std::to_string(rc) + " for " + c.uri);
+                    if (e.find("--remote-target") == std::string::npos || e.find(c.reason) == std::string::npos)
+                        bad.push_back(std::string("message for ") + c.uri + ": " + e.substr(0, 120));
+                }
+                check("CLI-RT-02", "--remote-target with a udp, port-0, serial, blank-host or unbalanced-bracket URI exits 1 "
+                                   "naming the flag and parse_link_uri's reason",
+                      bad.empty(), join(bad));
+            }
+            {
+                CountingProtocol proto;
+                jnext::remote::ServerConfig cfg;
+                cfg.name = "clirt";
+                jnext::remote::Server srv(cfg, proto);
+                const bool listening = srv.open("127.0.0.1", 0);
+                const std::string uri = "tcp:127.0.0.1:" + std::to_string(srv.port());
+                auto accepted_after = [&]() {
+                    for (int i = 0; i < 5; ++i) srv.service_once(20);
+                    return proto.connects;
+                };
+                std::vector<std::string> bad;
+                if (!listening) bad.push_back("no listener");
+                const std::string base = "--machine 48k" + sd_arg;
+                const int rc3 = run_split("--headless " + base + " --remote-target " + uri);
+                const std::string e3 = slurp(err_path);
+                if (rc3 != 1 && rc3 != 256) bad.push_back("headless rc " + std::to_string(rc3));
+                if (e3.find("--remote-target") == std::string::npos || e3.find("debugger window") == std::string::npos)
+                    bad.push_back("headless message: " + e3.substr(0, 120));
+                if (accepted_after() != 0) bad.push_back("headless connected");
+                check("CLI-RT-03", "--headless --remote-target tcp:127.0.0.1:P exits 1 naming the flag and the debugger window, "
+                                   "and nothing connects to P",
+                      bad.empty(), join(bad));
+
+                std::vector<std::string> bad4;
+                for (const char* extra : {"--debugger", "--break-at 8000"}) {
+                    const int rc = run_split("--headless " + base + " --remote-target " + uri + " " + extra);
+                    const std::string e = slurp(err_path);
+                    if (rc != 1 && rc != 256) bad4.push_back(std::string("rc ") + std::to_string(rc) + " " + extra);
+                    if (e.find("--remote-target") == std::string::npos || e.find("--debugger") == std::string::npos ||
+                        e.find("--break-at") == std::string::npos)
+                        bad4.push_back(std::string("message ") + extra + ": " + e.substr(0, 120));
+                    if (accepted_after() != 0) bad4.push_back(std::string("connected ") + extra);
+                }
+                check("CLI-RT-04", "--remote-target with --debugger, and with --break-at, exits 1 naming both flags (checked "
+                                   "before the frontend refusal), and nothing connects to P",
+                      bad4.empty(), join(bad4));
+            }
+            {
+                const int rc = run_split("--headless --machine 48k" + sd_arg +
+                                         " --set remote.port=1 --delayed-automatic-exit-frames 1");
+                const std::string e = slurp(err_path);
+                check("CLI-RT-05", "--headless --set remote.port=1 exits 0 with \"warning: --set remote.port has no effect "
+                                   "with --headless\"",
+                      rc == 0 && e.find("warning: --set remote.port has no effect with --headless") != std::string::npos,
+                      "rc=" + std::to_string(rc) + " " + e.substr(0, 160));
             }
 
             // CLI-SET-06: the CPU speed reaches the machine. A 48K run, so the firmware does not

@@ -10,6 +10,8 @@
 #include "core/nextpi_provisioner.h"
 #include "peripheral/esp_host_policy.h"
 #include "debug/source_search.h"   // GH #420
+#include "platform/config_keys.h"
+#include "remote/client_link.h"
 #include <QMessageBox>
 
 #include <QComboBox>
@@ -18,6 +20,7 @@
 #include <QCheckBox>
 #include <QLineEdit>
 #include <QPlainTextEdit>
+#include <QGroupBox>
 #include <QLabel>
 #include <QPushButton>
 #include <QFormLayout>
@@ -39,6 +42,8 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     : QDialog(parent), joy_devices_(joy_devices),
       source_dirs_saved_(current.source_dirs),
       source_scheme_(current.source_scheme),
+      remote_saved_{current.remote_host, current.remote_port, current.remote_connect_timeout_ms,
+                    current.remote_response_timeout_ms},
       debug_keys_(current.debug_keys),
       recent_files_(current.recent_files),
       crt_filter_saved_(current.crt_filter),
@@ -128,6 +133,12 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     if (source_scheme_combo_)
         source_scheme_combo_->setCurrentIndex(
             source_scheme_combo_->findData(static_cast<int>(current.source_scheme)));
+    if (remote_host_edit_) {
+        remote_host_edit_->setText(QString::fromStdString(current.remote_host));
+        remote_port_spin_->setValue(current.remote_port);
+        remote_connect_timeout_spin_->setValue(current.remote_connect_timeout_ms);
+        remote_response_timeout_spin_->setValue(current.remote_response_timeout_ms);
+    }
     quick_screenshot_dir_edit_->setText(current.quick_screenshot_dir);
     quick_screenshot_fmt_combo_->setCurrentIndex(
         quick_screenshot_fmt_combo_->findData(
@@ -137,13 +148,13 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Apply, this);
     connect(buttons, &QDialogButtonBox::accepted, this, [this]() {
-        if (!source_dirs_ok()) return;
+        if (!source_dirs_ok() || !remote_host_ok()) return;
         emit apply_requested(collect());
         accept();
     });
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(buttons->button(QDialogButtonBox::Apply), &QPushButton::clicked, this, [this]() {
-        if (!source_dirs_ok()) return;
+        if (!source_dirs_ok() || !remote_host_ok()) return;
         emit apply_requested(collect());
     });
 
@@ -674,6 +685,19 @@ bool PreferencesDialog::source_dirs_ok() {
     return true;
 }
 
+// The host is the one Remote target field a typo can ruin: refused here with the reason, as
+// `--set remote.host` and the settings file refuse it (one grammar, remote::valid_link_host).
+bool PreferencesDialog::remote_host_ok() {
+    if (!remote_host_edit_) return true;
+    const std::string host = remote_host_edit_->text().trimmed().toStdString();
+    std::string why;
+    if (jnext::remote::valid_link_host(host, why)) return true;
+    QMessageBox::warning(this, tr("Remote target"),
+                         tr("The host \"%1\" is not valid: %2.").arg(QString::fromStdString(host),
+                                                                     QString::fromStdString(why)));
+    return false;
+}
+
 AppConfigData PreferencesDialog::collect() const {
     AppConfigData cfg;
     cfg.machine_type = static_cast<MachineType>(machine_combo_->currentData().toInt());
@@ -773,6 +797,13 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.source_scheme = source_scheme_combo_
         ? static_cast<SourceScheme>(source_scheme_combo_->currentData().toInt())
         : source_scheme_;   // GH #422 stage 2 - no control: the value given
+    cfg.remote_host = remote_host_edit_ ? remote_host_edit_->text().trimmed().toStdString()
+                                        : remote_saved_.host;
+    cfg.remote_port = remote_port_spin_ ? remote_port_spin_->value() : remote_saved_.port;
+    cfg.remote_connect_timeout_ms = remote_connect_timeout_spin_ ? remote_connect_timeout_spin_->value()
+                                                                 : remote_saved_.connect_timeout_ms;
+    cfg.remote_response_timeout_ms = remote_response_timeout_spin_ ? remote_response_timeout_spin_->value()
+                                                                   : remote_saved_.response_timeout_ms;
     cfg.recent_files = recent_files_;   // GH #406 - kept by File > Recent Files, no control here
     cfg.debug_keys = debug_keys_;   // GH #1 — including the preserved unknowns
     cfg.quick_screenshot_dir = quick_screenshot_dir_edit_->text();
@@ -801,6 +832,37 @@ QWidget* PreferencesDialog::build_debugger_tab() {
     source_scheme_combo_->addItem(tr("Dark"), static_cast<int>(SourceScheme::Dark));
     source_scheme_combo_->addItem(tr("Borland C++ 3.1"), static_cast<int>(SourceScheme::Borland));
     form->addRow(tr("Source tab colours:"), source_scheme_combo_);
+
+    // The jnext the debugger connects to (Debug > Remote Target). Read at the next connect;
+    // nothing here changes a session that is already open.
+    auto* remote = new QGroupBox(tr("Remote target"), tab);
+    auto* remote_form = new QFormLayout(remote);
+    auto spin = [&](const char* object, config_keys::KeyId id, const QString& suffix, const QString& tip) {
+        auto* box = new QSpinBox(remote);
+        box->setObjectName(QString::fromLatin1(object));
+        box->setRange(static_cast<int>(config_keys::info(id).lo), static_cast<int>(config_keys::info(id).hi));
+        if (!suffix.isEmpty()) box->setSuffix(suffix);
+        box->setToolTip(tip + tr(" Read at the next connect. --set %1.%2=N sets it for one run.")
+                                  .arg(QString::fromLatin1(config_keys::section(id)),
+                                       QString::fromLatin1(config_keys::name(id))));
+        return box;
+    };
+    remote_host_edit_ = new QLineEdit(remote);
+    remote_host_edit_->setObjectName(QStringLiteral("remoteHostEdit"));
+    remote_host_edit_->setToolTip(
+        tr("A host name, an IPv4 address or an IPv6 address (without brackets). Read at the next "
+           "connect. --remote-target tcp:HOST:PORT or --set remote.host=HOST sets it for one run."));
+    remote_form->addRow(tr("Host:"), remote_host_edit_);
+    remote_port_spin_ = spin("remotePortSpin", config_keys::KeyId::RemotePort, QString(),
+                             tr("The remote jnext's DZRP port (its --dzrp-port)."));
+    remote_form->addRow(tr("Port:"), remote_port_spin_);
+    remote_connect_timeout_spin_ = spin("remoteConnectTimeoutSpin", config_keys::KeyId::RemoteConnectTimeoutMs,
+                                        tr(" ms"), tr("How long to wait for the connection."));
+    remote_form->addRow(tr("Connect timeout:"), remote_connect_timeout_spin_);
+    remote_response_timeout_spin_ = spin("remoteResponseTimeoutSpin", config_keys::KeyId::RemoteResponseTimeoutMs,
+                                         tr(" ms"), tr("How long to wait for each reply."));
+    remote_form->addRow(tr("Reply timeout:"), remote_response_timeout_spin_);
+    form->addRow(remote);
     return tab;
 }
 

@@ -110,6 +110,7 @@ enum class OptId {
     ZrcpPort,
     DebugChannel,
     DebugListenAddress,
+    RemoteTarget,
     Script,
     ScriptKey,
     RecordScript,
@@ -1073,6 +1074,14 @@ inline constexpr Option OPTIONS[] = {
       "A numeric IP, never a name. A non-loopback address exposes the\n"
       "debugger to the network: none of its protocols has any\n"
       "authentication. Refused unless a server port is given." },
+    // GH #517 - the debugger window on ANOTHER jnext (epic #486). Not a browser_refusal entry: the
+    // non-Qt refusal in main.cpp covers the browser build, so the refusal pin stays as it is.
+    { "--remote-target", 1, Doc::Documented, OptId::RemoteTarget,
+      "URI",
+      "Open the debugger window on another jnext at\n"
+      "tcp:HOST:PORT (its --dzrp-port), connected and paused.\n"
+      "Sets remote.host and remote.port for this run.\n"
+      "The Qt GUI with the debugger only." },
     // GH #26 WP4 — the debugger scripting language (dsl-frontend.md §6.6).
     // Accepted by every build: the engine has no toolkit dependency.
     { "--script", 1, Doc::Documented, OptId::Script,

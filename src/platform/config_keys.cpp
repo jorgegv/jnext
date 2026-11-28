@@ -8,6 +8,7 @@
 #include "input/joy_source.h"
 #include "peripheral/esp_host_policy.h"
 #include "platform/pointer_capture.h"
+#include "remote/client_link.h"
 
 #include <cctype>
 #include <charconv>
@@ -169,6 +170,13 @@ bool canon_value(const Key& k, const std::string& key, const std::string& val,
                 canon += h;
             }
             return true;
+        }
+        case Type::Host: {
+            const std::string v = trimmed(val);
+            std::string reason;
+            if (jnext::remote::valid_link_host(v, reason)) { canon = v; return true; }
+            return bad(why, key, val, "a host name, an IPv4 address or an IPv6 address without brackets ("
+                                      + reason + ")");
         }
         case Type::DeviceId: {
             const std::string v = trimmed(val);

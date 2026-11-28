@@ -36,6 +36,7 @@ enum class Type : uint8_t {
     Path,         // verbatim
     PathList,     // directories separated by source_search::kListSeparator; no empty entry; empty = the empty list
     HostList,     // comma-separated host names; empty = the empty list
+    Host,         // one link host (remote::valid_link_host): a DNS name, IPv4 or IPv6 literal without brackets; surrounding blanks removed
     DeviceId,     // a controller id (input/joy_source.h); empty = Automatic
     Keep,         // 1..1000000 or `unlimited`
     Combo,        // a debugger key combination (debug/debug_keymap.h grammar)
@@ -91,6 +92,10 @@ enum class KeyId : uint8_t {
     InputMouseRelease,
     DebuggerKey,            // the family `debugger_keys.<action id>`
     SourceColourScheme,
+    RemoteHost,
+    RemotePort,
+    RemoteConnectTimeoutMs,
+    RemoteResponseTimeoutMs,
     EspEnabled,
     EspAllowedHosts,
     NextpiEnabled,
@@ -254,6 +259,21 @@ inline constexpr Key KEYS[] = {
       "auto|light|dark|borland", nullptr, QT, true, Owner::AppConfig, nullptr,
       "Colour scheme of the debugger's Source tab: auto (light or dark, after the application), "
       "light, dark or borland (Borland C++ 3.1)" },
+    // The Remote Target (debugger on another jnext). No `flag`: --remote-target also connects,
+    // so it is not "a dedicated option with the same effect" (the keys only seed it).
+    { KeyId::RemoteHost, "remote", "host", Type::Host, 0, 0,
+      "HOST", nullptr, QT, true, Owner::AppConfig, nullptr,
+      "Host of the remote jnext the debugger connects to: a name, an IPv4 address or an IPv6 "
+      "address without brackets; read at the next connect" },
+    { KeyId::RemotePort, "remote", "port", Type::Int, 1, 65535,
+      "1..65535", nullptr, QT, true, Owner::AppConfig, nullptr,
+      "TCP port of the remote jnext's DZRP server (its --dzrp-port)" },
+    { KeyId::RemoteConnectTimeoutMs, "remote", "connect_timeout_ms", Type::Int, 100, 60000,
+      "100..60000", nullptr, QT, true, Owner::AppConfig, nullptr,
+      "Milliseconds to wait for the connection to the remote jnext" },
+    { KeyId::RemoteResponseTimeoutMs, "remote", "response_timeout_ms", Type::Int, 100, 60000,
+      "100..60000", nullptr, QT, true, Owner::AppConfig, nullptr,
+      "Milliseconds to wait for each reply of the remote jnext" },
     { KeyId::EspEnabled, "esp", "enabled", Type::Bool, 0, 0,
       "true|false", "--esp", QT | SDL | HEADLESS, false, Owner::AppConfig, nullptr,
       "Emulated ESP-01 WiFi module" },

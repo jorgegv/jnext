@@ -17,6 +17,9 @@
 #include "platform/source_scheme.h"
 #include "core/screenshot.h"
 #include "gui/crt_shader_policy.h"
+#include "core/cli_options.h"
+#include "remote/dzrp/dzrp_client.h"
+#include "remote/tcp_link.h"
 
 /// Persisted GUI preferences (Task 66 — Configurability).
 ///
@@ -98,6 +101,18 @@ struct AppConfigData {
     // run, in both directions, which is why that flag exists.
     bool        esp_enabled            = false;
     std::vector<std::string> esp_allowed_hosts;   // empty = any host
+
+    // The Remote Target: the jnext the debugger connects to (`[remote]`; edited under Settings >
+    // Preferences > Debugger, set for one run with --remote-target / --set remote.*). The
+    // defaults are the ones the code that uses them has: the DZRP default port, the TcpLink
+    // connect timeout and the DzrpClient reply timeout. Present in EVERY build: a build without
+    // the debugger has no control for them, and collect() carries them through.
+    std::string remote_host = "127.0.0.1";
+    int         remote_port = cli::kDebuggerDefaultDzrpPort;
+    int         remote_connect_timeout_ms =
+        static_cast<int>(jnext::remote::TcpLinkOptions{}.connect_timeout.count());
+    int         remote_response_timeout_ms =
+        static_cast<int>(jnext::remote::ClientConfig{}.response_timeout.count());
 
     // NextPi under QEMU on UART 1 (`--nextpi`, core/pi_qemu.h).
     // Off by default: enabling it downloads ~6 GB on first use. Persisted in

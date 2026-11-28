@@ -1400,6 +1400,7 @@ int main() {
             "audio.gain_db", "audio.gain_beeper_db", "audio.gain_ay0_db", "audio.gain_ay1_db",
             "audio.gain_ay2_db", "audio.gain_dac_db", "screenshot.quick_format", "snapshot.quick_keep",
             "input.joy1_source", "input.joy2_source", "input.mouse_release", "source.colour_scheme",
+            "remote.port", "remote.connect_timeout_ms", "remote.response_timeout_ms",
             "esp.enabled", "nextpi.enabled", "nextpi.release", "config.version",
             "debugger.attached", "debugger.physical_addresses", "debugger.size", "debugger.position",
             first_action,

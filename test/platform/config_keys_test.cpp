@@ -197,7 +197,7 @@ int main() {
                 if (canon(f + v) != "<refused>") bad += f + "'" + v + "' ";
         }
         check("SETK-08", "for every Int key its own lo and hi are accepted, lo-1, hi+1, x, 1,5 and empty are refused",
-              bad.empty() && n == 5, bad + " keys=" + std::to_string(n));
+              bad.empty() && n == 8, bad + " keys=" + std::to_string(n));
     }
 
     // SETK-09
@@ -570,6 +570,53 @@ int main() {
         }
         if (got != want) bad += "WEB set differs";
         check("SETK-CRT-01", "exactly startup.crt_filter, crt_shader and crt_shader_style have the WEB bit, each as QT|WEB (no SDL)",
+              bad.empty(), bad);
+    }
+
+    // SETK-25 (GH #517): the four remote.* rows, as the plan's table gives them.
+    {
+        struct Want { KeyId id; const char* name; Type type; double lo, hi; };
+        const Want want[] = {
+            { KeyId::RemoteHost, "host", Type::Host, 0, 0 },
+            { KeyId::RemotePort, "port", Type::Int, 1, 65535 },
+            { KeyId::RemoteConnectTimeoutMs, "connect_timeout_ms", Type::Int, 100, 60000 },
+            { KeyId::RemoteResponseTimeoutMs, "response_timeout_ms", Type::Int, 100, 60000 },
+        };
+        std::string bad;
+        int in_section = 0;
+        for (const Key& k : KEYS) if (std::string(k.section) == "remote") ++in_section;
+        for (const Want& w : want) {
+            const Key& k = config_keys::info(w.id);
+            const std::string n = std::string("remote.") + w.name + " ";
+            if (std::string(k.section) != "remote" || std::string(k.name) != w.name) bad += n + "name ";
+            if (k.type != w.type || k.lo != w.lo || k.hi != w.hi) bad += n + "type/bounds ";
+            if (k.frontends != config_keys::QT || !k.needs_debugger) bad += n + "frontend ";
+            if (k.owner != config_keys::Owner::AppConfig || k.flag != nullptr || k.not_setting) bad += n + "owner/flag/setting ";
+            if (!k.help || !*k.help || !k.values || !*k.values) bad += n + "help ";
+        }
+        check("SETK-25", "the four remote.* rows (host, port, connect_timeout_ms, response_timeout_ms) have the planned "
+                         "types and bounds, the Qt debugger only, AppConfig-owned, settable, no dedicated flag, with help",
+              bad.empty() && in_section == 4, bad + " in_section=" + std::to_string(in_section));
+    }
+
+    // SETK-26 (GH #517): the Host type is trimmed and held to remote::valid_link_host.
+    {
+        std::string bad;
+        if (canon("remote.host= my-next.local ") != "my-next.local") bad += "trim ";
+        if (canon("remote.host=::1") != "::1") bad += "ipv6 ";
+        if (canon("remote.host=127.0.0.1") != "127.0.0.1") bad += "ipv4 ";
+        const std::string h254 = std::string(63, 'a') + "." + std::string(63, 'b') + "." +
+                                 std::string(63, 'c') + "." + std::string(62, 'd');
+        for (const std::string& v : { std::string(""), std::string("a b"), std::string("[::1]"), h254,
+                                      std::string("e\xC3\xA9.example"), std::string("   ") }) {
+            std::string why;
+            const std::string r = canon("remote.host=" + v, &why);
+            if (r != "<refused>" || why.find("remote.host") == std::string::npos ||
+                why.find("\"" + v + "\"") == std::string::npos)
+                bad += "accepts/naming '" + v.substr(0, 8) + "' ";
+        }
+        check("SETK-26", "a Host key trims blanks and keeps a name, an IPv4 or an IPv6 literal; empty, a blank, brackets, "
+                         "254 characters and a non-ASCII host are refused, the reason naming the key and what was typed",
               bad.empty(), bad);
     }
 
