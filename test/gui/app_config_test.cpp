@@ -1897,6 +1897,7 @@ static void test_remote_keys(QTemporaryDir& dir) {
             { KeyId::RemoteResponseTimeoutMs, {}, "400" },
             { KeyId::RemoteHost, {}, "::1" },
             { KeyId::RemotePort, {}, "11001" },
+            { KeyId::RemoteProgram, {}, "/cli/prog.nex" },
         });
         const QString p = fresh_ini_path(dir, "remote-merge");
         { AppConfig a(p); a.data() = saved; a.save(); }
@@ -1904,7 +1905,8 @@ static void test_remote_keys(QTemporaryDir& dir) {
         check("AC-109", "merge_cli_assignments() sets remote.host, port, connect_timeout_ms and response_timeout_ms (the later of "
                         "one key wins) and leaves every other field as saved; the saved file is not touched",
               merged.remote_host == "::1" && merged.remote_port == 11001 && merged.remote_connect_timeout_ms == 300 &&
-                  merged.remote_response_timeout_ms == 400 && merged.window_scale == 3 &&
+                  merged.remote_response_timeout_ms == 400 && merged.remote_program == QLatin1String("/cli/prog.nex") &&
+                  merged.window_scale == 3 &&
                   saved.remote_host == "saved.example" && slurp(p) == before &&
                   has_line(before, "host=saved.example") && has_line(before, "port=1234"));
     }

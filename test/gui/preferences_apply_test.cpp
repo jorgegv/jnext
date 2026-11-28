@@ -1982,6 +1982,7 @@ void test_remote_target_passthrough()
     initial.remote_port = 1;
     initial.remote_connect_timeout_ms = 100;
     initial.remote_response_timeout_ms = 60000;
+    initial.remote_program = QStringLiteral("/p/prog.nex");
     PreferencesDialog dlg(initial);
     AppConfigData got;
     bool emitted = false;
@@ -1991,7 +1992,8 @@ void test_remote_target_passthrough()
     auto* apply = buttons ? buttons->button(QDialogButtonBox::Apply) : nullptr;
     if (apply) apply->click();
     const bool kept = emitted && got.remote_host == "::1" && got.remote_port == 1 &&
-                      got.remote_connect_timeout_ms == 100 && got.remote_response_timeout_ms == 60000;
+                      got.remote_connect_timeout_ms == 100 && got.remote_response_timeout_ms == 60000 &&
+                      got.remote_program == QLatin1String("/p/prog.nex");
 
     // With the controls (a debugger build): filled from the config, and an edit is collected.
     bool edited = true;
@@ -1999,17 +2001,20 @@ void test_remote_target_passthrough()
         auto* port = dlg.findChild<QSpinBox*>(QStringLiteral("remotePortSpin"));
         auto* ct = dlg.findChild<QSpinBox*>(QStringLiteral("remoteConnectTimeoutSpin"));
         auto* rt = dlg.findChild<QSpinBox*>(QStringLiteral("remoteResponseTimeoutSpin"));
-        edited = port && ct && rt && host->text() == QLatin1String("::1") && port->value() == 1 &&
+        auto* prog = dlg.findChild<QLineEdit*>(QStringLiteral("remoteProgramEdit"));
+        edited = port && ct && rt && prog && prog->text() == QLatin1String("/p/prog.nex") && host->text() == QLatin1String("::1") && port->value() == 1 &&
                  ct->value() == 100 && rt->value() == 60000;
         if (edited) {
             host->setText(QStringLiteral(" my-next.local "));
             port->setValue(65535);
             ct->setValue(60000);
             rt->setValue(100);
+            prog->setText(QStringLiteral("/q/other.nex"));
             emitted = false;
             apply->click();
             edited = emitted && got.remote_host == "my-next.local" && got.remote_port == 65535 &&
-                     got.remote_connect_timeout_ms == 60000 && got.remote_response_timeout_ms == 100;
+                     got.remote_connect_timeout_ms == 60000 && got.remote_response_timeout_ms == 100 &&
+                     got.remote_program == QLatin1String("/q/other.nex");
         }
     }
     check("PA-41", "an untouched Apply emits the four Remote target values it was given, and where the controls exist they hold "
