@@ -386,6 +386,27 @@ int main() {
               "slots=" + std::to_string(slots) + " marked=" + std::to_string(cov.count()));
     }
 
+    // PRB-16 - the Execute-subscription twin of PRB-14: a Stop subscription on the address a cut slot
+    // starts at (inside a 200 DD chain) never fires; one on the chain's first byte does.
+    {
+        const uint16_t chain = kMain + 1, inside = chain + 65;
+        auto run = [&](uint16_t at) {
+            Rig r;
+            r.emu->mmu().write(kMain, 0x00);
+            for (int i = 0; i < 200; ++i) r.emu->mmu().write(static_cast<uint16_t>(chain + i), 0xDD);
+            r.emu->mmu().write(chain + 200, 0x00);
+            r.emu->mmu().write(chain + 201, 0x18);
+            r.emu->mmu().write(chain + 202, 0xFE);
+            r.dbg->subscribe(r.client, exec_sub(at));
+            r.emu->run_frame();
+            return std::make_pair(r.ds().paused(), r.emu->cpu().pc());
+        };
+        const auto a = run(inside), b = run(chain);
+        check("PRB-16", "an Execute subscription on the address a cut slot starts at (inside a 200 DD chain) does not fire; one on the chain's first byte does",
+              !a.first && a.second == chain + 201 && b.first && b.second == chain,
+              "inside_paused=" + b2s(a.first) + " first_paused=" + b2s(b.first));
+    }
+
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;

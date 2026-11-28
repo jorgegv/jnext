@@ -4071,6 +4071,36 @@ void test_pfxch_17_esxdos_not_inside_a_run(Result& res) {
           at_start.first == 1 && inside.first == 0, detail);
 }
 
+// 65 DD, then `tail`: both hooks over the whole instruction, in address order. For DD CB d op the d and
+// op are data reads, not M1s (z80_ddfd.c case 0xcb); an ED after the cut prefix is a fresh chain start,
+// so its inner byte is an M1 with its own prefetch hook (divmmc.vhd:127-148, one decision per M1).
+void pfx_hooks_after_65dd(Result& res, const char* id, const char* desc, std::vector<uint8_t> tail,
+                          size_t m1s, bool test_n) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+    pfx_fill(mem, 65, false);
+    for (size_t i = 0; i < tail.size(); ++i) mem.ram[kPfxBase + 65 + i] = tail[i];
+    auto regs = cpu.get_registers();
+    regs.AF = 0x0F00; regs.IX = 0x9000; regs.R = 0;
+    cpu.set_registers(regs);
+    std::vector<uint16_t> pre;
+    std::vector<uint16_t> cyc;
+    cpu.on_m1_prefetch = [&](uint16_t a) { pre.push_back(a); };
+    cpu.on_m1_cycle = [&](uint16_t a, uint8_t) { cyc.push_back(a); };
+    int t = 0;
+    const int slots = pfx_run_to_end(cpu, t);
+    bool ok = slots == 2 && pre.size() == m1s && cyc.size() == m1s && cpu.prefix_pending() == 0;
+    for (size_t i = 0; ok && i < m1s; ++i) ok = pre[i] == kPfxBase + i && cyc[i] == kPfxBase + i;
+    if (test_n) ok = ok && (cpu.get_registers().AF >> 8) == 0x0F && cpu.get_registers().PC == kPfxBase + 68;
+    char detail[160];
+    std::snprintf(detail, sizeof(detail), "slots=%d prefetch=%zu cycle=%zu (exp %zu each)", slots, pre.size(),
+                  cyc.size(), m1s);
+    check(res, id, desc, ok, detail);
+}
+
 void test_pfxch_14_magic_forms_keyed_on_first_byte(Result& res) {
     detach_contention();
     auto fires = [&](std::vector<uint8_t> prog) {
@@ -4243,6 +4273,12 @@ int main() {
     test_pfxch_14_magic_forms_keyed_on_first_byte(res);
     test_pfxch_15_pc_change_clears_pending(res);
     test_pfxch_17_esxdos_not_inside_a_run(res);
+    pfx_hooks_after_65dd(res, "PFXCH-18",
+        "65 DD then CB 06 06 (RLC (IX+6)): 66 prefetch and 66 cycle hooks, in order; d and op are data, not M1s",
+        {0xCB, 0x06, 0x06}, 66, false);
+    pfx_hooks_after_65dd(res, "PFXCH-19",
+        "65 DD then ED 27 3C: 67 prefetch and 67 cycle hooks, in order (the ED after the cut prefix starts a fresh chain); TEST runs, A unchanged",
+        {0xED, 0x27, 0x3C}, 67, true);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");

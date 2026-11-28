@@ -721,6 +721,33 @@ void emulator_rows() {
               "transitions=" + std::to_string(transitions) + " size=" + std::to_string(f.size()));
     }
     {
+        // GH #584: 65 DD in 0x0481..0x04C1 end a slot right after a prefix M1, with PC = 0x04C2 and the
+        // prefix pending: that is the middle of an instruction, not SA-BYTES entry, so no trap (a trap
+        // substitutes an instruction start). Control: the same ROM entered at 0x04C2 traps.
+        auto blocks = [&](uint16_t pc) {
+            auto emu = next_machine();
+            const std::string path = tmp("pfx.tzx");
+            std::filesystem::remove(path);
+            emu->start_tape_save(path);
+            with_rom(*emu);
+            std::vector<uint8_t> rom(0x2000, 0x00);
+            rom[0x04C2] = 0x21; rom[0x04C3] = 0x3F; rom[0x04C4] = 0x05; rom[0x04C5] = 0xE5;
+            for (int i = 0x0481; i <= 0x04C1; ++i) rom[i] = 0xDD;
+            emu->mmu().set_boot_rom(rom.data(), rom.size());
+            emu->mmu().set_boot_rom_enabled(true);
+            auto r = emu->cpu().get_registers();
+            r.PC = pc; r.SP = 0x7FF0; r.AF = 0xFF00; r.IX = 0x9000; r.DE = 5; r.IFF1 = r.IFF2 = 0;
+            emu->cpu().set_registers(r);
+            emu->run_frame();
+            const size_t n = emu->tape_recorder().rom_blocks();
+            emu->stop_tape_save();
+            return n;
+        };
+        const size_t inside = blocks(0x0481), control = blocks(0x04C2);
+        check("TSAVE-PFX-01", "SA-BYTES entry reached as the byte after a cut DD run (prefix pending) appends no block; the same entry as an instruction start does",
+              inside == 0 && control == 1, "inside=" + std::to_string(inside) + " control=" + std::to_string(control));
+    }
+    {
         auto emu = next_machine();
         const std::string path = tmp("replay.tzx");
         std::filesystem::remove(path);

@@ -7928,9 +7928,10 @@ static int test_gh402_tape_reattach()
     // into IX or IY); a run of 65 DD ends a slot right after the 65th M1, so a snapshot taken there has to
     // carry it, or the restored machine would run `21 34 12` as LD HL,nn instead of LD IX,nn.
     {
-        auto at_cut = [&]() {
+        auto at_cut = [&](bool fd = false) {
             auto a = make();
             Bytes prog(65, 0xDD);
+            if (fd) prog[64] = 0xFD;                              // the 65th prefix, the one left pending
             prog.insert(prog.end(), {0x21, 0x34, 0x12, 0x18, 0xFE});
             for (size_t i = 0; i < prog.size(); ++i) a->mmu().write(uint16_t(0x8000 + i), prog[i]);
             auto r = a->cpu().get_registers();
@@ -7942,6 +7943,11 @@ static int test_gh402_tape_reattach()
             a->cpu().set_registers(r);
             a->execute_single_instruction();                      // ...then the cut slot, and save at once
             return a;
+        };
+        auto finishes_as_iy = [&](Emulator& e) {
+            e.execute_single_instruction();                       // the resumed slot: LD IY,nn
+            const auto r = e.cpu().get_registers();
+            return r.IY == 0x1234 && r.HL == 0x5555 && r.IX == 0;
         };
         auto finishes_as_ix = [&](Emulator& e) {
             e.execute_single_instruction();                       // the resumed slot: LD IX,nn
@@ -7970,16 +7976,36 @@ static int test_gh402_tape_reattach()
             const bool l2 = c->load_state(rd2);
             const bool clears = l2 && c->cpu().prefix_pending() == 0;
             // ...and an impossible value (bit 1 and bit 2 together, or a stray bit) is refused.
-            Bytes bad = full;
-            bad[at] = 6;
-            auto d = make();
-            StateReader rd3(bad.data(), bad.size());
-            const bool refused = one_byte && !d->load_state(rd3);
-            check("PFXCH-SAVE-01", cut && carried && one_byte && clears && refused,
+            bool refused = one_byte;
+            for (uint8_t v : {uint8_t(6), uint8_t(7), uint8_t(8)}) {   // 6: both prefix bits; 7: both plus the latch; 8: a stray bit
+                Bytes bad = full;
+                bad[at] = v;
+                auto d = make();
+                StateReader rd3(bad.data(), bad.size());
+                refused = refused && !d->load_state(rd3);
+            }
+            // The latch and the prefix are decoded apart: value 2 leaves the stackless latch clear, 3 sets both.
+            const bool latch_clear = l && !b->cpu().stackless_retn_active();
+            Bytes both = full;
+            both[at] = 3;
+            auto e3 = make();
+            StateReader rd4(both.data(), both.size());
+            const bool l3 = e3->load_state(rd4);
+            const bool both_ok = one_byte && l3 && e3->cpu().prefix_pending() == 0xDD && e3->cpu().stackless_retn_active();
+            // An FD pending is saved as an FD (the binary save), and the next slot writes IY.
+            auto f = at_cut(true);
+            const Bytes fdstream = stream(*f);
+            auto g = make();
+            StateReader rd5(fdstream.data(), fdstream.size());
+            const bool fd_ok = f->cpu().prefix_pending() == 0xFD && g->load_state(rd5) &&
+                               g->cpu().prefix_pending() == 0xFD && finishes_as_iy(*g);
+            check("PFXCH-SAVE-01", cut && carried && one_byte && clears && refused && latch_clear && both_ok && fd_ok,
                   "a binary stream saved at the cut of a 65 DD run restores the pending prefix (the next slot writes IX, HL untouched) "
-                  "in one byte of the stream (same length as with nothing pending); a stream with nothing pending clears it; the value 6 is refused",
+                  "in one byte of the stream (same length as with nothing pending); a stream with nothing pending clears it; the values 6, 7 and 8 are refused; value 2 leaves the stackless latch clear and 3 sets both; an FD pending is saved and restored as FD (the next slot writes IY)",
                   "cut=" + std::to_string(cut) + " carried=" + std::to_string(carried) + " one_byte=" + std::to_string(one_byte) +
-                      " clears=" + std::to_string(clears) + " refused=" + std::to_string(refused));
+                      " clears=" + std::to_string(clears) + " refused=" + std::to_string(refused) +
+                      " latch_clear=" + std::to_string(latch_clear) + " both_ok=" + std::to_string(both_ok) +
+                      " fd_ok=" + std::to_string(fd_ok));
         }
         Bytes j1;
         {
@@ -7989,7 +8015,16 @@ static int test_gh402_tape_reattach()
             jnext::JnsLoadReport rep;
             const bool l = saved && load(*b, j1, true, rep);
             const std::string em = member_text(j1, "state/emulator.json");
-            check("PFXCH-SAVE-02", l && b->cpu().prefix_pending() == 0xDD && finishes_as_ix(*b) &&
+            // An FD pending: the .jns says "fd" and restores 0xFD (the next slot writes IY).
+            auto fa = at_cut(true);
+            Bytes jf;
+            const bool fsaved = save(*fa, jf);
+            auto fb = make();
+            jnext::JnsLoadReport frep;
+            const bool fd_ok = fsaved && load(*fb, jf, true, frep) && fb->cpu().prefix_pending() == 0xFD &&
+                               member_text(jf, "state/emulator.json").find("\"fd\"") != std::string::npos &&
+                               finishes_as_iy(*fb);
+            check("PFXCH-SAVE-02", l && b->cpu().prefix_pending() == 0xDD && finishes_as_ix(*b) && fd_ok &&
                   em.find("cpu_prefix_pending") != std::string::npos,
                   "a .jns saved at the cut of a 65 DD run names cpu_prefix_pending in state/emulator.json and restores it",
                   "saved=" + std::to_string(saved) + " loaded=" + std::to_string(l));
