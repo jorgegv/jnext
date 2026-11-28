@@ -176,6 +176,8 @@ summarize_log() {
     [[ -z "$bad" ]] || head -n 30 <<<"$bad"
     [[ "$nbad" -le 30 ]] || echo "... $((nbad - 30)) more in the log"
     grep -E '^=== remote-run oom: ' <<<"$clean" || true
+    # a mutant run's verdict line (`make mutant-test`): the line a reader applies the skills' reading rule to
+    grep -aE '^mutant-test: ' <<<"$clean" | tail -n 1 | sed 's/^/--- /' || true
     echo "--- totals per step"
     grep -E '^=== remote-run totals:' <<<"$clean" || echo "(no step printed a totals line)"
     if [[ -n "${PATCH_NAME:-}" ]]; then
@@ -508,6 +510,7 @@ main() {
         # (harness refusal: its own banner LINE only; a FAIL listing quotes the words indented behind '| ')
         if [[ -n "$PATCH_NAME" && -z "$patch_no_verdict" ]]; then
             if [[ $rc -eq 124 ]]; then patch_no_verdict="the run hit the run-level timeout: no verdict (time limit)"
+            elif [[ $rc -ne 0 ]] && grep -aq '^=== remote-run result: bootstrap rc=' "$LOG"; then patch_no_verdict="the lane's bootstrap failed (before any test): no verdict (bootstrap)"
             elif [[ $rc -ne 0 ]] && grep -aEq '^[[:space:]]*TEST HARNESS REFUSES TO RUN[[:space:]]*$' <<<"$(sed -e 's/\x1b\[[0-9;]*m//g' "$LOG")"; then patch_no_verdict="the test harness refused to run: no verdict (REFUSES TO RUN)"
             fi
         fi
@@ -541,6 +544,12 @@ main() {
             fi
             if [[ $state != patchrefused ]]; then
                 set +e; run_local "$fallback_dir" "$targets"; rc=$?; set -e
+                # the same rule as on a lane: for a mutant, a refused harness is no verdict, never the exit 1 run_local folds it to
+                if [[ -n "$PATCH_NAME" && $rc -ne 0 && $rc -ne 124 ]] && grep -aEq '^[[:space:]]*TEST HARNESS REFUSES TO RUN[[:space:]]*$' <<<"$(sed -e 's/\x1b\[[0-9;]*m//g' "$LOG")"; then
+                    PATCH_REFUSED_WHY="the test harness refused to run: no verdict (REFUSES TO RUN)"
+                    echo "=== remote-run patch refused: $PATCH_REFUSED_WHY" >> "$LOG"
+                    state=patchrefused
+                fi
             fi
         else
             rc=75
