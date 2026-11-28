@@ -4298,9 +4298,10 @@ The default SD-card image, used when **--sdcard** is not given. A new
 download or install always creates this name. A card that earlier
 versions made as `cspect-next-1gb-fixed.img` keeps that name: JNEXT uses
 it, with its companion files (`.distro`, `.recipe`, the writes file, …),
-when `jnext-sdcard.img` does not exist, and never renames, moves or
-deletes it. If both exist, `jnext-sdcard.img` is used and the other is
-left alone.
+when `jnext-sdcard.img` does not exist, and never renames it. An upgrade
+keeps it, under its own name, as the backup in `previous/` (a later
+upgrade or **--sdcard-delete-backup** removes that backup). If both
+exist, `jnext-sdcard.img` is used and the other is left alone.
 
 `~/.jnext/sdcard/cspect-next-1gb.img`  
 The canonical distribution image the patched one above is produced from.

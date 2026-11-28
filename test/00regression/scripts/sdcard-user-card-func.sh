@@ -32,7 +32,7 @@ if want sdcard-user-card-func; then
     printf '%s  %s\n' "$(sha256sum "$UC" | cut -d' ' -f1)" "$SD_CARD_NAME" > "$UC.sha256"
     chmod 0444 "$UC"; touch -d '2020-01-02 03:04:05' "$UC"
     # GH #579: a user card still under its OLD name (cspect-next-1gb-fixed.img) beside the current one. No suite
-    # step may migrate it: only jnext's own default flow renames a card, and the suites never run it on this HOME.
+    # step may migrate it: nothing renames a card by its name, and the suites never run jnext's default flow on this HOME.
     LC="$H/.jnext/sdcard/cspect-next-1gb-fixed.img"
     printf 'LEGACY-USER-CARD\n' > "$LC"; printf '%s\n' "$want_distro" > "$LC.distro"
     chmod 0444 "$LC"; touch -d '2019-05-06 07:08:09' "$LC"

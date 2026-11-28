@@ -5366,7 +5366,10 @@ A card that earlier versions made as
 \f[CR]cspect\-next\-1gb\-fixed.img\f[R] keeps that name: JNEXT uses it,
 with its companion files (\f[CR].distro\f[R], \f[CR].recipe\f[R], the
 writes file, \&...), when \f[CR]jnext\-sdcard.img\f[R] does not exist,
-and never renames, moves or deletes it.
+and never renames it.
+An upgrade keeps it, under its own name, as the backup in
+\f[CR]previous/\f[R] (a later upgrade or
+\f[B]\-\-sdcard\-delete\-backup\f[R] removes that backup).
 If both exist, \f[CR]jnext\-sdcard.img\f[R] is used and the other is
 left alone.
 .TP

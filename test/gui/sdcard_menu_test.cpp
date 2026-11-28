@@ -163,6 +163,7 @@ int main(int argc, char** argv)
         bool mounted_at_end = false;
         bool ran_a_frame = false;
         std::string journal_file;                // the writes file registered for the default card at the end
+        std::string mounted_path;                // the card in the machine at the end
     };
     // Any box that is still up 40 ms after it appeared is one nobody answers (the confirm is clicked at 0 ms): it is
     // counted and closed, so a defect that raises an unexpected warning fails a row instead of hanging the suite.
@@ -214,6 +215,7 @@ int main(int argc, char** argv)
         QCoreApplication::processEvents();
         L.reset_requested = L.reset_same_tick || f.emu.take_hard_reset_request();
         L.mounted_at_end = !f.emu.sd_card().image_path().empty();
+        L.mounted_path = f.emu.sd_card().image_path();
         f.emu.run_frame();
         L.ran_a_frame = true;
         L.dialogs = unexpected_dialogs - dialogs_before;
@@ -257,6 +259,44 @@ int main(int argc, char** argv)
               L.dialogs == 0 && L.seq == want && L.ejected_at_work && !L.insert_pending_at_work && L.reset_same_tick && L.mounted_at_end && L.ran_a_frame &&
                   L.journal_file.empty() && fs::exists(dir + "/previous/" + sdcard::kFixedImageFileName),
               [&] { std::string t; for (const auto& x : L.seq) t += x + " "; return t + "| journal=" + L.journal_file; }());
+    }
+    {
+        // GH #579: go back from a new-named card to a backup that carries the OLD name: the card that comes in is
+        // the old-named one, and it is the one inserted (the path is resolved again after the swap)
+        reset_set();
+        const std::string old_prev = dir + "/previous/" + sdcard::kLegacyFixedImageFileName;
+        put(old_prev, 1 << 16);
+        { std::ofstream(old_prev + sdcard::kDistroSuffix) << "sn-emulator-23.01.zip\n"; }
+        Fixture f(card);
+        Live L;
+        live_run(f.win.go_back_sd_action(), f, L);
+        const std::string old_card = dir + "/" + sdcard::kLegacyFixedImageFileName;
+        check("SDMENU-13", "go back to an old-named backup, live: the old-named card is the one inserted (not the vanished new-named path), nothing is left unanswered, the machine is hard-reset",
+              L.dialogs == 0 && L.mounted_at_end && L.mounted_path == old_card && L.reset_same_tick && L.ran_a_frame &&
+                  fs::exists(old_card) && fs::exists(dir + "/previous/" + sdcard::kFixedImageFileName), L.mounted_path);
+    }
+    {
+        // GH #579: upgrade of an OLD-named card: the work moves it into previous/ and installs the new name; the card
+        // inserted afterwards is the new one
+        reset_set();
+        std::error_code ec;
+        fs::remove(card, ec); fs::remove(card + sdcard::kDistroSuffix, ec);
+        const std::string old_card = dir + "/" + sdcard::kLegacyFixedImageFileName;
+        put(old_card, 1 << 16);
+        { std::ofstream(old_card + sdcard::kDistroSuffix) << "sn-emulator-24.11.zip\n"; }
+        Fixture f(old_card);
+        Live L;
+        f.win.card_op_upgrade_work_for_test = [&](std::string&) {
+            std::error_code e2;
+            fs::create_directories(dir + "/previous", e2);
+            fs::rename(old_card, dir + "/previous/" + sdcard::kLegacyFixedImageFileName, e2);
+            put(card, (1 << 16) + 4096);                       // the new card, under the new name
+            return true;
+        };
+        live_run(f.win.upgrade_sd_action(), f, L);
+        check("SDMENU-14", "upgrade of an old-named card, live: the work moves it into previous/ and installs the new name, and the NEW card is the one inserted",
+              L.dialogs == 0 && L.mounted_at_end && L.mounted_path == card && L.reset_same_tick && L.ran_a_frame &&
+                  fs::exists(dir + "/previous/" + sdcard::kLegacyFixedImageFileName) && !fs::exists(old_card), L.mounted_path);
     }
     {
         // upgrade: the work (a stand-in for provision_sd_card) replaces the card and rebuilds the session's writes file

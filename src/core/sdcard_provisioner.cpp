@@ -1049,7 +1049,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
 
     const std::string dir   = default_sdcard_dir();
     const std::string raw   = default_sdcard_raw_image_path();   // pristine
-    std::string fixed = default_sdcard_image_path();             // patched (the name in use: see card_name_in)
+    std::string fixed;   // the patched card, resolved after the recovery below (it can change the name on disk)
 
     // GH #555: an interrupted upgrade is finished (SWITCHING present) or its scratch removed.
     {
@@ -1066,6 +1066,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
             return r;
         }
     }
+    fixed = default_sdcard_image_path();   // the name in use: see card_name_in
 
     // Distro URL: $JNEXT_SDCARD_DISTRO_URL overrides kDistroUrl when set
     // and non-empty. A TEST SEAM in the same spirit as $JNEXT_CONFIG_DIR

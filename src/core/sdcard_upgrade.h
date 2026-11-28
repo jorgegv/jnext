@@ -36,7 +36,7 @@ struct Plan {
 };
 
 /// The files that make up a set, by name: the card and its sidecars, the raw and its sidecars.
-/// The one list: recovery, go back and the legacy-name migration all read it.
+/// The one list: recovery, go back and the backup status all read it.
 std::vector<std::string> set_names();
 
 /// <dir>/upgrade-work and <dir>/previous.

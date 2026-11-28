@@ -2576,7 +2576,7 @@ static int run_main(int argc, char* argv[]) {
 
     // A ZIP archive is not an SD card. The firmware would read garbage and the
     // ROM extractor would fail without saying why. The browser build is given
-    // the page's download as a zip and extracts its single .img (the zip's
+    // the page's download as a zip and extracts its single .img or .mmc (the zip's
     // SHA-256 stands for its member); every other build refuses.
     if (program_archive::is_archive_path(sd_card_image)) {
 #ifdef __EMSCRIPTEN__

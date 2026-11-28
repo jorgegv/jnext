@@ -14,8 +14,9 @@ set -euo pipefail
 
 JNEXT=$1
 WORK=$2
-MASTER=${3:-$HOME/.jnext/sdcard/test-suite/sdcard/jnext-sdcard.img}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+MASTER_DIR=$HOME/.jnext/sdcard/test-suite/sdcard
+MASTER=${3:-$MASTER_DIR/$(bash "$HERE/../../tools/sd-card-name.sh" "$MASTER_DIR")}   # the new name, else the old one (GH #579)
 RTC="2026-07-10T08:55:00"
 # BOOT_SHIFT: the card's boot delay in frames, the firmware's machine-type commit frame minus the
 # reference card's (test-functions.inc, "The boot-ready helper"). The regression row passes it

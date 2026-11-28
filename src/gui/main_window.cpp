@@ -2406,7 +2406,7 @@ void MainWindow::on_delete_backup() {
 void MainWindow::run_card_op() {
     const CardOp op = card_op_;
     const std::string dir  = sdcard::default_sdcard_dir();
-    const std::string card = sdcard::default_sdcard_image_path();
+    std::string card = sdcard::default_sdcard_image_path();
     // Bind `file` as the write journal of the card now at the default path (size and mtime of that card).
     auto bind_over = [&](const std::string& file) {
         std::error_code bec;
@@ -2475,6 +2475,7 @@ void MainWindow::run_card_op() {
     // go back it is bound only when it is the one that belongs to the card that came back (its old copy,
     // restored at the same path). Otherwise the card is mounted plain: a session never starts writing into
     // a file it did not have.
+    card = sdcard::default_sdcard_image_path();   // the work may have changed which name is on disk
     std::string file = session_file;
     if (op == CardOp::GoBack && !(file.empty() ? false : sdcard::upgrade::file_binds_to_card(card, file)))
         file.clear();
