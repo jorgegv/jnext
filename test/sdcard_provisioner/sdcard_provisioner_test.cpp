@@ -1642,7 +1642,7 @@ void test_stall_rows() {
         if (!a.ok() || !b.ok()) {
             check("PROV-STALL-14", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
         } else {
-            // (a) the client gives up (its ProgressFn says false from the 3rd call): the server sees it close
+            // (a) the client gives up (its ProgressFn says false from its first call that finds the hold begun): the server sees it close
             rs::Opts oa;
             oa.body = body;
             oa.silent = true;
@@ -1650,7 +1650,7 @@ void test_stall_rows() {
             a.set(oa);
             std::string err_a;
             int calls_a = 0;
-            sdcard::ProgressFn pf = [&](uint64_t, uint64_t) { return ++calls_a < 3; };
+            sdcard::ProgressFn pf = [&](uint64_t, uint64_t) { ++calls_a; return a.holds_begun() == 0; };
             const Clk::time_point t0 = Clk::now();
             const bool ok_a = sdcard::http_download(a.url(), dest_in("p"), pf, err_a, {200, 5000});
             Clk::time_point seen_at;
@@ -1670,12 +1670,13 @@ void test_stall_rows() {
             const bool closed_b = b.wait_client_close(seen_b, 500);
             check("PROV-STALL-14",
                   "the loopback server reports the client's close of a held connection: a client that gives up "
-                  "(ProgressFn false from its 3rd call, against a 60 s hold) is seen to close it within 10 s and "
+                  "(ProgressFn false from its first call once the server holds the connection, against a 60 s hold) is seen to close it within 10 s and "
                   "the hold did not run out; a hold that runs out (300 ms, the SERVER closes) is not reported as a "
                   "client close (the close is not observable under WinHTTP: only the second half applies there)",
-                  !ok_a && err_a == "cancelled by user" && closed_a && a.holds_run_out() == 0 && after_s < 10.0 &&
+                  !ok_a && err_a == "cancelled by user" && a.holds_begun() == 1 && closed_a && a.holds_run_out() == 0 && after_s < 10.0 &&
                       !ok_b && b.holds_run_out() == 1 && !closed_b,
                   "a: ok=" + std::to_string(ok_a) + " err='" + err_a + "' closed=" + std::to_string(closed_a) +
+                      " calls=" + std::to_string(calls_a) + " holds_begun=" + std::to_string(a.holds_begun()) +
                       " run_out=" + std::to_string(a.holds_run_out()) + " t=" + num(after_s) + "s; b: ok=" +
                       std::to_string(ok_b) + " run_out=" + std::to_string(b.holds_run_out()) + " closed=" +
                       std::to_string(closed_b) + " err='" + err_b + "'");

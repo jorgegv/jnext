@@ -107,6 +107,9 @@ public:
     void clear_requests() { std::lock_guard<std::mutex> g(m_); reqs_.clear(); }
     /// Holds that ended because `stall_ms` ran out. The count is made before the server closes the connection.
     int holds_run_out() const { return holds_run_out_.load(); }
+    /// Holds that have begun. wait_client_close() observes only the close of a connection being HELD (a close before
+    /// the request is read is not one), so a row that bounds a close gives up only once this says the hold began.
+    int holds_begun() const { return holds_begun_.load(); }
     /// End the hold of the connection accepted before this call (a connection accepted after it is not touched).
     void release() { ++release_gen_; }
     /// Wait up to `timeout_ms` for the CLIENT to close the connection last held (not the server: a hold that ran
@@ -131,6 +134,7 @@ private:
     void hold(esp::net::NativeSocket c, int ms) {
         const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
         client_close_ns_ = 0;
+        ++holds_begun_;   // after the reset: a close from here on is recorded
         while (!stop_) {
             if (std::chrono::steady_clock::now() >= until) { ++holds_run_out_; return; }
             if (release_gen_.load() != conn_gen_) return;
@@ -298,6 +302,7 @@ private:
     std::thread            thread_;
     std::atomic<bool>      stop_{false};
     std::atomic<int>       holds_run_out_{0};
+    std::atomic<int>       holds_begun_{0};
     std::atomic<long long> client_close_ns_{0};   // steady_clock ns when the client closed the held connection; 0 = not (yet)
     std::atomic<unsigned>  release_gen_{0};
     unsigned               conn_gen_ = 0;   // release_gen_ when the connection being served was accepted (server thread only)

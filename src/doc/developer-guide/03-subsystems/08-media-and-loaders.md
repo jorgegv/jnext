@@ -1855,7 +1855,7 @@ wakes every 10 ms and records each wake more than 20 ms late, and the rows subtr
 spans from each gap. A process frozen by the host delays every thread alike and is excused;
 a long wait the backend makes by itself does not delay the sentinel and is still caught.
 `PROV-STALL-12` pins the sentinel's arithmetic and `PROV-STALL-13` the server's hold
-counter and `release()`, `PROV-STALL-14` the server's observation of the client's close and `PROV-STALL-15` that `download_step` decides without settling.
+counter and `release()`, `PROV-STALL-14` the server's observation of the client's close (the server sees only the close of a connection it is holding, so the row gives up only once the hold has begun, `holds_begun()`) and `PROV-STALL-15` that `download_step` decides without settling.
 
 What a failed fetch says is the callers' business, once. Every failure of
 a fetch is built by `sdcard::fetch_failure(what, url, reason, next)`: `<what>:
