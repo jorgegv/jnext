@@ -21,6 +21,14 @@ instruction and goes into the trace and the call frames; the prediction is
 asked before one and feeds every lookup. The Execute filter has one predicate,
 used in three places.*
 
+## On a target there is no prediction
+
+A facade over a remote target shows only the MMU: `source_page(addr)` is the slot's `Page{p}` for a
+RAM slot and `cpu()` for a ROM slot, and `effective_page()` is the slot's page. Overlays (DivMMC,
+Multiface, Layer 2, the alternate ROM) are invisible, so with one mapped the lookup uses the page
+or ROM underneath, and `why_unavailable(FetchOverlays)` says so. The Disassembly's identity label
+is therefore the MMU's.
+
 ## The kinds
 
 A `MemSpace` is a `Kind` and a 16-bit `index`. Equality is by **decode path**,

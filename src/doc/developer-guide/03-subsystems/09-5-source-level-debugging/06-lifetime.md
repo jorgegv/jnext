@@ -228,6 +228,32 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
 - **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1336`, set at `SourceMapStatus::dot`, `debugger_source.cpp:619`) tells the Source tab to word its pending note
   *...when the dot command runs* ([3.9.5.7](07-frontends.md)).
 
+## On a target: the build match
+
+A facade over a target has no landings and no first execution to wait for, so
+`load_program_sidecars()` and `load_source_map()` judge the program where it stands, at the call
+(`Impl::remote_identity()`, reached through `verify_identity()`), and a tape program or a
+`verify_at_first_execution` map is never pending. A dot command's map is refused: it runs from
+DivMMC RAM, which a target does not show.
+
+- **No registers, no judgement.** When the target reports no `Core` registers (no program loaded, a
+  lost link) both calls load nothing, read nothing and say why (`SidecarLoad::problem`,
+  `SourceMapLoad::error`): the slots then are not the program's. The caller loads again once there
+  is state; an upload does.
+- **What is compared.** The program file named by the last sidecar load when it is a NEX, read
+  afresh at every judgement, and the map's own binary identity (section binaries, SHA-256). Of the
+  map only its **code** ranges count (`SourceMap::code_spans()`: z88dk data, bss and smc sections are
+  skipped, a running program writes them), clipped at their 8 KB slot. NEX bank `b` holds pages
+  `2b` and `2b+1` (`NexLoader::bank_data()`).
+- **How it is read.** With `PhysicalMemory`, each page holding code is read once, whatever the
+  slots map. Without it, a page is read through the CPU view in the first slot that shows it, and a
+  page mapped nowhere is not read (a page is never paged in to be read).
+- **The verdict.** A byte read and different is a mismatch; a page the file lacks, a read that failed
+  or a space that is not a page is *not compared*, with a note. Any mismatch refuses the map whole,
+  symbols included, naming the first difference (`P14+$0000: target $xx, prog.nex $yy`); a user's
+  map is made stale the same way. Confirming is the hand load with `accept_identity_mismatch`. A
+  program that loads other code after the call is not judged again.
+
 ## What the backend cannot see
 
 Only landings it is told about and loads that go through it. A program the guest
@@ -242,6 +268,8 @@ known mismatch (`accept_identity_mismatch`).
 `source_debug_test`: `SRCLIFE-*` (ring restores, the attachment cache and its
 eviction, state and snapshot landings, RZX start, the stale user map, rewind past a
 load, a rebuild), `SRCDBG-TAPE-*` (the verify window and the deferred checks, per
-memory) and `SRCDBG-OWN-*` (ownership). `source_debug_posix_test` holds the
+memory) and `SRCDBG-OWN-*` (ownership). `debug_target_test` (`TGT-07-*`, the build match over a fake target) and `remote_target_test`
+(`RSRC-*`, the fixtures over the wire against the local facade) cover a target's side.
+`source_debug_posix_test` holds the
 rows whose sidecars are POSIX file types (a looping link, a FIFO), which wine cannot
 create.

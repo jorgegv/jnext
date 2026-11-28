@@ -484,9 +484,21 @@ clear, a detach). The target holds one breakpoint or watchpoint per distinct key
 page, or range, page and access), however many subscriptions share it, and holds none for a
 disabled entry. A full 64 KB `Mem` watch is two target watches under one key, a remote
 watch size being 16 bits. `subscribe()` refuses what a target cannot hold before any
-target call: an `Execute` range or space, `Mem` page sets, a page outside 0 to 223, an
-inverted range (`RefusedUnavailable`), and an entry the target then refuses is never left in the
-table.
+target call: an `Execute` range or a space that is not `cpu()` or a RAM `Page{p}` (ROM and DivMMC
+RAM have no DZRP name), `Mem` page sets, a page outside 0 to 223, an inverted range
+(`RefusedUnavailable`), and an entry the target then refuses is never left in the table. An
+`Execute` entry in `Page{p}` is held under page `p` (DZRP's `bank+1`), and a reported breakpoint
+stop in a known page carries `Page{page}` as the event's space, so a page-qualified filter
+matches it.
+
+`subscribe_source_line()` works on a target the same way: each start in a RAM page becomes a
+page-qualified `Execute`; a start anywhere else (a ROM line) is skipped, and a line with no start
+left, or none the target accepts, is `RefusedUnavailable` with no entry left behind.
+
+`load_program_sidecars()` and `load_source_map()` run on a non-local facade too, with one more
+rule: the program on the target is judged against the sources (see
+[3.9.5.6](09-5-source-level-debugging/06-lifetime.md)), never pending, and a target with no
+registers (no program loaded, a lost link) gets nothing loaded and nothing read.
 
 A stop the target reports (`TargetStop`: manual, breakpoint, watch read or write, other with
 the remote's text) goes through `deliver_to_subscribers()`, the code a local stop uses, so

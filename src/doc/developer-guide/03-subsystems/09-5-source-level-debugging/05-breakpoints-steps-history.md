@@ -41,6 +41,16 @@ anything, so a refusal leaves a running machine running; then it builds a
 remembering every start in `armed_targets`. A transient subscription is removed
 at the next stop that the backend caused (`Impl::apply_stop()`).
 
+### On a target
+
+A facade over a target has no fetch prediction, so a start is armed only when it lives in a RAM
+page: the group member's `filter.space` is that `Page{p}` and the target holds the breakpoint
+under page `p` (DZRP's `bank+1`). A start in ROM or any other space is skipped, and a line with
+none left is `RefusedUnavailable`. The target's breakpoint stop carries the MMU page it found,
+which the facade turns into `Event::space = Page{page}`, so the same `Execute` predicate decides
+the match; a stop in another page, or with no known page, matches no page-qualified member and
+the machine is resumed.
+
 ### One predicate
 
 All of this relies on a single decision about whether an `Execute` event matches
