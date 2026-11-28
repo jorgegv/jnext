@@ -182,33 +182,33 @@ A z88dk dot command is not a program the emulator loads. NextZXOS copies the fil
 bank when the command is typed and runs it from `$2000` there, so at the moment the map is attached
 nothing says whether the right command is in memory, and a landing says nothing about it either.
 The map therefore has its own rule, on top of the tape machinery above. `SourceMap::dot()`
-(`source_map.h:199`) is set by the z88dk adapter ([3.9.5.4.3](04-3-z88dk-map.md), rule 5).
+(`source_map.h:216`) is set by the z88dk adapter ([3.9.5.4.3](04-3-z88dk-map.md), rule 5).
 
 - **Always deferred.** `load_source_map()` defers a dot map whatever `verify_at_first_execution` says
-  (`verify_at_first_execution`, `debugger_source.cpp:515`), when it has any byte check. `add_check()` marks the check `dot` only if
+  (`verify_at_first_execution`, `debugger_source.cpp:770`), when it has any byte check. `add_check()` marks the check `dot` only if
   one of its units is the DivMMC bank, `dot_entry_unit()` = `DivmmcRam{kNextZxosDotBank}` (bank 2,
   `kNextZxosDotBank`, `z88dk_space.h:46`); a dot map with no byte check of the DivMMC part has no entry to judge and takes the
-  tape rule (`add_check()`, `debugger_source.cpp:161-176`).
-- **The state.** `dot_reset()` (`debugger_source.cpp:183`) puts the check back to "waiting for the entry": every unit
+  tape rule (`add_check()`, `debugger_source.cpp:405-420`).
+- **The state.** `dot_reset()` (`debugger_source.cpp:427`) puts the check back to "waiting for the entry": every unit
   is to judge again, but only the entry (the DivMMC unit) is armed: the spans of every other unit (a dotx's
-  main part, in main RAM) are moved to `held`, not armed. `dot_match()` (`debugger_source.cpp:208`) is the entry matching: the DivMMC unit is done,
+  main part, in main RAM) are moved to `held`, not armed. `dot_match()` (`debugger_source.cpp:452`) is the entry matching: the DivMMC unit is done,
   `entry_ok` is set and the held spans are armed, which from then on follow the tape rule (judged where
   the CPU first runs them).
-- **The trigger.** `sync_verify_window()` always includes `kDotEntry` (`$2000`, `kDotEntry`, `debugger_source.cpp:114`) in the window of a
-  dot check (`kDotEntry`, `debugger_source.cpp:311-314`). `verify_hook(pc)` (`debugger_source.cpp:327`) judges when `pc == kDotEntry` and
+- **The trigger.** `sync_verify_window()` always includes `kDotEntry` (`$2000`, `kDotEntry`, `debugger_source.cpp:118`) in the window of a
+  dot check (`kDotEntry`, `debugger_source.cpp:555-558`). `verify_hook(pc)` (`debugger_source.cpp:571`) judges when `pc == kDotEntry` and
   `predict_fetch(pc)` is the entry unit: a match records the verdict `Verified` and calls `dot_match()`
   once; a mismatch is *another dot command*: if the entry had matched it goes back to `dot_reset()`, the
-  event is `NotTheOne`, and **nothing is dropped**. `apply_deferred()` (`debugger_source.cpp:385`) tells each verdict once
+  event is `NotTheOne`, and **nothing is dropped**. `apply_deferred()` (`debugger_source.cpp:629`) tells each verdict once
   (`"The dot command started in <space> is not the one source map '<file>' describes; it stays pending"`;
   `Verified ... the dot command in <space> matches its binary identity`) and keeps the check: it is
-  never finished (`checks.push_back` at `debugger_source.cpp:443`), so a later entry that does not match puts the map back
+  never finished (`checks.push_back` at `debugger_source.cpp:687`), so a later entry that does not match puts the map back
   to pending.
-- **A landing does not judge it.** `recheck()` (`debugger_source.cpp:1004`): for a user's map that is a dot map,
-  `verify_user()` returns at once, keeping the map live and not stale (`verify_user`, `debugger_source.cpp:1010-1019`); the checks are
-  re-derived by `dot_landing(fresh)` (`debugger_source.cpp:242`). A fresh landing (reset, state load, program load, cold
+- **A landing does not judge it.** `recheck()` (`debugger_source.cpp:1300`): for a user's map that is a dot map,
+  `verify_user()` returns at once, keeping the map live and not stale (`verify_user`, `debugger_source.cpp:1306-1315`); the checks are
+  re-derived by `dot_landing(fresh)` (`debugger_source.cpp:486`). A fresh landing (reset, state load, program load, cold
   boot) sends the user's dot checks (`dot_landing()` skips the others) to `dot_reset()`: pending until the next entry. A ring restore reads back what the
   original run showed at the landed cycle.
-- **The history.** `dot_record()` (`debugger_source.cpp:221`) appends a snapshot `{generation, cycle, entry_ok, units,
+- **The history.** `dot_record()` (`debugger_source.cpp:465`) appends a snapshot `{generation, cycle, entry_ok, units,
   spans, held}` to `DeferredCheck::history` at every judgement and every change of the check, replacing
   the records of the same generation from that cycle on (a re-run replaces what the first run recorded
   from there), and keeping at most `kDotHistoryMax` = 256 (`kDotHistoryMax`, `debugger_impl.h:198`; the oldest go, and
@@ -216,16 +216,16 @@ The map therefore has its own rule, on top of the tape machinery above. `SourceM
   landed generation strictly *before* the landed cycle (a verdict at cycle C applies to the instruction
   about to run at C, which a landing at C has not run); none means pending. Records of earlier generations
   are kept, so a rewind back across a reset reads them.
-- **A hand load made while the command already runs.** `load_source_map()` calls `dot_adopt()` (`debugger_source.cpp:266`)
+- **A hand load made while the command already runs.** `load_source_map()` calls `dot_adopt()` (`debugger_source.cpp:510`)
   for a dot map: if `predict_fetch(PC)` is the entry unit and the bank holds this command, it judges like
   a landing and is verified at once (`dot_match()`); the result is no longer pending and its note is the
-  ordinary identity note (`dot_adopt()`, `debugger_source.cpp:535-541`).
+  ordinary identity note (`dot_adopt()`, `debugger_source.cpp:796-802`).
 - **RZX.** An RZX playback start is a landing like any other ([above](#tier-2-any-other-landing)), and
   `--source-map` with a replay accepts only a dot map ([3.9.5.3](03-loaders.md)): the map attaches pending
   at start-up and the verify hook does not distinguish a replayed session from a live one
   (`replay_mode()` is the rewind replay's flag, `emulator.h:1467`, not RZX's). What the row
   `z88dk-dot-source-rzx-func` pins is the attach and the refusal, not a verdict reached during playback.
-- **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1336`, set at `SourceMapStatus::dot`, `debugger_source.cpp:619`) tells the Source tab to word its pending note
+- **Where it shows.** `SourceMapStatus::dot` (`debugger.h:1336`, set at `SourceMapStatus::dot`, `debugger_source.cpp:880`) tells the Source tab to word its pending note
   *...when the dot command runs* ([3.9.5.7](07-frontends.md)).
 
 ## On a target: the build match

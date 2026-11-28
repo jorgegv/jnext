@@ -127,11 +127,11 @@ so every consumer reads both layers with no code of its own.
 and Breakpoints panels hold (`set_symbol_table(&dbg_.symbols())`) stays valid.
 
 `recompose_names()` is called after every change of either layer: the toolchain writers
-(`recompose_names` at `src/debug/debugger.cpp:284` in load_map and `:298` in clear_symbols; in `src/debug/debugger_source.cpp` at `:422` the deferred-check drop, `:563` and `:570` the
-hand SLD's labels, `:823` the program-load attach and its bind, `:989`
-drop_sidecars, `:1093` and `:1093` the ring landing) and every verb that changes a label
+(`recompose_names` at `src/debug/debugger.cpp:284` in load_map and `:298` in clear_symbols; in `src/debug/debugger_source.cpp` at `:666` the deferred-check drop, `:824` and `:831` the
+hand SLD's labels, `:1103` the program-load attach and its bind, `:1285`
+drop_sidecars, `:1389` and `:1389` the ring landing) and every verb that changes a label
 (`recompose_names` at `src/debug/debugger_annotations.cpp:71` in set_user_label, `:80` in remove_user_label, `:116` in replace_annotations; `set_user_comment()` changes no name and does not). The attachment cache
-copies `toolchain_symbols`, never `names` (`src/debug/debugger_source.cpp:940`),
+copies `toolchain_symbols`, never `names` (`src/debug/debugger_source.cpp:1236`),
 so a ring landing cannot bring back a user label that was removed, nor drop one
 that was added.
 

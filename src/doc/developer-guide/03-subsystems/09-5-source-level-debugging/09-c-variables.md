@@ -37,12 +37,12 @@ record is never given a storage.
 ## Where it lives, and why
 
 The store is a member of the `SourceMap` it was read from
-(`SourceMap::variables()`, `src/debug/source_map.h:113`), held by
+(`SourceMap::variables()`, `src/debug/source_map.h:116`), held by
 a `shared_ptr` to an immutable object, exactly like the embedded texts of 3.9.5.2.
 `SourceMap::replace()` takes it as its last argument and stores it
 (`variables_`, `src/debug/source_map.cpp:127`); every `replace()`
 without one drops the previous store, and `clear()` resets it
-(`variables_`, `src/debug/source_map.cpp:347`).
+(`variables_`, `src/debug/source_map.cpp:373`).
 
 That placement is the design. `Debugger::Impl::source_map` is assigned, moved,
 copied or cleared at about ten places (the owner, the stale flag, `drop_sidecars()`,
@@ -53,7 +53,7 @@ code of its own: the store is attached with the map, dropped with it, made stale
 with it, cached and restored with it, and the copies share one object, so the
 cache costs nothing more.
 
-The facade is `Debugger::variables()` (`variables`, `src/debug/debugger_source.cpp:594`):
+The facade is `Debugger::variables()` (`variables`, `src/debug/debugger_source.cpp:855`):
 it runs `recheck()` first, like every reader, and returns the live source map's
 store, or null when there is no live map or it carries none (an SLD). A z88dk map
 with lines but no record carries an **empty** store, so "this program has no C
