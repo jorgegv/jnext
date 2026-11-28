@@ -1642,6 +1642,34 @@ void test_stall_rows() {
         if (!a.ok() || !b.ok()) {
             check("PROV-STALL-14", "loopback server fixture started", false, "cannot listen on 127.0.0.1");
         } else {
+            // known answer for holds_begun(): it stays 0 while the request is incomplete (the test withholds the final CRLF), 1 once it is read
+            bool begun_ok = false;
+            std::string begun_detail;
+            {
+                rs::Server c;
+                rs::Opts oc; oc.body = body; oc.silent = true; oc.stall_ms = 60000; c.set(oc);
+                const std::string u = c.url();
+                const std::uint16_t port = static_cast<std::uint16_t>(std::stoi(u.substr(u.rfind(':') + 1)));
+                std::string e;
+                esp::net::NativeSocket s = esp::net::open_nonblocking(esp::IpFamily::V4, esp::Protocol::Tcp, 0, e);
+                esp::net::ConnectProgress cp = esp::net::begin_connect(s, esp::ipv4(127, 0, 0, 1), port, e);
+                const auto cdl = Clk::now() + std::chrono::seconds(5);
+                while (cp == esp::net::ConnectProgress::Pending && Clk::now() < cdl) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    cp = esp::net::poll_connect(s, e);
+                }
+                auto send_str = [&](const std::string& t) { bool f = false; return esp::net::send(s, reinterpret_cast<const std::uint8_t*>(t.data()), t.size(), f, e) == t.size() && !f; };
+                const bool sent1 = send_str("GET /file HTTP/1.1\r\nHost: x\r\n");
+                std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                const int before = c.holds_begun();
+                const bool sent2 = send_str("\r\n");
+                const auto hdl = Clk::now() + std::chrono::seconds(5);
+                while (c.holds_begun() == 0 && Clk::now() < hdl) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                const int after = c.holds_begun();
+                esp::net::close(s);
+                begun_ok = cp == esp::net::ConnectProgress::Connected && sent1 && sent2 && before == 0 && after == 1;
+                begun_detail = "; begun: before=" + std::to_string(before) + " after=" + std::to_string(after);
+            }
             // (a) the client gives up (its ProgressFn says false from its first call that finds the hold begun): the server sees it close
             rs::Opts oa;
             oa.body = body;
@@ -1671,15 +1699,15 @@ void test_stall_rows() {
             check("PROV-STALL-14",
                   "the loopback server reports the client's close of a held connection: a client that gives up "
                   "(ProgressFn false from its first call once the server holds the connection, against a 60 s hold) is seen to close it within 10 s and "
-                  "the hold did not run out; a hold that runs out (300 ms, the SERVER closes) is not reported as a "
+                  "the hold did not run out (holds_begun() stays 0 while a raw client's request is incomplete and is 1 once it is read); a hold that runs out (300 ms, the SERVER closes) is not reported as a "
                   "client close (the close is not observable under WinHTTP: only the second half applies there)",
-                  !ok_a && err_a == "cancelled by user" && a.holds_begun() == 1 && closed_a && a.holds_run_out() == 0 && after_s < 10.0 &&
+                  begun_ok && !ok_a && err_a == "cancelled by user" && a.holds_begun() == 1 && closed_a && a.holds_run_out() == 0 && after_s < 10.0 &&
                       !ok_b && b.holds_run_out() == 1 && !closed_b,
                   "a: ok=" + std::to_string(ok_a) + " err='" + err_a + "' closed=" + std::to_string(closed_a) +
                       " calls=" + std::to_string(calls_a) + " holds_begun=" + std::to_string(a.holds_begun()) +
                       " run_out=" + std::to_string(a.holds_run_out()) + " t=" + num(after_s) + "s; b: ok=" +
                       std::to_string(ok_b) + " run_out=" + std::to_string(b.holds_run_out()) + " closed=" +
-                      std::to_string(closed_b) + " err='" + err_b + "'");
+                      std::to_string(closed_b) + " err='" + err_b + "'" + begun_detail);
         }
     }
 
