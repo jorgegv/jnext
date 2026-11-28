@@ -1885,21 +1885,14 @@ static void rsrc_rows_c() {
               !spans.empty() && refused == spans.size(), std::to_string(refused) + "/" + std::to_string(spans.size()));
     }
     {
-        // A byte in a data or bss line range (outside every code span) is not a mismatch.
-        uint16_t data_at = 0;
-        bool found = false;
+        // A byte in a data or bss line range is not a mismatch. $8F0A is `data_stdio`'s line (sccz80-debug's
+        // prog.map: `__ASM_LINE_8832_..._zxn_crt_2easm_2em4 = $8F0A ; addr, local, , zxn_crt_asm_m4, data_stdio`).
+        const uint16_t data_at = 0x8F0A;
+        bool mapped = false;   // the byte is on a mapped line
         {
             Fx f("sccz80-debug", false);
             (void)f.p.ref.dbg->load_program_sidecars(f.nex);
-            const SourceMap& m = f.p.ref.dbg->source_map();
-            const auto spans = m.code_spans();
-            for (const std::string& file : m.files())
-                for (const auto& fr : m.file_ranges(file)) {
-                    bool in_code = false;
-                    for (const auto& c : spans)
-                        in_code = in_code || (c.space == fr.space && fr.lo >= c.lo && fr.lo < c.hi_excl);
-                    if (!in_code && !found) { data_at = fr.lo; found = true; }
-                }
+            mapped = f.p.ref.dbg->source_location(MemSpace::page(4), data_at) != nullptr;
         }
         Fx f("sccz80-debug", false, {}, [data_at](Emulator& e) {
             e.mmu().write(data_at, static_cast<uint8_t>(e.mmu().read(data_at) ^ 0xFF));
@@ -1907,8 +1900,8 @@ static void rsrc_rows_c() {
         const auto r = f.p.remote->load_program_sidecars(f.nex);
         check("RSRC-13", "a byte of a data or bss line range changed on the target is not a mismatch (a running program writes "
                          "it): the map attaches",
-              found && r.sources > 0 && r.sources == f.p.ref.dbg->load_program_sidecars(f.nex).sources, "data_at=" + std::to_string(data_at) + " src=" + std::to_string(r.sources) +
-                                           " | " + r.problem);
+              mapped && r.sources > 0 && r.sources == f.p.ref.dbg->load_program_sidecars(f.nex).sources,
+              "mapped=" + std::to_string(mapped) + " src=" + std::to_string(r.sources) + " | " + r.problem);
     }
     {
         Fx f("sdcc-banked-run", false, map_page20, [](Emulator& e) {
