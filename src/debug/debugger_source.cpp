@@ -1313,7 +1313,11 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
         impl_->ds().pause();
         if (stopped_by_event()) return finish();
 
-        if (reached()) return finish();
+        // GH #584: a slot can end inside an instruction (a DD/FD run cut after a prefix M1,
+        // Z80Cpu::prefix_pending()): that PC is no instruction start, so neither a boundary nor a
+        // delivery below applies to it, as in run_frame().
+        const bool inside_instr = impl_->emu.cpu().prefix_pending() != 0;
+        if (!inside_instr && reached()) return finish();
 
         // A HALT with interrupts disabled ends only on an NMI or a reset;
         // each Step at it would spend two frames finding that out.
@@ -1334,8 +1338,8 @@ Result Debugger::source_step(ClientId by, SourceStep kind) {
         // through the backend's own gate — handlers run, a `Stop` stops with
         // its hit and `once` recorded (`run_frame()`'s order).
         const uint16_t pc = impl_->emu.cpu().get_registers().PC;
-        if (impl_->ds().should_break(pc)) return finish();
-        if (impl_->ds().execute_events_armed()) {
+        if (!inside_instr && impl_->ds().should_break(pc)) return finish();
+        if (!inside_instr && impl_->ds().execute_events_armed()) {
             DebugState::GuestExecutionScope guest(impl_->ds());
             if (impl_->ds().run_execute_gate(pc)) return finish();
         }

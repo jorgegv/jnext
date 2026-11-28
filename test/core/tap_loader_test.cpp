@@ -420,6 +420,32 @@ int main() {
                   both == 1 && first_only == 0,
                   "both=" + std::to_string(both) + " first_only=" + std::to_string(first_only));
         }
+        {   // PFXCH-TAP-01 (GH #584)
+            // 65 DD at 0x052A..0x056A end a slot right after a prefix M1 with PC = 0x056B and the prefix
+            // pending: the middle of an instruction, so LD-BREAK must not trap. Control: entered at 0x056B.
+            auto trapped = [&](uint16_t pc) {
+                auto emu = std::make_unique<Emulator>();
+                EmulatorConfig cfg; cfg.type = MachineType::ZX48K; cfg.rewind_buffer_frames = 0;
+                const bool ok = emu->init(cfg) && emu->load_tap(write_file("tpfx.tap", good), true);
+                std::vector<uint8_t> boot(0x2000, 0x00);
+                const uint8_t a[4] = {0xC0, 0xCD, 0xE7, 0x05}, b[4] = {0x7C, 0xFE, 0x01, 0xC9};
+                for (int i = 0; i < 4; ++i) { boot[0x056B + i] = a[i]; boot[0x05DF + i] = b[i]; }
+                for (int i = 0x052A; i <= 0x056A; ++i) boot[i] = 0xDD;
+                emu->mmu().set_boot_rom(boot.data(), boot.size());
+                emu->mmu().set_boot_rom_enabled(true);
+                emu->mmu().write(0x9000, 0x00); emu->mmu().write(0x9001, 0x80);
+                auto r = emu->cpu().get_registers();
+                r.PC = pc; r.SP = 0x9000; r.AF = 0x0040; r.AF2 = 0xFF01; r.IX = 0xA000; r.DE = 5;
+                r.IFF1 = r.IFF2 = 0;
+                emu->cpu().set_registers(r);
+                emu->run_frame();
+                return ok ? int(emu->tape().current_block()) : -1;
+            };
+            const int inside = trapped(0x052A), control = trapped(0x056B);
+            check("PFXCH-TAP-01", "LD-BREAK reached as the byte after a cut DD run (prefix pending) does not trap; the same address as an instruction start does",
+                  inside == 0 && control == 1,
+                  "inside=" + std::to_string(inside) + " control=" + std::to_string(control));
+        }
         {   // TAPC-26
             // A pass through LD-BREAK with no tape must not touch memory the
             // debugger watches: a READ watchpoint inside the 0x05DF signature

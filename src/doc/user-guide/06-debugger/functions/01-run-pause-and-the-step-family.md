@@ -35,7 +35,9 @@ stray F5 while you wait for one cannot cancel it. The key is still swallowed by
 the debugger either way, so it never reaches the emulated machine.
 
 **Single Step** executes exactly one instruction, entering calls, traps and
-interrupt handlers.
+interrupt handlers. The one exception is a run of more than 64 `DD`/`FD` prefix
+bytes in a row: that takes more than one step, and the registers can show `PC`
+in the middle of the run.
 
 **Step Over** sets a one-shot breakpoint after the current instruction and
 resumes, so a subroutine runs at full speed and you land on the following

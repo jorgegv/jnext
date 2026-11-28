@@ -774,6 +774,7 @@ void Z80Cpu::reset(bool hard) {
     int_pending_ = false;
     int_vector_  = 0xFF;
     stackless_retn_active_ = false;
+    prefix_pending_ = 0;
 
     sync_regs_from_fuse(regs_);
     // Pass-9 fix: VHDL t80n.vhd does not have an explicit IncDecZ reset
@@ -814,7 +815,7 @@ void Z80Cpu::fetch_prefix_chain_(uint16_t pc, uint8_t opcode) {
         m1(a);
         return;
     }
-    for (int hop = 0; hop < 64; ++hop, ++a) {
+    for (int hop = 0; hop < kMaxPrefixHops; ++hop, ++a) {
         const uint8_t b = m1(a);
         if (b == 0xDD || b == 0xFD) continue;
         if (b == 0xED) m1(static_cast<uint16_t>(a + 1));
@@ -825,6 +826,38 @@ void Z80Cpu::fetch_prefix_chain_(uint16_t pc, uint8_t opcode) {
 uint8_t Z80Cpu::chain_byte_(uint16_t addr) {
     const uint16_t off = static_cast<uint16_t>(addr - s_fetch_base);
     return off < s_fetch_n ? s_fetch_buf[off] : mem_.read_fetch(addr);
+}
+
+// The T80N runs a DD/FD that is followed by another DD, FD or ED as a one M-cycle, 4 T instruction
+// that only sets the prefix state (t80n_mcode.vhd:231-235, :1384-1387; R + 1 and PC + 1 per M1,
+// t80n.vhd:490-498); the next M1 overwrites (DD/FD) or clears (ED) the IX/IY choice
+// (t80n.vhd:513-526). So such a prefix is a bare M1 here: its hook, its contended fetch, R and PC.
+// FUSE would chain through them inside ONE call, without bound; the walk stops at kMaxPrefixHops.
+// Past it the run is cut right after a prefix M1 (the last byte the fetch buffer holds), leaving the
+// T80N's own state at that boundary: PC past the prefix, the prefix pending (see prefix_pending()).
+// Chains of up to kMaxPrefixHops hops are never cut: they stay one slot.
+[[gnu::noinline]] bool Z80Cpu::strip_prefixes_(uint16_t& pc, uint8_t& opcode) {
+    int hops = 0;
+    for (;;) {
+        const uint8_t b = chain_byte_(pc);
+        if (b != 0xDD && b != 0xFD) { opcode = b; return false; }
+        if (hops == kMaxPrefixHops) {
+            if (on_m1_cycle) on_m1_cycle(pc, b);
+            contend_read(pc, 4);
+            z80.pc.w = static_cast<uint16_t>(pc + 1);
+            z80.r++;
+            prefix_pending_ = b;
+            return true;
+        }
+        const uint8_t next = chain_byte_(static_cast<uint16_t>(pc + 1));
+        if (next != 0xDD && next != 0xFD && next != 0xED) { opcode = b; return false; }
+        if (on_m1_cycle) on_m1_cycle(pc, b);
+        contend_read(pc, 4);
+        pc = static_cast<uint16_t>(pc + 1);
+        z80.pc.w = pc;
+        z80.r++;
+        ++hops;
+    }
 }
 
 int Z80Cpu::execute() {
@@ -851,7 +884,7 @@ int Z80Cpu::execute() {
     sync_fuse_from_regs(regs_);
 
     // ── NMI ────────────────────────────────────────────────────────────
-    if (nmi_pending_) {
+    if (nmi_pending_ && !prefix_pending_) {   // t80n.vhd:1765: never at the end of a prefix M1
         nmi_pending_ = false;
         Log::cpu()->debug("NMI at PC={:#06x}", z80.pc.w);
         const bool stackless =
@@ -898,7 +931,7 @@ int Z80Cpu::execute() {
     // machine_48_or_p3_ is set by Emulator from the active MachineType and
     // is also re-fanned-out from runtime NR 0x03 machine_timing writes; the
     // single-argument request_interrupt() sizes its window from it.
-    if (int_pending_) {
+    if (int_pending_ && !prefix_pending_) {   // t80n.vhd:1768: never at the end of a prefix M1
         // V18R-CPU-01 fix: the drop arm must be UNCONDITIONAL on IFF1.
         // VHDL zxnext.vhd:2017-2033 — `pulse_int_n` returns to '1' as soon
         // as `pulse_count_end='1'` (the count gate), independent of IFF1
@@ -1065,7 +1098,7 @@ int Z80Cpu::execute() {
     //            (__ESX_DISK_FILEMAP=0x85 .. __ESX_F_GETFREE=0xb1)
     // Without this gate every BASIC error report was traced as an esxdos
     // call (a 25 s NextZXOS boot produced 221 traps, 0 of them esxdos).
-    if (pc == 0x0008 && on_esxdos_call) {
+    if (pc == 0x0008 && on_esxdos_call && !prefix_pending_) {
         uint16_t sp = z80.sp.w;
         uint16_t ret_addr = static_cast<uint16_t>(
             mem_.read(sp) | (mem_.read(static_cast<uint16_t>(sp + 1)) << 8));
@@ -1091,20 +1124,70 @@ int Z80Cpu::execute() {
         }
     }
 
-    // DivMMC automap (and any other memory overlay) must activate BEFORE
-    // the opcode read, matching real hardware combinatorial decode.
-    if (on_m1_prefetch) on_m1_prefetch(pc);
+    // The slot's T-state count, for the return value of a slot that stripped prefixes before its instruction.
+    const libspectrum_dword slot_ts = tstates;
+    // True while the instruction is the slot's own first byte: no prefix stripped, none resumed.
+    bool plain_start = true;
+    // A DD/FD whose M1 an earlier slot charged (a cut run): this slot resumes after it.
+    uint8_t resume_prefix = 0;
+    uint8_t opcode;
 
-    uint8_t  opcode = mem_.read_m1(pc);   // GH #339: the fetch records what supplied it
-    slot_kind_ = SlotKind::Opcode;   // past every early return; the CPU read PC itself
-    s_fetch_base = pc;
-    s_fetch_buf[0] = opcode;
-    record_m1_wait28(0, pc);
-    s_fetch_n = 1;
-    // The inner bytes of a prefix chain are M1s too: each runs the automap
-    // decode at its own address, then is read under what that leaves.
-    if (opcode == 0xCB || opcode == 0xED || opcode == 0xDD || opcode == 0xFD)
-        fetch_prefix_chain_(pc, opcode);
+    if (__builtin_expect(prefix_pending_ != 0, 0)) {
+        // Resume inside an instruction (see strip_prefixes_()): the pending prefix is index 0, at
+        // PC - 1, its M1 already charged and hooked. The byte at PC is the next M1.
+        resume_prefix = prefix_pending_;
+        prefix_pending_ = 0;
+        plain_start = false;
+        resumed_serial_ = execute_serial_;
+        s_fetch_base = static_cast<uint16_t>(pc - 1);
+        s_fetch_buf[0] = resume_prefix;
+        if (on_m1_prefetch) on_m1_prefetch(pc);
+        opcode = mem_.read_m1(pc);
+        slot_kind_ = SlotKind::Opcode;
+        s_fetch_buf[1] = opcode;
+        record_m1_wait28(1, pc);
+        s_fetch_n = 2;
+        // DD/FD/ED after the pending prefix: the pending one was redundant, and this byte starts
+        // the chain as a fresh one. Anything else (CB included: its d and op are data) is what
+        // the pending prefix applies to.
+        if (opcode == 0xDD || opcode == 0xFD || opcode == 0xED) {
+            fetch_prefix_chain_(pc, opcode);
+            resume_prefix = 0;
+        }
+    } else {
+        // DivMMC automap (and any other memory overlay) must activate BEFORE
+        // the opcode read, matching real hardware combinatorial decode.
+        if (on_m1_prefetch) on_m1_prefetch(pc);
+
+        opcode = mem_.read_m1(pc);   // GH #339: the fetch records what supplied it
+        slot_kind_ = SlotKind::Opcode;   // past every early return; the CPU read PC itself
+        s_fetch_base = pc;
+        s_fetch_buf[0] = opcode;
+        record_m1_wait28(0, pc);
+        s_fetch_n = 1;
+        // The inner bytes of a prefix chain are M1s too: each runs the automap
+        // decode at its own address, then is read under what that leaves.
+        if (opcode == 0xCB || opcode == 0xED || opcode == 0xDD || opcode == 0xFD)
+            fetch_prefix_chain_(pc, opcode);
+    }
+
+    // The redundant prefixes of a DD/FD run are M1-only instructions: strip them (see
+    // strip_prefixes_()), so that what is left is the byte that decides the instruction.
+    int pre_ts = 0;
+    if (__builtin_expect((opcode == 0xDD || opcode == 0xFD) && !resume_prefix, 0)) {
+        const uint8_t follower = chain_byte_(static_cast<uint16_t>(pc + 1));
+        if (follower == 0xDD || follower == 0xFD || follower == 0xED) {
+            plain_start = false;
+            const bool cut = strip_prefixes_(pc, opcode);
+            pre_ts = static_cast<int>(tstates - slot_ts);
+            if (cut) {
+                sync_regs_from_fuse(regs_);
+                return pre_ts;
+            }
+        }
+    }
+    // A resumed run that started with DD/FD/ED got plain_start = false above and is stripped
+    // like any other; a pending prefix applied to a plain opcode runs from the normal branch.
 
     if (opcode == 0xED) {
         uint8_t ext = chain_byte_(static_cast<uint16_t>(pc + 1));
@@ -1227,7 +1310,7 @@ int Z80Cpu::execute() {
             (void)t;  // value unused after Pass-6 — self-managed inside
 
             sync_fuse_from_regs(regs_);
-            return static_cast<int>(tstates - start_ts);
+            return static_cast<int>(tstates - start_ts) + pre_ts;
         }
 
         // G87: non-Z80N ED instruction (RETI = ED 4D, RETN = ED 45, IM 0/1/2,
@@ -1244,7 +1327,7 @@ int Z80Cpu::execute() {
         // Magic breakpoint ED FF (ZEsarUX/Spectaculator convention): a hardware two-byte NOP
         // (t80n_mcode.vhd:2586, `others => null`; ED FF is not a Z80N opcode), so it runs through
         // FUSE like every other ED NOP (R += 2, 8 T, contention) and the hook fires after it.
-        const bool magic_edff = ext == 0xFF && on_magic_breakpoint;
+        const bool magic_edff = plain_start && ext == 0xFF && on_magic_breakpoint;   // DD ED FF is not magic
         int cycles_ed = fuse_z80_execute_one();
         if (fuse_z80_take_stackless_retn_consumed()) {
             stackless_retn_active_ = false;
@@ -1261,7 +1344,7 @@ int Z80Cpu::execute() {
             regs_.IncDecZ = (regs_.BC != 0) ? 1u : 0u;
         }
         if (magic_edff) on_magic_breakpoint(pc);   // the instruction's own PC; state is post-ED FF
-        return (cycles_ed > 0) ? cycles_ed : 4;
+        return ((cycles_ed > 0) ? cycles_ed : 4) + pre_ts;
     }
 
     // ── Normal Z80 instruction ─────────────────────────────────────────
@@ -1298,37 +1381,17 @@ int Z80Cpu::execute() {
     // Edge case: DD CB d op / FD CB d op — the d byte is at PC+2 and
     // is fetched as DATA (not M1). Only DD and CB are M1. We correctly
     // stop after CB.
+    //
+    // Only a DD/FD followed by a plain opcode or CB reaches here (strip_prefixes_() took every
+    // DD/FD followed by DD, FD or ED, and execute() the ED branch), so a DD/FD has one follower
+    // M1 at most. A resumed slot (a DD/FD whose M1 an earlier slot hooked) hooks only its own byte.
     if (on_m1_cycle) {
         on_m1_cycle(pc, opcode);
         if (opcode == 0xDD || opcode == 0xFD) {
-            // Walk the prefix chain. Limit to a sanity cap to avoid
-            // pathological infinite loops (real hardware has no cap, but
-            // a chain longer than 64 prefix bytes in 64KB is essentially
-            // a tight DD/FD loop — and INT/NMI would interrupt it long
-            // before we got here in practice).
-            uint16_t walk_pc = static_cast<uint16_t>((pc + 1) & 0xFFFF);
-            for (int hop = 0; hop < 64; ++hop) {
-                uint8_t b = chain_byte_(walk_pc);
-                on_m1_cycle(walk_pc, b);
-                if (b == 0xDD || b == 0xFD) {
-                    walk_pc = static_cast<uint16_t>((walk_pc + 1) & 0xFFFF);
-                    continue;
-                }
-                if (b == 0xED) {
-                    // ED inner byte is also an M1 cycle (case 0xed in
-                    // FUSE main switch does contend_read(PC, 4)).
-                    uint16_t ed_inner_pc =
-                        static_cast<uint16_t>((walk_pc + 1) & 0xFFFF);
-                    uint8_t ed_inner = chain_byte_(ed_inner_pc);
-                    on_m1_cycle(ed_inner_pc, ed_inner);
-                }
-                // CB inside DD/FD chain: only the CB itself is M1; the
-                // displacement and op byte are data reads. Do nothing
-                // more.
-                // Other bytes: that's the final M1, nothing more.
-                break;
-            }
-        } else if (opcode == 0xCB) {
+            // CB after a DD/FD: only the CB itself is M1; the displacement and op are data reads.
+            const uint16_t f = static_cast<uint16_t>((pc + 1) & 0xFFFF);
+            on_m1_cycle(f, chain_byte_(f));
+        } else if (opcode == 0xCB && !resume_prefix) {
             // Plain CB <op>: inner byte is M1.
             uint8_t inner = chain_byte_(static_cast<uint16_t>((pc + 1) & 0xFFFF));
             on_m1_cycle(static_cast<uint16_t>((pc + 1) & 0xFFFF), inner);
@@ -1340,11 +1403,8 @@ int Z80Cpu::execute() {
     // of B-1. ED-prefix block transfers handled in the ED branch above;
     // Z80N block-transfer variants update IncDecZ inline in z80n_ext.cpp.
     //
-    // Edge case: DD ED <op> / FD ED <op> chains. FUSE backs up via
-    // z80_ddfd.c default and re-enters main switch case 0xed for the
-    // inner ED. We must catch the ED-block-transfer when it's reached
-    // through a DD/FD prefix chain. Walk the prefix chain to find the
-    // first non-prefix byte and check if it's an ED-block-transfer ext.
+    // DD ED <op> / FD ED <op> chains: strip_prefixes_() takes the DD/FD and the ED branch above
+    // runs <op>, ED block transfers (and their IncDecZ) included.
     //
     // V14-CPU-01: VHDL t80n.vhd:1361-1367 latches IncDecZ on every BC
     // 16-bit inc/dec — i.e. ALSO on plain INC BC (0x03) and DEC BC (0x0B),
@@ -1388,30 +1448,11 @@ int Z80Cpu::execute() {
     // Class-(a) discriminative: write tests that do `DD INC BC` (or
     // `FD DEC BC`, etc.) followed by `LDWS` and check F.P composes from
     // the new IncDecZ value. See test_v14_cpu_nit_01_*.
+    // A DD/FD that reaches here is followed by a plain opcode or CB (strip_prefixes_()): that byte is
+    // the inner opcode. A resumed slot's `opcode` already is the byte the pending prefix applies to.
     uint8_t inner_opcode = opcode;
-    bool ed_block_xfer = false;
-    if (opcode == 0xDD || opcode == 0xFD) {
-        uint16_t walk_pc = static_cast<uint16_t>((pc + 1) & 0xFFFF);
-        for (int hop = 0; hop < 64; ++hop) {
-            uint8_t b = chain_byte_(walk_pc);
-            if (b == 0xDD || b == 0xFD) {
-                walk_pc = static_cast<uint16_t>((walk_pc + 1) & 0xFFFF);
-                continue;
-            }
-            // Found the inner (non-prefix) opcode.
-            inner_opcode = b;
-            if (b == 0xED) {
-                uint8_t ext = chain_byte_(
-                    static_cast<uint16_t>((walk_pc + 1) & 0xFFFF));
-                if ((ext == 0xA0) || (ext == 0xA8) || (ext == 0xB0) ||
-                    (ext == 0xB8) || (ext == 0xA1) || (ext == 0xA9) ||
-                    (ext == 0xB1) || (ext == 0xB9)) {
-                    ed_block_xfer = true;
-                }
-            }
-            break;
-        }
-    }
+    if (opcode == 0xDD || opcode == 0xFD)
+        inner_opcode = chain_byte_(static_cast<uint16_t>((pc + 1) & 0xFFFF));
     const bool is_djnz   = (inner_opcode == 0x10);
     const bool is_inc_bc = (inner_opcode == 0x03);
     const bool is_dec_bc = (inner_opcode == 0x0B);
@@ -1421,9 +1462,10 @@ int Z80Cpu::execute() {
     // R += 2, 8 T). It runs as below; the hook fires after it.
     // DD 01 (older CSpect / sjasmplus) is deliberately NOT a magic form: `01 nn nn` is LD BC,nn on
     // the hardware, so honouring it would make the program depend on the switch (GH #570).
-    const bool magic_fd00 = opcode == 0xFD && on_magic_breakpoint &&
+    const bool magic_fd00 = plain_start && opcode == 0xFD && on_magic_breakpoint &&
                             chain_byte_(static_cast<uint16_t>(pc + 1)) == 0x00;
 
+    if (__builtin_expect(resume_prefix != 0, 0)) fuse_z80_resume_prefix(resume_prefix);
     int cycles = fuse_z80_execute_one();
     if (fuse_z80_take_stackless_retn_consumed()) {
         stackless_retn_active_ = false;
@@ -1464,13 +1506,6 @@ int Z80Cpu::execute() {
         //   post-fix: IncDecZ=0 (B=1 ≠ 0 → F.Z=0) → LDWS F.P=0  (matches VHDL)
         regs_.IncDecZ = (((regs_.BC >> 8) & 0xFF) == 0) ? 1u : 0u;
     }
-    if (ed_block_xfer) {
-        // DD-prefixed ED block transfer (DD ED A0 etc.). The DD prefix
-        // is discarded by FUSE's z80_ddfd.c default re-dispatch path,
-        // and the ED block transfer runs normally — BC has been
-        // decremented. IncDecZ = (BC != 0).
-        regs_.IncDecZ = (regs_.BC != 0) ? 1u : 0u;
-    }
     if (is_inc_bc || is_dec_bc) {
         // V14-CPU-01 fix (+ V14-CPU-NIT-01 prefix-walk) — see large
         // comment block above the pre-execute classification. After
@@ -1488,7 +1523,7 @@ int Z80Cpu::execute() {
         regs_.IncDecZ = (regs_.BC != 0) ? 1u : 0u;
     }
     if (magic_fd00) on_magic_breakpoint(pc);   // the instruction's own PC; state is post-FD 00
-    return (cycles > 0) ? cycles : 4;
+    return ((cycles > 0) ? cycles : 4) + pre_ts;
 }
 
 uint8_t Z80Cpu::last_opcode() const {
@@ -1664,6 +1699,8 @@ void Z80Cpu::apply_after_describe()
     z80.interrupts_enabled_at =
         (ser_ei_grace_ == 0) ? static_cast<libspectrum_signed_dword>(tstates) : -1;
     z80.iff2_read = (ser_iff2_read_ != 0) ? 1 : 0;
+    // The CPU block starts a fresh instruction at its PC; a pending prefix travels in a later block.
+    prefix_pending_ = 0;
     // An older snapshot carries only the stamp: its window was the pulse
     // width from there. Emulator::load_state() replaces both from the
     // appended "int_timing" block when the snapshot has one.

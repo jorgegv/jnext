@@ -21,6 +21,7 @@
 #include "debug/debugger.h"
 #include "batch_ab.h"
 
+#include <bitset>
 #include <cstdint>
 #include <cstdio>
 #include <memory>
@@ -301,6 +302,109 @@ int main() {
         check("PRB-12", "a busy program, 40 frames with the gate idle (block skipped) and with it forced live by an unreachable breakpoint: identical state, video and audio hashes every frame (the gate was idle in one run and live in the other; no per-instruction counter, which would cost what the gate saves)",
               same && !skipped.second && forced.second,
               "skipped_live=" + b2s(skipped.second) + " forced_live=" + b2s(forced.second));
+    }
+
+    // GH #584 - a slot that starts inside an instruction (a long DD/FD run cut after a prefix M1,
+    // Z80Cpu::prefix_pending()): the machine advances a bounded slot at a time, PC-keyed stops are
+    // skipped there as they are inside a short chain, coverage marks only the instruction's start.
+    // Oracle: t80n.vhd:490-498 (a DD/FD is a 4 T M1), :1765, :1768 (no INT/NMI after a prefix M1).
+
+    // PRB-13 - RAM from 0x4000 to the top all DD, IFF1 = 1: each run_frame() returns within one slot
+    // of its frame end, the frame counter advances, no INT is taken, and a Step is one bounded slot.
+    {
+        Rig r;
+        for (uint32_t a = 0x4000; a <= 0xFFFF; ++a) r.emu->mmu().write(static_cast<uint16_t>(a), 0xDD);
+        Z80Registers z = r.emu->cpu().get_registers();
+        z.PC = 0x4000;
+        z.SP = 0xFF00;
+        z.IFF1 = z.IFF2 = 1;
+        z.IM = 1;
+        r.emu->cpu().set_registers(z);
+        const uint32_t f0 = r.emu->frame_num();
+        const uint64_t t0 = r.emu->monotonic_tstates();
+        r.emu->run_frame();
+        r.emu->run_frame();
+        const uint64_t dt = r.emu->monotonic_tstates() - t0;
+        const uint32_t df = r.emu->frame_num() - f0;
+        const uint64_t two_frames = 2u * 69888u;
+        const bool bounded = dt >= two_frames - 700 && dt <= two_frames + 700;
+        const bool no_int = r.emu->cpu().get_registers().SP == 0xFF00 && r.emu->cpu().prefix_pending() != 0;
+        // A Step into the chain: one slot, at most 65 prefix M1s.
+        const uint16_t pc0 = r.emu->cpu().pc();
+        r.emu->execute_single_instruction();
+        const uint16_t step_adv = static_cast<uint16_t>(r.emu->cpu().pc() - pc0);
+        check("PRB-13", "all-DD RAM, IFF1 = 1: two run_frame() calls end within a slot of 2 frames, the frame counter moves by 2, no INT is taken, and a Step advances at most 65 bytes",
+              bounded && df == 2 && no_int && step_adv >= 1 && step_adv <= 65,
+              "dt=" + std::to_string(dt) + " frames=" + std::to_string(df) + " step_adv=" + std::to_string(step_adv) +
+                  " no_int=" + b2s(no_int));
+    }
+
+    // PRB-14 - a PC breakpoint inside a 200 DD chain, on the address a cut slot starts at, never stops
+    // the machine; one on the chain's first byte does.
+    {
+        const uint16_t chain = kMain + 1, inside = chain + 65;
+        auto build = [&](Rig& r) {
+            r.emu->mmu().write(kMain, 0x00);                                       // NOP
+            for (int i = 0; i < 200; ++i) r.emu->mmu().write(static_cast<uint16_t>(chain + i), 0xDD);
+            r.emu->mmu().write(chain + 200, 0x00);                                 // NOP ends the chain
+            r.emu->mmu().write(chain + 201, 0x18);                                 // JR $
+            r.emu->mmu().write(chain + 202, 0xFE);
+        };
+        Rig a;
+        build(a);
+        a.ds().breakpoints().add_pc(inside);
+        a.emu->run_frame();
+        const bool ran_through = !a.ds().paused() && a.emu->cpu().pc() == chain + 201;
+        Rig b;
+        build(b);
+        b.ds().breakpoints().add_pc(chain);
+        b.emu->run_frame();
+        const bool stopped_at_start = b.ds().paused() && b.emu->cpu().pc() == chain;
+        check("PRB-14", "a PC breakpoint on the address a cut slot starts at (inside a 200 DD chain) does not stop the machine; one on the chain's first byte does",
+              ran_through && stopped_at_start,
+              "ran_through=" + b2s(ran_through) + " stopped_at_start=" + b2s(stopped_at_start));
+    }
+
+    // PRB-15 - coverage on a 70 DD + NOP chain marks only the chain's first address.
+    {
+        Rig r;
+        for (int i = 0; i < 70; ++i) r.emu->mmu().write(static_cast<uint16_t>(kMain + i), 0xDD);
+        r.emu->mmu().write(kMain + 70, 0x00);
+        Z80Registers z = r.emu->cpu().get_registers();
+        z.PC = kMain;
+        r.emu->cpu().set_registers(z);
+        std::bitset<65536> cov;
+        r.ds().set_coverage_sink(&cov);
+        int slots = 0;
+        do {
+            r.emu->execute_single_instruction();
+            ++slots;
+        } while (r.emu->cpu().prefix_pending() != 0 && slots < 8);
+        r.ds().set_coverage_sink(nullptr);
+        check("PRB-15", "coverage over a 70 DD + NOP chain (two slots) marks only the chain's first address",
+              slots == 2 && cov.count() == 1 && cov[kMain],
+              "slots=" + std::to_string(slots) + " marked=" + std::to_string(cov.count()));
+    }
+
+    // PRB-16 - the Execute-subscription twin of PRB-14: a Stop subscription on the address a cut slot
+    // starts at (inside a 200 DD chain) never fires; one on the chain's first byte does.
+    {
+        const uint16_t chain = kMain + 1, inside = chain + 65;
+        auto run = [&](uint16_t at) {
+            Rig r;
+            r.emu->mmu().write(kMain, 0x00);
+            for (int i = 0; i < 200; ++i) r.emu->mmu().write(static_cast<uint16_t>(chain + i), 0xDD);
+            r.emu->mmu().write(chain + 200, 0x00);
+            r.emu->mmu().write(chain + 201, 0x18);
+            r.emu->mmu().write(chain + 202, 0xFE);
+            r.dbg->subscribe(r.client, exec_sub(at));
+            r.emu->run_frame();
+            return std::make_pair(r.ds().paused(), r.emu->cpu().pc());
+        };
+        const auto a = run(inside), b = run(chain);
+        check("PRB-16", "an Execute subscription on the address a cut slot starts at (inside a 200 DD chain) does not fire; one on the chain's first byte does",
+              !a.first && a.second == chain + 201 && b.first && b.second == chain,
+              "inside_paused=" + b2s(a.first) + " first_paused=" + b2s(b.first));
     }
 
     std::printf("\n===============================================\n");

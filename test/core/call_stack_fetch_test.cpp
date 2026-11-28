@@ -347,6 +347,35 @@ void csf_11() {
           "nop0=" + std::to_string(nop0) + " nop1=" + std::to_string(nop1) + " int0=" + std::to_string(int0));
 }
 
+void csf_12() {
+    // GH #584 - the tracker predicts the fetch space of a slot that may take an INT or NMI; a slot
+    // that starts inside an instruction (a DD/FD run cut after a prefix M1, Z80Cpu::prefix_pending())
+    // takes neither (t80n.vhd:1765, :1768), so it predicts nothing. An NMI raised inside a 300 DD
+    // chain waits: the count does not grow at the cut boundaries, and grows at the boundary after
+    // the chain's NOP, where the NMI is taken.
+    Rig r;
+    Bytes prog(301, 0xDD);
+    prog[300] = 0x00;                                     // the NOP that ends the chain
+    r.poke(kMain, prog);
+    r.start(kMain);
+    r.step();                                             // slot 1: cut after 65 prefixes
+    r.emu->cpu().request_nmi();
+    const uint64_t before = r.emu->call_stack_predictions_for_test();
+    int slots = 1;
+    while (r.emu->cpu().prefix_pending() != 0 && slots < 64) {
+        r.step();
+        ++slots;
+    }
+    const uint64_t inside = r.emu->call_stack_predictions_for_test();
+    const bool pending = r.emu->cpu().nmi_pending();
+    r.step();                                             // the boundary after the NOP: the NMI
+    const uint64_t after = r.emu->call_stack_predictions_for_test();
+    check("CSF-12", "an NMI raised inside a 300 DD chain: no prediction at the cut boundaries, one at the boundary after the chain",
+          slots >= 4 && inside == before && pending && after == before + 1,
+          "slots=" + std::to_string(slots) + " before=" + std::to_string(before) + " inside=" +
+              std::to_string(inside) + " after=" + std::to_string(after));
+}
+
 }  // namespace
 
 int main() {
@@ -357,6 +386,7 @@ int main() {
     csf_09();
     csf_10();
     csf_11();
+    csf_12();
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;
