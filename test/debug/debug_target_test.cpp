@@ -15,6 +15,8 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/nex_loader.h"
+#include "core/sha256.h"
 #include "core/rzx_player.h"
 #include "debug/local_target.h"
 #include "debug/debug_state.h"
@@ -25,9 +27,12 @@
 #include "port/nextreg.h"
 #include "version.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -1557,6 +1562,409 @@ static void tgt05_rows() {
     }
 }
 
+// ── TGT-07: the build match of a program's sources on a facade over a target (GH #519) ──
+//
+// Oracle: the facade contract of the epic's design (plan section 11, "Overlays in the fetch
+// identity", "Source tab, line breakpoints", "Build match") and the NEX format spec, whose bank
+// layout the fixtures below write by hand: banks in the order 5, 2, 0, 1, 3, 4, 6 ... 111, bank N
+// holding the 8 KB pages 2N and 2N+1. The target is a FakeTarget holding the program's pages.
+
+static std::vector<uint8_t> t7_bank(int bank) {
+    std::vector<uint8_t> v(16384);
+    for (size_t i = 0; i < v.size(); ++i)
+        v[i] = static_cast<uint8_t>((i * 7u + static_cast<unsigned>(bank) * 13u + 1u) & 0xFF);
+    return v;
+}
+
+static std::vector<int> t7_order() {
+    std::vector<int> o = {5, 2, 0, 1, 3, 4};
+    for (int b = 6; b < 112; ++b) o.push_back(b);
+    return o;
+}
+
+/// A NEX holding `banks` (V1.2, no screen), written in the spec's order.
+static void t7_write_nex(const std::string& path, const std::vector<int>& banks) {
+    std::vector<uint8_t> f(512, 0);
+    std::memcpy(f.data(), "NextV1.2", 8);
+    f[9] = static_cast<uint8_t>(banks.size());
+    f[12] = 0x00; f[13] = 0xFF;
+    f[14] = 0x00; f[15] = 0x80;
+    for (int b : banks) f[18 + static_cast<size_t>(b)] = 1;
+    for (int b : t7_order()) {
+        if (std::find(banks.begin(), banks.end(), b) == banks.end()) continue;
+        const auto p = t7_bank(b);
+        f.insert(f.end(), p.begin(), p.end());
+    }
+    FILE* fp = std::fopen(path.c_str(), "wb");
+    if (fp) {
+        std::fwrite(f.data(), 1, f.size(), fp);
+        std::fclose(fp);
+    }
+}
+
+/// The target holds `banks` as t7_write_nex() wrote them, and the flat CPU view shows bank 18 at 0x8000.
+static void t7_fill(FakeTarget& t, const std::vector<int>& banks) {
+    for (int b : banks) {
+        const auto p = t7_bank(b);
+        t.page_ram[static_cast<uint8_t>(b * 2)]     = std::vector<uint8_t>(p.begin(), p.begin() + 8192);
+        t.page_ram[static_cast<uint8_t>(b * 2 + 1)] = std::vector<uint8_t>(p.begin() + 8192, p.end());
+    }
+    if (std::find(banks.begin(), banks.end(), 18) != banks.end()) {
+        const auto p = t7_bank(18);
+        std::memcpy(t.ram + 0x8000, p.data(), 16384);
+    }
+}
+
+/// An SLD with one trace per (page, address), numbered from line 1, and `extra` header lines.
+static std::string t7_sld(const std::vector<std::pair<int, int>>& at, const std::string& extra = {},
+                          const char* device = nullptr) {
+    std::string s = "|SLD.data.version|1\n" + extra +
+                    std::string("x.asm|1||0") + (device ? device : kNextDevice);
+    int line = 1;
+    for (const auto& pa : at)
+        s += "x.asm|" + std::to_string(line++) + "||0|" + std::to_string(pa.first) + "|" +
+             std::to_string(pa.second) + "|T|\n";
+    return s;
+}
+
+static bool t7_has(const std::string& hay, const char* needle) { return hay.find(needle) != std::string::npos; }
+
+static std::string t7_read_status(const FakeTarget& t, int& cpu, int& page) {
+    cpu = page = 0;
+    for (const auto& r : t.reads) (r.space.kind == MemSpace::Kind::Cpu ? cpu : page)++;
+    return std::to_string(cpu) + " cpu, " + std::to_string(page) + " page reads";
+}
+
+static void t7_copy_dir(const std::string& from, const std::string& to, bool bins) {
+    namespace fs = std::filesystem;
+    for (const auto& e : fs::directory_iterator(from)) {
+        if (!bins && e.path().extension() == ".bin") continue;
+        fs::copy_file(e.path(), fs::path(to) / e.path().filename(), fs::copy_options::overwrite_existing);
+    }
+}
+
+static void tgt07_rows() {
+    namespace fs = std::filesystem;
+    const std::vector<std::pair<int, int>> two = {{36, 0x8000}, {37, 0xA000}};
+    const std::string fix = std::string(JNEXT_Z88DK_FIXTURE_DIR) + "/master/";
+
+    {   // TGT-07-01
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("t7a");
+        t7_write_nex(dir + "/prog.nex", {18});
+        write_file(dir + "/prog.sld", t7_sld(two));
+        t7_fill(m.t, {18});
+        const auto first = m.d.load_program_sidecars(dir + "/prog.nex");
+        m.t.caps = all_but({jnext::dbg::Capability::Run});
+        m.t.why_text = "no program loaded: upload one";
+        m.t.validity = RegisterValidity{};
+        m.t.clear();
+        const auto r = m.d.load_program_sidecars(dir + "/prog.nex");
+        const bool quiet = m.t.count("read") == 0 && m.t.count("mmu_slots") == 0;
+        const bool gone = m.d.source_map().empty();
+        m.t.caps = CapabilitySet::all();
+        m.t.validity = RegisterValidity::all();
+        const auto again = m.d.load_program_sidecars(dir + "/prog.nex");
+        fs::remove_all(dir);
+        check("TGT-07-01", "no debuggee (no Core): load_program_sidecars loads nothing, reads nothing, says why and drops the "
+                           "previous program's sources; once there is state the same call attaches",
+              first.sources == 2 && r.sources == -1 && r.symbols == -1 &&
+                  t7_has(r.problem, "no program loaded: upload one") && quiet && gone && again.sources == 2,
+              r.problem);
+    }
+    {   // TGT-07-02
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("t7b");
+        write_file(dir + "/x.sld", t7_sld(two));
+        m.t.caps = all_but({jnext::dbg::Capability::Run});
+        m.t.why_text = "no program loaded: upload one";
+        m.t.validity = RegisterValidity{};
+        m.t.clear();
+        const auto r = m.d.load_source_map(dir + "/x.sld", true, false, false);
+        fs::remove_all(dir);
+        check("TGT-07-02", "no debuggee: load_source_map is refused with the reason, count -1, nothing read",
+              r.count < 0 && t7_has(r.error, "no program loaded: upload one") && m.t.reads.empty() &&
+                  m.t.count("mmu_slots") == 0,
+              r.error);
+    }
+    {   // TGT-07-03
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("t7c");
+        t7_write_nex(dir + "/prog.nex", {18, 20});
+        write_file(dir + "/x.sld", t7_sld({{36, 0x8000}, {40, 0xA000}}));
+        t7_fill(m.t, {18, 20});
+        m.t.caps = all_but({jnext::dbg::Capability::PhysicalMemory});
+        const auto side = m.d.load_program_sidecars(dir + "/prog.nex");   // no sld named prog: sets the file
+        m.t.clear();
+        const auto r = m.d.load_source_map(dir + "/x.sld", false, false, false);
+        int cpu = 0, page = 0;
+        const std::string what = t7_read_status(m.t, cpu, page);
+        const bool one = cpu == 1 && page == 0 && m.t.reads[0].addr == 0x8000 && m.t.reads[0].n == 0x2000;
+        fs::remove_all(dir);
+        (void)side;
+        check("TGT-07-03", "no PhysicalMemory: the page a slot shows is read through ONE CPU read at its slot, a page mapped "
+                           "nowhere is never read or paged in and is named in the note; the verdict is a match",
+              r.count == 2 && r.error.empty() && one && m.t.count("set_mmu_slot") == 0 &&
+                  t7_has(r.identity_note, "matches 'prog.nex'") && t7_has(r.identity_note, "P28"),
+              what + " | " + r.error + " | " + r.identity_note);
+    }
+    {   // TGT-07-04
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("t7d");
+        t7_write_nex(dir + "/prog.nex", {18});
+        const auto bank = t7_bank(18);
+        const std::string sha = sdcard::sha256_hex(bank);
+        write_file(dir + "/prog.sld",
+                   t7_sld(two, "||program.name:prog\n||program.sha256:" + sha + "\n||program.org:32768\n||program.size:16384\n"));
+        t7_fill(m.t, {18});
+        m.t.clear();
+        const auto r = m.d.load_program_sidecars(dir + "/prog.nex");
+        int cpu = 0, page = 0;
+        const std::string what = t7_read_status(m.t, cpu, page);
+        fs::remove_all(dir);
+        check("TGT-07-04", "with PhysicalMemory a match costs exactly one read per page holding code and one CPU read for an "
+                           "SLD SHA-256 span: no byte-at-a-time reads",
+              r.sources == 2 && cpu == 1 && page == 2 && m.t.reads.size() == 3, what + " | " + r.problem);
+    }
+    {   // TGT-07-05
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("t7e");
+        t7_write_nex(dir + "/prog.nex", {18});
+        write_file(dir + "/prog.sld", t7_sld(two));
+        t7_fill(m.t, {18});
+        const auto ok = m.d.load_program_sidecars(dir + "/prog.nex");
+        m.t.page_ram[37][0x123] ^= 0xFF;
+        const auto bad = m.d.load_program_sidecars(dir + "/prog.nex");
+        fs::remove_all(dir);
+        check("TGT-07-05", "a NEX with bank 18 and an SLD over pages 36 and 37: the matching target attaches; one flipped byte in "
+                           "the ODD page refuses the map whole (sources and symbols -1) and names P25+$0123",
+              ok.sources == 2 && bad.sources == -1 && bad.symbols == -1 &&
+                  t7_has(bad.problem, "is not the build these sources describe") && t7_has(bad.problem, "P25+$0123") &&
+                  m.d.source_map().empty(),
+              bad.problem);
+    }
+    {   // TGT-07-06
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("t7f");
+        t7_write_nex(dir + "/prog.nex", {2});
+        // Page 4 at $9FF0 ends at the slot ($A000); a second trace at $A000 in the same page is adjacent, so
+        // the two ranges merge into one span that reaches past the slot into another slot's page.
+        write_file(dir + "/prog.sld", t7_sld({{4, 0x9FF0}, {4, 0xA000}}));
+        t7_fill(m.t, {2});
+        m.t.page_ram[4][0] ^= 0xFF;   // what a wrap at the slot end would compare
+        const auto wrap = m.d.load_program_sidecars(dir + "/prog.nex");
+        m.t.page_ram[4][0] ^= 0xFF;
+        m.t.page_ram[4][0x1FFF] ^= 0xFF;
+        const auto inside = m.d.load_program_sidecars(dir + "/prog.nex");
+        fs::remove_all(dir);
+        check("TGT-07-06", "a span that reaches past its 8 KB slot is clipped there: a difference at page offset 0 (a wrap's "
+                           "byte) is not reported, one at $1FFF is",
+              wrap.sources == 2 && inside.sources == -1 && t7_has(inside.problem, "P04+$1FFF"), inside.problem);
+    }
+    {   // TGT-07-07
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("t7g");
+        t7_write_nex(dir + "/prog.nex", {18});
+        write_file(dir + "/x.sld", t7_sld({{36, 0x8000}, {40, 0xA000}}));
+        t7_fill(m.t, {18});
+        (void)m.d.load_program_sidecars(dir + "/prog.nex");
+        const auto r = m.d.load_source_map(dir + "/x.sld", false, false, false);
+        fs::remove_all(dir);
+        check("TGT-07-07", "code in a page the NEX does not hold is not compared (never a mismatch): the map attaches and the "
+                           "note names the page",
+              r.count == 2 && r.error.empty() && t7_has(r.identity_note, "P28") &&
+                  t7_has(r.identity_note, "matches 'prog.nex'"),
+              r.error + " | " + r.identity_note);
+    }
+    {   // TGT-07-08
+        Remote m;
+        const auto r = m.d.load_source_map(fix + "sccz80-dot/prog.map", true, false, false);
+        check("TGT-07-08", "a dot command's map is refused on a target (it runs from DivMMC RAM, which a target does not show), "
+                           "before any read",
+              r.count < 0 && t7_has(r.error, "DivMMC RAM") && m.t.reads.empty(), r.error);
+    }
+    {   // TGT-07-09
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("t7h");
+        fs::create_directory(dir + "/prog.nex");
+        write_file(dir + "/prog.sld", t7_sld(two));
+        const auto as_dir = m.d.load_program_sidecars(dir + "/prog.nex");
+        fs::remove_all(dir + "/prog.nex");
+        write_file(dir + "/prog.nex", std::string(600, '\0'));
+        const auto junk = m.d.load_program_sidecars(dir + "/prog.nex");
+        fs::remove_all(dir);
+        check("TGT-07-09", "a program path that is a directory, or a 600-byte file that is no NEX, is not compared and does not "
+                           "refuse or hang: the sidecars attach",
+              as_dir.sources == 2 && junk.sources == 2, as_dir.problem + " | " + junk.problem);
+    }
+    {   // TGT-07-10
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("t7i");
+        t7_write_nex(dir + "/PROG.NEX", {18});
+        write_file(dir + "/PROG.sld", t7_sld(two));
+        t7_fill(m.t, {18});
+        m.t.page_ram[36][5] ^= 0xFF;
+        const auto r = m.d.load_program_sidecars(dir + "/PROG.NEX");
+        fs::remove_all(dir);
+        check("TGT-07-10", "PROG.NEX (upper case) is judged as a NEX: a flipped byte is caught",
+              r.sources == -1 && t7_has(r.problem, "P24+$0005"), r.problem);
+    }
+    {   // TGT-07-11
+        Running m;
+        using jnext::dbg::MemSpace;
+        auto in_page = [](uint8_t page, uint16_t filter_page = jnext::dbg::PAGE_ANY) {
+            jnext::dbg::Subscription s = exec_sub(0x8000);
+            s.filter.space = MemSpace::page(page);
+            s.filter.page = filter_page;
+            return s;
+        };
+        const auto ok = m.d.subscribe(m.a, in_page(20));
+        const bool armed = m.t.count("add_breakpoint") == 1 && m.t.calls[0] == "add_breakpoint(32768,20)";
+        m.t.clear();
+        jnext::dbg::Subscription rom = exec_sub(0x8000);
+        rom.filter.space = MemSpace::rom(0);
+        jnext::dbg::Subscription dmm = exec_sub(0x8000);
+        dmm.filter.space = MemSpace::divmmc_ram(0);
+        const Result got[] = {m.d.subscribe(m.a, rom).status, m.d.subscribe(m.a, dmm).status,
+                              m.d.subscribe(m.a, in_page(0xE0)).status, m.d.subscribe(m.a, in_page(20, 21)).status};
+        bool refused = true;
+        for (const Result r : got) refused = refused && r == Result::RefusedUnavailable;
+        refused = refused && m.t.calls.empty();
+        m.stop(jnext::dbg::TargetStop::Why::Breakpoint, 0x8000, 20);
+        m.pump();
+        const bool hit = m.sl.paused.size() == 1 && m.sl.paused[0].matched.size() == 1 &&
+                         m.sl.paused[0].matched[0].event_id == ok.value;
+        Running w;
+        (void)w.d.subscribe(w.a, in_page(20));
+        w.stop(jnext::dbg::TargetStop::Why::Breakpoint, 0x8000, 21);
+        w.pump();
+        check("TGT-07-11", "Execute in a Page space is DZRP's bank+1 of that page; ROM, DivMMC RAM, page 0xE0 and a page that "
+                           "disagrees with the filter's own are refused with no call; a stop in that page matches, a stop in "
+                           "another is resumed",
+              ok.status == Result::Ok && armed && refused && hit && w.sl.paused.empty() && w.t.count("resume") == 1);
+    }
+    {   // TGT-07-12
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("t7j");
+        const char* dev = "|-1|-1|Z|pages.size:8192,pages.count:256,slots.count:8,"
+                          "slots.adr:0,8192,16384,24576,32768,40960,49152,57344\n";
+        write_file(dir + "/a.sld", "|SLD.data.version|1\nx.asm|1||0" + std::string(dev) +
+                                       "x.asm|5||0|36|32768|T|\nx.asm|5||0|255|32784|T|\n");
+        write_file(dir + "/b.sld", "|SLD.data.version|1\nx.asm|1||0" + std::string(dev) +
+                                       "x.asm|5||0|255|32784|T|\n");
+        (void)m.d.load_source_map(dir + "/a.sld", true, false, false);
+        m.t.clear();
+        jnext::dbg::Subscription like;
+        like.kind = jnext::dbg::EventKind::Execute;
+        const auto g = m.d.subscribe_source_line(m.a, "x.asm:5", like);
+        const bool one = g.status == Result::Ok && m.t.count("add_breakpoint") == 1 &&
+                         m.t.calls[0] == "add_breakpoint(32768,36)";
+        (void)m.d.load_source_map(dir + "/b.sld", true, false, false);
+        m.t.clear();
+        const auto g2 = m.d.subscribe_source_line(m.a, "x.asm:5", like);
+        fs::remove_all(dir);
+        check("TGT-07-12", "a source line on a target arms the starts in a RAM page (page-qualified) and skips the rest; a line "
+                           "with none left is RefusedUnavailable with no call",
+              one && g2.status == Result::RefusedUnavailable && m.t.calls.empty());
+    }
+    {   // TGT-07-13
+        namespace dbgns = jnext::dbg;
+        const std::string src = fix + "sccz80-debug";
+        const std::string dir = jtp::make_temp_dir("t7k");
+        t7_copy_dir(src, dir, /*bins=*/false);
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        const bool loaded = emulator_apply_load(emu, dir + "/prog.nex", false);
+        bool attached = false;
+        std::string no_bins_problem;
+        {
+            Debugger d(emu);
+            const auto no_bins = d.load_program_sidecars(dir + "/prog.nex");
+            attached = no_bins.sources > 0 && no_bins.problem.empty();
+            no_bins_problem = no_bins.problem;
+        }
+        emu.mmu().write(0x8C92, static_cast<uint8_t>(emu.mmu().read(0x8C92) ^ 0xFF));
+        Debugger d2(emu);
+        const auto bins = d2.load_program_sidecars(src + "/prog.nex");
+        fs::remove_all(dir);
+        check("TGT-07-13", "the LOCAL facade is unchanged: a z88dk map without section binaries attaches with no check against "
+                           "the NEX, one with binaries over a changed code byte is refused with the local text",
+              loaded && attached && bins.sources == -1 &&
+                  t7_has(bins.problem, "the loaded program's bytes differ from its binary identity") &&
+                  !t7_has(bins.problem, "target"),
+              no_bins_problem + " | " + bins.problem);
+    }
+    {   // TGT-07-14
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("t7l");
+        t7_write_nex(dir + "/prog.nex", {18});
+        write_file(dir + "/mine.sld", t7_sld(two));
+        write_file(dir + "/prog.sld", t7_sld(two));
+        t7_fill(m.t, {18});
+        m.t.page_ram[36][9] ^= 0xFF;
+        const auto user = m.d.load_source_map(dir + "/mine.sld", true, false, false);
+        const auto side = m.d.load_program_sidecars(dir + "/prog.nex");
+        const auto st = m.d.source_map_status();
+        const bool null_loc = m.d.source_location(0x8000) == nullptr;
+        fs::remove_all(dir);
+        check("TGT-07-14", "the user's map is judged when a program is loaded on a target: against a different build it goes "
+                           "Stale with the target's reason and resolves no line",
+              user.count == 2 && side.sources == -1 && st.by_user &&
+                  st.state == Debugger::SourceMapStatus::State::Stale &&
+                  t7_has(st.reason, "is not the build these sources describe") && null_loc,
+              st.reason);
+    }
+    {   // TGT-07-15
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("t7m");
+        t7_write_nex(dir + "/prog.nex", {18});
+        write_file(dir + "/prog.sld", t7_sld(two));
+        t7_fill(m.t, {18});
+        m.t.page_ram[36][3] ^= 0xFF;
+        const auto side = m.d.load_program_sidecars(dir + "/prog.nex");
+        const auto no = m.d.load_source_map(dir + "/prog.sld", false, false, false);
+        const auto yes = m.d.load_source_map(dir + "/prog.sld", true, false, false);
+        const auto* loc = m.d.source_location(0x8000);
+        fs::remove_all(dir);
+        check("TGT-07-15", "the confirm path: after a refused sidecar load the hand load is refused with identity false and the "
+                           "target's reason; accepting it attaches and its lines resolve",
+              side.sources == -1 && no.count < 0 && no.identity.has_value() && !*no.identity &&
+                  t7_has(no.error, "is not the build these sources describe") && yes.count == 2 && loc && loc->line == 1,
+              no.error);
+    }
+    {   // TGT-07-16
+        Remote m;
+        const std::string dir = jtp::make_temp_dir("t7n");
+        t7_copy_dir(fix + "sccz80-debug", dir, /*bins=*/true);
+        fs::rename(dir + "/prog.nex", dir + "/prog.nex.keep");
+        write_file(dir + "/prog.tap", "x");
+        jnext::NexLoader nex;
+        const bool loaded = nex.load(dir + "/prog.nex.keep");
+        for (int b = 0; b < 112; ++b)
+            if (const uint8_t* d = loaded ? nex.bank_data(b) : nullptr) {
+                m.t.page_ram[static_cast<uint8_t>(b * 2)]     = std::vector<uint8_t>(d, d + 8192);
+                m.t.page_ram[static_cast<uint8_t>(b * 2 + 1)] = std::vector<uint8_t>(d + 8192, d + 16384);
+            }
+        for (int s = 4; s < 6; ++s) {   // the NEX's own map: bank 2 at $8000
+            m.t.slots[static_cast<size_t>(s)].nr_page = m.t.slots[static_cast<size_t>(s)].effective_page =
+                static_cast<uint8_t>(s);
+            m.t.slots[static_cast<size_t>(s)].space = MemSpace::page(static_cast<uint8_t>(s));
+        }
+        const auto tape = m.d.load_program_sidecars(dir + "/prog.tap");
+        const auto st = m.d.source_map_status();
+        const auto hand = m.d.load_source_map(dir + "/prog.map", true, /*verify_at_first_execution=*/true, false);
+        fs::remove_all(dir);
+        check("TGT-07-16", "a tape program (or verify_at_first_execution) on a target is judged at once, never pending: the "
+                           "map's section binaries match the target",
+              loaded && tape.sources > 0 && !tape.sources_pending && !st.pending && hand.count > 0 && !hand.pending &&
+                  hand.identity.has_value() && *hand.identity,
+              tape.problem + " | " + hand.error);
+    }
+}
+
 int main() {
     loc_poke_rows();
     loc_refusal_rows();
@@ -1569,6 +1977,7 @@ int main() {
     tgt01_source_rows();
     tgt02_rows();
     tgt05_rows();
+    tgt07_rows();
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail, g_skip);

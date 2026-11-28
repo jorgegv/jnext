@@ -2033,6 +2033,74 @@ void test_nex_magic() {
     }
 }
 
+
+// GH #519 - NexLoader::bank_data(): the 16 KB of a bank as the file stores them. Oracle: the
+// NEX format spec's bank order (5, 2, 0, 1, 3, 4, 6, 7 ...), written out here by hand, and
+// apply(), which puts bank N into pages 2N and 2N+1.
+std::vector<uint8_t> bank_pattern(int bank) {
+    std::vector<uint8_t> v(16384);
+    for (size_t i = 0; i < v.size(); ++i)
+        v[i] = static_cast<uint8_t>((i * 7u + static_cast<unsigned>(bank) * 13u + 1u) & 0xFF);
+    return v;
+}
+
+void test_bank_data() {
+    // The spec's order of the banks this fixture holds: 5 first, then 2, 0, 3, then 111.
+    const int order[] = {5, 2, 0, 3, 111};
+    std::vector<uint8_t> file(512, 0x00);
+    std::memcpy(file.data() + 0, "Next", 4);
+    std::memcpy(file.data() + 4, "V1.2", 4);
+    file[9]  = 5;
+    file[12] = 0x00; file[13] = 0xFF;   // SP
+    file[14] = 0x00; file[15] = 0x80;   // PC
+    for (const int b : order) file[18 + b] = 1;
+    for (const int b : order) {
+        const std::vector<uint8_t> p = bank_pattern(b);
+        file.insert(file.end(), p.begin(), p.end());
+    }
+    const std::string path = fixture_path("bankdata");
+    {
+        std::ofstream f(path, std::ios::binary | std::ios::trunc);
+        f.write(reinterpret_cast<const char*>(file.data()), static_cast<std::streamsize>(file.size()));
+    }
+    NexLoader before;
+    const bool null_before = before.bank_data(5) == nullptr;
+    NexLoader loader;
+    const bool loaded = loader.load(path);
+    bool each = loaded;
+    std::string bad;
+    for (const int b : order) {
+        const uint8_t* d = loaded ? loader.bank_data(b) : nullptr;
+        const std::vector<uint8_t> want = bank_pattern(b);
+        if (!d || std::memcmp(d, want.data(), want.size()) != 0) { each = false; bad += " " + std::to_string(b); }
+    }
+    bool same_as_apply = false;
+    if (loaded) {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        same_as_apply = loader.apply(emu);
+        for (const int b : order) {
+            const uint8_t* d = loader.bank_data(b);
+            const uint8_t* lo = emu.ram().page_ptr(b * 2);
+            const uint8_t* hi = emu.ram().page_ptr(b * 2 + 1);
+            same_as_apply = same_as_apply && d && lo && hi && std::memcmp(d, lo, 8192) == 0 &&
+                            std::memcmp(d + 8192, hi, 8192) == 0;
+        }
+    }
+    check("NEXB-DATA-01", "bank_data(b) returns each present bank's 16 KB at its place in the spec's bank order (5, 2, 0, 3, 111), "
+                          "and the same bytes apply() writes to pages 2b and 2b+1",
+          loaded && each && same_as_apply && null_before, "banks off:" + bad);
+    check("NEXB-DATA-02", "bank_data() is null for a bank the header does not list, for 112 and for -1, and before load()",
+          loaded && loader.bank_data(1) == nullptr && loader.bank_data(4) == nullptr &&
+              loader.bank_data(110) == nullptr && loader.bank_data(112) == nullptr &&
+              loader.bank_data(-1) == nullptr && null_before);
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
 int main() {
     std::printf("NEX loader screen-ingest tests (issue #68)\n\n");
 
@@ -3062,6 +3130,10 @@ int main() {
 
     // GH #454 - what apply() clears in bank 5, and the border.
     test_bank5_clear();
+
+    // GH #519 - bank_data().
+    set_group("NEXB");
+    test_bank_data();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);

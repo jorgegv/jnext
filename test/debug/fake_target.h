@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,9 @@ public:
     MemSpace         rom = MemSpace::rom(3);
     uint8_t          nr[256] = {};
     uint8_t          ram[65536] = {};                ///< the Cpu space and every Page, flat
+    /// A page that has bytes here is read from them (8 KB, `Page{p}` reads at an offset in
+    /// the page); any other read is the flat `ram`. GH #519.
+    std::map<uint8_t, std::vector<uint8_t>> page_ram;
     std::vector<SpriteInfo> sprite_list;
     std::array<uint8_t, SPRITE_ATTR_BYTES> attr{};
     std::vector<uint8_t> pattern;
@@ -63,6 +67,9 @@ public:
 
     // ---- the record ----------------------------------------------------------
     std::vector<std::string> calls;                  ///< "name(args)" per machine call
+    /// Every read() with its space, which `calls` does not name. GH #519.
+    struct ReadRec { MemSpace space; uint32_t addr; size_t n; };
+    mutable std::vector<ReadRec> reads;
     int count(const char* name) const {
         int n = 0;
         const size_t len = std::strlen(name);
@@ -117,7 +124,12 @@ public:
     Expected<size_t> read(MemSpace space, uint32_t addr, size_t n, uint8_t* buf) const override {
         rec("read(" + std::to_string(static_cast<int>(space.kind)) + "," + std::to_string(addr) + "," +
             std::to_string(n) + ")");
-        for (size_t i = 0; i < n; ++i) buf[i] = ram[(addr + i) & 0xFFFF];
+        reads.push_back({space, addr, n});
+        const auto pr = space.kind == MemSpace::Kind::Page ? page_ram.find(static_cast<uint8_t>(space.index))
+                                                           : page_ram.end();
+        for (size_t i = 0; i < n; ++i)
+            buf[i] = pr != page_ram.end() ? pr->second[(addr + i) % pr->second.size()]
+                                          : ram[(addr + i) & 0xFFFF];
         return Expected<size_t>{Result::Ok, (n >= short_by ? n - short_by : 0) + count_extra};
     }
     Expected<size_t> write(MemSpace space, uint32_t addr, size_t n, const uint8_t* b) override {
