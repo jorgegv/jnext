@@ -5261,11 +5261,11 @@ sd_names="rc=$MT_RC sdcard_called=$(grep -c 'sdcard-image' "$MT_LOG" || true)"
 check "HS-204n" "the SD master is provisioned by the script after the name checks: a failing provision is exit 2 with the banner and a NO VERDICT line, nothing built; an unknown suite is refused before it is ever provisioned" 0 0 \
     "provision[$sd_fail] names[$sd_names]" "provision[rc=2 banner=1 verdict=1 cmake=0 build=0]" "names[rc=2 sdcard_called=0]"
 mt_run "a,b" "boot-48k" MT_FAIL_ON="--only a,b build" MT_FAIL_RC=2
-rt="rc=$MT_RC verdict=$(grep -c 'mutant-test: NO VERDICT' <<<"$MT_OUT" || true) killed=$(grep -c 'mutant-test: KILLED' <<<"$MT_OUT" || true) reg=$(grep -c '^mt-reg' "$MT_LOG" || true)"
+rt="rc=$MT_RC banner=$(mt_banner "$MT_OUT") verdict=$(grep -c 'mutant-test: NO VERDICT' <<<"$MT_OUT" || true) killed=$(grep -c 'mutant-test: KILLED' <<<"$MT_OUT" || true) reg=$(grep -c '^mt-reg' "$MT_LOG" || true)"
 mt_run "a,b" "" MT_FAIL_ON="--check" MT_FAIL_RC=137
 ck="rc=$MT_RC banner=$(mt_banner "$MT_OUT") verdict=$(grep -c 'mutant-test: NO VERDICT' <<<"$MT_OUT" || true) cmake=$(grep -c '^mt-cmake' "$MT_LOG" || true)"
-check "HS-204o" "a run-time refusal of the unit harness (exit 2 after --check passed) is NO VERDICT, never KILLED, and the rows are not run; --check dying of a signal (137) is NO VERDICT with the banner and nothing built" 0 0 \
-    "runtime[$rt] check[$ck]" "runtime[rc=2 verdict=1 killed=0 reg=0]" "check[rc=2 banner=1 verdict=1 cmake=0]"
+check "HS-204o" "a run-time refusal of the unit harness (exit 2 after --check passed) is NO VERDICT with no second banner (the harness printed its own), never KILLED, and the rows are not run; --check dying of a signal (137) is NO VERDICT with the banner and nothing built" 0 0 \
+    "runtime[$rt] check[$ck]" "runtime[rc=2 banner=0 verdict=1 killed=0 reg=0]" "check[rc=2 banner=1 verdict=1 cmake=0]"
 mt_run "a,b" "boot-48k" MT_FAIL_ON="--only a,b build" MT_FAIL_RC=137
 sg="rc=$MT_RC banner=$(mt_banner "$MT_OUT") verdict=$(grep -c 'mutant-test: NO VERDICT' <<<"$MT_OUT" || true) killed=$(grep -c 'mutant-test: KILLED' <<<"$MT_OUT" || true) survived=$(grep -c 'mutant-test: SURVIVED' <<<"$MT_OUT" || true) reg=$(grep -c '^mt-reg' "$MT_LOG" || true)"
 mt_run "a" "" MT_FAIL_ON="--only a build" MT_FAIL_RC=124
