@@ -3360,7 +3360,10 @@ missed) and runs no esxdos stand-in. The debugger treats a slot that starts insi
 an instruction as no instruction start: PC breakpoints, <code>Execute</code> subscriptions,
 tape traps and the coverage set skip it, while Pause, Step Into and
 <code>RUN_TO_CYCLE</code> stay per slot, so every step is bounded. The pending prefix travels
-in the binary stream (an appended block, absent in older streams) and in
+in the binary stream, in bits 1 (DD) and 2 (FD) of the byte that holds the
+stackless-RETN latch in bit 0 (older streams carry 0 or 1, so no prefix; the
+stream keeps its length, and a value with both prefix bits or any bit above 2 is
+refused), and in
 <code>state/emulator.json</code> (<code>cpu_prefix_pending</code>: <code>none</code>, <code>dd</code> or <code>fd</code>); a
 <code>set_registers()</code> that moves PC clears it.</p>
 <h2 id="m1-hooks-and-interrupts">M1 hooks and interrupts<a class="headerlink" href="#m1-hooks-and-interrupts" title="Permanent link">&para;</a></h2>
