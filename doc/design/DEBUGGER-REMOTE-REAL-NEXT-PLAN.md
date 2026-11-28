@@ -54,7 +54,7 @@ are sub-issues of their own; R6 is one placeholder sub-issue, opened only if R5.
 #### Sub-issue 4: Qt greying and window retargeting
 
 - [x] **R1.3** Qt greying: actions, panel placeholders and unknown registers driven by capabilities; fake-capability Qt suite
-- [ ] **R1.4** Debugger window retargeting: one window, Local or Remote target (Q8), title and status bar, caches reset on a switch
+- [x] **R1.4** Debugger window retargeting: one window, Local or Remote target (Q8), title and status bar, caches reset on a switch
 
 ### Phase R2: remote jnext over DZRP
 
@@ -639,11 +639,12 @@ knows how to grey out what a target cannot do.
 
 ### R1.4 Debugger window retargeting
 
-- **Design.** One debugger window, one target at a time (owner, Q8, 2026-11-18: acceptable). `DebuggerManager` owns an
-  optional remote `Debugger` and switches the window between the local and the remote facade;
-  the panels' `set_backend()` (or a rebuild of the window) moves them. The title and the status
-  bar name the target ("Remote: jnext v1.3.5 at 127.0.0.1:14000"). Switching resets the
-  panels' caches and the breakpoint model; breakpoints are per target.
+- **Design.** One debugger window shown, one target at a time (owner, Q8, 2026-11-18: acceptable). Built as one
+  session per facade: `DebuggerManager::show_remote(target)` creates a facade, a second manager, its own
+  `BreakpointModel` and its own window; the local window is hidden and comes back with its state
+  (`show_local()`), so no panel is ever rebound and breakpoints are per target by construction. The title and the status
+  bar name the target ("Remote: jnext v1.3.5 at 127.0.0.1:14000"). A lost link leaves the window on the
+  lost target (greyed, panels showing the reason); only Disconnect returns to local.
 - **Tests.** Qt suite rows: switch to a fake remote and back, panels read the right facade,
   local breakpoints survive a remote session.
 - **Acceptance.** No panel keeps a pointer to the old facade after a switch (a row closes the

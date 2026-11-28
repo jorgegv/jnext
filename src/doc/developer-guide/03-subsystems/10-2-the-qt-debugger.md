@@ -222,10 +222,10 @@ moved; the greying of a paged label whose page is not what `source_page()` repor
 refresh, because a page can be mapped with no revision change. It never jumps to an unmapped label (Show in Disassembly, Memory and Source are all disabled for one): the Disassembly and the
 Source tab show the CPU's map. Rows: `QSYML-*`.
 
-**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:1139`)
-redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:424`: ~4 Hz). Paused, it
-redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:1128`; `PausedStamp`,
-`debugger_manager.h:279`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
+**Refresh cadence.** Running, `DebuggerManager::refresh_panels()` (`debugger_manager.cpp:1267`)
+redraws the window on every `REFRESH_INTERVAL`-th tick (12, `REFRESH_INTERVAL`, `debugger_manager.h:460`: ~4 Hz). Paused, it
+redraws only when a *stamp* changed since the last redraw (`paused_stamp()`, `debugger_manager.cpp:1256`; `PausedStamp`,
+`debugger_manager.h:315`), and calls `update_actions()` on every tick, since their inputs (an RZX started from
 the main window, the rewind buffer freed) have no verb. A paused machine with nothing happening used to redraw
 everything, the Video tab's composited frame included, fifty times a second. The Audio panel is the one
 exception to the running cadence: while the window is open, the Audio dock is on show (`panel_on_show()`) and its
@@ -251,7 +251,7 @@ The stamp is:
   breakpoints, the annotation verbs (`set_user_label`, `remove_user_label`, `set_user_comment`,
   `replace_annotations`) and the audio verbs (`psg_record_start`/`stop`, `set_audio_log_enabled`,
   `audio_log_resize`, `set_audio_scope_enabled`, `stems_record_start`/`stop`). A map or SLD load needs no special call: it bumps the revision, so the tick redraws;
-- the host-input epoch (`input_epoch_`): `DebuggerManager::eventFilter()` (`debugger_manager.cpp:199`), installed on `qApp`
+- the host-input epoch (`input_epoch_`): `DebuggerManager::eventFilter()` (`debugger_manager.cpp:202`), installed on `qApp`
   while the debugger is enabled, counts key press and release, shortcut, mouse-button press, release and
   double-click, and wheel events anywhere in the application. It is the generic catch-all for host-side
   changes made on user input (the CPU-speed menu writing NR 0x07). Mouse *movement* is not counted: hover
@@ -259,7 +259,7 @@ The stamp is:
 - a flag, `source_file_changed`: whether the loaded source file's modification time differs from the one
   loaded (`SourcePanel::file_changed_on_disk()`, `source_panel.cpp:610`), so an edit on disk still shows.
 
-`refresh_window()` (`debugger_manager.cpp:1119`) takes the stamp after the redraw, because a panel may itself touch the backend and
+`refresh_window()` (`debugger_manager.cpp:1247`) takes the stamp after the redraw, because a panel may itself touch the backend and
 that must not read as a change at the next tick. A change of the Source tab's own view that moves nothing in the
 machine (a colour scheme, `follow_pc()`) repaints the tab itself. `take_panel_refresh_count()` counts the
 redraws; the `ticks:` line reports it as `panel-refreshes=`. The emulator window's half of the same issue,
@@ -316,7 +316,7 @@ length of the fit (`fit_raised_`, given back by `end_fit_()`), the host's minimu
 widens the window by the scroll range; a column found wider than its widest page afterwards is trimmed back with
 `resizeDocks()` (a dock area keeps its width when the window widens, so there is no share to measure and the result
 does not depend on the order of the passes; bounded by `kMaxInitialFitPasses` = 4
-(`kMaxInitialFitPasses`, `debugger_window.h:267`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:296`)). The frame, not the client area, must fit the screen
+(`kMaxInitialFitPasses`, `debugger_window.h:271`) and `kMaxWidthFitPasses` = 8 (`kMaxWidthFitPasses`, `debugger_window.h:300`)). The frame, not the client area, must fit the screen
 (`jnext::clamp_window_size_to_screen`). A window manager can answer the fit's requests late and out of order,
 so the fit is bounded in time as well: a resize to a size the fit asked for or started a pass from
 (`fit_sizes_`, `fit_known_size_()`) is the manager's answer, not the user's, and the request is asked again,
@@ -679,6 +679,35 @@ of them; `debugger_capabilities_test` takes capabilities away through
 `DebuggerWindow::set_capability_view_for_test()` on the local facade, and proves the production path with
 `Debugger(FakeTarget&)`.
 
+## Retargeting: one session per facade
+
+The debugger can be shown on a second target without rebinding anything. `DebuggerManager::show_remote(target)` builds a
+**session** that owns a facade over the target (`Debugger(Target&)`), a second `DebuggerManager` over it
+(`Role::Session`: it makes no toolbar and does not wire the View > Debugger action), that manager's own
+`BreakpointModel` and its own `DebuggerWindow`. So every panel of a window holds the facade of its own
+target for the window's whole life, a window is never rebound, and breakpoints, annotations, the paused stamp
+and the attached client are per target by construction. The local window is hidden, not rebuilt: its watches,
+history and Source tab file are there when it comes back. Global settings (the keymap, the source search path
+and scheme, the attach and address overrides) are copied into a session when it starts and forwarded while it
+lasts; the script host and the emulator window's Reload Last File stay with the local manager.
+
+Switching is the local debugger's close, for the machine: a paused local machine is resumed through the same
+corruption gate as closing the debugger (a declined resume refuses the switch, nothing changes) and the local client
+detaches, so the machine runs unarmed. Its breakpoints stay in its model and arm again when the local window
+returns. `show_remote()` refuses (false, nothing changed) while a remote is shown or a switch is under way, and opens
+the debugger when it was closed. The manager's tick (`refresh_panels()`, `check_breakpoint_hit()`) goes to the shown
+session; the emulator window's Pause control and its forwarded debugger keys check `showing_remote()` and act on the
+local machine as if the debugger were closed.
+
+`show_local()` ends the session and shows the local window as opening the debugger does (attach, show, seed from the
+machine, full refresh, data requests re-derived). Closing the remote window, or quitting, ends it and closes the
+debugger as well. Everything the session owns is destroyed by one `deleteLater()` (safe from the window's own slot,
+`closeEvent` or a nested event loop), in the order window, manager, facade, and then `remote_released()` is emitted:
+from that signal on nothing reaches the target. A remote window names its target in its title and a permanent status
+label (`Remote: <name> <version> at <link>`, each field through `display_text()`); the local window is unchanged. A
+lost link does not end the session: the window stays on the target with its actions greyed and its panels showing the
+reason, until the user disconnects.
+
 ## Tests
 
 The Qt suites are gated on a Qt + debugger build and run in `make unit-test`:
@@ -686,5 +715,5 @@ The Qt suites are gated on a Qt + debugger build and run in `make unit-test`:
 controls), `debugger_panels_test` (each panel's displayed text), `debugger_video_panel_test`, `debugger_audio_panel_test`,
 `debugger_inspect_watchpoint_test`, `debugger_persistent_bp_test`,
 `debugger_keymap_test`, `debugger_menu_test`, `debugger_disasm_copy_test`,
-`debugger_capabilities_test` (the greying, `RTQ-*`), `debugger_quit_gate_test`, `debugger_variables_panel_test` (the Variables tab, `QVAR-*`, editing `QVARW-*`), and the window-geometry suites. The regression rows
+`debugger_capabilities_test` (the greying and the retargeting, `RTQ-*`), `debugger_quit_gate_test`, `debugger_variables_panel_test` (the Variables tab, `QVAR-*`, editing `QVARW-*`), and the window-geometry suites. The regression rows
 `qt-host-probe-func` and `qt-host-order-func` exercise `QtApp`'s hosting. The hint's decoder suite, `disasm_hint_test` (`DHINT-*`), is not Qt-gated; the panel's rows are `QDHINT-*` in `debugger_panels_test`, and `operand_reader()`'s are `OPRD-*` in `source_debug_test`. The Memory panel tools' helper suite, `mem_tools_test` (`MEMT-*`), is not Qt-gated either; the panel's rows are `QMPT-*` in `debugger_panels_test` and the window's `QMPW-*` in `debugger_verbs_test`. The Graphics decoders' suite, `gfx_decode_test` (`GFXD-*`, VHDL as oracle), is not Qt-gated; the tab's rows are `QGFX-*` in `debugger_panels_test`.

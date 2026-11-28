@@ -3341,12 +3341,12 @@ in the writers' files:</p>
 <code>export_menu</code> (<code>debugger_window.cpp:1167</code>), each with
 <code>&amp;skoolkit Control Files...</code> and <code>&amp;Ghidra Symbols...</code> (<code>I</code> and <code>E</code> are free in the Map popup, <code>S</code> and <code>G</code>
 are unique in each submenu; <code>DACC-05</code> pins the new popups and mnemonics). The slots are
-<code>on_import_skoolkit</code> (<code>debugger_manager.cpp:1011</code>),
-<code>on_import_ghidra</code> (<code>debugger_manager.cpp:1012</code>),
-<code>on_export_skoolkit</code> (<code>debugger_manager.cpp:1013</code>) and
-<code>on_export_ghidra</code> (<code>debugger_manager.cpp:1014</code>), which share
-<code>import_re_files</code> (<code>debugger_manager.cpp:971</code>) and
-<code>export_re_files</code> (<code>debugger_manager.cpp:994</code>):</p>
+<code>on_import_skoolkit</code> (<code>debugger_manager.cpp:1139</code>),
+<code>on_import_ghidra</code> (<code>debugger_manager.cpp:1140</code>),
+<code>on_export_skoolkit</code> (<code>debugger_manager.cpp:1141</code>) and
+<code>on_export_ghidra</code> (<code>debugger_manager.cpp:1142</code>), which share
+<code>import_re_files</code> (<code>debugger_manager.cpp:1099</code>) and
+<code>export_re_files</code> (<code>debugger_manager.cpp:1122</code>):</p>
 <ul>
 <li><strong>Import</strong> asks for one or more files with <code>QFileDialog::getOpenFileNames</code> (<code>*.ctl</code> or <code>*.txt</code>), calls
   the backend verb once with all of them, and shows the report (counts, then each note) in an

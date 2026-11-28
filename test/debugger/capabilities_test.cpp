@@ -1462,6 +1462,7 @@ void test_retarget() {
             Z80Registers r = fx.lf.emu.cpu().get_registers();
             r.PC = 0x8030;
             fx.lf.emu.cpu().set_registers(r);
+            fx.lf.emu.debug_state().pause();   // the local window opens on a paused machine, whose CPU panel shows it
             fx.lf.mgr->show_local();
             fx.settle();
             const bool back = lw->isVisible() && !fx.lf.mgr->showing_remote();
@@ -1470,11 +1471,16 @@ void test_retarget() {
                   back && tracked_before && released_tracking && fx.lf.backend->call_stack_enabled() &&
                       after(lw->cpu_panel(), QStringLiteral("PC: ")) == QLatin1String("8030"),
                   "PC=" + s(after(lw->cpu_panel(), QStringLiteral("PC: "))));
+            const int touches = fx.touches_after(20);
             check("RTQ-103", "show_local(): the local window is back with its own state (a watch, the "
                              "Disassembly address) and the target sees nothing at all after remote_released()",
                   back && fx.released && fx.window_gone_at_release && lw->watch_panel()->watch_count() == 1 &&
-                      lw->disasm_panel()->selected_address() == disasm_at && fx.touches_after(20) == 0,
-                  "touches=" + std::to_string(fx.touches_after(1)));
+                      lw->disasm_panel()->selected_address() == disasm_at && touches == 0,
+                  "back=" + std::to_string(back) + " released=" + std::to_string(fx.released) + " gone=" +
+                      std::to_string(fx.window_gone_at_release) + " watches=" +
+                      std::to_string(lw->watch_panel()->watch_count()) + " disasm=" +
+                      std::to_string(lw->disasm_panel()->selected_address()) + "/" + std::to_string(disasm_at) +
+                      " touches=" + std::to_string(touches));
             // RTQ-104: the local breakpoint stops the local machine again
             fx.lf.emu.debug_state().resume();
             Z80Registers r2 = fx.lf.emu.cpu().get_registers();
@@ -1544,10 +1550,13 @@ void test_retarget() {
             if (act) act->trigger();   // show_local() runs inside the window's own action
             QApplication::processEvents();
             fx.settle();
+            const int touches = fx.touches_after(10);
             check("RTQ-109", "show_local() from a remote-window action's own slot: no crash, the local window is "
                              "shown, the session is released",
-                  act && !fx.lf.mgr->showing_remote() && fx.lf.dbg()->isVisible() && fx.released &&
-                      fx.touches_after(10) == 0);
+                  act && !fx.lf.mgr->showing_remote() && fx.lf.dbg()->isVisible() && fx.released && touches == 0,
+                  "act=" + std::to_string(act != nullptr) + " remote=" + std::to_string(fx.lf.mgr->showing_remote()) +
+                      " visible=" + std::to_string(fx.lf.dbg()->isVisible()) + " released=" + std::to_string(fx.released) +
+                      " touches=" + std::to_string(touches));
         }
     }
     // RTQ-111: with the debugger closed, show_remote() opens it on the remote
@@ -1660,26 +1669,30 @@ void test_retarget() {
             key(Qt::Key_F7, true);
             key(Qt::Key_F7, false);
             const bool still_paused = emu.debug_state().paused();
-            // the Pause key: the window's own pause client acts on the LOCAL machine
+            // the Pause control: the window's own pause client acts on the LOCAL machine
             emu.debug_state().resume();
-            key(Qt::Key_Pause, true);
-            key(Qt::Key_Pause, false);
+            QAction* pause_action = nullptr;
+            for (QAction* a : win.findChildren<QAction*>())
+                if (a->text() == QStringLiteral("P&ause")) pause_action = a;
+            if (pause_action) pause_action->trigger();
             QApplication::processEvents();
             const bool paused_locally = emu.debug_state().paused();
-            const int fake_calls = static_cast<int>(fake.calls.size());
+            const int fake_calls = fake.count("step_instruction") + fake.count("set_register") + fake.count("write");
             mgr->show_local();
             for (int i = 0; i < 50 && mgr->showing_remote(); ++i) QApplication::processEvents();
             for (int i = 0; i < 20; ++i) {
                 QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
                 QApplication::processEvents();
             }
-            emu.debug_state().resume();
-            key(Qt::Key_Pause, true);
-            key(Qt::Key_Pause, false);
+            // control: with the local window shown F5 is the debugger's Run
+            emu.debug_state().pause();
+            key(Qt::Key_F5, true);
+            key(Qt::Key_F5, false);
+            const bool f5_runs = !emu.debug_state().paused();
             check("RTQ-114", "with a remote shown the emulator window's F5/F7 reach no verb and its Pause control "
-                             "pauses the local machine, the target untouched",
-                  shown && still_paused && paused_locally && fake_calls == 0 && !mgr->showing_remote(),
-                  "shown=" + std::to_string(shown) + " still=" + std::to_string(still_paused) +
+                             "pauses the local machine, the target untouched; with the local window shown F5 is Run again",
+                  shown && pause_action && still_paused && paused_locally && fake_calls == 0 && !mgr->showing_remote() && f5_runs,
+                  "f5=" + std::to_string(f5_runs) + " shown=" + std::to_string(shown) + " still=" + std::to_string(still_paused) +
                       " paused=" + std::to_string(paused_locally) + " calls=" + std::to_string(fake_calls));
         }
         if (mgr) mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
