@@ -1247,16 +1247,17 @@ bool NexLoader::apply(Emulator& emu) const
         offset += 512;
     }
 
-    // Layer 2 screen (48K = 256x192x8bpp, loaded into banks 8,9,10)
+    // Layer 2 screen (48K = 256x192x8bpp, loaded into banks 9,10,11)
     if (blk & NexHeader::SCREEN_LAYER2) {
         constexpr size_t L2_SIZE = 49152;
         if (offset + L2_SIZE > file_data_.size()) {
             Log::emulator()->error("NEX: truncated Layer2 screen data");
             return false;
         }
-        Log::emulator()->debug("NEX: loading Layer2 screen ({} bytes into banks 8,9,10)", L2_SIZE);
-        // Banks 8,9,10 → pages 16,17,18,19,20,21
-        write_to_ram(mmu, 16, 0, file_data_.data() + offset, L2_SIZE);
+        Log::emulator()->debug("NEX: loading Layer2 screen ({} bytes into banks 9,10,11)", L2_SIZE);
+        // Banks 9,10,11 → pages 18..23: nexload.asm:100-103 (LAYER_2_PAGE_0/1/2 = 9/10/11)
+        // + :441-443, nexload2.asm:147 + :618 (LAYER2_BANK*2). NR 0x12 = 9 is set above.
+        write_to_ram(mmu, 18, 0, file_data_.data() + offset, L2_SIZE);
         offset += L2_SIZE;
         // nexload.asm:444-446 — make the freshly-loaded screen VISIBLE.
         //   ld bc,4667:ld a,2:out (c),a   ; port $123B bit 1 = Layer 2 on
@@ -1329,8 +1330,8 @@ bool NexLoader::apply(Emulator& emu) const
 
     // V1.3 big Layer 2 screens (320x256x8bpp / 640x256x4bpp), 81920 bytes.
     // nexload2.asm:623-624 loads 10 consecutive $2000 MMU pages starting at
-    // LAYER2_BANK*2 = page 18, i.e. banks 9,10,11,12,13 — NOT banks 8,9,10
-    // where the classic 256x192 Layer 2 screen goes.
+    // LAYER2_BANK*2 = page 18, i.e. banks 9,10,11,12,13; the classic 256x192 screen starts at the same
+    // page, it is just 6 pages long.
     if (sf2 == NexHeader::SCREEN2_L2_320x256 || sf2 == NexHeader::SCREEN2_L2_640x256) {
         const bool is320 = (sf2 == NexHeader::SCREEN2_L2_320x256);
         if (offset + L2_BIG_SIZE > file_data_.size()) {

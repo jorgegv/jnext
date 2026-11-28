@@ -645,7 +645,7 @@ Ext2Result ext2_skip_probe(const V13Opts& o, const char* tag, size_t want_offset
                    (!with_bank5 || read_page(f.emu.mmu(), 10, 0) == bank_byte(5, 0)) &&
                    read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0) &&
                    read_page(f.emu.mmu(), 4, 0x1FFF) == bank_byte(2, 0x1FFF);
-    // Pages 16-21 = the classic Layer 2 target (banks 8-10), 18-27 = the big
+    // Pages 18-23 = the classic Layer 2 target (banks 9-11), 18-27 = the big
     // one (banks 9-13); none of the banks above maps there. A classic ULA/
     // LoRes/HiRes/HiColour screen targets bank 5 (pages 10-15 span 10/11):
     // with bank 5 in the file it is overwritten, so those rows drop it and
@@ -782,8 +782,26 @@ void test_ext2_gate() {
                   static_cast<unsigned long long>(f.loader.bank_data_offset()), want));
     }
     {
+        // GH #573: pages 18-23 hold the classic Layer 2 screen, pages 16/17 stay clear.
+        V13Opts o;
+        o.screen_flags  = 0x01;
+        o.screen_flags2 = 0;
+        o.banks = {2};
+        Fixture f(o, "e2l2");
+        const bool ok = f.load_ok && f.apply_ok &&
+                        read_page(f.emu.mmu(), 18, 0) == scr_byte(0) &&
+                        read_page(f.emu.mmu(), 20, 0) == scr_byte(16384) &&
+                        read_page(f.emu.mmu(), 23, 0x1FFF) == scr_byte(49151) &&
+                        read_page(f.emu.mmu(), 16, 0) == 0x00 &&
+                        read_page(f.emu.mmu(), 17, 0x1FFF) == 0x00;
+        check("NEXL2-04",
+              "a V1.3 classic Layer 2 screen (field 152 = 0) lands in pages 18-23, "
+              "pages 16/17 untouched (nexload2.asm:147, :618, :679)",
+              ok, fmt("load=%d apply=%d", f.load_ok, f.apply_ok));
+    }
+    {
         // Field 152 = 0, bit 6 clear: the classic Layer 2 block IS read (:630-632
-        // match on 0 == 0) and lands in banks 8-10 = pages 16-21.
+        // match on 0 == 0) and lands in banks 9-11 = pages 18-23 (LAYER2_BANK*2, :618).
         V13Opts o;
         o.screen_flags  = 0x01;
         o.screen_flags2 = 0;
@@ -793,15 +811,15 @@ void test_ext2_gate() {
         check("NEXV13-EXT2-10",
               "a V1.3 Layer 2 screen with field 152 = 0 is ingested: LOADSCR2 equals the "
               "definition's NONE byte (nexload2.asm:630-632), so the block loads into "
-              "banks 8-10 and the banks follow it",
+              "banks 9-11 and the banks follow it",
               f.load_ok && f.apply_ok && f.loader.bank_data_offset() == want &&
-                  read_page(f.emu.mmu(), 16, 0) == scr_byte(0) &&
-                  read_page(f.emu.mmu(), 21, 0x1FFF) == scr_byte(49151) &&
+                  read_page(f.emu.mmu(), 18, 0) == scr_byte(0) &&
+                  read_page(f.emu.mmu(), 23, 0x1FFF) == scr_byte(49151) &&
                   read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0),
-              fmt("load=%d apply=%d bank_data_offset=%llu want %zu page16[0]=%02x want %02x",
+              fmt("load=%d apply=%d bank_data_offset=%llu want %zu page18[0]=%02x want %02x",
                   f.load_ok, f.apply_ok,
                   static_cast<unsigned long long>(f.loader.bank_data_offset()), want,
-                  f.load_ok && f.apply_ok ? read_page(f.emu.mmu(), 16, 0) : 0, scr_byte(0)));
+                  f.load_ok && f.apply_ok ? read_page(f.emu.mmu(), 18, 0) : 0, scr_byte(0)));
     }
 }
 
@@ -903,8 +921,8 @@ void v12_bit6_row(const char* id, const char* desc, uint8_t sf, uint8_t sf2,
     const bool bank_ok = loaded && read_page(f.emu.mmu(), 4, 0) == bank_byte(2, 0);
     bool scr_ok = loaded;
     if (classic == 1)
-        scr_ok = scr_ok && read_page(f.emu.mmu(), 16, 0) == scr_byte(0) &&
-                 read_page(f.emu.mmu(), 21, 0x1FFF) == scr_byte(49151);
+        scr_ok = scr_ok && read_page(f.emu.mmu(), 18, 0) == scr_byte(0) &&
+                 read_page(f.emu.mmu(), 23, 0x1FFF) == scr_byte(49151);
     else if (classic == 2)
         scr_ok = scr_ok && read_page(f.emu.mmu(), 10, 0) == scr_byte(0);
     else
@@ -1184,8 +1202,8 @@ void test_crc() {
 
 void test_screen_ingest() {
     // The two big Layer 2 screens go to banks 9,10,11,12,13 = pages 18..27
-    // (nexload2.asm:623-624, LAYER2_BANK*2 = 18, 10 pages of $2000) — NOT to
-    // banks 8,9,10 where the classic 256x192 Layer 2 screen goes.
+    // (nexload2.asm:623-624, LAYER2_BANK*2 = 18, 10 pages of $2000); the classic 256x192
+    // screen starts at the same page, 6 pages long.
     for (int mode = 1; mode <= 2; ++mode) {
         V13Opts o;
         o.screen_flags = 0x40 | 0x80;   // no palette, so the screen starts at 512
@@ -1230,8 +1248,8 @@ void test_screen_ingest() {
                         read_page(f.emu.mmu(), 16, 0) == 0x00 &&
                         read_page(f.emu.mmu(), 17, 0) == 0x00;
         check("NEXV13-SCR-03",
-              "the big Layer 2 screens do NOT write bank 8 (pages 16/17), where the "
-              "classic 256x192 Layer 2 screen goes",
+              "the big Layer 2 screens do NOT write bank 8 (pages 16/17): nexload2 loads "
+              "every Layer 2 screen from LAYER2_BANK = 9 (nexload2.asm:147, :618, :623-624)",
               ok, fmt("page16[0]=%02x page17[0]=%02x, expected both 0x00",
                       f.load_ok && f.apply_ok ? read_page(f.emu.mmu(), 16, 0) : 0xFF,
                       f.load_ok && f.apply_ok ? read_page(f.emu.mmu(), 17, 0) : 0xFF));
@@ -2096,13 +2114,13 @@ void test_bar_and_delay() {
     {
         V13Opts o;
         o.version = "V1.2";
-        o.screen_flags = 0x01;   // classic Layer 2 screen (banks 8,9,10)
+        o.screen_flags = 0x01;   // classic Layer 2 screen (banks 9,10,11)
         o.loading_bar = 1; o.loading_bar_colour = 0xAA;
         o.banks = {5};
         Fixture f(o, "bar2");
         // Same address arithmetic as NEXV13-BAR-01: the d=0 mark lands at
-        // page 23 offsets 0x1E12 / 0x1F12. Bank 11 is outside the classic
-        // Layer 2 screen's banks 8-10, so these bytes are the bar's alone.
+        // page 23 offsets 0x1E12 / 0x1F12. Bank 11 is drawn after the
+        // screen, over its bottom rows, as nexload.asm does (:441-443, :536-545).
         const bool marked = f.apply_ok &&
                             read_page(f.emu.mmu(), 23, 0x1E12) == 0xAA &&
                             read_page(f.emu.mmu(), 23, 0x1F12) == 0xAA;
